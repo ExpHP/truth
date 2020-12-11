@@ -215,6 +215,7 @@ OpMulLike: BinopKind = {
 // Expressions that don't contain a toplevel operator
 ExprTerm: Box<Expr> = {
     "(" <e:Expr> ")" => e,
+    <func:Ident> "(" <args:SeparatedTrailing<Expr, ",">> ")" => Box::new(Expr::Call { func, args }),
     <v:Var> => Box::new(Expr::Var(v)),
     <x:LitInt> => Box::new(Expr::LitInt(x)),
 };
@@ -304,6 +305,27 @@ OptionalMinus: i32 = {
 // pub // disabled for compiletime
 Ident: Ident = {
     <tok:IDENT> => Ident { ident: tok.to_string() },
+};
+
+// ==================================================
+// Utility
+
+SeparatedTrailing<T, Sep>: Vec<T> = {
+    => vec![],
+    <SeparatedStrictNonempty<T, Sep>>,
+    <SeparatedStrictNonempty<T, Sep>> Sep,
+};
+
+SeparatedStrict<T, Sep>: Vec<T> = {
+    => vec![],
+    <SeparatedStrictNonempty<T, Sep>>,
+};
+SeparatedStrictNonempty<T, Sep>: Vec<T> = {
+    <x:T> => vec![x],
+    <mut xs:SeparatedStrictNonempty<T, Sep>> Sep <x:T> => {
+        xs.push(x);
+        xs
+    },
 };
 
 // TODO

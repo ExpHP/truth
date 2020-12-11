@@ -71,6 +71,7 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Binop(Box<Expr>, BinopKind, Box<Expr>),
+    Call { func: Ident, args: Vec<Box<Expr>> },
     Unop(UnopKind, Box<Expr>),
     LitInt(i32),
     Var(Var),
@@ -154,6 +155,7 @@ impl BinopKind {
 impl Expr {
     pub fn const_eval_int(&self) -> Option<i32> {
         match self {
+            &Expr::Call { .. } => None,
             &Expr::Ternary { ref cond, ref left, ref right } => {
                 match cond.const_eval_int()? {
                     0 => right.const_eval_int(),
