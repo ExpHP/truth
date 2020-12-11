@@ -1,14 +1,59 @@
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BinopKind {
-    Add, Sub, Mul, Div, Rem,
-    Eq, Ne, Lt, Le, Gt, Ge,
-    BitOr, BitXor, BitAnd,
-    LogicOr, LogicAnd,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stmt {
+    pub labels: Vec<StmtLabel>,
+    pub body: StmtBody,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum UnopKind {
-    Not, Neg,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StmtLabel {
+    // TODO
+}
+
+/// Represents a statement, including the ';' if required, but
+/// without any labels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StmtBody {
+    Jump {
+        destination: Ident,
+        time: Option<i32>,
+    },
+    CondJump {
+        kind: CondKind,
+        cond: Box<Expr>,
+        destination: Ident,
+        time: Option<i32>,
+    },
+    CondChain(StmtCondChain),
+    While {
+        is_do_while: bool,
+        cond: Box<Expr>,
+        block: Vec<Stmt>,
+    },
+    Times {
+        count: Box<Expr>,
+        block: Vec<Stmt>,
+    },
+    /// Expression followed by a semicolon.
+    ///
+    /// This is primarily for void-type "expressions" like raw instruction
+    /// calls (which are grammatically indistinguishable from value-returning
+    /// function calls), but may also represent a stack push in ECL.
+    Expr(Box<Expr>),
+}
+
+// FIXME: This has been extracted just because the parser needs to build one incrementally.
+//        Make a more sensible design.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StmtCondChain {
+    pub cond_blocks: Vec<CondBlock>,
+    pub else_block: Option<Vec<Stmt>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CondBlock {
+    pub kind: CondKind,
+    pub cond: Box<Expr>,
+    pub block: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +65,7 @@ pub enum Expr {
     },
     Binop(Box<Expr>, BinopKind, Box<Expr>),
     Unop(UnopKind, Box<Expr>),
-    LitInt(i128),
+    LitInt(i32),
     Var(Var),
 }
 
@@ -37,6 +82,23 @@ pub enum Var {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CondKind {
+    If, Unless,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BinopKind {
+    Add, Sub, Mul, Div, Rem,
+    Eq, Ne, Lt, Le, Gt, Ge,
+    BitOr, BitXor, BitAnd,
+    LogicOr, LogicAnd,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UnopKind {
+    Not, Neg,
+}
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TypeKind {
     Int,
     Float,
@@ -48,28 +110,28 @@ pub struct Ident {
 }
 
 impl UnopKind {
-    pub fn eval_const_int(&self, x: i128) -> i128 {
+    pub fn eval_const_int(&self, x: i32) -> i32 {
         match self {
             UnopKind::Neg => -x,
-            UnopKind::Not => (x != 0) as i128,
+            UnopKind::Not => (x != 0) as i32,
         }
     }
 }
 
 impl BinopKind {
-    pub fn eval_const_int(&self, a: i128, b: i128) -> i128 {
+    pub fn eval_const_int(&self, a: i32, b: i32) -> i32 {
         match self {
-            BinopKind::Add => a + b,
-            BinopKind::Sub => a - b,
-            BinopKind::Mul => a * b,
-            BinopKind::Div => a / b,
-            BinopKind::Rem => a % b,
-            BinopKind::Eq => (a == b) as i128,
-            BinopKind::Ne => (a != b) as i128,
-            BinopKind::Lt => (a < b) as i128,
-            BinopKind::Le => (a <= b) as i128,
-            BinopKind::Gt => (a > b) as i128,
-            BinopKind::Ge => (a >= b) as i128,
+            BinopKind::Add => i32::wrapping_add(a, b),
+            BinopKind::Sub => i32::wrapping_sub(a, b),
+            BinopKind::Mul => i32::wrapping_mul(a, b),
+            BinopKind::Div => i32::wrapping_div(a, b),
+            BinopKind::Rem => i32::wrapping_rem(a, b),
+            BinopKind::Eq => (a == b) as i32,
+            BinopKind::Ne => (a != b) as i32,
+            BinopKind::Lt => (a < b) as i32,
+            BinopKind::Le => (a <= b) as i32,
+            BinopKind::Gt => (a > b) as i32,
+            BinopKind::Ge => (a >= b) as i32,
             BinopKind::LogicOr => if a == 0 { b } else { a },
             BinopKind::LogicAnd => if a == 0 { 0 } else { b },
             BinopKind::BitXor => a ^ b,
@@ -80,7 +142,7 @@ impl BinopKind {
 }
 
 impl Expr {
-    pub fn const_eval_int(&self) -> Option<i128> {
+    pub fn const_eval_int(&self) -> Option<i32> {
         match self {
             &Expr::Ternary { ref cond, ref left, ref right } => {
                 match cond.const_eval_int()? {

@@ -1,7 +1,8 @@
 use lalrpop_util::ParseError;
-use std::convert::TryInto;
 use crate::ast::{
+    self,
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
+    Stmt, StmtBody, CondKind, CondBlock,
 };
 
 grammar;
@@ -69,6 +70,65 @@ match {
 } else {
     r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENT,
 }
+
+
+// ==================================================
+// Statements
+
+pub Stmt: Stmt = {
+    <body: StmtBody> => Stmt { labels: vec![], body },
+};
+
+StmtBody: StmtBody = {
+    <chain: CondChain> => StmtBody::CondChain(chain),
+    <kind:CondKeyword> "(" <cond:Expr> ")" "goto" <destination:Ident> <time:OptionalDestinationTime> ";" => {
+        StmtBody::CondJump { kind, cond, destination, time }
+    },
+    "do" <block:StmtOrBlock> "while" "(" <cond:Expr> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
+    "while" "(" <cond:Expr> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
+    "times" "(" <count:Expr> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
+    "goto" <destination:Ident> <time:OptionalDestinationTime> ";" => StmtBody::Jump { destination, time },
+    <e:Expr> ";" => StmtBody::Expr(e),
+};
+
+OptionalDestinationTime: Option<i32> = {
+    => None,
+    "@" <time:LitInt> => Some(time),
+};
+
+CondChain: ast::StmtCondChain = {
+    <chain:CondChainWithoutElse> => chain,
+    <mut chain:CondChainWithoutElse> "else" <else_block:StmtOrBlock> => {
+        assert!(chain.else_block.is_none());
+        chain.else_block = Some(else_block);
+        chain
+    },
+};
+CondChainWithoutElse: ast::StmtCondChain = {
+    <cond_block:CondBlock> => {
+        ast::StmtCondChain { cond_blocks: vec![cond_block], else_block: None }
+    },
+    <mut chain:CondChainWithoutElse> "else" <cond_block:CondBlock> => {
+        chain.cond_blocks.push(cond_block);
+        chain
+    },
+};
+
+CondBlock: CondBlock = {
+    <kind:CondKeyword> "(" <cond:Expr> ")" <block:StmtOrBlock> => CondBlock { kind, cond, block },
+};
+
+// block for an 'if', 'while', etc.
+StmtOrBlock: Vec<Stmt> = {
+    // FIXME: Todo: single statement.  (creates ambiguous grammar, how to fix?)
+//    <st:Stmt> => vec![st],
+    "{" <Stmt*> "}",
+};
+
+CondKeyword: CondKind = {
+    "if" => CondKind::If,
+    "unless" => CondKind::Unless,
+};
 
 // ==================================================
 // Expressions
@@ -186,11 +246,11 @@ pub LitFloat: f32 = {
     },
 };
 
-pub LitInt: i128 = {
+pub LitInt: i32 = {
     // FIXME: Don't panic on big numbers
     <s:INT> => s.parse().unwrap(),
-    <s:INT_HEX> => i128::from_str_radix(&s[2..], 16).unwrap(),
-    <s:INT_BIN> => i128::from_str_radix(&s[2..], 2).unwrap(),
+    <s:INT_HEX> => i32::from_str_radix(&s[2..], 16).unwrap(),
+    <s:INT_BIN> => i32::from_str_radix(&s[2..], 2).unwrap(),
     "true" => 1,
     "false" => 0,
 };
@@ -203,17 +263,13 @@ pub Var: Var = {
     "$" <ident:Ident> => Var::Named { ty: Some(TypeKind::Int), ident },
     "%" <ident:Ident> => Var::Named { ty: Some(TypeKind::Float), ident },
     "[" <sign:OptionalMinus> <x:LitInt> "]" =>? {
-        let number = match <_ as TryInto<i32>>::try_into(x) {
-            Ok(x) => x * sign,
-            Err(_) => return Err(ParseError::User { error: "variable ID overflow" }),
-        };
-        Ok(Var::Unnamed { ty: TypeKind::Int, number })
+        Ok(Var::Unnamed { ty: TypeKind::Int, number: i32::wrapping_mul(x, sign) })
     },
     "[" <sign:OptionalMinus> <x:LitFloat> "]" =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
             return Err(ParseError::User { error: "variable ID overflow" })
         }
-        let number = x as i32 * sign;
+        let number = i32::wrapping_mul(x as i32, sign);
         if number as f32 != x * sign as f32 {
             return Err(ParseError::User { error: "non-integer variable ID" })
         }
@@ -224,7 +280,7 @@ pub Var: Var = {
 OptionalMinus: i32 = {
     "-" => -1,
     => 1,
-}
+};
 
 pub Ident: Ident = {
     <tok:IDENT> => Ident { ident: tok.to_string() },
