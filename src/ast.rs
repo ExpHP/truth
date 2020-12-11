@@ -6,7 +6,14 @@ pub struct Stmt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StmtLabel {
-    // TODO
+    AddTime(i32),
+    SetTime(i32),
+    Label(Ident),
+    Difficulty {
+        /// If `true`, the difficulty reverts to `"*"` after the next statement.
+        temporary: bool,
+        flags: DifficultyLabel,
+    },
 }
 
 /// Represents a statement, including the ';' if required, but
@@ -80,6 +87,9 @@ pub enum Var {
         number: i32,
     }
 }
+
+// TODO: Parse
+pub type DifficultyLabel = String;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CondKind {

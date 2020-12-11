@@ -2,7 +2,8 @@ use lalrpop_util::ParseError;
 use crate::ast::{
     self,
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
-    Stmt, StmtBody, CondKind, CondBlock,
+    Stmt, StmtBody, StmtLabel, CondKind, CondBlock,
+    DifficultyLabel,
 };
 
 grammar;
@@ -75,8 +76,9 @@ match {
 // ==================================================
 // Statements
 
-pub Stmt: Stmt = {
-    <body: StmtBody> => Stmt { labels: vec![], body },
+// pub // disabled for compiletime
+Stmt: Stmt = {
+    <labels:StmtLabel*> <body:StmtBody> => Stmt { labels, body },
 };
 
 StmtBody: StmtBody = {
@@ -89,6 +91,15 @@ StmtBody: StmtBody = {
     "times" "(" <count:Expr> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
     "goto" <destination:Ident> <time:OptionalDestinationTime> ";" => StmtBody::Jump { destination, time },
     <e:Expr> ";" => StmtBody::Expr(e),
+};
+
+StmtLabel: StmtLabel = {
+    "+" <dt:LitInt> ":" => StmtLabel::AddTime(dt),
+    <t:LitInt> ":" => StmtLabel::SetTime(t),
+    "-" <t:LitInt> ":" => StmtLabel::SetTime(-t),
+    <name:Ident> ":" => StmtLabel::Label(name),
+    "!" <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
+    "!" <flags:DifficultyLabel> ":" =>  StmtLabel::Difficulty { flags, temporary: true },
 };
 
 OptionalDestinationTime: Option<i32> = {
@@ -128,6 +139,11 @@ StmtOrBlock: Vec<Stmt> = {
 CondKeyword: CondKind = {
     "if" => CondKind::If,
     "unless" => CondKind::Unless,
+};
+
+DifficultyLabel: DifficultyLabel = {
+    // TODO: Actually parse
+    <s:DIFFICULTY> => s.strip_prefix("!").unwrap().to_string(),
 };
 
 // ==================================================
@@ -191,7 +207,7 @@ OpMulLike: BinopKind = {
     "/" => BinopKind::Div,
     "%" => BinopKind::Rem,
 };
-OpLeftUnary: UnopKind = {
+#[inline] OpLeftUnary: UnopKind = {
     "-" => UnopKind::Neg,
     "!" => UnopKind::Not,
 };
@@ -205,7 +221,8 @@ ExprTerm: Box<Expr> = {
 
 // ==================================================
 
-pub LitString: Vec<u8> = {
+// pub // disabled for compiletime
+LitString: Vec<u8> = {
     <s:STRING> =>? {
         let mut out = vec![];
         let mut escape = false;
@@ -230,7 +247,8 @@ pub LitString: Vec<u8> = {
     },
 };
 
-pub LitFloat: f32 = {
+// pub // disabled for compiletime
+LitFloat: f32 = {
     <mut s:FLOAT> => {
         if s.ends_with("f") || s.ends_with("F") {
             s = &s[..s.len()-1];
@@ -246,7 +264,8 @@ pub LitFloat: f32 = {
     },
 };
 
-pub LitInt: i32 = {
+// pub // disabled for compiletime
+LitInt: i32 = {
     // FIXME: Don't panic on big numbers
     <s:INT> => s.parse().unwrap(),
     <s:INT_HEX> => i32::from_str_radix(&s[2..], 16).unwrap(),
@@ -282,7 +301,8 @@ OptionalMinus: i32 = {
     => 1,
 };
 
-pub Ident: Ident = {
+// pub // disabled for compiletime
+Ident: Ident = {
     <tok:IDENT> => Ident { ident: tok.to_string() },
 };
 
