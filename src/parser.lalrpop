@@ -1,0 +1,195 @@
+use lalrpop_util::ParseError;
+use crate::ast::{
+    Expr, BinopKind, UnopKind,
+};
+
+grammar;
+
+// Lexer
+match {
+    ",",
+    "?",
+    ":",
+    ";",
+    "[", "]", "{", "}", "(", ")",
+    "@",
+    "...",
+    ".",
+    "=",
+    "+", "-", "*", "/", "%", "^", "|", "&",
+    "+=", "-=", "*=", "/=", "%=", "^=", "|=", "&=",
+    "==", "!=", "<", "<=", ">", ">=",
+    "!",
+    "||", "&&",
+    "--",
+    "$",
+
+    "anim", "ecli",
+    "sub", "timeline",
+    "var", "int", "float", "void",
+    "inline",
+    "insdef",
+
+    "return",
+    "goto",
+    "if", "else", "unless",
+    "do", "while", "times", "break",
+    "switch", "case", "default",
+    "async",
+    "global",
+    "sin", "cos", "sqrt",
+    "_S",
+    "_f",
+    "_SS",
+    "_Sf",
+    "_ff",
+    "_fS",
+
+    r##""([^\\"]|\\.)*""## => STRING,
+    r"[0-9]+(\.([0-9]*f|[0-9]+)|f)" => FLOAT,
+    r"rad\([-\+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)" => FLOAT_RAD,
+    r"[0-9]+" => INT,
+    r"0[xX][0-9a-fA-F]+" => INT_HEX,
+    r"0[bB][0-1]+" => INT_BIN,
+
+    "false",
+    "true",
+
+    r"![-*ENHLWXYZO4567]+" => DIFFICULTY,
+
+    r"ins_[0-9]+" => INSTRUCTION,
+
+    // comments
+    r"//[^\n\r]*[\n\r]*" => {},
+    r"/\*([^\*]*\*+[^\*/])*([^\*]*\*+|[^\*])*\*/" => {},
+
+    // whitespace
+    r"\s*" => {},
+} else {
+    r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENTIFIER,
+}
+
+// ==================================================
+// Expressions
+
+// Precedence is encoded in the use of these macros
+RightTernary<NextTier>: Box<Expr> = {
+    <cond:NextTier>
+        "?" <left:NextTier>
+        ":" <right:RightTernary<NextTier>>
+        => Box::new(Expr::Ternary { cond, left, right }),
+    NextTier,
+};
+LeftBinop<Op, NextTier>: Box<Expr> = {
+    <a:LeftBinop<Op, NextTier>> <op:Op> <b:NextTier> => Box::new(Expr::Binop(a, op, b)),
+    NextTier,
+};
+LeftUnop<Op, NextTier>: Box<Expr> = {
+    // no recursion; only allow one unary op
+    <op:Op> <e:NextTier> => Box::new(Expr::Unop(op, e)),
+    NextTier,
+};
+
+pub Expr: Box<Expr> = ExprWithOpers;
+
+// Operator precedence table
+ExprWithOpers = ExprTernary;
+ExprTernary = RightTernary<ExprBinopOr>;
+ExprBinopOr = LeftBinop<OpOr, ExprBinopAnd>;
+ExprBinopAnd = LeftBinop<OpAnd, ExprBinopBitOr>;
+ExprBinopBitOr = LeftBinop<OpBitOr, ExprBinopBitXor>;
+ExprBinopBitXor = LeftBinop<OpBitXor, ExprBinopBitAnd>;
+ExprBinopBitAnd = LeftBinop<OpBitAnd, ExprBinopCmpEq>;
+ExprBinopCmpEq = LeftBinop<OpCmpEq, ExprBinopCmpOrd>;
+ExprBinopCmpOrd = LeftBinop<OpCmpOrd, ExprBinopAddLike>;
+ExprBinopAddLike = LeftBinop<OpAddLike, ExprBinopMulLike>;
+ExprBinopMulLike = LeftBinop<OpMulLike, ExprUnop>;
+ExprUnop = LeftUnop<OpLeftUnary, ExprTerm>;
+
+OpOr: BinopKind = "||" => BinopKind::LogicOr;
+OpAnd: BinopKind = "&&" => BinopKind::LogicAnd;
+OpBitOr: BinopKind = "|" => BinopKind::BitOr;
+OpBitXor: BinopKind = "^" => BinopKind::BitXor;
+OpBitAnd: BinopKind = "&" => BinopKind::BitAnd;
+OpCmpEq: BinopKind = {
+    "==" => BinopKind::Eq,
+    "!=" => BinopKind::Ne,
+};
+OpCmpOrd: BinopKind = {
+    ">" => BinopKind::Gt,
+    "<" => BinopKind::Lt,
+    ">=" => BinopKind::Ge,
+    "<=" => BinopKind::Le,
+};
+OpAddLike: BinopKind = {
+    "+" => BinopKind::Add,
+    "-" => BinopKind::Sub,
+};
+OpMulLike: BinopKind = {
+    "*" => BinopKind::Mul,
+    "/" => BinopKind::Div,
+    "%" => BinopKind::Rem,
+};
+OpLeftUnary: UnopKind = {
+    "-" => UnopKind::Neg,
+    "!" => UnopKind::Not,
+};
+
+// Expressions that don't contain a toplevel operator
+ExprTerm: Box<Expr> = {
+    "(" <e:Expr> ")" => e,
+//    <v:Var> => Box::new(Expr::Var(v)),
+    <x:LitInt> => Box::new(Expr::LitInt(x)),
+};
+
+// ==================================================
+
+pub LitString: Vec<u8> = {
+    <s:STRING> =>? {
+        let mut out = vec![];
+        let mut escape = false;
+        for &b in &s.as_bytes()[1..s.len()-1] { // FIXME input should be &[u8] instead of &str
+            if escape {
+                escape = false;
+                match b {
+                    b'0' => out.push(b'\0'),
+                    b'"' => out.push(b'"'),
+                    b'\\' => out.push(b'\\'),
+                    b'n' => out.push(b'\n'),
+                    b'r' => out.push(b'\r'),
+                    _ => return Err(ParseError::User {
+                        error: "invalid escape",
+                    }),
+                }
+            } else {
+                out.push(b);
+            }
+        }
+        Ok(out)
+    },
+};
+
+pub LitFloat: f32 = {
+    <s:FLOAT> => s.parse().unwrap(),
+    <s:FLOAT_RAD> => {
+        let inner = s.strip_prefix("rad(").unwrap().strip_suffix(")").unwrap();
+        inner.parse::<f32>().unwrap().to_radians()
+    },
+};
+
+pub LitInt: i128 = {
+    // FIXME: Don't panic on big numbers
+    <s:INT> => s.parse().unwrap(),
+    <s:INT_HEX> => i128::from_str_radix(&s[2..], 16).unwrap(),
+    <s:INT_BIN> => i128::from_str_radix(&s[2..], 2).unwrap(),
+    "true" => 1,
+    "false" => 0,
+};
+
+// ==================================================
+// Variables
+
+//pub Var: Var {
+//
+//}
+// TODO
