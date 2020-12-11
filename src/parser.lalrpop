@@ -1,6 +1,7 @@
 use lalrpop_util::ParseError;
+use std::convert::TryInto;
 use crate::ast::{
-    Expr, BinopKind, UnopKind,
+    Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
 };
 
 grammar;
@@ -66,7 +67,7 @@ match {
     // whitespace
     r"\s*" => {},
 } else {
-    r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENTIFIER,
+    r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENT,
 }
 
 // ==================================================
@@ -138,7 +139,7 @@ OpLeftUnary: UnopKind = {
 // Expressions that don't contain a toplevel operator
 ExprTerm: Box<Expr> = {
     "(" <e:Expr> ")" => e,
-//    <v:Var> => Box::new(Expr::Var(v)),
+    <v:Var> => Box::new(Expr::Var(v)),
     <x:LitInt> => Box::new(Expr::LitInt(x)),
 };
 
@@ -170,10 +171,18 @@ pub LitString: Vec<u8> = {
 };
 
 pub LitFloat: f32 = {
-    <s:FLOAT> => s.parse().unwrap(),
-    <s:FLOAT_RAD> => {
-        let inner = s.strip_prefix("rad(").unwrap().strip_suffix(")").unwrap();
-        inner.parse::<f32>().unwrap().to_radians()
+    <mut s:FLOAT> => {
+        if s.ends_with("f") || s.ends_with("F") {
+            s = &s[..s.len()-1];
+        }
+        s.parse().unwrap()
+    },
+    <mut s:FLOAT_RAD> => {
+        s = s.strip_prefix("rad(").unwrap().strip_suffix(")").unwrap();
+        if s.ends_with("f") || s.ends_with("F") {
+            s = &s[..s.len()-1];
+        }
+        s.parse::<f32>().unwrap().to_radians()
     },
 };
 
@@ -189,7 +198,36 @@ pub LitInt: i128 = {
 // ==================================================
 // Variables
 
-//pub Var: Var {
-//
-//}
+pub Var: Var = {
+    <ident:Ident> => Var::Named { ty: None, ident },
+    "$" <ident:Ident> => Var::Named { ty: Some(TypeKind::Int), ident },
+    "%" <ident:Ident> => Var::Named { ty: Some(TypeKind::Float), ident },
+    "[" <sign:OptionalMinus> <x:LitInt> "]" =>? {
+        let number = match <_ as TryInto<i32>>::try_into(x) {
+            Ok(x) => x * sign,
+            Err(_) => return Err(ParseError::User { error: "variable ID overflow" }),
+        };
+        Ok(Var::Unnamed { ty: TypeKind::Int, number })
+    },
+    "[" <sign:OptionalMinus> <x:LitFloat> "]" =>? {
+        if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
+            return Err(ParseError::User { error: "variable ID overflow" })
+        }
+        let number = x as i32 * sign;
+        if number as f32 != x * sign as f32 {
+            return Err(ParseError::User { error: "non-integer variable ID" })
+        }
+        Ok(Var::Unnamed { ty: TypeKind::Float, number })
+    },
+};
+
+OptionalMinus: i32 = {
+    "-" => -1,
+    => 1,
+}
+
+pub Ident: Ident = {
+    <tok:IDENT> => Ident { ident: tok.to_string() },
+};
+
 // TODO

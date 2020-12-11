@@ -21,7 +21,7 @@ pub enum Expr {
     Binop(Box<Expr>, BinopKind, Box<Expr>),
     Unop(UnopKind, Box<Expr>),
     LitInt(i128),
-//    Ident(Vec<u8>),
+    Var(Var),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub enum TypeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident {
-    ident: String,
+    pub ident: String,
 }
 
 impl UnopKind {
@@ -80,17 +80,33 @@ impl BinopKind {
 }
 
 impl Expr {
-    pub fn const_eval_int(&self) -> i128 {
+    pub fn const_eval_int(&self) -> Option<i128> {
         match self {
             &Expr::Ternary { ref cond, ref left, ref right } => {
-                match cond.const_eval_int() {
+                match cond.const_eval_int()? {
                     0 => right.const_eval_int(),
                     _ => left.const_eval_int(),
                 }
             },
-            &Expr::Binop(ref a, op, ref b) => op.eval_const_int(a.const_eval_int(), b.const_eval_int()),
-            &Expr::Unop(op, ref x) => op.eval_const_int(x.const_eval_int()),
-            &Expr::LitInt(x) => x,
+            &Expr::Binop(ref a, op, ref b) => Some(op.eval_const_int(a.const_eval_int()?, b.const_eval_int()?)),
+            &Expr::Unop(op, ref x) => Some(op.eval_const_int(x.const_eval_int()?)),
+            &Expr::LitInt(x) => Some(x),
+            &Expr::Var(_) => None,
         }
+    }
+}
+
+impl Var {
+    pub fn ty(&self) -> Option<TypeKind> {
+        match self {
+            &Var::Unnamed { ty, .. } => Some(ty),
+            &Var::Named { ty, .. } => ty,
+        }
+    }
+}
+
+impl From<&str> for Ident {
+    fn from(s: &str) -> Ident {
+        Ident { ident: s.into() }
     }
 }
