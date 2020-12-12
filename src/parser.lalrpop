@@ -83,15 +83,20 @@ Stmt: Stmt = {
 
 StmtBody: StmtBody = {
     <chain: CondChain> => StmtBody::CondChain(chain),
-    <kind:CondKeyword> "(" <cond:Expr> ")" "goto" <destination:Ident> <time:OptionalDestinationTime> ";" => {
+    <kind:CondKeyword> "(" <cond:Expr> ")" "goto" <destination:Ident> <time:("@" <LitInt>)?> ";" => {
         StmtBody::CondJump { kind, cond, destination, time }
     },
     "do" <block:StmtOrBlock> "while" "(" <cond:Expr> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
     "while" "(" <cond:Expr> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
     "times" "(" <count:Expr> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
-    "goto" <destination:Ident> <time:OptionalDestinationTime> ";" => StmtBody::Jump { destination, time },
+    "goto" <destination:Ident> <time:("@" <LitInt>)?> ";" => StmtBody::Jump { destination, time },
     <e:Expr> ";" => StmtBody::Expr(e),
-};
+    <var:Var> "=" <value:Expr> ";" => StmtBody::Assignment { var, value },
+    <ty:StmtDeclarationKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
+        StmtBody::Declaration { ty, vars }
+    },
+    StmtSpecialCall,
+}
 
 StmtLabel: StmtLabel = {
     "+" <dt:LitInt> ":" => StmtLabel::AddTime(dt),
@@ -102,9 +107,36 @@ StmtLabel: StmtLabel = {
     "!" <flags:DifficultyLabel> ":" =>  StmtLabel::Difficulty { flags, temporary: true },
 };
 
-OptionalDestinationTime: Option<i32> = {
-    => None,
-    "@" <time:LitInt> => Some(time),
+JumpDestinationTime: i32 = {
+    "@" <LitInt>,
+};
+
+StmtSpecialCall: StmtBody = {
+    // handle cases where at least one of the '@' or 'async' are present
+    "@" <call_parts:ExprCallParts> <async_:CallAsyncKind?> ";" => {
+        let (func, args) = call_parts;
+        StmtBody::CallSub { at_symbol: true, func, args, async_ }
+    },
+    <call_parts:ExprCallParts> <async_:CallAsyncKind> ";" => {
+        let (func, args) = call_parts;
+        StmtBody::CallSub { at_symbol: true, func, args, async_: Some(async_) }
+    },
+};
+
+CallAsyncKind: ast::CallAsyncKind = {
+    "async" => ast::CallAsyncKind::CallAsync,
+    "async" <id:Expr> => ast::CallAsyncKind::CallAsyncId(id),
+};
+
+StmtDeclarationKeyword: Option<TypeKind> = {
+    "int" => Some(TypeKind::Int),
+    "float" => Some(TypeKind::Float),
+    "var" => None,
+};
+
+StmtDeclarationListItem: (Ident, Option<Box<Expr>>) = {
+    <name:Ident> => (name, None),
+    <name:Ident> "=" <value:Expr> => (name, Some(value)),
 };
 
 CondChain: ast::StmtCondChain = {
@@ -215,9 +247,16 @@ OpMulLike: BinopKind = {
 // Expressions that don't contain a toplevel operator
 ExprTerm: Box<Expr> = {
     "(" <e:Expr> ")" => e,
-    <func:Ident> "(" <args:SeparatedTrailing<Expr, ",">> ")" => Box::new(Expr::Call { func, args }),
+    <call_parts:ExprCallParts> => {
+        let (func, args) = call_parts;
+        Box::new(Expr::Call { func, args })
+    },
     <v:Var> => Box::new(Expr::Var(v)),
     <x:LitInt> => Box::new(Expr::LitInt(x)),
+};
+
+ExprCallParts: (Ident, Vec<Box<Expr>>) = {
+    <Ident> "(" <SeparatedTrailing<Expr, ",">> ")",
 };
 
 // ==================================================
@@ -310,12 +349,14 @@ Ident: Ident = {
 // ==================================================
 // Utility
 
+/// Parse a separated sequence with an optional trailing separator.
 SeparatedTrailing<T, Sep>: Vec<T> = {
     => vec![],
     <SeparatedStrictNonempty<T, Sep>>,
     <SeparatedStrictNonempty<T, Sep>> Sep,
 };
 
+/// Parse a separated sequence with no trailing separator.
 SeparatedStrict<T, Sep>: Vec<T> = {
     => vec![],
     <SeparatedStrictNonempty<T, Sep>>,

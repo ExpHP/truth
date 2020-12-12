@@ -46,6 +46,25 @@ pub enum StmtBody {
     /// calls (which are grammatically indistinguishable from value-returning
     /// function calls), but may also represent a stack push in ECL.
     Expr(Box<Expr>),
+    Assignment {
+        var: Var,
+        value: Box<Expr>,
+    },
+    Declaration {
+        /// This is never `Void`. `None` means unspecified type (`var`).
+        ty: Option<TypeKind>,
+        vars: Vec<(Ident, Option<Box<Expr>>)>,
+    },
+    /// An explicit subroutine call. (ECL only)
+    ///
+    /// Will always have at least one of either the `@` or `async`.
+    /// (otherwise, it will fall under `Expr` instead)
+    CallSub {
+        at_symbol: bool,
+        async_: Option<CallAsyncKind>,
+        func: Ident,
+        args: Vec<Box<Expr>>,
+    }
 }
 
 // FIXME: This has been extracted just because the parser needs to build one incrementally.
@@ -64,6 +83,12 @@ pub struct CondBlock {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallAsyncKind {
+    CallAsync,
+    CallAsyncId(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Ternary {
         cond: Box<Expr>,
@@ -71,7 +96,10 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Binop(Box<Expr>, BinopKind, Box<Expr>),
-    Call { func: Ident, args: Vec<Box<Expr>> },
+    Call {
+        func: Ident,
+        args: Vec<Box<Expr>>,
+    },
     Unop(UnopKind, Box<Expr>),
     LitInt(i32),
     Var(Var),
@@ -113,6 +141,7 @@ pub enum UnopKind {
 pub enum TypeKind {
     Int,
     Float,
+    Void,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
