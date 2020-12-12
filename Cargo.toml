@@ -10,3 +10,7 @@ lalrpop = { version = "0.19.0", features = ['lexer'] }
 [dependencies]
 lalrpop-util = "0.19.0"
 regex = "1"
+
+# This is used at build time, so optimizing it immensely speeds up debug builds.
+[profile.dev.package.lalrpop]
+opt-level = 3
