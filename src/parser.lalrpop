@@ -3,6 +3,7 @@ use crate::ast::{
     self,
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
     Stmt, StmtBody, StmtLabel, CondKind, CondBlock,
+    Item, FuncKeyword, FileListKeyword,
     DifficultyLabel,
 };
 
@@ -28,7 +29,7 @@ match {
     "$",
 
     "anim", "ecli",
-    "sub", "timeline",
+    "sub", "timeline", "script",
     "var", "int", "float", "void",
     "inline",
     "insdef",
@@ -72,6 +73,42 @@ match {
     r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENT,
 }
 
+// =================================================
+// Items
+
+// pub // disabled for compiletime
+Item: Item = {
+    <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
+        "(" <params:SeparatedTrailing<(<ParamTypeKeyword> <Ident>), ",">> ")"
+        <code:FuncBodyOrSemicolon>
+        => Item::Func { inline: inline.is_some(), keyword, name, params, code },
+    <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
+        => Item::FileList { keyword, files },
+};
+
+FuncKeyword: FuncKeyword = {
+    "int" => FuncKeyword::Type(TypeKind::Int),
+    "float" => FuncKeyword::Type(TypeKind::Float),
+    "void" => FuncKeyword::Type(TypeKind::Void),
+    "sub" => FuncKeyword::Sub,
+    "timeline" => FuncKeyword::Timeline,
+    "script" => FuncKeyword::Script,
+};
+
+FuncBodyOrSemicolon: Option<Vec<Stmt>> = {
+    ";" => None,
+    "{" <code:Stmt+> "}" => Some(code),
+};
+
+ParamTypeKeyword: TypeKind = {
+    "int" => TypeKind::Int,
+    "float" => TypeKind::Float,
+};
+
+FileListKeyword: FileListKeyword = {
+    "anim" => FileListKeyword::Anim,
+    "ecli" => FileListKeyword::Ecli,
+};
 
 // ==================================================
 // Statements

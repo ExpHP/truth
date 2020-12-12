@@ -1,4 +1,35 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Item {
+    Func {
+        inline: bool,
+        keyword: FuncKeyword,
+        name: Ident,
+        params: Vec<(TypeKind, Ident)>,
+        /// `Some` for definitions, `None` for declarations.
+        code: Option<Vec<Stmt>>,
+    },
+    FileList {
+        keyword: FileListKeyword,
+        files: Vec<Vec<u8>>
+    },
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FuncKeyword {
+    Type(TypeKind),
+    Sub,
+    Timeline,
+    Script,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FileListKeyword {
+    Anim, Ecli,
+}
+
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stmt {
     pub labels: Vec<StmtLabel>,
     pub body: StmtBody,
@@ -88,6 +119,16 @@ pub enum CallAsyncKind {
     CallAsyncId(Box<Expr>),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CondKind {
+    If, Unless,
+}
+
+// TODO: Parse
+pub type DifficultyLabel = String;
+
+// =============================================================================
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Ternary {
@@ -117,14 +158,6 @@ pub enum Var {
     }
 }
 
-// TODO: Parse
-pub type DifficultyLabel = String;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum CondKind {
-    If, Unless,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BinopKind {
     Add, Sub, Mul, Div, Rem,
@@ -136,17 +169,6 @@ pub enum BinopKind {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UnopKind {
     Not, Neg,
-}
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TypeKind {
-    Int,
-    Float,
-    Void,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ident {
-    pub ident: String,
 }
 
 impl UnopKind {
@@ -206,6 +228,20 @@ impl Var {
             &Var::Named { ty, .. } => ty,
         }
     }
+}
+
+// =============================================================================
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TypeKind {
+    Int,
+    Float,
+    Void,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ident {
+    pub ident: String,
 }
 
 impl From<&str> for Ident {
