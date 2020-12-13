@@ -4,8 +4,8 @@ use crate::lexer::{Token};
 use crate::ast::{
     self,
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
-    Stmt, StmtBody, StmtLabel, CondKind, CondBlock,
-    Item, FuncKeyword, FileListKeyword,
+    Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
+    Item, FuncKeyword, FileListKeyword, AssignOpKind,
     DifficultyLabel,
 };
 use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
@@ -149,9 +149,9 @@ FuncKeyword: FuncKeyword = {
     "script" => FuncKeyword::Script,
 };
 
-FuncBodyOrSemicolon: Option<Vec<Stmt>> = {
+FuncBodyOrSemicolon: Option<Block> = {
     ";" => None,
-    "{" <code:Stmt+> "}" => Some(code),
+    <code:Block> => Some(code),
 };
 
 ParamTypeKeyword: TypeKind = {
@@ -173,15 +173,13 @@ Stmt: Stmt = {
 
 StmtBody: StmtBody = {
     <chain: CondChain> => StmtBody::CondChain(chain),
-    <kind:CondKeyword> "(" <cond:Expr> ")" "goto" <destination:Ident> <time:("@" <LitInt>)?> ";" => {
-        StmtBody::CondJump { kind, cond, destination, time }
-    },
+    <kind:CondKeyword> "(" <cond:Expr> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { kind, cond, jump },
     "do" <block:StmtOrBlock> "while" "(" <cond:Expr> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
     "while" "(" <cond:Expr> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
     "times" "(" <count:Expr> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
-    "goto" <destination:Ident> <time:("@" <LitInt>)?> ";" => StmtBody::Jump { destination, time },
+    <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Expr> ";" => StmtBody::Expr(e),
-    <var:Var> "=" <value:Expr> ";" => StmtBody::Assignment { var, value },
+    <var:Var> <op:OpAssign> <value:Expr> ";" => StmtBody::Assignment { var, op, value },
     <ty:StmtDeclarationKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
     },
@@ -199,6 +197,10 @@ StmtLabel: StmtLabel = {
 
 JumpDestinationTime: i32 = {
     "@" <LitInt>,
+};
+
+StmtGoto: StmtGoto = {
+    "goto" <destination:Ident> <time:("@" <LitInt>)?> => StmtGoto { destination, time },
 };
 
 StmtSpecialCall: StmtBody = {
@@ -252,10 +254,10 @@ CondBlock: CondBlock = {
 };
 
 // block for an 'if', 'while', etc.
-StmtOrBlock: Vec<Stmt> = {
+StmtOrBlock: Block = {
     // FIXME: Todo: single statement.  (creates ambiguous grammar, how to fix?)
 //    <st:Stmt> => vec![st],
-    "{" <Stmt*> "}",
+    Block,
 };
 
 CondKeyword: CondKind = {
@@ -266,6 +268,10 @@ CondKeyword: CondKind = {
 DifficultyLabel: DifficultyLabel = {
     // TODO: Actually parse
     <s:DIFFICULTY> => s["!".len()..].to_owned(),
+};
+
+Block: Block = {
+    "{" <code:Stmt+> "}" => Block(code),
 };
 
 // ==================================================
@@ -328,6 +334,17 @@ OpMulLike: BinopKind = {
     "*" => BinopKind::Mul,
     "/" => BinopKind::Div,
     "%" => BinopKind::Rem,
+};
+OpAssign: AssignOpKind = {
+    "=" => AssignOpKind::Assign,
+    "+=" => AssignOpKind::Add,
+    "-=" => AssignOpKind::Sub,
+    "*=" => AssignOpKind::Mul,
+    "/=" => AssignOpKind::Div,
+    "%=" => AssignOpKind::Rem,
+    "|=" => AssignOpKind::BitOr,
+    "^=" => AssignOpKind::BitXor,
+    "&=" => AssignOpKind::BitAnd,
 };
 #[inline] OpLeftUnary: UnopKind = {
     "-" => UnopKind::Neg,

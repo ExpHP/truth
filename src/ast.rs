@@ -8,7 +8,7 @@ pub enum Item {
         name: Ident,
         params: Vec<(TypeKind, Ident)>,
         /// `Some` for definitions, `None` for declarations.
-        code: Option<Vec<Stmt>>,
+        code: Option<Block>,
     },
     FileList {
         keyword: FileListKeyword,
@@ -53,25 +53,21 @@ pub enum StmtLabel {
 /// without any labels.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StmtBody {
-    Jump {
-        destination: Ident,
-        time: Option<i32>,
-    },
+    Jump(StmtGoto),
     CondJump {
         kind: CondKind,
         cond: Box<Expr>,
-        destination: Ident,
-        time: Option<i32>,
+        jump: StmtGoto,
     },
     CondChain(StmtCondChain),
     While {
         is_do_while: bool,
         cond: Box<Expr>,
-        block: Vec<Stmt>,
+        block: Block,
     },
     Times {
         count: Box<Expr>,
-        block: Vec<Stmt>,
+        block: Block,
     },
     /// Expression followed by a semicolon.
     ///
@@ -81,6 +77,7 @@ pub enum StmtBody {
     Expr(Box<Expr>),
     Assignment {
         var: Var,
+        op: AssignOpKind,
         value: Box<Expr>,
     },
     Declaration {
@@ -100,19 +97,26 @@ pub enum StmtBody {
     }
 }
 
+/// The body of a `goto` statement, without the `;`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StmtGoto {
+    pub destination: Ident,
+    pub time: Option<i32>,
+}
+
 // FIXME: This has been extracted just because the parser needs to build one incrementally.
 //        Make a more sensible design.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StmtCondChain {
     pub cond_blocks: Vec<CondBlock>,
-    pub else_block: Option<Vec<Stmt>>,
+    pub else_block: Option<Block>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CondBlock {
     pub kind: CondKind,
     pub cond: Box<Expr>,
-    pub block: Vec<Stmt>,
+    pub block: Block,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,6 +132,18 @@ pub enum CondKind {
 
 // TODO: Parse
 pub type DifficultyLabel = BString;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AssignOpKind {
+    Assign,
+    Add, Sub, Mul, Div, Rem,
+    BitOr, BitXor, BitAnd,
+}
+
+/// A braced series of statements, typically written at an increased
+/// indentation level.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block(pub Vec<Stmt>);
 
 // =============================================================================
 
