@@ -65,10 +65,10 @@ impl<'a, T: Format> Format for Separated<'a, T> {
     }
 }
 
-pub struct Pair<A, B>(A, B);
-impl<A: Format, B: Format> Format for Pair<A, B> {
+pub struct Triplet<A, B, C>(A, B, C);
+impl<A: Format, B: Format, C: Format> Format for Triplet<A, B, C> {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, self.0, " ", self.1)
+        fmt!(out, self.0, self.1, self.2)
     }
 }
 
@@ -82,12 +82,27 @@ impl Format for ast::Script {
     }
 }
 
+impl Format for ast::Meta {
+    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+        match self {
+            ast::Meta::Int(x) => fmt!(out, x),
+            ast::Meta::Float(x) => fmt!(out, x),
+            ast::Meta::String(x) => fmt!(out, x),
+            ast::Meta::Object(map) => {
+                let kvs = map.iter().map(|(k, v)| Triplet(k, ": ", v)).collect::<Vec<_>>();
+                fmt!(out, "{", Separated(&kvs, ", "), "}")
+            },
+            ast::Meta::Array(xs) => fmt!(out, Separated(xs, ", ")),
+        }
+    }
+}
+
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
         match self {
             ast::Item::Func { inline, keyword, name, params, code, } => {
                 let inline_keyword = if *inline { "inline " } else { "" };
-                let params = params.iter().map(|(ty, param)| Pair(ty, param)).collect::<Vec<_>>();
+                let params = params.iter().map(|(ty, param)| Triplet(ty, " ", param)).collect::<Vec<_>>();
 
                 fmt!(out, inline_keyword, keyword, " ")?;
                 fmt!(out, name, "(", Separated(&params, ", "), ")")?;
@@ -95,6 +110,20 @@ impl Format for ast::Item {
                     None => fmt!(out, ";"),
                     Some(code) => fmt!(out, " ", code),
                 }
+            },
+            ast::Item::AnmScript { number, name, code } => {
+                fmt!(out, "script ")?;
+                if let Some(number) = number {
+                    fmt!(out, number, " ")?;
+                }
+                fmt!(out, name, " ", code)
+            },
+            ast::Item::Meta { keyword, name, meta } => {
+                fmt!(out, keyword, " ")?;
+                if let Some(name) = name {
+                    fmt!(out, name, " ")?;
+                }
+                fmt!(out, meta)
             },
             ast::Item::FileList { keyword, files } => {
                 fmt!(out, keyword, "{ ")?;
@@ -113,7 +142,6 @@ impl Format for ast::FuncKeyword {
             ast::FuncKeyword::Type(ty) => fmt!(out, ty),
             ast::FuncKeyword::Sub => fmt!(out, "sub"),
             ast::FuncKeyword::Timeline => fmt!(out, "timeline"),
-            ast::FuncKeyword::Script => fmt!(out, "script"),
         }
     }
 }
@@ -123,6 +151,14 @@ impl Format for ast::FileListKeyword {
         fmt!(out, match self {
             ast::FileListKeyword::Anim => "anim",
             ast::FileListKeyword::Ecli => "ecli",
+        })
+    }
+}
+
+impl Format for ast::MetaKeyword {
+    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+        fmt!(out, match self {
+            ast::MetaKeyword::Entry => "entry",
         })
     }
 }

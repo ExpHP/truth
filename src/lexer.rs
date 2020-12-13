@@ -64,6 +64,7 @@ macro_rules! with_each_terminal {
             [0, b"sub", Sub]
             [0, b"timeline", Timeline]
             [0, b"script", Script]
+            [0, b"entry", Entry]
             [0, b"var", Var]
             [0, b"int", Int]
             [0, b"float", Float]

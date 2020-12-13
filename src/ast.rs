@@ -1,4 +1,5 @@
 use bstr::{BString};
+use indexmap::IndexMap;
 
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
@@ -16,6 +17,16 @@ pub enum Item {
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
+    AnmScript {
+        number: Option<i32>,
+        name: Ident,
+        code: Block,
+    },
+    Meta {
+        keyword: MetaKeyword,
+        name: Option<Ident>,
+        meta: Meta,
+    },
     FileList {
         keyword: FileListKeyword,
         files: Vec<LitString>
@@ -27,12 +38,28 @@ pub enum FuncKeyword {
     Type(TypeKind),
     Sub,
     Timeline,
-    Script,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FileListKeyword {
     Anim, Ecli,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MetaKeyword {
+    /// `entry` block for a texture in ANM.
+    Entry,
+}
+
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Meta {
+    Int(i32),
+    Float(f32),
+    String(LitString),
+    Object(IndexMap<Ident, Meta>),
+    Array(Vec<Meta>),
 }
 
 // =============================================================================
@@ -206,7 +233,7 @@ pub enum UnopKind {
 impl UnopKind {
     pub fn eval_const_int(&self, x: i32) -> i32 {
         match self {
-            UnopKind::Neg => -x,
+            UnopKind::Neg => i32::wrapping_neg(x),
             UnopKind::Not => (x != 0) as i32,
         }
     }
@@ -281,12 +308,12 @@ pub enum TypeKind {
     Void,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident {
     pub ident: BString,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LitString {
     pub string: BString,
 }

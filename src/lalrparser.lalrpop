@@ -3,10 +3,11 @@ use bstr::{BStr, ByteSlice};
 use crate::lexer::{Token};
 use crate::ast::{
     self,
-    Expr, BinopKind, UnopKind, Var, TypeKind, Ident, LitString,
-    Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
+    Script, Meta, MetaKeyword,
     Item, FuncKeyword, FileListKeyword, AssignOpKind,
-    DifficultyLabel, Script, VarTypeKeyword,
+    Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
+    Expr, BinopKind, UnopKind, Var, TypeKind, Ident, LitString,
+    DifficultyLabel, VarTypeKeyword,
 };
 use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
 
@@ -76,6 +77,7 @@ extern {
         "sub" => Token::Sub,
         "timeline" => Token::Timeline,
         "script" => Token::Script,
+        "entry" => Token::Entry,
         "var" => Token::Var,
         "int" => Token::Int,
         "float" => Token::Float,
@@ -142,6 +144,10 @@ Item: Item = {
         "(" <params:SeparatedTrailing<(<VarTypeKeyword> <Ident>), ",">> ")"
         <code:FuncBodyOrSemicolon>
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
+    "script" <number:LitIntSigned?> <name:Ident> <code:Block>
+        => Item::AnmScript { number, name, code },
+    <keyword:MetaKeyword> <name:Ident?> <meta:Meta>
+        => Item::Meta { keyword, name, meta },
     <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
         => Item::FileList { keyword, files },
 };
@@ -152,7 +158,6 @@ FuncKeyword: FuncKeyword = {
     "void" => FuncKeyword::Type(TypeKind::Void),
     "sub" => FuncKeyword::Sub,
     "timeline" => FuncKeyword::Timeline,
-    "script" => FuncKeyword::Script,
 };
 
 FuncBodyOrSemicolon: Option<Block> = {
@@ -163,6 +168,31 @@ FuncBodyOrSemicolon: Option<Block> = {
 FileListKeyword: FileListKeyword = {
     "anim" => FileListKeyword::Anim,
     "ecli" => FileListKeyword::Ecli,
+};
+
+MetaKeyword: MetaKeyword = {
+    "entry" => MetaKeyword::Entry,
+};
+
+// ==================================================
+// Metadata in a JSON-ish format, used by ANM
+
+Meta: Meta = {
+    <x:LitIntSigned> => Meta::Int(x),
+    <x:LitFloatSigned> => Meta::Float(x),
+    <x:LitString> => Meta::String(x),
+    "{" <kvs:SeparatedTrailing<(<Ident> ":" <Meta>), ",">> "}" =>? {
+        let mut map = indexmap::IndexMap::with_capacity(kvs.len());
+        for (key, value) in kvs {
+            if let Some(_) = map.insert(key, value) {
+                return Err(ParseError::User {
+                    error: "metadata contains duplicate key", // TODO: show key
+                })
+            }
+        }
+        Ok(Meta::Object(map))
+    },
+    "[" <items:SeparatedTrailing<Meta, ",">> "]" => Meta::Array(items),
 };
 
 // ==================================================
@@ -189,20 +219,15 @@ StmtBody: StmtBody = {
 }
 
 StmtLabel: StmtLabel = {
-    "+" <dt:LitInt> ":" => StmtLabel::AddTime(dt),
-    <t:LitInt> ":" => StmtLabel::SetTime(t),
-    "-" <t:LitInt> ":" => StmtLabel::SetTime(-t),
+    "+" <dt:LitIntUnsigned> ":" => StmtLabel::AddTime(dt),
+    <t:LitIntSigned> ":" => StmtLabel::SetTime(t),
     <name:Ident> ":" => StmtLabel::Label(name),
     <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
     <flags:DifficultyLabel> ":" =>  StmtLabel::Difficulty { flags, temporary: true },
 };
 
-JumpDestinationTime: i32 = {
-    "@" <LitInt>,
-};
-
 StmtGoto: StmtGoto = {
-    "goto" <destination:Ident> <time:("@" <LitInt>)?> => StmtGoto { destination, time },
+    "goto" <destination:Ident> <time:("@" <LitIntSigned>)?> => StmtGoto { destination, time },
 };
 
 StmtSpecialCall: StmtBody = {
@@ -356,8 +381,8 @@ ExprTerm: Box<Expr> = {
     },
     <v:Var> => Box::new(Expr::Var(v)),
     <var:Var> "--" => Box::new(Expr::Decrement { var }),
-    <x:LitInt> => Box::new(Expr::LitInt(x)),
-    <x:LitFloat> => Box::new(Expr::LitFloat(x)),
+    <x:LitIntUnsigned> => Box::new(Expr::LitInt(x)),
+    <x:LitFloatUnsigned> => Box::new(Expr::LitFloat(x)),
     <x:LitString> => Box::new(Expr::LitString(x)),
 };
 
@@ -392,7 +417,17 @@ LitString: LitString = {
     },
 };
 
-LitFloat: f32 = {
+LitFloatSigned: f32 = {
+    "-" <x:LitFloatUnsigned> => -x,
+    <x:LitFloatUnsigned> => x,
+};
+
+LitIntSigned: i32 = {
+    "-" <x:LitIntUnsigned> => i32::wrapping_neg(x),
+    <x:LitIntUnsigned> => x,
+};
+
+LitFloatUnsigned: f32 = {
     <mut s:FLOAT> => {
         if s.ends_with(b"f") || s.ends_with(b"F") {
             s = &s[..s.len()-1];
@@ -409,7 +444,7 @@ LitFloat: f32 = {
     },
 };
 
-LitInt: i32 = {
+LitIntUnsigned: i32 = {
     // FIXME: Don't panic on big numbers
     <s:INT> => parse_ascii(s).unwrap(),
     <s:INT_HEX> => i32_from_ascii_radix(&s[2..], 16).unwrap(),
@@ -425,10 +460,10 @@ Var: Var = {
     <ident:Ident> => Var::Named { ty: None, ident },
     "$" <ident:Ident> => Var::Named { ty: Some(TypeKind::Int), ident },
     "%" <ident:Ident> => Var::Named { ty: Some(TypeKind::Float), ident },
-    "[" <sign:OptionalMinus> <x:LitInt> "]" =>? {
+    "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
         Ok(Var::Unnamed { ty: TypeKind::Int, number: i32::wrapping_mul(x, sign) })
     },
-    "[" <sign:OptionalMinus> <x:LitFloat> "]" =>? {
+    "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
             return Err(ParseError::User { error: "variable ID overflow" })
         }

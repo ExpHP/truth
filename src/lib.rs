@@ -14,7 +14,7 @@ pub mod parse;
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Expr, Var, TypeKind};
+    use crate::ast::{self, Stmt, Expr, Var, TypeKind};
     use crate::Parse;
 
     #[test]
@@ -50,6 +50,14 @@ mod tests {
             Expr::parse("0x100000 * 0xffff").unwrap().const_eval_int(),
             Some(0xfff00000_u32 as i32),
         );
+    }
+
+    #[test]
+    fn time_label_signs() {
+        let get_first_label = |s| Stmt::parse(s).unwrap().labels.remove(0);
+        assert_eq!(get_first_label("100: nop()"), ast::StmtLabel::SetTime(100));
+        assert_eq!(get_first_label("+100: nop()"), ast::StmtLabel::AddTime(100));
+        assert_eq!(get_first_label("-100: nop()"), ast::StmtLabel::SetTime(-100));
     }
 
     #[test]
