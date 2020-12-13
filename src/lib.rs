@@ -1,8 +1,10 @@
 use lalrpop_util::lalrpop_mod;
 
 lalrpop_mod!(pub parser); // synthesized by LALRPOP
+mod parser_util;
 
 pub mod ast;
+pub mod lexer;
 
 pub use parse::Parse;
 pub mod parse;

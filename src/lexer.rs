@@ -1,0 +1,298 @@
+//! Because LALRPOP's default lexer requires UTF-8 (and ECL script files may
+//! instead be encoded in Shift-JIS), we need to use our own lexer.
+
+use regex::bytes::Regex;
+use bstr::{BStr, ByteSlice};
+use lazy_static::lazy_static;
+
+pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
+
+// This is a simple lexer that tries to keep most of the maintainability
+// of the default lexer (though it is almost certainly nowhere near as fast).
+//
+// The following macro is an `each_x` style macro that associates each fixed
+// string or regex with its lexical class, as well as a priority (which roughly
+// corresponds to the number of `else`s before the rule in the LALRPOP default
+// lexer).
+macro_rules! with_each_terminal {
+    ($mac:ident) => { $mac!{
+        fixed=[
+            [0, b",", Comma]
+            [0, b"?", Question]
+            [0, b":", Colon]
+            [0, b";", Semicolon]
+            [0, b"[", BracketOpen]
+            [0, b"]", BracketClose]
+            [0, b"{", BraceOpen]
+            [0, b"}", BraceClose]
+            [0, b"(", ParenOpen]
+            [0, b")", ParenClose]
+            [0, b"@", AtSign]
+            [0, b"...", Ellipsis]
+            [0, b".", Dot]
+            [0, b"=", Eq]
+            [0, b"+", Plus]
+            [0, b"-", Minus]
+            [0, b"*", Star]
+            [0, b"/", Slash]
+            [0, b"%", Percent]
+            [0, b"^", Caret]
+            [0, b"|", Or]
+            [0, b"&", And]
+            [0, b"+=", PlusEq]
+            [0, b"-=", MinusEq]
+            [0, b"*=", StarEq]
+            [0, b"/=", SlashEq]
+            [0, b"%=", PercentEq]
+            [0, b"^=", CaretEq]
+            [0, b"|=", OrEq]
+            [0, b"&=", AndEq]
+            [0, b"==", EqEq]
+            [0, b"!=", NotEq]
+            [0, b"<", Less]
+            [0, b"<=", LessEq]
+            [0, b">", Greater]
+            [0, b">=", GreaterEq]
+            [0, b"!", Not]
+            [0, b"||", OrOr]
+            [0, b"&&", AndAnd]
+            [0, b"--", MinusMinus]
+            [0, b"$", Cash]
+            [0, b"anim", Anim]
+            [0, b"ecli", Ecli]
+            [0, b"sub", Sub]
+            [0, b"timeline", Timeline]
+            [0, b"script", Script]
+            [0, b"var", Var]
+            [0, b"int", Int]
+            [0, b"float", Float]
+            [0, b"void", Void]
+            [0, b"inline", Inline]
+            [0, b"insdef", Insdef]
+            [0, b"return", Return]
+            [0, b"goto", Goto]
+            [0, b"if", If]
+            [0, b"else", Else]
+            [0, b"unless", Unless]
+            [0, b"do", Do]
+            [0, b"while", While]
+            [0, b"times", Times]
+            [0, b"break", Break]
+            [0, b"switch", Switch]
+            [0, b"case", Case]
+            [0, b"default", Default]
+            [0, b"async", Async]
+            [0, b"global", Global]
+            [0, b"false", False]
+            [0, b"true", True]
+        ]
+        regex=[
+            [0, r##""([^\\"]|\\.)*""##, LitString]
+            [0, r"[0-9]+(\.([0-9]*f|[0-9]+)|f)", LitFloat]
+            [0, r"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)", LitRad]
+            [0, r"[0-9]+", LitIntDec]
+            [0, r"0[xX][0-9a-fA-F]+", LitIntHex]
+            [0, r"0[bB][0-1]+", LitIntBin]
+            [0, r"![-*ENHLWXYZO4567]+", Difficulty]
+            // Lower priority
+            [1, r"[a-zA-Z_][a-zA-Z0-9_]*", Ident]
+        ]
+        // These correspond to `=> {}` patterns in the LALRPOP default lexer,
+        // and all effectively have a priority of -1.
+        whitespace=[
+            [r"//[^\n\r]*[\n\r]*"] // line comments
+            [r"/\*([^*]*\*+[^*/])*([^*]*\*+|[^*])*\*/"] // block comments
+            [r"\s+"] // whitespace
+        ]
+    }};
+}
+
+macro_rules! define_token_enum {
+    (
+        fixed=[$([$f_prio:literal, $f_bytes:literal, $f_variant:ident])+]
+        regex=[$([$r_prio:literal, $r_str:literal, $r_variant:ident])+]
+        whitespace=[$([$s_str:literal])+]
+    ) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum Token<'a> {
+            $($f_variant,)+
+            $($r_variant(&'a BStr),)+
+        }
+    };
+}
+with_each_terminal!(define_token_enum);
+
+macro_rules! impl_token_helpers {
+    (
+        fixed=[$([$f_prio:literal, $f_bytes:literal, $f_variant:ident])+]
+        regex=[$([$r_prio:literal, $r_str:literal, $r_variant:ident])+]
+        whitespace=[$([$s_str:literal])+]
+    ) => {
+        impl<'a> Token<'a> {
+            pub fn len(&self) -> usize {
+                match *self {
+                    $(Token::$f_variant => $f_bytes.len(),)+
+                    $(Token::$r_variant(bytes) => bytes.len(),)+
+                }
+            }
+
+            fn priority(&self) -> u32 {
+                match *self {
+                    $(Token::$f_variant => $f_prio,)+
+                    $(Token::$r_variant(_) => $r_prio,)+
+                }
+            }
+        }
+    };
+}
+with_each_terminal!(impl_token_helpers);
+
+#[derive(Debug, Clone)]
+pub struct Lexer<'input> {
+    offset: usize,
+    remainder: &'input [u8],
+    // a temporary kept around to reduce allocations
+    matches_buf: Vec<Token<'input>>,
+}
+
+impl<'input> Lexer<'input> {
+    pub fn new(input: &'input [u8]) -> Lexer<'input> {
+        Lexer {
+            offset: 0,
+            matches_buf: vec![],
+            remainder: input,
+        }
+    }
+}
+
+// FIXME: Replace this with a proper Error type.
+//
+// &'static str is simply the default used by LALRPOP.
+pub type LexerError = &'static str;
+
+macro_rules! impl_token_matchers {
+    (
+        fixed=[$([$f_prio:literal, $f_bytes:literal, $f_variant:ident])+]
+        regex=[$([$r_prio:literal, $r_str:literal, $r_variant:ident])+]
+        whitespace=[$([$s_str:literal])+]
+    ) => {
+        lazy_static!{
+            static ref NORMAL_REGEXES: Vec<Regex> = {
+                vec![ $({
+                    Regex::new(&format!("^{}", $r_str)).unwrap()
+                },)+ ]
+            };
+            static ref WHITESPACE_REGEX: Regex = {
+                // construct alternation of all whitespace regexes
+                let mut pattern = "^(".to_string();
+                $(
+                    pattern.push_str($s_str);
+                    pattern.push('|');
+                )+
+                pattern.pop(); // remove last '|'
+                pattern.push(')');
+                pattern.push('*'); // apply repeatedly
+                Regex::new(&pattern).unwrap()
+            };
+        }
+        static RE_TOKEN_CONSTRUCTORS: &'static [fn(&BStr) -> Token] = {
+            &[$( |b: &BStr| -> Token { Token::$r_variant(b) }, )+]
+        };
+
+        impl<'a> Lexer<'a> {
+            #[inline(never)] // show in profiler
+            fn gather_fixed_matches(out: &mut Vec<Token<'a>>, input: &'a [u8]) {
+                $(if input.starts_with($f_bytes) {
+                    out.push(Token::$f_variant);
+                })+
+            }
+
+            #[inline(never)] // show in profiler
+            fn gather_regex_matches(out: &mut Vec<Token<'a>>, input: &'a [u8]) {
+                for (re, &constructor) in NORMAL_REGEXES.iter().zip(RE_TOKEN_CONSTRUCTORS) {
+                    if let Some(re_match) = re.find(input) {
+                        let matched = &input[..re_match.end()];
+                        out.push(constructor(matched.as_bstr()))
+                    }
+                }
+            }
+        }
+    };
+}
+with_each_terminal!(impl_token_matchers);
+
+impl<'a> Iterator for Lexer<'a> {
+    type Item = Spanned<Token<'a>, usize, LexerError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ws_match) = WHITESPACE_REGEX.find(self.remainder) {
+            self.remainder = &self.remainder[ws_match.end()..];
+            self.offset += ws_match.end();
+        };
+
+        if self.remainder.is_empty() {
+            return None;
+        }
+
+        // Find all possible lexical classes at this point.
+        assert!(self.matches_buf.is_empty()); // always emptied at end of method
+        Self::gather_fixed_matches(&mut self.matches_buf, self.remainder);
+        Self::gather_regex_matches(&mut self.matches_buf, self.remainder);
+        if self.matches_buf.is_empty() {
+            return Some(Err("bad token"));
+        }
+
+        // Longest match wins.
+        let best_len = self.matches_buf.iter().map(|m| m.len()).max().unwrap();
+        self.matches_buf.retain(|m| m.len() == best_len);
+
+        // Break ties with priority.
+        let best_prio = self.matches_buf.iter().map(|m| m.priority()).min().unwrap();
+        self.matches_buf.retain(|m| m.priority() == best_prio);
+
+        assert_eq!(
+            self.matches_buf.len(), 1,
+            "ambiguity detected in lexer (this is a BUG!): {:?}", self.matches_buf,
+        );
+
+        let token = self.matches_buf.pop().unwrap();
+        let start = self.offset;
+        self.offset += token.len();
+        self.remainder = &self.remainder[token.len()..];
+        Some(Ok((start, token, self.offset)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tokenize(s: &str) -> Vec<(usize, Token<'_>, usize)> {
+        Lexer::new(s.as_ref()).map(|res| res.unwrap()).collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn ident_vs_keyword() {
+        assert_eq!(tokenize("int"), vec![(0, Token::Int, 3)]);
+        assert_eq!(tokenize("intint"), vec![(0, Token::Ident("intint".as_ref()), 6)]);
+        assert_eq!(tokenize("int int"), vec![(0, Token::Int, 3), (4, Token::Int, 7)]);
+    }
+
+    #[test]
+    fn no_whitespace() {
+        assert_eq!(tokenize("+("), vec![(0, Token::Plus, 1), (1, Token::ParenOpen, 2)]);
+    }
+
+    #[test]
+    fn whitespace_at_end() {
+        assert_eq!(tokenize("+ "), vec![(0, Token::Plus, 1)]);
+    }
+
+    #[test]
+    fn multi_whitespace() {
+        assert_eq!(
+            tokenize("  \r\n  /* lol */ // \n\n\n 32"),
+            vec![(23, Token::LitIntDec("32".as_ref()), 25)],
+        );
+    }
+}

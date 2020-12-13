@@ -1,3 +1,5 @@
+use bstr::{BString};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     Func {
@@ -10,7 +12,7 @@ pub enum Item {
     },
     FileList {
         keyword: FileListKeyword,
-        files: Vec<Vec<u8>>
+        files: Vec<BString>
     },
 }
 
@@ -125,7 +127,7 @@ pub enum CondKind {
 }
 
 // TODO: Parse
-pub type DifficultyLabel = String;
+pub type DifficultyLabel = BString;
 
 // =============================================================================
 
@@ -241,7 +243,7 @@ pub enum TypeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident {
-    pub ident: String,
+    pub ident: BString,
 }
 
 impl From<&str> for Ident {

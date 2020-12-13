@@ -1,4 +1,6 @@
 use lalrpop_util::ParseError;
+use bstr::{BStr, BString, ByteSlice};
+use crate::lexer::{Token};
 use crate::ast::{
     self,
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
@@ -6,71 +8,97 @@ use crate::ast::{
     Item, FuncKeyword, FileListKeyword,
     DifficultyLabel,
 };
+use crate::parser_util::{parse_ascii, i32_from_ascii_radix};
 
-grammar;
+// Add the input as an argument to the `.parse()` function.
+//
+// We don't actually use this argument at all; this is just to give us a way
+// to declare the 'input lifetime.
+grammar<'input>();
 
-// Lexer
-match {
-    ",",
-    "?",
-    ":",
-    ";",
-    "[", "]", "{", "}", "(", ")",
-    "@",
-    "...",
-    ".",
-    "=",
-    "+", "-", "*", "/", "%", "^", "|", "&",
-    "+=", "-=", "*=", "/=", "%=", "^=", "|=", "&=",
-    "==", "!=", "<", "<=", ">", ">=",
-    "!",
-    "||", "&&",
-    "--",
-    "$",
+extern {
+    type Location = usize;
+    type Error = crate::parse::ErrorPayload;
 
-    "anim", "ecli",
-    "sub", "timeline", "script",
-    "var", "int", "float", "void",
-    "inline",
-    "insdef",
-
-    "return",
-    "goto",
-    "if", "else", "unless",
-    "do", "while", "times", "break",
-    "switch", "case", "default",
-    "async",
-    "global",
-    "sin", "cos", "sqrt",
-    "_S",
-    "_f",
-    "_SS",
-    "_Sf",
-    "_ff",
-    "_fS",
-
-    r##""([^\\"]|\\.)*""## => STRING,
-    r"[0-9]+(\.([0-9]*f|[0-9]+)|f)" => FLOAT,
-    r"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)" => FLOAT_RAD,
-    r"[0-9]+" => INT,
-    r"0[xX][0-9a-fA-F]+" => INT_HEX,
-    r"0[bB][0-1]+" => INT_BIN,
-
-    "false",
-    "true",
-
-    r"![-*ENHLWXYZO4567]+" => DIFFICULTY,
-
-    r"ins_[0-9]+" => INSTRUCTION,
-
-    // comments
-    r"//[^\n\r]*[\n\r]*" => {},
-    r"/\*([^*]*\*+[^*/])*([^*]*\*+|[^*])*\*/" => {},
-
-    // whitespace
-    r"\s*" => {},
-} else {
-    r"[a-zA-Z_][a-zA-Z0-9_]*" => IDENT,
+    enum Token<'input> {
+        // Terminals
+        STRING => Token::LitString(<&'input BStr>),
+        FLOAT => Token::LitFloat(<&'input BStr>),
+        FLOAT_RAD => Token::LitRad(<&'input BStr>),
+        INT => Token::LitIntDec(<&'input BStr>),
+        INT_HEX => Token::LitIntHex(<&'input BStr>),
+        INT_BIN => Token::LitIntBin(<&'input BStr>),
+        DIFFICULTY => Token::Difficulty(<&'input BStr>),
+        IDENT => Token::Ident(<&'input BStr>),
+        "," => Token::Comma,
+        "?" => Token::Question,
+        ":" => Token::Colon,
+        ";" => Token::Semicolon,
+        "[" => Token::BracketOpen,
+        "]" => Token::BracketClose,
+        "{" => Token::BraceOpen,
+        "}" => Token::BraceClose,
+        "(" => Token::ParenOpen,
+        ")" => Token::ParenClose,
+        "@" => Token::AtSign,
+        "..." => Token::Ellipsis,
+        "." => Token::Dot,
+        "=" => Token::Eq,
+        "+" => Token::Plus,
+        "-" => Token::Minus,
+        "*" => Token::Star,
+        "/" => Token::Slash,
+        "%" => Token::Percent,
+        "^" => Token::Caret,
+        "|" => Token::Or,
+        "&" => Token::And,
+        "+=" => Token::PlusEq,
+        "-=" => Token::MinusEq,
+        "*=" => Token::StarEq,
+        "/=" => Token::SlashEq,
+        "%=" => Token::PercentEq,
+        "^=" => Token::CaretEq,
+        "|=" => Token::OrEq,
+        "&=" => Token::AndEq,
+        "==" => Token::EqEq,
+        "!=" => Token::NotEq,
+        "<" => Token::Less,
+        "<=" => Token::LessEq,
+        ">" => Token::Greater,
+        ">=" => Token::GreaterEq,
+        "!" => Token::Not,
+        "||" => Token::OrOr,
+        "&&" => Token::AndAnd,
+        "--" => Token::MinusMinus,
+        "$" => Token::Cash,
+        "anim" => Token::Anim,
+        "ecli" => Token::Ecli,
+        "sub" => Token::Sub,
+        "timeline" => Token::Timeline,
+        "script" => Token::Script,
+        "var" => Token::Var,
+        "int" => Token::Int,
+        "float" => Token::Float,
+        "void" => Token::Void,
+        "inline" => Token::Inline,
+        "insdef" => Token::Insdef,
+        "return" => Token::Return,
+        "goto" => Token::Goto,
+        "if" => Token::If,
+        "else" => Token::Else,
+        "unless" => Token::Unless,
+        "do" => Token::Do,
+        "while" => Token::While,
+        "times" => Token::Times,
+        "break" => Token::Break,
+        "switch" => Token::Switch,
+        "case" => Token::Case,
+        "default" => Token::Default,
+        "async" => Token::Async,
+        "global" => Token::Global,
+        "false" => Token::False,
+        "true" => Token::True,
+    }
 }
 
 // =================================================
@@ -212,7 +240,7 @@ CondKeyword: CondKind = {
 
 DifficultyLabel: DifficultyLabel = {
     // TODO: Actually parse
-    <s:DIFFICULTY> => s.strip_prefix("!").unwrap().to_string(),
+    <s:DIFFICULTY> => s["!".len()..].to_owned(),
 };
 
 // ==================================================
@@ -299,11 +327,11 @@ ExprCallParts: (Ident, Vec<Box<Expr>>) = {
 // ==================================================
 
 // pub // disabled for compiletime
-LitString: Vec<u8> = {
+LitString: BString = {
     <s:STRING> =>? {
         let mut out = vec![];
         let mut escape = false;
-        for &b in &s.as_bytes()[1..s.len()-1] { // FIXME input should be &[u8] instead of &str
+        for b in s[1..s.len()-1].bytes() { // FIXME input should be &[u8] instead of &str
             if escape {
                 escape = false;
                 match b {
@@ -320,33 +348,34 @@ LitString: Vec<u8> = {
                 out.push(b);
             }
         }
-        Ok(out)
+        Ok(out.into())
     },
 };
 
 // pub // disabled for compiletime
 LitFloat: f32 = {
     <mut s:FLOAT> => {
-        if s.ends_with("f") || s.ends_with("F") {
+        if s.ends_with(b"f") || s.ends_with(b"F") {
             s = &s[..s.len()-1];
         }
-        s.parse().unwrap()
+        parse_ascii(s).unwrap()
     },
     <mut s:FLOAT_RAD> => {
-        s = s.strip_prefix("rad(").unwrap().strip_suffix(")").unwrap();
-        if s.ends_with("f") || s.ends_with("F") {
+        s = &s[b"rad(".len()..];
+        s = &s[..s.len()-b")".len()];
+        if s.ends_with(b"f") || s.ends_with(b"F") {
             s = &s[..s.len()-1];
         }
-        s.parse::<f32>().unwrap().to_radians()
+        parse_ascii::<_, f32>(s).unwrap().to_radians()
     },
 };
 
 // pub // disabled for compiletime
 LitInt: i32 = {
     // FIXME: Don't panic on big numbers
-    <s:INT> => s.parse().unwrap(),
-    <s:INT_HEX> => i32::from_str_radix(&s[2..], 16).unwrap(),
-    <s:INT_BIN> => i32::from_str_radix(&s[2..], 2).unwrap(),
+    <s:INT> => parse_ascii(s).unwrap(),
+    <s:INT_HEX> => i32_from_ascii_radix(&s[2..], 16).unwrap(),
+    <s:INT_BIN> => i32_from_ascii_radix(&s[2..], 2).unwrap(),
     "true" => 1,
     "false" => 0,
 };
@@ -380,7 +409,7 @@ OptionalMinus: i32 = {
 
 // pub // disabled for compiletime
 Ident: Ident = {
-    <tok:IDENT> => Ident { ident: tok.to_string() },
+    <tok:IDENT> => Ident { ident: tok.to_owned() },
 };
 
 // ==================================================
