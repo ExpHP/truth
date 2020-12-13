@@ -6,7 +6,7 @@ use crate::ast::{
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
     Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
     Item, FuncKeyword, FileListKeyword, AssignOpKind,
-    DifficultyLabel,
+    DifficultyLabel, Script,
 };
 use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
 
@@ -99,6 +99,7 @@ extern {
         "false" => Token::False,
         "true" => Token::True,
         // Virtual tokens for parsable nonterminals
+        Dispatch_Script => Token::VirtualDispatch(crate::parse::AnythingTag::Script),
         Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
         Dispatch_Stmt => Token::VirtualDispatch(crate::parse::AnythingTag::Stmt),
         Dispatch_Expr => Token::VirtualDispatch(crate::parse::AnythingTag::Expr),
@@ -121,6 +122,7 @@ extern {
 /// Don't use this directly; use the [`crate::parse::Parse`] trait, which takes
 /// care of all the silly virtual dispatch business.
 pub Anything: crate::parse::AnythingValue = {
+    Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
     Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
     Dispatch_Ident <x:Ident> => crate::parse::AnythingValue::Ident(x),
     Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(*x),
@@ -130,6 +132,10 @@ pub Anything: crate::parse::AnythingValue = {
 
 // =================================================
 // Items
+
+Script: Script = {
+    <items:Item+> => Script { items },
+};
 
 Item: Item = {
     <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>

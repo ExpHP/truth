@@ -20,6 +20,7 @@ pub trait Parse<'input>: Sized {
 /// Use that instead.
 #[doc(hidden)]
 pub enum AnythingValue {
+    Script(ast::Script),
     Item(ast::Item),
     Stmt(ast::Stmt),
     Expr(ast::Expr),
@@ -31,6 +32,7 @@ pub enum AnythingValue {
 #[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AnythingTag {
+    Script,
     Item,
     Stmt,
     Expr,
@@ -43,6 +45,15 @@ fn call_anything_parser(tag: AnythingTag, lexer: Lexer<'_>) -> Result<'_, Anythi
     let offset = lexer.offset();
     let lexer = std::iter::once(Ok((offset, Token::VirtualDispatch(tag), offset))).chain(lexer);
     lalrparser::AnythingParser::new().parse(lexer)
+}
+
+impl<'input> Parse<'input> for ast::Script {
+    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Script, lexer)? {
+            AnythingValue::Script(x) => Ok(x),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl<'input> Parse<'input> for ast::Item {

@@ -75,6 +75,13 @@ impl<A: Format, B: Format> Format for Pair<A, B> {
 //==============================================================================
 // Items
 
+impl Format for ast::Script {
+    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+        let ast::Script { items } = self;
+        fmt!(out, Separated(items, ""))
+    }
+}
+
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
         match self {

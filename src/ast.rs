@@ -1,5 +1,11 @@
 use bstr::{BString};
 
+/// Represents a complete script file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Script {
+    pub items: Vec<Item>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
     Func {
