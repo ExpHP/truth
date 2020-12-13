@@ -97,7 +97,11 @@ impl Format for ast::Item {
                 }
             },
             ast::Item::FileList { keyword, files } => {
-                fmt!(out, keyword, "{ ", Separated(files, "; "), "}")
+                fmt!(out, keyword, "{ ")?;
+                for file in files {
+                    fmt!(out, file, "; ")?;
+                }
+                fmt!(out, "}")
             },
         }
     }
@@ -139,9 +143,9 @@ impl Format for ast::Stmt {
 impl Format for ast::StmtLabel {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
         match *self {
-            ast::StmtLabel::AddTime(dt) => fmt!(out, "+", dt),
-            ast::StmtLabel::SetTime(t) => fmt!(out, t),
-            ast::StmtLabel::Label(ref ident) => fmt!(out, ident),
+            ast::StmtLabel::AddTime(dt) => fmt!(out, "+", dt, ":"),
+            ast::StmtLabel::SetTime(t) => fmt!(out, t, ":"),
+            ast::StmtLabel::Label(ref ident) => fmt!(out, ident, ":"),
             ast::StmtLabel::Difficulty { temporary, ref flags } => {
                 let colon = if temporary { ":" } else { "" };
                 fmt!(out, "!", flags.as_bstr(), colon)
