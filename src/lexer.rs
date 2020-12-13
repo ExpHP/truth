@@ -1,6 +1,7 @@
 //! Because LALRPOP's default lexer requires UTF-8 (and ECL script files may
 //! instead be encoded in Shift-JIS), we need to use our own lexer.
 
+use std::fmt;
 use regex::bytes::Regex;
 use bstr::{BStr, ByteSlice};
 use lazy_static::lazy_static;
@@ -135,12 +136,16 @@ macro_rules! impl_token_helpers {
         whitespace=[$([$s_str:literal])+]
     ) => {
         impl<'a> Token<'a> {
-            pub fn len(&self) -> usize {
+            pub fn as_bstr(&self) -> &BStr {
                 match *self {
-                    $(Token::$f_variant => $f_bytes.len(),)+
-                    $(Token::$r_variant(bytes) => bytes.len(),)+
-                    Token::VirtualDispatch(_) => 0,
+                    $(Token::$f_variant => $f_bytes.as_bstr(),)+
+                    $(Token::$r_variant(bytes) => bytes,)+
+                    Token::VirtualDispatch(_) => b"".as_bstr(),
                 }
+            }
+
+            pub fn len(&self) -> usize {
+                self.as_bstr().len()
             }
 
             fn priority(&self) -> u32 {
@@ -154,6 +159,13 @@ macro_rules! impl_token_helpers {
     };
 }
 with_each_terminal!(impl_token_helpers);
+
+// This gets used by LALRPOP's error messages for unexpected tokens.
+impl<'a> fmt::Display for Token<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.as_bstr().to_str_lossy(), f)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Lexer<'input> {

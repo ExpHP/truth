@@ -12,6 +12,7 @@ bstr = "0.2.14"
 lazy_static = "1.4.0"
 lalrpop-util = "0.19.0"
 regex = "1"
+getopts = "0.2.21"
 
 # This is used at build time, so optimizing it immensely speeds up debug builds.
 [profile.dev.package.lalrpop]

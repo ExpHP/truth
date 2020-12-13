@@ -3,7 +3,9 @@ use lalrpop_util::lalrpop_mod;
 lalrpop_mod!(pub lalrparser);
 mod lalrparser_util;
 
-pub mod ast;
+pub use ast::*;
+mod ast;
+pub use fmt::Format;
 pub mod fmt;
 pub mod lexer;
 
