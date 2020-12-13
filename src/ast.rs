@@ -1,24 +1,24 @@
 use bstr::{BString};
 
 /// Represents a complete script file.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Script {
     pub items: Vec<Item>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Func {
         inline: bool,
         keyword: FuncKeyword,
         name: Ident,
-        params: Vec<(TypeKind, Ident)>,
+        params: Vec<(VarTypeKeyword, Ident)>,
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
     FileList {
         keyword: FileListKeyword,
-        files: Vec<BString>
+        files: Vec<LitString>
     },
 }
 
@@ -37,13 +37,13 @@ pub enum FileListKeyword {
 
 // =============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub labels: Vec<StmtLabel>,
     pub body: StmtBody,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StmtLabel {
     AddTime(i32),
     SetTime(i32),
@@ -57,13 +57,16 @@ pub enum StmtLabel {
 
 /// Represents a statement, including the ';' if required, but
 /// without any labels.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StmtBody {
     Jump(StmtGoto),
     CondJump {
         kind: CondKind,
         cond: Box<Expr>,
         jump: StmtGoto,
+    },
+    Return {
+        value: Option<Box<Expr>>,
     },
     CondChain(StmtCondChain),
     While {
@@ -88,7 +91,7 @@ pub enum StmtBody {
     },
     Declaration {
         /// This is never `Void`. `None` means unspecified type (`var`).
-        ty: Option<TypeKind>,
+        ty: VarTypeKeyword,
         vars: Vec<(Ident, Option<Box<Expr>>)>,
     },
     /// An explicit subroutine call. (ECL only)
@@ -104,7 +107,7 @@ pub enum StmtBody {
 }
 
 /// The body of a `goto` statement, without the `;`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StmtGoto {
     pub destination: Ident,
     pub time: Option<i32>,
@@ -112,20 +115,20 @@ pub struct StmtGoto {
 
 // FIXME: This has been extracted just because the parser needs to build one incrementally.
 //        Make a more sensible design.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StmtCondChain {
     pub cond_blocks: Vec<CondBlock>,
     pub else_block: Option<Block>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
     pub kind: CondKind,
     pub cond: Box<Expr>,
     pub block: Block,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CallAsyncKind {
     CallAsync,
     CallAsyncId(Box<Expr>),
@@ -148,12 +151,12 @@ pub enum AssignOpKind {
 
 /// A braced series of statements, typically written at an increased
 /// indentation level.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Block(pub Vec<Stmt>);
 
 // =============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Ternary {
         cond: Box<Expr>,
@@ -165,12 +168,17 @@ pub enum Expr {
         func: Ident,
         args: Vec<Box<Expr>>,
     },
+    Decrement {
+        var: Var,
+    },
     Unop(UnopKind, Box<Expr>),
     LitInt(i32),
+    LitFloat(f32),
+    LitString(LitString),
     Var(Var),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Var {
     Named {
         ty: Option<TypeKind>,
@@ -239,7 +247,10 @@ impl Expr {
             },
             &Expr::Binop(ref a, op, ref b) => Some(op.eval_const_int(a.const_eval_int()?, b.const_eval_int()?)),
             &Expr::Unop(op, ref x) => Some(op.eval_const_int(x.const_eval_int()?)),
+            &Expr::Decrement { .. } => None,
             &Expr::LitInt(x) => Some(x),
+            &Expr::LitFloat(_) => None,
+            &Expr::LitString(_) => None,
             &Expr::Var(_) => None,
         }
     }
@@ -254,6 +265,13 @@ impl Var {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VarTypeKeyword {
+    Int,
+    Float,
+    Var,
+}
+
 // =============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -263,12 +281,12 @@ pub enum TypeKind {
     Void,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Ident {
     pub ident: BString,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LitString {
     pub string: BString,
 }

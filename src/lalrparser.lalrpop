@@ -1,12 +1,12 @@
 use lalrpop_util::ParseError;
-use bstr::{BStr, BString, ByteSlice};
+use bstr::{BStr, ByteSlice};
 use crate::lexer::{Token};
 use crate::ast::{
     self,
-    Expr, BinopKind, UnopKind, Var, TypeKind, Ident,
+    Expr, BinopKind, UnopKind, Var, TypeKind, Ident, LitString,
     Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
     Item, FuncKeyword, FileListKeyword, AssignOpKind,
-    DifficultyLabel, Script,
+    DifficultyLabel, Script, VarTypeKeyword,
 };
 use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
 
@@ -139,7 +139,7 @@ Script: Script = {
 
 Item: Item = {
     <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
-        "(" <params:SeparatedTrailing<(<ParamTypeKeyword> <Ident>), ",">> ")"
+        "(" <params:SeparatedTrailing<(<VarTypeKeyword> <Ident>), ",">> ")"
         <code:FuncBodyOrSemicolon>
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
     <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
@@ -160,11 +160,6 @@ FuncBodyOrSemicolon: Option<Block> = {
     <code:Block> => Some(code),
 };
 
-ParamTypeKeyword: TypeKind = {
-    "int" => TypeKind::Int,
-    "float" => TypeKind::Float,
-};
-
 FileListKeyword: FileListKeyword = {
     "anim" => FileListKeyword::Anim,
     "ecli" => FileListKeyword::Ecli,
@@ -178,6 +173,7 @@ Stmt: Stmt = {
 };
 
 StmtBody: StmtBody = {
+    "return" <value:Expr?> ";" => StmtBody::Return { value },
     <chain: CondChain> => StmtBody::CondChain(chain),
     <kind:CondKeyword> "(" <cond:Expr> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { kind, cond, jump },
     "do" <block:StmtOrBlock> "while" "(" <cond:Expr> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
@@ -186,7 +182,7 @@ StmtBody: StmtBody = {
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Expr> ";" => StmtBody::Expr(e),
     <var:Var> <op:OpAssign> <value:Expr> ";" => StmtBody::Assignment { var, op, value },
-    <ty:StmtDeclarationKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
+    <ty:VarTypeKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
     },
     StmtSpecialCall,
@@ -197,8 +193,8 @@ StmtLabel: StmtLabel = {
     <t:LitInt> ":" => StmtLabel::SetTime(t),
     "-" <t:LitInt> ":" => StmtLabel::SetTime(-t),
     <name:Ident> ":" => StmtLabel::Label(name),
-    "!" <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
-    "!" <flags:DifficultyLabel> ":" =>  StmtLabel::Difficulty { flags, temporary: true },
+    <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
+    <flags:DifficultyLabel> ":" =>  StmtLabel::Difficulty { flags, temporary: true },
 };
 
 JumpDestinationTime: i32 = {
@@ -224,12 +220,6 @@ StmtSpecialCall: StmtBody = {
 CallAsyncKind: ast::CallAsyncKind = {
     "async" => ast::CallAsyncKind::CallAsync,
     "async" <id:Expr> => ast::CallAsyncKind::CallAsyncId(id),
-};
-
-StmtDeclarationKeyword: Option<TypeKind> = {
-    "int" => Some(TypeKind::Int),
-    "float" => Some(TypeKind::Float),
-    "var" => None,
 };
 
 StmtDeclarationListItem: (Ident, Option<Box<Expr>>) = {
@@ -365,7 +355,10 @@ ExprTerm: Box<Expr> = {
         Box::new(Expr::Call { func, args })
     },
     <v:Var> => Box::new(Expr::Var(v)),
+    <var:Var> "--" => Box::new(Expr::Decrement { var }),
     <x:LitInt> => Box::new(Expr::LitInt(x)),
+    <x:LitFloat> => Box::new(Expr::LitFloat(x)),
+    <x:LitString> => Box::new(Expr::LitString(x)),
 };
 
 ExprCallParts: (Ident, Vec<Box<Expr>>) = {
@@ -374,7 +367,7 @@ ExprCallParts: (Ident, Vec<Box<Expr>>) = {
 
 // ==================================================
 
-LitString: BString = {
+LitString: LitString = {
     <s:STRING> =>? {
         let mut out = vec![];
         let mut escape = false;
@@ -395,7 +388,7 @@ LitString: BString = {
                 out.push(b);
             }
         }
-        Ok(out.into())
+        Ok(LitString { string: out.into() })
     },
 };
 
@@ -445,6 +438,12 @@ Var: Var = {
         }
         Ok(Var::Unnamed { ty: TypeKind::Float, number })
     },
+};
+
+VarTypeKeyword: VarTypeKeyword = {
+    "int" => VarTypeKeyword::Int,
+    "float" => VarTypeKeyword::Float,
+    "var" => VarTypeKeyword::Var,
 };
 
 OptionalMinus: i32 = {

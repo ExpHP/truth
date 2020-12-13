@@ -68,7 +68,7 @@ impl<'a, T: Format> Format for Separated<'a, T> {
 pub struct Pair<A, B>(A, B);
 impl<A: Format, B: Format> Format for Pair<A, B> {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, self.0, self.1)
+        fmt!(out, self.0, " ", self.1)
     }
 }
 
@@ -154,6 +154,13 @@ impl Format for ast::StmtBody {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
         match self {
             ast::StmtBody::Jump(jump) => fmt!(out, jump, ";"),
+            ast::StmtBody::Return { value } => {
+                fmt!(out, "return")?;
+                if let Some(value) = value {
+                    fmt!(out, " ", value)?;
+                }
+                fmt!(out, ";")
+            },
             ast::StmtBody::CondJump { kind, cond, jump } => {
                 fmt!(out, kind, " (", cond, ") ", jump, ";")
             },
@@ -172,10 +179,7 @@ impl Format for ast::StmtBody {
                 fmt!(out, var, " ", op, " ", value, ";")
             },
             ast::StmtBody::Declaration { ty, vars } => {
-                match ty {
-                    None => fmt!(out, "var ")?,
-                    Some(ty) => fmt!(out, ty, " ")?,
-                };
+                fmt!(out, ty, " ")?;
 
                 let mut first = true;
                 for (ident, expr) in vars {
@@ -291,8 +295,13 @@ impl Format for ast::Expr {
             ast::Expr::Call { func, args } => {
                 fmt!(out, func, "(", Separated(args, ", "), ")")
             },
+            ast::Expr::Decrement { var } => {
+                fmt!(out, var, "--")
+            },
             ast::Expr::Unop(op, x) => fmt!(out, "(", op, x, ")"),
             ast::Expr::LitInt(x) => fmt!(out, x),
+            ast::Expr::LitFloat(x) => fmt!(out, x),
+            ast::Expr::LitString(x) => fmt!(out, x),
             ast::Expr::Var(x) => fmt!(out, x),
         }
     }
@@ -313,6 +322,16 @@ impl Format for ast::Var {
                 ast::TypeKind::Void => panic!("unexpected void variable"),
             },
         }
+    }
+}
+
+impl Format for ast::VarTypeKeyword {
+    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+        fmt!(out, match self {
+            ast::VarTypeKeyword::Int => "int",
+            ast::VarTypeKeyword::Float => "float",
+            ast::VarTypeKeyword::Var => "var",
+        })
     }
 }
 
