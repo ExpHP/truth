@@ -8,7 +8,7 @@ use crate::ast::{
     Item, FuncKeyword, FileListKeyword,
     DifficultyLabel,
 };
-use crate::parser_util::{parse_ascii, i32_from_ascii_radix};
+use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
 
 // Add the input as an argument to the `.parse()` function.
 //
@@ -98,13 +98,39 @@ extern {
         "global" => Token::Global,
         "false" => Token::False,
         "true" => Token::True,
+        // Virtual tokens for parsable nonterminals
+        Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
+        Dispatch_Stmt => Token::VirtualDispatch(crate::parse::AnythingTag::Stmt),
+        Dispatch_Expr => Token::VirtualDispatch(crate::parse::AnythingTag::Expr),
+        Dispatch_Var => Token::VirtualDispatch(crate::parse::AnythingTag::Var),
+        Dispatch_Ident => Token::VirtualDispatch(crate::parse::AnythingTag::Ident),
     }
 }
 
 // =================================================
+// Parser dispatch
+
+/// The parser's "designated driver."
+///
+/// Each nonterminal marked 'pub' in a lalrpop file generates an independent parser,
+/// and the code sharing between them is inefficient. Thus, one can reduce compile
+/// times a pretty fair deal by only having one public parser, which dispatches
+/// to other nonterminals based on a virtual token inserted by the caller at
+/// the beginning of the token stream.
+///
+/// Don't use this directly; use the [`crate::parse::Parse`] trait, which takes
+/// care of all the silly virtual dispatch business.
+pub Anything: crate::parse::AnythingValue = {
+    Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
+    Dispatch_Ident <x:Ident> => crate::parse::AnythingValue::Ident(x),
+    Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(*x),
+    Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
+    Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
+};
+
+// =================================================
 // Items
 
-// pub // disabled for compiletime
 Item: Item = {
     <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
         "(" <params:SeparatedTrailing<(<ParamTypeKeyword> <Ident>), ",">> ")"
@@ -141,7 +167,6 @@ FileListKeyword: FileListKeyword = {
 // ==================================================
 // Statements
 
-// pub // disabled for compiletime
 Stmt: Stmt = {
     <labels:StmtLabel*> <body:StmtBody> => Stmt { labels, body },
 };
@@ -264,7 +289,7 @@ LeftUnop<Op, NextTier>: Box<Expr> = {
     NextTier,
 };
 
-pub Expr: Box<Expr> = ExprWithOpers;
+Expr: Box<Expr> = ExprWithOpers;
 
 // Operator precedence table
 ExprWithOpers = ExprTernary;
@@ -326,7 +351,6 @@ ExprCallParts: (Ident, Vec<Box<Expr>>) = {
 
 // ==================================================
 
-// pub // disabled for compiletime
 LitString: BString = {
     <s:STRING> =>? {
         let mut out = vec![];
@@ -352,7 +376,6 @@ LitString: BString = {
     },
 };
 
-// pub // disabled for compiletime
 LitFloat: f32 = {
     <mut s:FLOAT> => {
         if s.ends_with(b"f") || s.ends_with(b"F") {
@@ -370,7 +393,6 @@ LitFloat: f32 = {
     },
 };
 
-// pub // disabled for compiletime
 LitInt: i32 = {
     // FIXME: Don't panic on big numbers
     <s:INT> => parse_ascii(s).unwrap(),
@@ -383,7 +405,7 @@ LitInt: i32 = {
 // ==================================================
 // Variables
 
-pub Var: Var = {
+Var: Var = {
     <ident:Ident> => Var::Named { ty: None, ident },
     "$" <ident:Ident> => Var::Named { ty: Some(TypeKind::Int), ident },
     "%" <ident:Ident> => Var::Named { ty: Some(TypeKind::Float), ident },
@@ -407,7 +429,6 @@ OptionalMinus: i32 = {
     => 1,
 };
 
-// pub // disabled for compiletime
 Ident: Ident = {
     <tok:IDENT> => Ident { ident: tok.to_owned() },
 };

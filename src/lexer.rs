@@ -116,7 +116,13 @@ macro_rules! define_token_enum {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum Token<'a> {
             $($f_variant,)+
+
             $($r_variant(&'a BStr),)+
+
+            /// Implementation detail. A virtual token used to select a nonterminal to parse.
+            /// (part of a workaround to reduce LALRPOP output size)
+            #[doc(hidden)]
+            VirtualDispatch(crate::parse::AnythingTag),
         }
     };
 }
@@ -133,6 +139,7 @@ macro_rules! impl_token_helpers {
                 match *self {
                     $(Token::$f_variant => $f_bytes.len(),)+
                     $(Token::$r_variant(bytes) => bytes.len(),)+
+                    Token::VirtualDispatch(_) => 0,
                 }
             }
 
@@ -140,6 +147,7 @@ macro_rules! impl_token_helpers {
                 match *self {
                     $(Token::$f_variant => $f_prio,)+
                     $(Token::$r_variant(_) => $r_prio,)+
+                    Token::VirtualDispatch(_) => 0,
                 }
             }
         }
@@ -163,6 +171,9 @@ impl<'input> Lexer<'input> {
             remainder: input,
         }
     }
+
+    /// Get the current offset into the original input.
+    pub fn offset(&self) -> usize { self.offset }
 }
 
 // FIXME: Replace this with a proper Error type.
