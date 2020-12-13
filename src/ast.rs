@@ -246,6 +246,11 @@ pub struct Ident {
     pub ident: BString,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LitString {
+    pub string: BString,
+}
+
 impl From<&str> for Ident {
     fn from(s: &str) -> Ident {
         Ident { ident: s.into() }

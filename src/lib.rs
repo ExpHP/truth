@@ -4,6 +4,7 @@ lalrpop_mod!(pub lalrparser);
 mod lalrparser_util;
 
 pub mod ast;
+pub mod fmt;
 pub mod lexer;
 
 pub use parse::Parse;
