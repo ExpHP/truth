@@ -12,6 +12,8 @@ pub mod lexer;
 pub use parse::Parse;
 pub mod parse;
 
+pub mod std;
+
 #[cfg(test)]
 mod tests {
     use crate::ast::{self, Stmt, Expr, Var, TypeKind};
