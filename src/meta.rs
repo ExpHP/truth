@@ -54,6 +54,14 @@ impl BuildObject {
         self.map.insert(Ident::from(key.as_ref()), value.to_meta());
         self
     }
+    pub fn field_default<T>(mut self, key: impl AsRef<str>, value: &T, default: &T) -> Self
+    where T: ToMeta + PartialEq,
+    {
+        if value != default {
+            self.map.insert(Ident::from(key.as_ref()), value.to_meta());
+        }
+        self
+    }
     pub fn build(self) -> Meta { Meta::Object(self.map) }
 }
 

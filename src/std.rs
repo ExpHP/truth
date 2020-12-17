@@ -74,9 +74,9 @@ impl ToMeta for StdFile {
         };
         Meta::make_object()
             .field("unknown", &self.unknown)
-            .field("entries", &self.entries)
-            .field("instances", &self.instances)
             .field("anm_file", &anm_path)
+            .field("objects", &self.entries)
+            .field("instances", &self.instances)
             .build()
     }
 }
@@ -125,7 +125,7 @@ pub struct Quad {
 impl FromMeta for Quad {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
         Ok(Quad {
-            unknown: meta.expect_field::<i32>("unknown")? as u16,
+            unknown: meta.get_field::<i32>("unknown")?.unwrap_or(0) as u16,
             anm_script: meta.expect_field::<i32>("anm_script")? as u16,
             pos: meta.expect_field("pos")?,
             size: meta.expect_field("size")?,
@@ -136,7 +136,7 @@ impl FromMeta for Quad {
 impl ToMeta for Quad {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field("unknown", &(self.unknown as i32))
+            .field_default("unknown", &(self.unknown as i32), &0)
             .field("anm_script", &(self.anm_script as i32))
             .field("pos", &self.pos)
             .field("size", &self.size)
@@ -154,8 +154,8 @@ pub struct Instance {
 impl FromMeta for Instance {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
         Ok(Instance {
-            object_id: meta.expect_field::<i32>("object_id")? as u16,
-            unknown: meta.expect_field::<i32>("unknown")? as u16,
+            object_id: meta.expect_field::<i32>("object")? as u16,
+            unknown: meta.get_field::<i32>("unknown")?.unwrap_or(256) as u16,
             pos: meta.expect_field("pos")?,
         })
     }
@@ -164,8 +164,8 @@ impl FromMeta for Instance {
 impl ToMeta for Instance {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field("object_id", &(self.object_id as i32))
-            .field("unknown", &(self.unknown as i32))
+            .field("object", &(self.object_id as i32))
+            .field_default("unknown", &(self.unknown as i32), &256)
             .field("pos", &self.pos)
             .build()
     }
