@@ -1,8 +1,8 @@
-use std::fmt;
 use bstr::{BStr, BString};
-use crate::ast::Ident;
 use indexmap::IndexMap as Map;
 use thiserror::Error;
+use crate::ast::Ident;
+use crate::fmt::Formatter;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Meta {
@@ -13,33 +13,15 @@ pub enum Meta {
     Array(Vec<Meta>),
 }
 
-impl fmt::Display for Meta {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Meta::Int(x) => write!(f, "{}", x),
-            Meta::Float(x) => write!(f, "{}", x),
-            Meta::String(x) => write!(f, "{:?}", x),
-            Meta::Object(x) => {
-                write!(f, "{{ ")?;
-                let mut first = true;
-                for (key, value) in x {
-                    let comma = if first { "" } else { ", " };
-                    first = false;
-                    write!(f, "{}{}: {}", comma, key, value)?;
-                }
-                write!(f, " }}")
-            },
-            Meta::Array(x) => {
-                write!(f, "[")?;
-                let mut first = true;
-                for value in x {
-                    let comma = if first { "" } else { ", " };
-                    first = false;
-                    write!(f, "{}{}", comma, value)?;
-                }
-                write!(f, "]")
-            },
-        }
+// For error messages
+impl std::fmt::Display for Meta {
+    fn fmt(&self, std_fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut formatter = Formatter::new(vec![]);
+        // these are panics and not Errs because std::fmt::Error is for errors in the underlying writer
+        formatter.fmt(self).expect("unexpected formatting failure");
+        let buf = formatter.into_inner().expect("unexpected formatting failure");
+
+        write!(std_fmt, "{}", String::from_utf8_lossy(&buf))
     }
 }
 

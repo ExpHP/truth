@@ -1,155 +1,420 @@
 use bstr::{BStr, BString, ByteSlice, ByteVec};
+use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast;
 use crate::meta::Meta;
 
 // We can't impl Display because that's UTF-8 based.
 pub trait Format {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()>;
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result;
 }
 
-// We can't do stuff like `write!("{} {}({})", x, y, z)` so here's the next best thing.
-macro_rules! fmt {
-    ($out:expr, $($e:expr),+$(,)?) => {
-        (|| -> std::io::Result<()> {
-            $( Format::fmt(&$e, $out)?; )+
+//==============================================================================
+
+pub type Result<T = ()> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct Error(ErrorKind);
+
+#[derive(Debug, Error)]
+enum ErrorKind {
+    #[error("{}", .0)]
+    Io(io::Error),
+
+    // This variant is used to implement backtracking for things with conditional block formatting.
+    // If the user ever sees this error message, it's because the error must have somehow been
+    // unwrapped instead of backtracking.
+    #[error("Failed to backtrack for conditional block formatting. This is a bug!")]
+    LineBreakRequired,
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self { Error(ErrorKind::Io(e)) }
+}
+
+//==============================================================================
+
+pub use formatter::{Formatter};
+mod formatter {
+    use super::*;
+
+    const INDENT: isize = 4;
+
+    pub struct Formatter<W: io::Write> {
+        // This is an Option only so that `into_inner` can remove it.
+        writer: Option<W>,
+        target_width: usize,
+        indent: usize,
+        is_label: bool,
+        inline_depth: u32,
+        pending_data: bool,
+        line_buffer: Vec<u8>,
+    }
+
+    /// If a partially-written line has not yet been committed through a call to
+    /// [`Formatter::next_line`], it will be written on drop, and errors will be ignored.
+    impl<W: io::Write> Drop for Formatter<W> {
+        fn drop(&mut self) {
+            let _ = self._flush_incomplete_line();
+        }
+    }
+
+    impl<W: io::Write> Formatter<W> {
+        /// Construct a new [`Formatter`] for writing at an initial indent level of 0.
+        pub fn new(writer: W) -> Self {
+            Self {
+                writer: Some(writer),
+                target_width: 99,
+                indent: 0,
+                is_label: false,
+                inline_depth: 0,
+                pending_data: false,
+                line_buffer: vec![],
+            }
+        }
+
+        // FIXME: Replace with an `Options` builder-pattern struct so that it
+        //        can't be used mid-formatting.
+        pub fn with_max_columns(mut self, width: usize) -> Self {
+            // FIXME: The -1 is to work around a known bug where, if something is in
+            //        block mode and one of its items exactly exactly reaches target_width
+            //        in inline mode, then the comma after the item will surpass the width
+            //        without triggering backtracking on the item.
+            self.target_width = width - 1; self
+        }
+
+        /// Recover the wrapped `io::Write` object.
+        ///
+        /// **Important:** If the last line has not yet been written by calling
+        /// [`Formatter::next_line`], it will attempt to write this data now.
+        /// This can fail.
+        pub fn into_inner(mut self) -> Result<W> {
+            self._flush_incomplete_line()?;
+            Ok(self.writer.take().unwrap())
+        }
+
+        fn _flush_incomplete_line(&mut self) -> Result {
+            if self.pending_data {
+                self.writer.as_mut().unwrap().write_all(&self.line_buffer)?;
+                self.pending_data = false;
+            }
             Ok(())
-        })()
+        }
+    }
+
+    impl<W: io::Write> Formatter<W> {
+        /// Convenience method that calls [`Format::fmt`].
+        pub fn fmt<T: Format>(&mut self, x: T) -> Result { x.fmt(self) }
+
+        /// Write a line without any indent, like a label.
+        ///
+        /// Only works at the beginning of the line (otherwise it just writes normally,
+        /// followed by a space).  When it does take effect, a newline is automatically
+        /// inserted after writing the argument.
+        pub fn fmt_label<T: Format>(&mut self, label: T) -> Result {
+            assert!(!self.is_label, "Tried to write nested labels. This is a bug!");
+            if self.pending_data {
+                // write label inline
+                self.fmt((label, " "))?;
+            } else {
+                // write label flush with margin
+                self.is_label = true; // note: flag is cleared by `next_line()`
+                self.line_buffer.clear(); // strip indent
+                self.fmt(label)?;
+                assert!(self.is_label, "Detected line break in label. This is a bug!");
+                self.next_line()?;
+            }
+            Ok(())
+        }
+
+        /// Write a comma-separated list.
+        ///
+        /// Switches to block style (with trailing comma) on long lines.
+        pub fn fmt_comma_separated<T: Format>(
+            &mut self,
+            open: &'static str,
+            close: &'static str,
+            items: impl IntoIterator<Item=T> + Clone,
+        ) -> Result {
+            self.try_inline(|me| {
+                // Reasons the inline formatting may fail:
+                // * A line length check may fail here.
+                // * One of the list items may unconditionally produce a newline
+                me.fmt(open)?;
+                let mut first = true;
+                for x in items.clone() {
+                    if !first { me.fmt(", ")?; }
+                    first = false;
+                    me.fmt(x)?;
+                    me.backtrack_inline_if_long()?;
+                }
+                me.fmt(close)?;
+                me.backtrack_inline_if_long()
+            }, |me| {
+                // Block formatting
+                me.fmt(open)?;
+                me.next_line()?;
+                me.indent()?;
+                for x in items.clone() {
+                    me.fmt((x, ","))?;
+                    me.next_line()?;
+                }
+                me.dedent()?;
+                me.fmt(close)
+            })
+        }
+
+        /// Helper which writes items from an iterator, invoking the separator closure between
+        /// each pair of items. (but NOT after the final item)
+        pub fn fmt_separated<T: Format, B>(
+            &mut self,
+            items: impl IntoIterator<Item=T> + Clone,
+            mut sep: impl FnMut(&mut Self) -> Result<B>,
+        ) -> Result {
+            let mut first = true;
+            for x in items {
+                if !first { sep(self)?; }
+                first = false;
+                self.fmt(x)?;
+            }
+            Ok(())
+        }
+
+        /// Increases the indent level.
+        ///
+        /// Panics if not at the beginning of a line.
+        pub fn indent(&mut self) -> Result { self._add_indent(INDENT) }
+
+        /// Decreases the indent level.
+        ///
+        /// Panics if not at the beginning of a line, or if an attempt is made to dedent beyond the
+        /// left margin.
+        pub fn dedent(&mut self) -> Result { self._add_indent(-INDENT) }
+
+        /// Output a line and start a new one at the same indent level.  Causes backtracking
+        /// if currently in inline mode.
+        pub fn next_line(&mut self) -> Result {
+            self.backtrack_inline()?;
+            self.is_label = false;
+            self.pending_data = false;
+            self.line_buffer.push(b'\n');
+            self.writer.as_mut().unwrap().write_all(&self.line_buffer)?;
+            self.line_buffer.clear();
+            self.line_buffer.resize(self.indent, b' ');
+            Ok(())
+        }
+
+        // ---------------------
+
+        /// Appends a string to the current (not yet written) line.
+        pub(super) fn append_to_line(&mut self, bytes: &[u8]) -> Result {
+            // Catch accidental use of "\n" in output strings where next_line() should be used.
+            assert!(!bytes.contains(&b'\n'), "Tried to append newline to line. This is a bug!");
+            self.pending_data = true;
+            self.line_buffer.extend_from_slice(bytes);
+            Ok(())
+        }
+
+        /// Append to the current (not yet written) line using [`std::fmt::Display`].
+        ///
+        /// To use other `std::fmt` traits, simply use this with `format_args!`.
+        pub(super) fn append_display_to_line(&mut self, x: impl std::fmt::Display) -> Result {
+            self.pending_data = true;
+            write!(&mut self.line_buffer, "{}", x)?;
+            Ok(())
+        }
+
+        /// If we're in inline mode, backtrack to the outermost [`Formatter::try_inline`].
+        fn backtrack_inline(&mut self) -> Result {
+            if self.inline_depth > 0 {
+                return Err(Error(ErrorKind::LineBreakRequired));
+            }
+            Ok(())
+        }
+
+        /// If we're in inline mode and the line is too long, backtrack to the
+        /// outermost [`Formatter::try_inline`].
+        fn backtrack_inline_if_long(&mut self) -> Result {
+            if self.inline_depth > 0 && self.line_buffer.len() > self.target_width {
+                return Err(Error(ErrorKind::LineBreakRequired));
+            }
+            Ok(())
+        }
+
+        /// Attempt to write something inline, else write block style.
+        fn try_inline<B>(
+            &mut self,
+            mut inline_cb: impl FnMut(&mut Self) -> Result<B>,
+            mut block_cb: impl FnMut(&mut Self) -> Result<B>,
+        ) -> Result<B> {
+            let backtrack_pos = match self.inline_depth {
+                0 => Some(self.line_buffer.len()),
+                _ => None, // don't backtrack if nested in another inline_cb
+            };
+            self.inline_depth += 1;
+            let result = inline_cb(self);
+            self.inline_depth -= 1;
+            match (result, backtrack_pos) {
+                // If we fail to write inline and this is the outermost `try_inline`,
+                // backtrack and try writing not inline.
+                (Err(Error(ErrorKind::LineBreakRequired)), Some(backtrack_pos)) => {
+                    assert_eq!(self.inline_depth, 0, "Block cb in inline mode. This is a bug!");
+                    self.line_buffer.truncate(backtrack_pos);
+                    block_cb(self)
+                },
+                (result, _) => result,
+            }
+        }
+
+        fn _add_indent(&mut self, delta: isize) -> Result {
+            let new_indent = self.indent as isize + delta;
+            assert!(!self.pending_data, "Attempted to change indent mid-line. This is a bug!");
+            assert!(!self.is_label, "Attempted to change indent in a label. This is a bug!");
+            assert!(new_indent >= 0, "Attempted to dedent past 0. This is a bug!");
+
+            self.indent = new_indent as usize;
+            self.line_buffer.resize(self.indent, b' ');
+            Ok(())
+        }
     }
 }
 
 //==============================================================================
-// Base impls
 
-impl<T: Format + ?Sized> Format for &T {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        Format::fmt(*self, out)
-    }
-}
-impl<T: Format + ?Sized> Format for Box<T> {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        Format::fmt(&**self, out)
-    }
-}
+// Base impls: To write arbitrary text, use a string type.
 impl Format for BString {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        out.write_all(self.as_ref())
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.append_to_line(self.as_ref())
     }
 }
 impl Format for BStr {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        out.write_all(self.as_ref())
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.append_to_line(self.as_ref())
     }
 }
 impl Format for str {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        out.write_all(self.as_ref())
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.append_to_line(self.as_ref())
+    }
+}
+
+// Forwarded impls
+impl<T: Format + ?Sized> Format for &T {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        Format::fmt(&**self, out)
+    }
+}
+impl<T: Format + ?Sized> Format for Box<T> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        Format::fmt(&**self, out)
     }
 }
 
 //==============================================================================
 // Helpers
 
-pub struct Separated<'a, T>(&'a [T], &'a str);
-impl<'a, T: Format> Format for Separated<'a, T> {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        let Separated(seq, sep) = *self;
-
-        let mut iter = seq.iter();
-        if let Some(first) = iter.next() {
-            fmt!(out, first)?;
+// Tuples concatenate their arguments.
+//
+// The most important use case is to facilitate use of helper functions that take
+// `impl IntoIterator<T> where T: Format`.  As a small bonus, it also helps
+// reduce verbosity in plain `fmt` calls.
+macro_rules! impl_tuple_format {
+    ($($a:ident:$A:ident),*) => {
+        impl<$($A: Format),*> Format for ( $($A),* ) {
+            fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+                let ( $($a),* ) = self;
+                $( Format::fmt($a, out)?; )*
+                Ok(())
+            }
         }
-        for x in iter {
-            fmt!(out, sep, x)?;
-        }
-        Ok(())
     }
 }
 
-pub struct Triplet<A, B, C>(A, B, C);
-impl<A: Format, B: Format, C: Format> Format for Triplet<A, B, C> {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, self.0, self.1, self.2)
-    }
-}
+impl_tuple_format!(a:A, b:B);
+impl_tuple_format!(a:A, b:B, c:C);
+impl_tuple_format!(a:A, b:B, c:C, d:D);
+impl_tuple_format!(a:A, b:B, c:C, d:D, e:E);
+impl_tuple_format!(a:A, b:B, c:C, d:D, e:E, f:F);
+impl_tuple_format!(a:A, b:B, c:C, d:D, e:E, f:F, g:G);
+impl_tuple_format!(a:A, b:B, c:C, d:D, e:E, f:F, g:G, h:H);
 
 //==============================================================================
 // Items
 
 impl Format for ast::Script {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::Script { items } = self;
-        fmt!(out, Separated(items, ""))
+        out.fmt_separated(items, |out| {
+            out.next_line()?;
+            out.next_line()
+        })
     }
 }
 
 impl Format for Meta {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            Meta::Int(x) => fmt!(out, x),
-            Meta::Float(x) => fmt!(out, x),
-            Meta::String(x) => fmt!(out, x),
-            Meta::Object(map) => {
-                let kvs = map.iter().map(|(k, v)| Triplet(k, ": ", v)).collect::<Vec<_>>();
-                fmt!(out, "{", Separated(&kvs, ", "), "}")
-            },
-            Meta::Array(xs) => fmt!(out, Separated(xs, ", ")),
+            Meta::Int(x) => out.fmt(x),
+            Meta::Float(x) => out.fmt(x),
+            Meta::String(x) => out.fmt(ast::LitString { string: x }),
+            Meta::Object(map) => out.fmt_comma_separated("{", "}", map.iter().map(|(k, v)| (k, ": ", v))),
+            Meta::Array(xs) => out.fmt_comma_separated("[", "]", xs),
         }
     }
 }
 
 impl Format for ast::Item {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
             ast::Item::Func { inline, keyword, name, params, code, } => {
                 let inline_keyword = if *inline { "inline " } else { "" };
-                let params = params.iter().map(|(ty, param)| Triplet(ty, " ", param)).collect::<Vec<_>>();
 
-                fmt!(out, inline_keyword, keyword, " ")?;
-                fmt!(out, name, "(", Separated(&params, ", "), ")")?;
+                out.fmt((inline_keyword, keyword, " ", name))?;
+                out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
                 match code {
-                    None => fmt!(out, ";"),
-                    Some(code) => fmt!(out, " ", code),
+                    None => out.fmt(";"),
+                    Some(code) => out.fmt((" ", code)),
                 }
             },
             ast::Item::AnmScript { number, name, code } => {
-                fmt!(out, "script ")?;
+                out.fmt( "script ")?;
                 if let Some(number) = number {
-                    fmt!(out, number, " ")?;
+                    out.fmt((number, " "))?;
                 }
-                fmt!(out, name, " ", code)
+                out.fmt((name, " ", code))
             },
             ast::Item::Meta { keyword, name, meta } => {
-                fmt!(out, keyword, " ")?;
+                out.fmt((keyword, " "))?;
                 if let Some(name) = name {
-                    fmt!(out, name, " ")?;
+                    out.fmt((name, " "))?;
                 }
-                fmt!(out, meta)
+                out.fmt(meta)
             },
             ast::Item::FileList { keyword, files } => {
-                fmt!(out, keyword, "{ ")?;
+                out.fmt((keyword, "{ "))?;
                 for file in files {
-                    fmt!(out, file, "; ")?;
+                    out.fmt((file, "; "))?;
                 }
-                fmt!(out, "}")
+                out.fmt(" }")
             },
         }
     }
 }
 
 impl Format for ast::FuncKeyword {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
-            ast::FuncKeyword::Type(ty) => fmt!(out, ty),
-            ast::FuncKeyword::Sub => fmt!(out, "sub"),
-            ast::FuncKeyword::Timeline => fmt!(out, "timeline"),
+            ast::FuncKeyword::Type(ty) => out.fmt( ty),
+            ast::FuncKeyword::Sub => out.fmt( "sub"),
+            ast::FuncKeyword::Timeline => out.fmt( "timeline"),
         }
     }
 }
 
 impl Format for ast::FileListKeyword {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::FileListKeyword::Anim => "anim",
             ast::FileListKeyword::Ecli => "ecli",
         })
@@ -157,9 +422,10 @@ impl Format for ast::FileListKeyword {
 }
 
 impl Format for ast::MetaKeyword {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::MetaKeyword::Entry => "entry",
+            ast::MetaKeyword::Meta => "meta",
         })
     }
 }
@@ -168,132 +434,133 @@ impl Format for ast::MetaKeyword {
 // Statements
 
 impl Format for ast::Stmt {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::Stmt { labels, body } = self;
         for label in labels {
-            fmt!(out, label, " ")?;
+            out.fmt(label)?;
         }
-        fmt!(out, body)
+        out.fmt(body)
     }
 }
 
 impl Format for ast::StmtLabel {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
-            ast::StmtLabel::AddTime(dt) => fmt!(out, "+", dt, ":"),
-            ast::StmtLabel::SetTime(t) => fmt!(out, t, ":"),
-            ast::StmtLabel::Label(ref ident) => fmt!(out, ident, ":"),
+            ast::StmtLabel::AddTime(dt) => out.fmt_label(("+", dt, ":")),
+            ast::StmtLabel::SetTime(t) => out.fmt_label((t, ":")),
+            ast::StmtLabel::Label(ref ident) => out.fmt_label((ident, ":")),
             ast::StmtLabel::Difficulty { temporary, ref flags } => {
                 let colon = if temporary { ":" } else { "" };
-                fmt!(out, "!", flags.as_bstr(), colon)
+                out.fmt_label(("!", flags, colon))
             },
         }
     }
 }
 
 impl Format for ast::StmtBody {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::StmtBody::Jump(jump) => fmt!(out, jump, ";"),
+            ast::StmtBody::Jump(jump) => out.fmt((jump, ";")),
             ast::StmtBody::Return { value } => {
-                fmt!(out, "return")?;
+                out.fmt( "return")?;
                 if let Some(value) = value {
-                    fmt!(out, " ", value)?;
+                    out.fmt((" ", value))?;
                 }
-                fmt!(out, ";")
+                out.fmt(";")
             },
             ast::StmtBody::CondJump { kind, cond, jump } => {
-                fmt!(out, kind, " (", cond, ") ", jump, ";")
+                out.fmt((kind, " (", cond, ") ", jump, ";"))
             },
-            ast::StmtBody::CondChain(chain) => fmt!(out, chain),
+            ast::StmtBody::CondChain(chain) => out.fmt( chain),
             ast::StmtBody::While { is_do_while: true, cond, block } => {
-                fmt!(out, "do ", block, " while (", cond, ");")
+                out.fmt(("do ", block, " while (", cond, ");"))
             },
             ast::StmtBody::While { is_do_while: false, cond, block } => {
-                fmt!(out, "while (", cond, ") ", block)
+                out.fmt(("while (", cond, ") ", block))
             },
             ast::StmtBody::Times { count, block } => {
-                fmt!(out, "times(", count, ") ", block)
+                out.fmt(("times(", count, ") ", block))
             },
-            ast::StmtBody::Expr(e) => fmt!(out, e, ";"),
+            ast::StmtBody::Expr(e) => out.fmt((e, ";")),
             ast::StmtBody::Assignment { var, op, value } => {
-                fmt!(out, var, " ", op, " ", value, ";")
+                out.fmt((var, " ", op, " ", value, ";"))
             },
             ast::StmtBody::Declaration { ty, vars } => {
-                fmt!(out, ty, " ")?;
+                out.fmt((ty, " "))?;
 
                 let mut first = true;
                 for (ident, expr) in vars {
                     if !first {
-                        fmt!(out, ",")?;
+                        out.fmt(",")?;
                     }
                     first = false;
 
-                    fmt!(out, ident)?;
+                    out.fmt( ident)?;
                     if let Some(expr) = expr {
-                        fmt!(out, " = ", expr)?;
+                        out.fmt((" = ", expr))?;
                     }
                 }
-                fmt!(out, ";")
+                out.fmt(";")
             },
             ast::StmtBody::CallSub { at_symbol, async_, func, args } => {
-                fmt!(out, if *at_symbol { "@" } else { "" })?;
-                fmt!(out, func, "(", Separated(args, ", "), ")")?;
+                out.fmt(if *at_symbol { "@" } else { "" })?;
+                out.fmt(func)?;
+                out.fmt_comma_separated("(", ")", args)?;
                 if let Some(async_) = async_ {
-                    fmt!(out, " ", async_)?;
+                    out.fmt((" ", async_))?;
                 }
-                fmt!(out, ";")
+                out.fmt(";")
             }
         }
     }
 }
 
 impl Format for ast::StmtGoto {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::StmtGoto { destination, time } = self;
-        fmt!(out, "goto ", destination)?;
+        out.fmt(("goto", destination))?;
         if let Some(time) = time {
-            fmt!(out, "@ ", time)?;
+            out.fmt(("@", time))?;
         }
         Ok(())
     }
 }
 
 impl Format for ast::StmtCondChain {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::StmtCondChain { cond_blocks, else_block } = self;
         let mut iter = cond_blocks.iter();
 
-        fmt!(out, iter.next().expect("no if's in if-chain?!"))?;
+        out.fmt(iter.next().expect("no if's in if-chain?!"))?;
         for cond_block in iter {
-            fmt!(out, " else ", cond_block)?; // else ifs
+            out.fmt((" else ", cond_block))?; // else ifs
         }
         if let Some(else_block) = else_block {
-            fmt!(out, " else ", else_block)?;
+            out.fmt((" else ", else_block))?;
         }
         Ok(())
     }
 }
 
 impl Format for ast::CondBlock {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::CondBlock { kind, cond, block } = self;
-        fmt!(out, kind, " (", cond, ") ", block)
+        out.fmt((kind, " (", cond, ") ", block))
     }
 }
 
 impl Format for ast::CallAsyncKind {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
-            ast::CallAsyncKind::CallAsync => fmt!(out, "async"),
-            ast::CallAsyncKind::CallAsyncId(ref e) => fmt!(out, "async ", e),
+            ast::CallAsyncKind::CallAsync => out.fmt("async"),
+            ast::CallAsyncKind::CallAsyncId(ref e) => out.fmt(("async ", e)),
         }
     }
 }
 
 impl Format for ast::CondKind {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::CondKind::If => "if",
             ast::CondKind::Unless => "unless",
         })
@@ -301,8 +568,8 @@ impl Format for ast::CondKind {
 }
 
 impl Format for ast::AssignOpKind {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::AssignOpKind::Assign => "=",
             ast::AssignOpKind::Add => "+=",
             ast::AssignOpKind::Sub => "-=",
@@ -317,9 +584,17 @@ impl Format for ast::AssignOpKind {
 }
 
 impl Format for ast::Block {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::Block(statements) = self;
-        fmt!(out, "{ ", Separated(statements, ""), " }")
+        out.fmt("{")?;
+        out.next_line()?;
+        out.indent()?;
+        for stmt in statements {
+            out.fmt(stmt)?;
+            out.next_line()?;
+        }
+        out.dedent()?;
+        out.fmt("}")
     }
 }
 
@@ -327,39 +602,38 @@ impl Format for ast::Block {
 // Expressions
 
 impl Format for ast::Expr {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
             ast::Expr::Ternary { cond, left, right } => {
-                fmt!(out, "(", cond, " ? ", left, " : ", right, ")")
+                out.fmt(("(", cond, " ? ", left, " : ", right, ")"))
             },
-            ast::Expr::Binop(a, op, b) => fmt!(out, "(", a, " ", op, " ", b, ")"),
+            ast::Expr::Binop(a, op, b) => out.fmt(("(", a, " ", op, " ", b, ")")),
             ast::Expr::Call { func, args } => {
-                fmt!(out, func, "(", Separated(args, ", "), ")")
+                out.fmt(func)?;
+                out.fmt_comma_separated("(", ")", args)
             },
-            ast::Expr::Decrement { var } => {
-                fmt!(out, var, "--")
-            },
-            ast::Expr::Unop(op, x) => fmt!(out, "(", op, x, ")"),
-            ast::Expr::LitInt(x) => fmt!(out, x),
-            ast::Expr::LitFloat(x) => fmt!(out, x),
-            ast::Expr::LitString(x) => fmt!(out, x),
-            ast::Expr::Var(x) => fmt!(out, x),
+            ast::Expr::Decrement { var } => out.fmt((var, "--")),
+            ast::Expr::Unop(op, x) => out.fmt(("(", op, x, ")")),
+            ast::Expr::LitInt(x) => out.fmt(x),
+            ast::Expr::LitFloat(x) => out.fmt(x),
+            ast::Expr::LitString(x) => out.fmt(x),
+            ast::Expr::Var(x) => out.fmt(x),
         }
     }
 }
 
 impl Format for ast::Var {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
             ast::Var::Named { ty, ident } => match ty {
-                None => fmt!(out, ident),
-                Some(ast::TypeKind::Int) => fmt!(out, "$", ident),
-                Some(ast::TypeKind::Float) => fmt!(out, "%", ident),
+                None => out.fmt( ident),
+                Some(ast::TypeKind::Int) => out.fmt(("$", ident)),
+                Some(ast::TypeKind::Float) => out.fmt(("%", ident)),
                 Some(ast::TypeKind::Void) => panic!("unexpected void variable"),
             },
             ast::Var::Unnamed { ty, number } => match ty {
-                ast::TypeKind::Int => fmt!(out, "[", number, "]"),
-                ast::TypeKind::Float => fmt!(out, "[", *number as f32, "]"),
+                ast::TypeKind::Int => out.fmt(("[", number, "]")),
+                ast::TypeKind::Float => out.fmt(("[", *number as f32, "]")),
                 ast::TypeKind::Void => panic!("unexpected void variable"),
             },
         }
@@ -367,8 +641,8 @@ impl Format for ast::Var {
 }
 
 impl Format for ast::VarTypeKeyword {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::VarTypeKeyword::Int => "int",
             ast::VarTypeKeyword::Float => "float",
             ast::VarTypeKeyword::Var => "var",
@@ -377,8 +651,8 @@ impl Format for ast::VarTypeKeyword {
 }
 
 impl Format for ast::BinopKind {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::BinopKind::Add => "+",
             ast::BinopKind::Sub => "-",
             ast::BinopKind::Mul => "*",
@@ -400,8 +674,8 @@ impl Format for ast::BinopKind {
 }
 
 impl Format for ast::UnopKind {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::UnopKind::Not => "!",
             ast::UnopKind::Neg => "-",
         })
@@ -412,8 +686,8 @@ impl Format for ast::UnopKind {
 // Basic tokens
 
 impl Format for ast::TypeKind {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        fmt!(out, match self {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt( match self {
             ast::TypeKind::Int => "int",
             ast::TypeKind::Float => "float",
             ast::TypeKind::Void => "void",
@@ -422,16 +696,16 @@ impl Format for ast::TypeKind {
 }
 
 impl Format for ast::Ident {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::Ident { ident } = self;
-        fmt!(out, ident.as_bytes().as_bstr())
+        out.fmt( ident.as_bytes().as_bstr())
     }
 }
 
-impl Format for ast::LitString {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        let mut tmp = BString::from(Vec::with_capacity(2*self.string.len()+1));
-        for byte in self.string.bytes() {
+impl<S: AsRef<[u8]>> Format for ast::LitString<S> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        let mut tmp = BString::from(Vec::with_capacity(2*self.string.as_ref().len()+1));
+        for byte in self.string.as_ref().bytes() {
             match byte {
                 b'\0' => tmp.push_str(br#"\0"#),
                 b'\"' => tmp.push_str(br#"\""#),
@@ -441,22 +715,22 @@ impl Format for ast::LitString {
                 b => tmp.push(b),
             }
         }
-        fmt!(out, "\"", tmp, "\"")
+        out.fmt(("\"", tmp, "\""))
     }
 }
 
 impl Format for i32 {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
-        write!(out, "{}", self)
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.append_display_to_line(self)
     }
 }
 
 impl Format for f32 {
-    fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let mut s = format!("{}", self);
         if !s.contains('.') {
             s.push_str(".0");
         }
-        fmt!(out, s.as_bytes().as_bstr())
+        out.fmt(&s[..])
     }
 }

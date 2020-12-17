@@ -51,6 +51,8 @@ pub enum FileListKeyword {
 pub enum MetaKeyword {
     /// `entry` block for a texture in ANM.
     Entry,
+    /// `meta`
+    Meta,
 }
 
 // =============================================================================
@@ -305,8 +307,8 @@ pub struct Ident {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LitString {
-    pub string: BString,
+pub struct LitString<S=BString> {
+    pub string: S,
 }
 
 impl From<&str> for Ident {

@@ -1,6 +1,7 @@
 use std::io::{self, Read, Cursor, Write, Seek};
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
+use crate::ast;
 use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +22,34 @@ pub enum StdExtra {
     Th10 {
         anm_path: BString,
     },
+}
+
+impl StdFile {
+    pub fn decompile(&self) -> ast::Script {
+        ast::Script {
+            items: vec! [
+                ast::Item::Meta {
+                    keyword: ast::MetaKeyword::Meta,
+                    name: None,
+                    meta: self.to_meta(),
+                },
+                ast::Item::AnmScript {
+                    number: None,
+                    name: "main".into(),
+                    code: ast::Block(self.script.iter().map(|instr| {
+                        let Instr { time, opcode, args } = instr;
+                        ast::Stmt {
+                            labels: vec![ast::StmtLabel::SetTime(*time)],
+                            body: ast::StmtBody::Expr(Box::new(ast::Expr::Call {
+                                func: format!("ins_{}", opcode)[..].into(),
+                                args: args.iter().map(|&x| Box::new(ast::Expr::LitInt(x as i32))).collect(),
+                            })),
+                        }
+                    }).collect()),
+                },
+            ],
+        }
+    }
 }
 
 impl FromMeta for StdFile {

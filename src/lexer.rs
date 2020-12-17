@@ -61,6 +61,7 @@ macro_rules! with_each_terminal {
             [0, b"$", Cash]
             [0, b"anim", Anim]
             [0, b"ecli", Ecli]
+            [0, b"meta", Meta]
             [0, b"sub", Sub]
             [0, b"timeline", Timeline]
             [0, b"script", Script]
