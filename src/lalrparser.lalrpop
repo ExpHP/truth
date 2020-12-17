@@ -1,9 +1,10 @@
 use lalrpop_util::ParseError;
 use bstr::{BStr, ByteSlice};
 use crate::lexer::{Token};
+use crate::meta::Meta;
 use crate::ast::{
     self,
-    Script, Meta, MetaKeyword,
+    Script, MetaKeyword,
     Item, FuncKeyword, FileListKeyword, AssignOpKind,
     Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
     Expr, BinopKind, UnopKind, Var, TypeKind, Ident, LitString,
@@ -180,7 +181,7 @@ MetaKeyword: MetaKeyword = {
 Meta: Meta = {
     <x:LitIntSigned> => Meta::Int(x),
     <x:LitFloatSigned> => Meta::Float(x),
-    <x:LitString> => Meta::String(x),
+    <x:LitString> => Meta::String(x.string),
     "{" <kvs:SeparatedTrailing<(<Ident> ":" <Meta>), ",">> "}" =>? {
         let mut map = indexmap::IndexMap::with_capacity(kvs.len());
         for (key, value) in kvs {
@@ -487,7 +488,7 @@ OptionalMinus: i32 = {
 };
 
 Ident: Ident = {
-    <tok:IDENT> => Ident { ident: tok.to_owned() },
+    <tok:IDENT> => Ident { ident: std::str::from_utf8(&tok[..]).unwrap().to_owned() },
 };
 
 // ==================================================

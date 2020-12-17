@@ -1,6 +1,7 @@
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use std::io::{self, Write};
 use crate::ast;
+use crate::meta::Meta;
 
 // We can't impl Display because that's UTF-8 based.
 pub trait Format {
@@ -82,17 +83,17 @@ impl Format for ast::Script {
     }
 }
 
-impl Format for ast::Meta {
+impl Format for Meta {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
         match self {
-            ast::Meta::Int(x) => fmt!(out, x),
-            ast::Meta::Float(x) => fmt!(out, x),
-            ast::Meta::String(x) => fmt!(out, x),
-            ast::Meta::Object(map) => {
+            Meta::Int(x) => fmt!(out, x),
+            Meta::Float(x) => fmt!(out, x),
+            Meta::String(x) => fmt!(out, x),
+            Meta::Object(map) => {
                 let kvs = map.iter().map(|(k, v)| Triplet(k, ": ", v)).collect::<Vec<_>>();
                 fmt!(out, "{", Separated(&kvs, ", "), "}")
             },
-            ast::Meta::Array(xs) => fmt!(out, Separated(xs, ", ")),
+            Meta::Array(xs) => fmt!(out, Separated(xs, ", ")),
         }
     }
 }
@@ -423,7 +424,7 @@ impl Format for ast::TypeKind {
 impl Format for ast::Ident {
     fn fmt<W: Write>(&self, out: &mut W) -> io::Result<()> {
         let ast::Ident { ident } = self;
-        fmt!(out, &ident)
+        fmt!(out, ident.as_bytes().as_bstr())
     }
 }
 

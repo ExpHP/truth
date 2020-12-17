@@ -1,5 +1,7 @@
+use std::fmt;
 use bstr::{BString};
-use indexmap::IndexMap;
+
+use crate::meta::Meta;
 
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,17 +51,6 @@ pub enum FileListKeyword {
 pub enum MetaKeyword {
     /// `entry` block for a texture in ANM.
     Entry,
-}
-
-// =============================================================================
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Meta {
-    Int(i32),
-    Float(f32),
-    String(LitString),
-    Object(IndexMap<Ident, Meta>),
-    Array(Vec<Meta>),
 }
 
 // =============================================================================
@@ -310,7 +301,7 @@ pub enum TypeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident {
-    pub ident: BString,
+    pub ident: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -321,5 +312,18 @@ pub struct LitString {
 impl From<&str> for Ident {
     fn from(s: &str) -> Ident {
         Ident { ident: s.into() }
+    }
+}
+
+impl std::borrow::Borrow<str> for Ident {
+    fn borrow(&self) -> &str {
+        &self.ident
+    }
+}
+
+
+impl fmt::Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.ident[..])
     }
 }

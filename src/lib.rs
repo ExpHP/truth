@@ -14,6 +14,8 @@ pub mod parse;
 
 pub mod std;
 
+pub mod meta;
+
 #[cfg(test)]
 mod tests {
     use crate::ast::{self, Stmt, Expr, Var, TypeKind};

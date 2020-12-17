@@ -1,6 +1,7 @@
 use std::io::{self, Read, Cursor, Write, Seek};
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
+use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StdFile {
@@ -18,8 +19,37 @@ pub enum StdExtra {
         bgm_paths: [BString; 5],
     },
     Th10 {
-        anm_name: BString,
+        anm_path: BString,
     },
+}
+
+impl FromMeta for StdFile {
+    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        Ok(StdFile {
+            unknown: meta.expect_field("unknown")?,
+            entries: meta.expect_field("objects")?,
+            instances: meta.expect_field("instances")?,
+            script: vec![],
+            extra: StdExtra::Th10 {
+                anm_path: meta.expect_field("anm_file")?,
+            },
+        })
+    }
+}
+
+impl ToMeta for StdFile {
+    fn to_meta(&self) -> Meta {
+        let anm_path = match &self.extra {
+            StdExtra::Th10 { anm_path } => anm_path,
+            StdExtra::Th06 { .. } => unimplemented!(),
+        };
+        Meta::make_object()
+            .field("unknown", &self.unknown)
+            .field("entries", &self.entries)
+            .field("instances", &self.instances)
+            .field("anm_file", &anm_path)
+            .build()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,12 +61,58 @@ pub struct Entry {
     pub quads: Vec<Quad>,
 }
 
+impl FromMeta for Entry {
+    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        Ok(Entry {
+            id: meta.expect_field::<i32>("id")? as u16,
+            unknown: meta.expect_field::<i32>("unknown")? as u16,
+            pos: meta.expect_field("pos")?,
+            size: meta.expect_field("size")?,
+            quads: meta.expect_field("quads")?,
+        })
+    }
+}
+
+impl ToMeta for Entry {
+    fn to_meta(&self) -> Meta {
+        Meta::make_object()
+            .field("id", &(self.id as i32))
+            .field("unknown", &(self.unknown as i32))
+            .field("pos", &self.pos)
+            .field("size", &self.size)
+            .field("quads", &self.quads)
+            .build()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quad {
     pub unknown: u16,
-    pub script_index: u16,
+    pub anm_script: u16,
     pub pos: [f32; 3],
     pub size: [f32; 2],
+}
+
+impl FromMeta for Quad {
+    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        Ok(Quad {
+            unknown: meta.expect_field::<i32>("unknown")? as u16,
+            anm_script: meta.expect_field::<i32>("anm_script")? as u16,
+            pos: meta.expect_field("pos")?,
+            size: meta.expect_field("size")?,
+        })
+    }
+}
+
+impl ToMeta for Quad {
+    fn to_meta(&self) -> Meta {
+        Meta::make_object()
+            .field("unknown", &(self.unknown as i32))
+            .field("anm_script", &(self.anm_script as i32))
+            .field("pos", &self.pos)
+            .field("size", &self.size)
+            .build()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +120,26 @@ pub struct Instance {
     pub object_id: u16,
     pub unknown: u16,
     pub pos: [f32; 3],
+}
+
+impl FromMeta for Instance {
+    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        Ok(Instance {
+            object_id: meta.expect_field::<i32>("object_id")? as u16,
+            unknown: meta.expect_field::<i32>("unknown")? as u16,
+            pos: meta.expect_field("pos")?,
+        })
+    }
+}
+
+impl ToMeta for Instance {
+    fn to_meta(&self) -> Meta {
+        Meta::make_object()
+            .field("object_id", &(self.object_id as i32))
+            .field("unknown", &(self.unknown as i32))
+            .field("pos", &self.pos)
+            .build()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -139,11 +235,11 @@ pub fn write_std_10(f: &mut (impl Write + Seek), std: &StdFile) -> io::Result<()
 }
 
 fn read_extra(f: &mut Cursor<&[u8]>) -> Option<StdExtra> {
-    Some(StdExtra::Th10 { anm_name: read_string_128(f) })
+    Some(StdExtra::Th10 { anm_path: read_string_128(f) })
 }
 fn write_extra(f: &mut impl Write, x: &StdExtra) -> io::Result<()> {
     match x {
-        StdExtra::Th10 { anm_name } => write_string_128(f, anm_name.as_bstr())?,
+        StdExtra::Th10 { anm_path } => write_string_128(f, anm_path.as_bstr())?,
         StdExtra::Th06 { .. } => unimplemented!(),
     };
     Ok(())
@@ -221,7 +317,7 @@ fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
         s => panic!("bad object size: {}", s),
     };
 
-    let script_index = f.read_u16::<Le>().expect("unexpected EOF");
+    let anm_script = f.read_u16::<Le>().expect("unexpected EOF");
     match f.read_u16::<Le>().expect("unexpected EOF") {
         0 => {},
         s => panic!("unexpected nonzero padding: {}", s),
@@ -229,13 +325,13 @@ fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
 
     let pos = read_vec3(f).expect("unexpected EOF");
     let size = read_vec2(f).expect("unexpected EOF");
-    Some(Quad { unknown, script_index, pos, size })
+    Some(Quad { unknown, anm_script, pos, size })
 }
 
 fn write_quad(f: &mut impl Write, quad: &Quad) -> io::Result<()> {
     f.write_u16::<Le>(quad.unknown)?;
     f.write_u16::<Le>(0x1c)?; // size
-    f.write_u16::<Le>(quad.script_index)?;
+    f.write_u16::<Le>(quad.anm_script)?;
     f.write_u16::<Le>(0)?;
     write_vec3(f, &quad.pos)?;
     write_vec2(f, &quad.size)?;
