@@ -16,6 +16,9 @@ pub mod std;
 
 pub mod meta;
 
+pub use eclmap::Eclmap;
+pub mod eclmap;
+
 #[cfg(test)]
 mod tests {
     use crate::ast::{self, Stmt, Expr, Var, TypeKind};
