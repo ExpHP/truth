@@ -59,9 +59,9 @@ mod tests {
     #[test]
     fn time_label_signs() {
         let get_first_label = |s| Stmt::parse(s).unwrap().labels.remove(0);
-        assert_eq!(get_first_label("100: nop()"), ast::StmtLabel::SetTime(100));
-        assert_eq!(get_first_label("+100: nop()"), ast::StmtLabel::AddTime(100));
-        assert_eq!(get_first_label("-100: nop()"), ast::StmtLabel::SetTime(-100));
+        assert_eq!(get_first_label("100: nop();"), ast::StmtLabel::SetTime(100));
+        assert_eq!(get_first_label("+100: nop();"), ast::StmtLabel::AddTime(100));
+        assert_eq!(get_first_label("-100: nop();"), ast::StmtLabel::SetTime(-100));
     }
 
     #[test]

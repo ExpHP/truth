@@ -39,6 +39,7 @@ fn run(path: impl AsRef<std::path::Path>) {
         Ok(x) => x,
         Err(e) => panic!("{}", e),
     };
-    let mut stdout = std::io::stdout();
-    script.fmt(&mut stdout).unwrap();
+    let stdout = std::io::stdout();
+    let mut f = ecl_parser::fmt::Formatter::new(stdout.lock());
+    f.fmt(&script).unwrap();
 }

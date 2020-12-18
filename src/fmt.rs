@@ -734,3 +734,92 @@ impl Format for f32 {
         out.fmt(&s[..])
     }
 }
+
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Verify that Shift-JIS text is preserved.
+    const QUOTED_SJIS: &[u8] = b"\"\x82\xB1\x82\xF1\x82\xC9\x82\xBF\x82\xCD\""; // "こんにちは"
+    const QUOTED_UTF8: &[u8] = "\"こんにちは\"".as_bytes();
+
+    // Parse and dump back out, with some max columns.
+    fn reformat<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, meta_text: &'a [u8]) -> Vec<u8> {
+        let mut f = Formatter::new(vec![]).with_max_columns(ncol);
+        let value = T::parse(meta_text).unwrap_or_else(|e| panic!("{}", e));
+        f.fmt(&value).unwrap();
+        f.into_inner().unwrap()
+    }
+
+    #[test]
+    fn string_lit_utf8() {
+        assert_eq!(reformat::<ast::LitString>(100, QUOTED_UTF8), QUOTED_UTF8);
+    }
+
+    #[test]
+    fn string_lit_shift_jis() {
+        assert_eq!(reformat::<ast::LitString>(100, QUOTED_SJIS), QUOTED_SJIS);
+    }
+
+    #[test]
+    fn fancy_formatting() {
+        // inline format
+        assert_eq!(
+            reformat::<Meta>(100, br#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#),
+            &br#"{apple: "delicious", numbers: [1, 2, 3]}"#[..],
+        );
+
+        // block format
+        assert_eq!(
+            reformat::<Meta>(3, br#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim(),
+            &br#"{
+    apple: "delicious",
+    numbers: [
+        1,
+        2,
+    ],
+}"#[..],
+        );
+
+        // mixed format
+        assert_eq!(
+            reformat::<Meta>(30, br#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim(),
+            &br#"{
+    a: [10, 23],
+    b: [
+        10000000,
+        230000000,
+        4900000,
+    ],
+}"#[..]
+        );
+    }
+
+    #[test]
+    fn fancy_formatting_trigger_point() {
+        // The line "    a: [10, 23]," is 16 characters long, so it should switch
+        // to block formatting for max_columns <= 15.
+        //
+        // Verify that it switches at exactly the right point.
+        assert_eq!(
+            reformat::<Meta>(16, br#"{a: [10, 23], b: 30}"#).trim(),
+            &br#"{
+    a: [10, 23],
+    b: 30,
+}"#[..],
+        );
+        assert_eq!(
+            reformat::<Meta>(15, br#"{a: [10, 23], b: 30}"#).trim(),
+            &br#"{
+    a: [
+        10,
+        23,
+    ],
+    b: 30,
+}"#[..],
+        );
+    }
+
+}

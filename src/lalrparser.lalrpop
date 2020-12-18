@@ -109,6 +109,8 @@ extern {
         Dispatch_Expr => Token::VirtualDispatch(crate::parse::AnythingTag::Expr),
         Dispatch_Var => Token::VirtualDispatch(crate::parse::AnythingTag::Var),
         Dispatch_Ident => Token::VirtualDispatch(crate::parse::AnythingTag::Ident),
+        Dispatch_LitString => Token::VirtualDispatch(crate::parse::AnythingTag::LitString),
+        Dispatch_Meta => Token::VirtualDispatch(crate::parse::AnythingTag::Meta),
     }
 }
 
@@ -132,6 +134,8 @@ pub Anything: crate::parse::AnythingValue = {
     Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(*x),
     Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
     Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
+    Dispatch_LitString <x:LitString> => crate::parse::AnythingValue::LitString(x),
+    Dispatch_Meta <x:Meta> => crate::parse::AnythingValue::Meta(x),
 };
 
 // =================================================

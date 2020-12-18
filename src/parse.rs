@@ -1,5 +1,5 @@
 use crate::lalrparser;
-use crate::ast;
+use crate::{ast, meta};
 use crate::lexer::{Lexer, Token};
 
 pub type ErrorPayload = &'static str; // FIXME: this is the default for LALRPOP
@@ -26,6 +26,8 @@ pub enum AnythingValue {
     Expr(ast::Expr),
     Var(ast::Var),
     Ident(ast::Ident),
+    Meta(meta::Meta),
+    LitString(ast::LitString),
 }
 
 /// Implementation detail of the [`Parse`] trait.  Use that instead.
@@ -38,6 +40,8 @@ pub enum AnythingTag {
     Expr,
     Var,
     Ident,
+    LitString,
+    Meta,
 }
 
 // Inserts the virtual token and calls the Anything parser
@@ -96,6 +100,24 @@ impl<'input> Parse<'input> for ast::Ident {
     fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
         match call_anything_parser(AnythingTag::Ident, lexer)? {
             AnythingValue::Ident(x) => Ok(x),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'input> Parse<'input> for ast::LitString {
+    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::LitString, lexer)? {
+            AnythingValue::LitString(x) => Ok(x),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<'input> Parse<'input> for meta::Meta {
+    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Meta, lexer)? {
+            AnythingValue::Meta(x) => Ok(x),
             _ => unreachable!(),
         }
     }
