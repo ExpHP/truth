@@ -2,7 +2,7 @@
 //! instead be encoded in Shift-JIS), we need to use our own lexer.
 
 use std::fmt;
-use regex::bytes::Regex;
+use regex::bytes::{Regex, RegexBuilder};
 use bstr::{BStr, ByteSlice};
 use lazy_static::lazy_static;
 
@@ -204,7 +204,8 @@ macro_rules! impl_token_matchers {
         lazy_static!{
             static ref NORMAL_REGEXES: Vec<Regex> = {
                 vec![ $({
-                    Regex::new(&format!("^{}", $r_str)).unwrap()
+                    RegexBuilder::new(&format!("^{}", $r_str))
+                        .unicode(false).build().unwrap()
                 },)+ ]
             };
             static ref WHITESPACE_REGEX: Regex = {
@@ -217,7 +218,8 @@ macro_rules! impl_token_matchers {
                 pattern.pop(); // remove last '|'
                 pattern.push(')');
                 pattern.push('*'); // apply repeatedly
-                Regex::new(&pattern).unwrap()
+                RegexBuilder::new(&pattern)
+                    .unicode(false).build().unwrap()
             };
         }
         static RE_TOKEN_CONSTRUCTORS: &'static [fn(&BStr) -> Token] = {

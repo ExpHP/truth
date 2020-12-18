@@ -1,5 +1,5 @@
 use ecl_parser;
-use ecl_parser::{Parse, Format};
+use ecl_parser::Parse;
 
 use getopts::Options;
 use std::env;
