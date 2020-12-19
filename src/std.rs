@@ -52,7 +52,8 @@ impl StdFile {
                 None => args.iter().map(|&x| <Box<Expr>>::from(x as i32)).collect(),
             };
             ast::Stmt {
-                labels: vec![ast::StmtLabel::SetTime(*time)],
+                time: *time,
+                labels: vec![],
                 body: ast::StmtBody::Expr(Box::new(Expr::Call { func: ins_ident, args })),
             }
         }).collect();

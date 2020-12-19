@@ -43,15 +43,20 @@ mod formatter {
 
     const INDENT: isize = 4;
 
+    /// Type that is primarily responsible for managing indentation and optional block formatting.
     pub struct Formatter<W: io::Write> {
         // This is an Option only so that `into_inner` can remove it.
         writer: Option<W>,
+        pending_data: bool,
+        // Block- and line- formatting state
+        line_buffer: Vec<u8>,
         target_width: usize,
         indent: usize,
         is_label: bool,
         inline_depth: u32,
-        pending_data: bool,
-        line_buffer: Vec<u8>,
+        /// Contains state that is not directly managed by Formatter itself, but rather
+        /// by various [`Format`] impls.
+        pub(super) state: State,
     }
 
     /// If a partially-written line has not yet been committed through a call to
@@ -72,7 +77,10 @@ mod formatter {
                 is_label: false,
                 inline_depth: 0,
                 pending_data: false,
+                // The initial level here is used when writing a Stmt as toplevel.
+                // When parsing items, we mostly use a second level that gets pushed/popped with functions.
                 line_buffer: vec![],
+                state: State::new(),
             }
         }
 
@@ -319,6 +327,27 @@ impl<T: Format + ?Sized> Format for Box<T> {
 }
 
 //==============================================================================
+
+/// Additional state used during formatting which is not directly related to indentation and
+/// block formatting.
+#[derive(Debug, Clone)]
+struct State {
+    /// When we are printing instructions, tracks the last time label so that we can produce a
+    /// nice listing with relative labels.
+    ///
+    /// A stack is used *as if* we supported nested function definitions.  In practice, the level at
+    /// index 0 gets used exclusively when writing `Stmt`s, and a level at index 1 gets used when
+    /// writing `Item`s.
+    time_stack: Vec<i32>,
+}
+
+impl State {
+    fn new() -> Self { State {
+        time_stack: vec![0],
+    }}
+}
+
+//==============================================================================
 // Helpers
 
 // Tuples concatenate their arguments.
@@ -379,17 +408,24 @@ impl Format for ast::Item {
 
                 out.fmt((inline_keyword, keyword, " ", name))?;
                 out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
+
+                out.state.time_stack.push(0);
                 match code {
-                    None => out.fmt(";"),
-                    Some(code) => out.fmt((" ", code)),
+                    None => out.fmt(";")?,
+                    Some(code) => out.fmt((" ", code))?,
                 }
+                out.state.time_stack.pop();
+                Ok(())
             },
             ast::Item::AnmScript { number, name, code } => {
+                out.state.time_stack.push(0);
                 out.fmt( "script ")?;
                 if let Some(number) = number {
                     out.fmt((number, " "))?;
                 }
-                out.fmt((name, " ", code))
+                out.fmt((name, " ", code))?;
+                out.state.time_stack.pop();
+                Ok(())
             },
             ast::Item::Meta { keyword, name, meta } => {
                 out.fmt((keyword, " "))?;
@@ -442,7 +478,25 @@ impl Format for ast::MetaKeyword {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Stmt { labels, body } = self;
+        let ast::Stmt { time, labels, body } = self;
+
+        let top_time = out.state.time_stack.last_mut().expect("empty time stack?! (bug!)");
+        let prev_time = *top_time;
+        *top_time = *time;
+
+        // Nice time label display
+        if *time != prev_time {
+            if prev_time < 0 {
+                out.fmt_label("0:")?;
+                if *time > 0 {
+                    out.fmt_label(("+", *time, ": // ", *time))?;
+                }
+            } else if *time < prev_time {
+                out.fmt_label((*time, ":"))?;
+            } else if prev_time < *time {
+                out.fmt_label(("+", *time - prev_time, ":"))?;
+            }
+        };
         for label in labels {
             out.fmt(label)?;
         }
@@ -453,8 +507,6 @@ impl Format for ast::Stmt {
 impl Format for ast::StmtLabel {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
-            ast::StmtLabel::AddTime(dt) => out.fmt_label(("+", dt, ":")),
-            ast::StmtLabel::SetTime(t) => out.fmt_label((t, ":")),
             ast::StmtLabel::Label(ref ident) => out.fmt_label((ident, ":")),
             ast::StmtLabel::Difficulty { temporary, ref flags } => {
                 let colon = if temporary { ":" } else { "" };
@@ -830,4 +882,69 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_time_formatting() {
+        // * suppress initial 0 label
+        // * prefer relative labels
+        assert_eq!(
+            reformat::<ast::Item>(9999, br#"void main() { 0: a(); 2: a(); 5: a(); 3: a(); }"#),
+            &br#"
+void main() {
+    a();
++2: // 2
+    a();
++3: // 5
+    a();
+}"#[1..],
+        );
+
+        // * nonzero beginning
+        // * absolute labels during decrease
+        // * explicit 0 label
+        assert_eq!(
+            reformat::<ast::Item>(9999, br#"void main() { 5: a(); 3: a(); 0: a(); }"#),
+            &br#"
+void main() {
++5: // 5
+    a();
+3:
+    a();
+0:
+    a();
+}"#[1..],
+        );
+
+        // negative label followed by zero or positive
+        assert_eq!(
+            reformat::<ast::Item>(9999, br#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#),
+            &br#"
+void main() {
+-1:
+    a();
+0:
+    c();
+-1:
+    e();
+0:
++6: // 6
+    g();
+}"#[1..],
+        );
+
+        // compression of identical time labels, regardless of sign
+        assert_eq!(
+            reformat::<ast::Item>(9999, br#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#),
+            &br#"
+void main() {
+    a();
+    b();
++6: // 6
+    c();
+    d();
+-1:
+    e();
+    f();
+}"#[1..],
+        );
+    }
 }

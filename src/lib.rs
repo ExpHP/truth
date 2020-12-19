@@ -26,19 +26,18 @@ mod ident;
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{self, Stmt, Expr, Var, TypeKind};
-    use crate::Parse;
+    use crate::{ast, Parse};
 
     #[test]
     fn expr_parse() {
         macro_rules! check_exprs_same {
             ($a:expr, $with_parens:expr $(, $value:expr $(,)?)?) => {
                 assert_eq!(
-                    Expr::parse($a).unwrap(),
-                    Expr::parse($with_parens).unwrap(),
+                    ast::Expr::parse($a).unwrap(),
+                    ast::Expr::parse($with_parens).unwrap(),
                 );
                 $( assert_eq!(
-                    Expr::parse($a).unwrap().const_eval_int(),
+                    ast::Expr::parse($a).unwrap().const_eval_int(),
                     $value,
                 ); )?
             }
@@ -59,21 +58,38 @@ mod tests {
     #[test]
     fn expr_const_overflow() {
         assert_eq!(
-            Expr::parse("0x100000 * 0xffff").unwrap().const_eval_int(),
+            ast::Expr::parse("0x100000 * 0xffff").unwrap().const_eval_int(),
             Some(0xfff00000_u32 as i32),
         );
     }
 
     #[test]
-    fn time_label_signs() {
-        let get_first_label = |s| Stmt::parse(s).unwrap().labels.remove(0);
-        assert_eq!(get_first_label("100: nop();"), ast::StmtLabel::SetTime(100));
-        assert_eq!(get_first_label("+100: nop();"), ast::StmtLabel::AddTime(100));
-        assert_eq!(get_first_label("-100: nop();"), ast::StmtLabel::SetTime(-100));
+    fn time_labels() {
+        let item = ast::Item::parse(r#"void main() {
+            a();  // should start at t=0
+        +2: a();  // relative label
+            a();  // check this is still at t=2
+        +3: a();  // should now be t=5
+        2:  a();  // absolute label
+        -1: a();  // should also be absolute (t=-1), not relative (t=1)
+        }"#).unwrap();
+        let expected_times = vec![0, 2, 2, 5, 2, -1];
+
+        let parsed_times = {
+            let block = match item {
+                ast::Item::Func { code: Some(block), .. } => block,
+                _ => unreachable!(),
+            };
+            block.0.iter().map(|s| s.time).collect::<Vec<_>>()
+        };
+
+        assert_eq!(parsed_times, expected_times);
     }
 
     #[test]
     fn parse_trailing_comma() {
+        use ast::Expr;
+
         assert_eq!(
             Expr::parse("foo(1)").unwrap(),
             Expr::parse("foo(1,)").unwrap(),
@@ -90,6 +106,8 @@ mod tests {
 
     #[test]
     fn var_parse() {
+        use ast::{Var, TypeKind};
+
         assert_eq!(Var::parse("[244]"), Ok(Var::Unnamed { ty: TypeKind::Int, number: 244 }));
         assert_eq!(Var::parse("[-99998]"), Ok(Var::Unnamed { ty: TypeKind::Int, number: -99998 }));
         assert_eq!(Var::parse("[244f]"), Ok(Var::Unnamed { ty: TypeKind::Float, number: 244 }));

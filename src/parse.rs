@@ -8,10 +8,32 @@ pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 
 pub trait Parse<'input>: Sized {
     fn parse<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Self> {
-        Self::parse_stream(Lexer::new(s.as_ref()))
+        let mut state = State::new();
+        Self::parse_stream(&mut state, Lexer::new(s.as_ref()))
     }
 
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self>;
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self>;
+}
+
+/// Extra state during parsing.
+pub struct State {
+    /// When we are parsing instructions, tracks the last time label so that we can produce an
+    /// AST with time fields instead of explicit labels.
+    ///
+    /// A stack is used *as if* we supported nested function definitions.  In practice, the level at
+    /// index 0 gets used exclusively when parsing `Stmt` at toplevel, and a level at index 1 gets
+    /// used when parsing `Item`s.
+    pub time_stack: Vec<i32>,
+}
+
+impl State {
+    pub fn new() -> State { State {
+        time_stack: vec![0],
+    }}
+}
+
+impl Default for State {
+    fn default() -> State { Self::new() }
 }
 
 /// Return type of the LALRPOP `Anything` parser.
@@ -43,15 +65,19 @@ pub enum AnythingTag {
 }
 
 // Inserts the virtual token and calls the Anything parser
-fn call_anything_parser(tag: AnythingTag, lexer: Lexer<'_>) -> Result<'_, AnythingValue> {
+fn call_anything_parser<'input>(
+    tag: AnythingTag,
+    state: &mut State,
+    lexer: Lexer<'input>,
+) -> Result<'input, AnythingValue> {
     let offset = lexer.offset();
     let lexer = std::iter::once(Ok((offset, Token::VirtualDispatch(tag), offset))).chain(lexer);
-    lalrparser::AnythingParser::new().parse(lexer)
+    lalrparser::AnythingParser::new().parse(state, lexer)
 }
 
 impl<'input> Parse<'input> for ast::Script {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Script, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Script, state, lexer)? {
             AnythingValue::Script(x) => Ok(x),
             _ => unreachable!(),
         }
@@ -59,8 +85,8 @@ impl<'input> Parse<'input> for ast::Script {
 }
 
 impl<'input> Parse<'input> for ast::Item {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Item, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Item, state, lexer)? {
             AnythingValue::Item(x) => Ok(x),
             _ => unreachable!(),
         }
@@ -68,8 +94,8 @@ impl<'input> Parse<'input> for ast::Item {
 }
 
 impl<'input> Parse<'input> for ast::Stmt {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Stmt, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Stmt, state, lexer)? {
             AnythingValue::Stmt(x) => Ok(x),
             _ => unreachable!(),
         }
@@ -77,8 +103,8 @@ impl<'input> Parse<'input> for ast::Stmt {
 }
 
 impl<'input> Parse<'input> for ast::Expr {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Expr, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Expr, state, lexer)? {
             AnythingValue::Expr(x) => Ok(x),
             _ => unreachable!(),
         }
@@ -86,8 +112,8 @@ impl<'input> Parse<'input> for ast::Expr {
 }
 
 impl<'input> Parse<'input> for ast::Var {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Var, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Var, state, lexer)? {
             AnythingValue::Var(x) => Ok(x),
             _ => unreachable!(),
         }
@@ -95,8 +121,8 @@ impl<'input> Parse<'input> for ast::Var {
 }
 
 impl<'input> Parse<'input> for ast::LitString {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::LitString, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::LitString, state, lexer)? {
             AnythingValue::LitString(x) => Ok(x),
             _ => unreachable!(),
         }
@@ -104,8 +130,8 @@ impl<'input> Parse<'input> for ast::LitString {
 }
 
 impl<'input> Parse<'input> for meta::Meta {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Meta, lexer)? {
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
+        match call_anything_parser(AnythingTag::Meta, state, lexer)? {
             AnythingValue::Meta(x) => Ok(x),
             _ => unreachable!(),
         }

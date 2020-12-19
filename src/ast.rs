@@ -59,14 +59,13 @@ pub enum MetaKeyword {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
+    pub time: i32,
     pub labels: Vec<StmtLabel>,
     pub body: StmtBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtLabel {
-    AddTime(i32),
-    SetTime(i32),
     Label(Ident),
     Difficulty {
         /// If `true`, the difficulty reverts to `"*"` after the next statement.

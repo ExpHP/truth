@@ -11,13 +11,9 @@ use crate::ast::{
     Expr, BinopKind, UnopKind, Var, TypeKind, LitString,
     DifficultyLabel, VarTypeKeyword,
 };
-use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
+use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix, push};
 
-// Add the input as an argument to the `.parse()` function.
-//
-// We don't actually use this argument at all; this is just to give us a way
-// to declare the 'input lifetime.
-grammar<'input>();
+grammar<'input, 'st>(state: &'st mut crate::parse::State);
 
 extern {
     type Location = usize;
@@ -147,9 +143,9 @@ Script: Script = {
 Item: Item = {
     <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
         "(" <params:SeparatedTrailing<(<VarTypeKeyword> <Ident>), ",">> ")"
-        <code:FuncBodyOrSemicolon>
+        _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
-    "script" <number:LitIntSigned?> <name:Ident> <code:Block>
+    "script" <number:LitIntSigned?> <name:Ident> _TimeStackEnter <code:Block> _TimeStackPop
         => Item::AnmScript { number, name, code },
     <keyword:MetaKeyword> <name:Ident?> <meta:Meta>
         => Item::Meta { keyword, name, meta },
@@ -180,6 +176,9 @@ MetaKeyword: MetaKeyword = {
     "meta" => MetaKeyword::Meta,
 };
 
+_TimeStackEnter: () = { => { state.time_stack.push(0); } }
+_TimeStackPop: () = { => { state.time_stack.pop(); } }
+
 // ==================================================
 // Metadata in a JSON-ish format, used by ANM
 
@@ -205,7 +204,7 @@ Meta: Meta = {
 // Statements
 
 Stmt: Stmt = {
-    <labels:StmtLabel*> <body:StmtBody> => Stmt { labels, body },
+    <labels:StmtLabels> <body:StmtBody> => Stmt { time: *state.time_stack.last().unwrap(), labels, body },
 };
 
 StmtBody: StmtBody = {
@@ -224,12 +223,17 @@ StmtBody: StmtBody = {
     StmtSpecialCall,
 }
 
-StmtLabel: StmtLabel = {
-    "+" <dt:LitIntUnsigned> ":" => StmtLabel::AddTime(dt),
-    <t:LitIntSigned> ":" => StmtLabel::SetTime(t),
-    <name:Ident> ":" => StmtLabel::Label(name),
-    <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
-    <flags:DifficultyLabel> ":" =>  StmtLabel::Difficulty { flags, temporary: true },
+StmtTimeLabel: () = {
+    "+" <dt:LitIntUnsigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") += dt; },
+    <t:LitIntSigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") = t; },
+};
+
+StmtLabels: Vec<StmtLabel> = {
+    => vec![],
+    <out:StmtLabels> StmtTimeLabel => out,
+    <out:StmtLabels> <name:Ident> ":" => push(out, StmtLabel::Label(name)),
+    <out:StmtLabels> <flags:DifficultyLabel> => push(out, StmtLabel::Difficulty { flags, temporary: false }),
+    <out:StmtLabels> <flags:DifficultyLabel> ":" => push(out, StmtLabel::Difficulty { flags, temporary: true }),
 };
 
 StmtGoto: StmtGoto = {
