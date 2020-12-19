@@ -19,6 +19,11 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
+pub mod signature;
+
+pub use ident::{Ident, ParseIdentError};
+mod ident;
+
 #[cfg(test)]
 mod tests {
     use crate::ast::{self, Stmt, Expr, Var, TypeKind};
@@ -93,8 +98,8 @@ mod tests {
         assert!(Var::parse("[-99998e5]").is_err());
         // FIXME: don't panic
         // assert!(parse("[12412151261243414]").is_err());
-        assert_eq!(Var::parse("lmao"), Ok(Var::Named { ty: None, ident: "lmao".into() }));
-        assert_eq!(Var::parse("$lmao"), Ok(Var::Named { ty: Some(TypeKind::Int), ident: "lmao".into() }));
-        assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty: Some(TypeKind::Float), ident: "lmao".into() }));
+        assert_eq!(Var::parse("lmao"), Ok(Var::Named { ty: None, ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("$lmao"), Ok(Var::Named { ty: Some(TypeKind::Int), ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty: Some(TypeKind::Float), ident: "lmao".parse().unwrap() }));
     }
 }

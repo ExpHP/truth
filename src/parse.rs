@@ -25,7 +25,6 @@ pub enum AnythingValue {
     Stmt(ast::Stmt),
     Expr(ast::Expr),
     Var(ast::Var),
-    Ident(ast::Ident),
     Meta(meta::Meta),
     LitString(ast::LitString),
 }
@@ -39,7 +38,6 @@ pub enum AnythingTag {
     Stmt,
     Expr,
     Var,
-    Ident,
     LitString,
     Meta,
 }
@@ -91,15 +89,6 @@ impl<'input> Parse<'input> for ast::Var {
     fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
         match call_anything_parser(AnythingTag::Var, lexer)? {
             AnythingValue::Var(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'input> Parse<'input> for ast::Ident {
-    fn parse_stream(lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Ident, lexer)? {
-            AnythingValue::Ident(x) => Ok(x),
             _ => unreachable!(),
         }
     }

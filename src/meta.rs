@@ -1,7 +1,7 @@
 use bstr::{BStr, BString};
 use indexmap::IndexMap as Map;
 use thiserror::Error;
-use crate::ast::Ident;
+use crate::ident::Ident;
 use crate::fmt::Formatter;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,14 +51,16 @@ pub struct BuildObject {
 
 impl BuildObject {
     pub fn field(mut self, key: impl AsRef<str>, value: &impl ToMeta) -> Self {
-        self.map.insert(Ident::from(key.as_ref()), value.to_meta());
+        let ident = key.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e));
+        self.map.insert(ident, value.to_meta());
         self
     }
     pub fn field_default<T>(mut self, key: impl AsRef<str>, value: &T, default: &T) -> Self
     where T: ToMeta + PartialEq,
     {
         if value != default {
-            self.map.insert(Ident::from(key.as_ref()), value.to_meta());
+            let ident = key.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e));
+            self.map.insert(ident, value.to_meta());
         }
         self
     }

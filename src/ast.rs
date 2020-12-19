@@ -1,7 +1,7 @@
-use std::fmt;
 use bstr::{BString};
 
 use crate::meta::Meta;
+use crate::ident::Ident;
 
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
@@ -192,8 +192,13 @@ pub enum Expr {
         var: Var,
     },
     Unop(UnopKind, Box<Expr>),
-    LitInt(i32),
-    LitFloat(f32),
+    LitInt {
+        value: i32,
+        /// A hint to the formatter that it should use hexadecimal.
+        /// (may not necessarily represent the original radix of a parsed token)
+        hex: bool,
+    },
+    LitFloat { value: f32 },
     LitString(LitString),
     Var(Var),
 }
@@ -268,8 +273,8 @@ impl Expr {
             &Expr::Binop(ref a, op, ref b) => Some(op.eval_const_int(a.const_eval_int()?, b.const_eval_int()?)),
             &Expr::Unop(op, ref x) => Some(op.eval_const_int(x.const_eval_int()?)),
             &Expr::Decrement { .. } => None,
-            &Expr::LitInt(x) => Some(x),
-            &Expr::LitFloat(_) => None,
+            &Expr::LitInt { value, hex: _ } => Some(value),
+            &Expr::LitFloat { .. } => None,
             &Expr::LitString(_) => None,
             &Expr::Var(_) => None,
         }
@@ -292,6 +297,13 @@ pub enum VarTypeKeyword {
     Var,
 }
 
+impl From<i32> for Box<Expr> {
+    fn from(value: i32) -> Box<Expr> { Box::new(Expr::LitInt { value, hex: false })}
+}
+impl From<f32> for Box<Expr> {
+    fn from(value: f32) -> Box<Expr> { Box::new(Expr::LitFloat { value })}
+}
+
 // =============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -302,29 +314,6 @@ pub enum TypeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Ident {
-    pub ident: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LitString<S=BString> {
     pub string: S,
-}
-
-impl From<&str> for Ident {
-    fn from(s: &str) -> Ident {
-        Ident { ident: s.into() }
-    }
-}
-
-impl std::borrow::Borrow<str> for Ident {
-    fn borrow(&self) -> &str {
-        &self.ident
-    }
-}
-
-impl fmt::Display for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.ident[..])
-    }
 }

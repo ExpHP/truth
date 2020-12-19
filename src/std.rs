@@ -1,7 +1,9 @@
 use std::io::{self, Read, Cursor, Write, Seek};
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
-use crate::ast;
+use crate::ast::{self, Expr};
+use crate::ident::Ident;
+use crate::signature::Functions;
 use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,7 +27,36 @@ pub enum StdExtra {
 }
 
 impl StdFile {
-    pub fn decompile(&self) -> ast::Script {
+    pub fn decompile(&self, functions: &Functions) -> ast::Script {
+        use crate::signature::ArgEncoding;
+
+        let code = self.script.iter().map(|instr| {
+            let Instr { time, opcode, args } = instr;
+            let ins_ident = {
+                functions.opcode_names.get(&(*opcode as u32)).cloned()
+                    .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
+            };
+            let args = match functions.ins_signature(&ins_ident) {
+                Some(siggy) => {
+                    let encodings = siggy.arg_encodings();
+                    assert_eq!(encodings.len(), args.len()); // FIXME: return Error
+                    encodings.iter().zip(args).map(|(enc, &arg)| match enc {
+                        ArgEncoding::Dword => <Box<Expr>>::from(arg as i32),
+                        ArgEncoding::Color => Box::new(Expr::LitInt {
+                            value: arg as i32,
+                            hex: true,
+                        }),
+                        ArgEncoding::Float => <Box<Expr>>::from(f32::from_bits(arg)),
+                    }).collect()
+                },
+                None => args.iter().map(|&x| <Box<Expr>>::from(x as i32)).collect(),
+            };
+            ast::Stmt {
+                labels: vec![ast::StmtLabel::SetTime(*time)],
+                body: ast::StmtBody::Expr(Box::new(Expr::Call { func: ins_ident, args })),
+            }
+        }).collect();
+
         ast::Script {
             items: vec! [
                 ast::Item::Meta {
@@ -35,17 +66,8 @@ impl StdFile {
                 },
                 ast::Item::AnmScript {
                     number: None,
-                    name: "main".into(),
-                    code: ast::Block(self.script.iter().map(|instr| {
-                        let Instr { time, opcode, args } = instr;
-                        ast::Stmt {
-                            labels: vec![ast::StmtLabel::SetTime(*time)],
-                            body: ast::StmtBody::Expr(Box::new(ast::Expr::Call {
-                                func: format!("ins_{}", opcode)[..].into(),
-                                args: args.iter().map(|&x| Box::new(ast::Expr::LitInt(x as i32))).collect(),
-                            })),
-                        }
-                    }).collect()),
+                    name: "main".parse().unwrap(),
+                    code: ast::Block(code),
                 },
             ],
         }

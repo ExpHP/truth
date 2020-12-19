@@ -1,18 +1,21 @@
 use std::collections::{HashMap};
 use regex::Regex;
 use lazy_static::lazy_static;
+use thiserror::Error;
+use crate::ident::Ident;
 
 pub struct Eclmap {
     pub magic: Magic,
-    pub ins_names: HashMap<i32, String>,
+    pub ins_names: HashMap<i32, Ident>,
     pub ins_signatures: HashMap<i32, String>,
     pub ins_rets: HashMap<i32, String>,
-    pub gvar_names: HashMap<i32, String>,
+    pub gvar_names: HashMap<i32, Ident>,
     pub gvar_types: HashMap<i32, String>,
-    pub timeline_ins_names: HashMap<i32, String>,
+    pub timeline_ins_names: HashMap<i32, Ident>,
     pub timeline_ins_signatures: HashMap<i32, String>,
 }
 
+#[derive(Debug, Error)]
 pub enum Error {}
 
 impl std::str::FromStr for Eclmap {
@@ -72,15 +75,25 @@ fn parse(text: &str) -> Eclmap {
             }
         }
     }
+
     let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(HashMap::new);
+    let parse_idents = |m:HashMap<i32, String>| -> HashMap<i32, Ident> {
+        m.into_iter().map(|(key, s)| {
+            let ident: Ident = s.parse().expect("invalid identifier"); // FIXME return Error
+            if let Some(_) = ident.as_ins() {
+                panic!("invalid identifier (clashes with instruction)"); // FIXME return Error
+            }
+            (key, ident)
+        }).collect()
+    };
     let out = Eclmap {
         magic,
-        ins_names: pop_map("ins_names"),
+        ins_names: parse_idents(pop_map("ins_names")),
         ins_signatures: pop_map("ins_signatures"),
         ins_rets: pop_map("ins_rets"),
-        gvar_names: pop_map("gvar_names"),
+        gvar_names: parse_idents(pop_map("gvar_names")),
         gvar_types: pop_map("gvar_types"),
-        timeline_ins_names: pop_map("timeline_ins_names"),
+        timeline_ins_names: parse_idents(pop_map("timeline_ins_names")),
         timeline_ins_signatures: pop_map("timeline_ins_signatures"),
     };
     if !maps.is_empty() {

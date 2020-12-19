@@ -34,11 +34,20 @@ fn main() {
 }
 
 fn run(path: impl AsRef<std::path::Path>, ncol: usize) {
-    let bytes = std::fs::read(path).unwrap();
-    let parsed = ecl_parser::std::read_std_10(&bytes);
-    let script = parsed.decompile();
+    let functions = {
+        let eclmap: ecl_parser::Eclmap = std::fs::read_to_string("src/std-14.stdm").unwrap().parse().unwrap();
+        let mut functions = ecl_parser::signature::Functions::new();
+        functions.add_from_eclmap(&eclmap);
+        functions
+    };
+
+    let script = {
+        let bytes = std::fs::read(path).unwrap();
+        let parsed = ecl_parser::std::read_std_10(&bytes);
+        parsed.decompile(&functions)
+    };
+
     let stdout = std::io::stdout();
     let mut f = ecl_parser::fmt::Formatter::new(stdout.lock()).with_max_columns(ncol);
-    ecl_parser::std::read_std_10(&bytes);
     script.fmt(&mut f).unwrap();
 }

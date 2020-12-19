@@ -3,8 +3,10 @@ use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast;
 use crate::meta::Meta;
+use crate::ident::Ident;
 
 // We can't impl Display because that's UTF-8 based.
+/// Trait for displaying Touhou script code.
 pub trait Format {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result;
 }
@@ -217,8 +219,6 @@ mod formatter {
         }
 
         /// Append to the current (not yet written) line using [`std::fmt::Display`].
-        ///
-        /// To use other `std::fmt` traits, simply use this with `format_args!`.
         pub(super) fn append_display_to_line(&mut self, x: impl std::fmt::Display) -> Result {
             self.pending_data = true;
             write!(&mut self.line_buffer, "{}", x)?;
@@ -296,6 +296,13 @@ impl Format for BStr {
 impl Format for str {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         out.append_to_line(self.as_ref())
+    }
+}
+
+// Use `format_args!` to delegate to a `std::fmt` trait.
+impl Format for std::fmt::Arguments<'_> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.append_display_to_line(self)
     }
 }
 
@@ -614,8 +621,9 @@ impl Format for ast::Expr {
             },
             ast::Expr::Decrement { var } => out.fmt((var, "--")),
             ast::Expr::Unop(op, x) => out.fmt(("(", op, x, ")")),
-            ast::Expr::LitInt(x) => out.fmt(x),
-            ast::Expr::LitFloat(x) => out.fmt(x),
+            ast::Expr::LitInt{ value, hex: false } => out.fmt(value),
+            ast::Expr::LitInt{ value, hex: true } => out.fmt(format_args!("{:#x}", value)),
+            ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
             ast::Expr::Var(x) => out.fmt(x),
         }
@@ -695,10 +703,10 @@ impl Format for ast::TypeKind {
     }
 }
 
-impl Format for ast::Ident {
+impl Format for Ident {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Ident { ident } = self;
-        out.fmt( ident.as_bytes().as_bstr())
+        let s: &str = self.as_ref();
+        out.fmt(s)
     }
 }
 

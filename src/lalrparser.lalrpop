@@ -2,12 +2,13 @@ use lalrpop_util::ParseError;
 use bstr::{BStr, ByteSlice};
 use crate::lexer::{Token};
 use crate::meta::Meta;
+use crate::ident::Ident;
 use crate::ast::{
     self,
     Script, MetaKeyword,
     Item, FuncKeyword, FileListKeyword, AssignOpKind,
     Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
-    Expr, BinopKind, UnopKind, Var, TypeKind, Ident, LitString,
+    Expr, BinopKind, UnopKind, Var, TypeKind, LitString,
     DifficultyLabel, VarTypeKeyword,
 };
 use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix};
@@ -108,7 +109,6 @@ extern {
         Dispatch_Stmt => Token::VirtualDispatch(crate::parse::AnythingTag::Stmt),
         Dispatch_Expr => Token::VirtualDispatch(crate::parse::AnythingTag::Expr),
         Dispatch_Var => Token::VirtualDispatch(crate::parse::AnythingTag::Var),
-        Dispatch_Ident => Token::VirtualDispatch(crate::parse::AnythingTag::Ident),
         Dispatch_LitString => Token::VirtualDispatch(crate::parse::AnythingTag::LitString),
         Dispatch_Meta => Token::VirtualDispatch(crate::parse::AnythingTag::Meta),
     }
@@ -130,7 +130,6 @@ extern {
 pub Anything: crate::parse::AnythingValue = {
     Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
     Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
-    Dispatch_Ident <x:Ident> => crate::parse::AnythingValue::Ident(x),
     Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(*x),
     Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
     Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
@@ -388,8 +387,8 @@ ExprTerm: Box<Expr> = {
     },
     <v:Var> => Box::new(Expr::Var(v)),
     <var:Var> "--" => Box::new(Expr::Decrement { var }),
-    <x:LitIntUnsigned> => Box::new(Expr::LitInt(x)),
-    <x:LitFloatUnsigned> => Box::new(Expr::LitFloat(x)),
+    <value:LitIntUnsigned> => Box::new(Expr::LitInt { value, hex: false }),
+    <value:LitFloatUnsigned> => Box::new(Expr::LitFloat { value }),
     <x:LitString> => Box::new(Expr::LitString(x)),
 };
 
@@ -494,7 +493,12 @@ OptionalMinus: i32 = {
 };
 
 Ident: Ident = {
-    <tok:IDENT> => Ident { ident: std::str::from_utf8(&tok[..]).unwrap().to_owned() },
+    <tok:IDENT> =>? {
+        std::str::from_utf8(&tok[..]).expect("cannot fail because lexed token is ascii")
+            .parse()
+            // FIXME: user error should include error message from .parse()
+            .map_err(|_| ParseError::User { error: "illegal identifier" })
+    },
 };
 
 // ==================================================

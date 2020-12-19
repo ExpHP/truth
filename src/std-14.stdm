@@ -1,0 +1,105 @@
+!stdmap
+!ins_names
+1 jump
+2 pos
+3 posTime
+4 facing
+5 facingTime
+6 up
+7 fov
+8 fog
+9 fogTime
+10 posBezier
+11 facingBezier
+12 rockingMode
+13 bgColor
+14 sprite
+16 interruptLabel
+17 distortion  # distorts bottom of screen
+18 upTime
+
+!ins_signatures
+1 SS
+2 fff
+3 SSfff
+4 fff
+5 SSfff
+6 fff
+7 f
+8 Cff
+9 SSCff
+10 SSfffffffff
+11 SSfffffffff
+12 S
+13 C
+14 SSS  # middle is anm script
+16 S
+17 S
+18 SSfff
+19 S
+20 f
+
+
+# #pragma ins 1
+# void jump(int offset, int time);
+#
+# #pragma ins 3
+# void posTime(int time, int method, float x, float y, float z);
+#
+# #pragma ins 4
+# void facing(float x, float y, float z);
+#
+# #pragma ins 5
+# void facingTime(int time, int method, float x, float y, float z);
+#
+# #pragma ins 6
+# void up(float x, float y, float z);
+#
+# #pragma ins 18
+# void upTime(int time, int method, float x, float y, float z);
+#
+# #pragma ins 7
+# void fov(float fovY);
+#
+# #pragma ins 8
+# void fog(D3DCOLOR color, float begin, float end);
+#
+# #pragma ins 9
+# void fogTime(int time, int method, D3DCOLOR color, float begin, float end);
+#
+# #pragma ins 10
+# void posBezier(
+#     int time, int _unused,
+#     float x1, float y1, float z1,
+#     float x2, float y2, float z2,
+#     float x3, float y3, float z3,
+# );
+#
+# #pragma ins 11
+# void facingBezier(
+#     int time, int _unused,
+#     float x1, float y1, float z1,
+#     float x2, float y2, float z2,
+#     float x3, float y3, float z3,
+# );
+#
+# #pragma ins 12
+# void rockingMode(int mode);
+#
+# #pragma ins 13
+# void bgColor(D3DCOLOR bg_color);
+#
+# #pragma ins 14
+# void sprite(int index, int script, int layer);
+#
+# #pragma ins 16
+# void interruptLabel(int number);
+#
+# #pragma ins 17
+# void distortion(int enable);
+#
+# #pragma ins 19
+# void ins_19(int);
+# #pragma ins 20
+# void ins_20(float);
+#
