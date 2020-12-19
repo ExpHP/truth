@@ -494,7 +494,7 @@ impl Format for ast::Stmt {
             } else if *time < prev_time {
                 out.fmt_label((*time, ":"))?;
             } else if prev_time < *time {
-                out.fmt_label(("+", *time - prev_time, ":"))?;
+                out.fmt_label(("+", *time - prev_time, ": // ", *time))?;
             }
         };
         for label in labels {
@@ -827,33 +827,33 @@ mod tests {
     fn fancy_formatting() {
         // inline format
         assert_eq!(
-            reformat::<Meta>(100, br#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#),
-            &br#"{apple: "delicious", numbers: [1, 2, 3]}"#[..],
+            reformat::<Meta>(100, br#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#).as_bstr(),
+            br#"{apple: "delicious", numbers: [1, 2, 3]}"#[..].as_bstr(),
         );
 
         // block format
         assert_eq!(
-            reformat::<Meta>(3, br#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim(),
-            &br#"{
+            reformat::<Meta>(3, br#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim().as_bstr(),
+            br#"{
     apple: "delicious",
     numbers: [
         1,
         2,
     ],
-}"#[..],
+}"#[..].as_bstr(),
         );
 
         // mixed format
         assert_eq!(
-            reformat::<Meta>(30, br#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim(),
-            &br#"{
+            reformat::<Meta>(30, br#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim().as_bstr(),
+            br#"{
     a: [10, 23],
     b: [
         10000000,
         230000000,
         4900000,
     ],
-}"#[..]
+}"#[..].as_bstr()
         );
     }
 
@@ -864,21 +864,21 @@ mod tests {
         //
         // Verify that it switches at exactly the right point.
         assert_eq!(
-            reformat::<Meta>(16, br#"{a: [10, 23], b: 30}"#).trim(),
-            &br#"{
+            reformat::<Meta>(16, br#"{a: [10, 23], b: 30}"#).trim().as_bstr(),
+            br#"{
     a: [10, 23],
     b: 30,
-}"#[..],
+}"#[..].as_bstr(),
         );
         assert_eq!(
-            reformat::<Meta>(15, br#"{a: [10, 23], b: 30}"#).trim(),
-            &br#"{
+            reformat::<Meta>(15, br#"{a: [10, 23], b: 30}"#).trim().as_bstr(),
+            br#"{
     a: [
         10,
         23,
     ],
     b: 30,
-}"#[..],
+}"#[..].as_bstr(),
         );
     }
 
@@ -887,23 +887,23 @@ mod tests {
         // * suppress initial 0 label
         // * prefer relative labels
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { 0: a(); 2: a(); 5: a(); 3: a(); }"#),
-            &br#"
+            reformat::<ast::Item>(9999, br#"void main() { 0: a(); 2: a(); 5: a(); }"#).as_bstr(),
+            br#"
 void main() {
     a();
 +2: // 2
     a();
 +3: // 5
     a();
-}"#[1..],
+}"#[1..].as_bstr(),
         );
 
         // * nonzero beginning
         // * absolute labels during decrease
         // * explicit 0 label
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { 5: a(); 3: a(); 0: a(); }"#),
-            &br#"
+            reformat::<ast::Item>(9999, br#"void main() { 5: a(); 3: a(); 0: a(); }"#).as_bstr(),
+            br#"
 void main() {
 +5: // 5
     a();
@@ -911,13 +911,13 @@ void main() {
     a();
 0:
     a();
-}"#[1..],
+}"#[1..].as_bstr(),
         );
 
         // negative label followed by zero or positive
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#),
-            &br#"
+            reformat::<ast::Item>(9999, br#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).as_bstr(),
+            br#"
 void main() {
 -1:
     a();
@@ -928,13 +928,13 @@ void main() {
 0:
 +6: // 6
     g();
-}"#[1..],
+}"#[1..].as_bstr(),
         );
 
         // compression of identical time labels, regardless of sign
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#),
-            &br#"
+            reformat::<ast::Item>(9999, br#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).as_bstr(),
+            br#"
 void main() {
     a();
     b();
@@ -944,7 +944,7 @@ void main() {
 -1:
     e();
     f();
-}"#[1..],
+}"#[1..].as_bstr(),
         );
     }
 }
