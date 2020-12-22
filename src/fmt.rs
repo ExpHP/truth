@@ -382,7 +382,7 @@ impl Format for ast::Script {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::Script { items } = self;
         out.fmt_separated(items, |out| {
-            out.next_line()?;
+            // all items end with a newline, so this creates a blank line to separate them
             out.next_line()
         })
     }
@@ -415,31 +415,33 @@ impl Format for ast::Item {
                     Some(code) => out.fmt((" ", code))?,
                 }
                 out.state.time_stack.pop();
-                Ok(())
+                out.next_line()
             },
             ast::Item::AnmScript { number, name, code } => {
-                out.state.time_stack.push(0);
-                out.fmt( "script ")?;
+                out.fmt("script ")?;
                 if let Some(number) = number {
                     out.fmt((number, " "))?;
                 }
+                out.state.time_stack.push(0);
                 out.fmt((name, " ", code))?;
                 out.state.time_stack.pop();
-                Ok(())
+                out.next_line()
             },
             ast::Item::Meta { keyword, name, meta } => {
                 out.fmt((keyword, " "))?;
                 if let Some(name) = name {
                     out.fmt((name, " "))?;
                 }
-                out.fmt(meta)
+                out.fmt(meta)?;
+                out.next_line()
             },
             ast::Item::FileList { keyword, files } => {
                 out.fmt((keyword, "{ "))?;
                 for file in files {
                     out.fmt((file, "; "))?;
                 }
-                out.fmt(" }")
+                out.fmt(" }")?;
+                out.next_line()
             },
         }
     }
@@ -448,9 +450,9 @@ impl Format for ast::Item {
 impl Format for ast::FuncKeyword {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
-            ast::FuncKeyword::Type(ty) => out.fmt( ty),
-            ast::FuncKeyword::Sub => out.fmt( "sub"),
-            ast::FuncKeyword::Timeline => out.fmt( "timeline"),
+            ast::FuncKeyword::Type(ty) => out.fmt(ty),
+            ast::FuncKeyword::Sub => out.fmt("sub"),
+            ast::FuncKeyword::Timeline => out.fmt("timeline"),
         }
     }
 }
@@ -503,7 +505,7 @@ impl Format for ast::StmtBody {
         match self {
             ast::StmtBody::Jump(jump) => out.fmt((jump, ";")),
             ast::StmtBody::Return { value } => {
-                out.fmt( "return")?;
+                out.fmt("return")?;
                 if let Some(value) = value {
                     out.fmt((" ", value))?;
                 }
@@ -512,7 +514,7 @@ impl Format for ast::StmtBody {
             ast::StmtBody::CondJump { kind, cond, jump } => {
                 out.fmt((kind, " (", cond, ") ", jump, ";"))
             },
-            ast::StmtBody::CondChain(chain) => out.fmt( chain),
+            ast::StmtBody::CondChain(chain) => out.fmt(chain),
             ast::StmtBody::While { is_do_while: true, cond, block } => {
                 out.fmt(("do ", block, " while (", cond, ");"))
             },
@@ -536,7 +538,7 @@ impl Format for ast::StmtBody {
                     }
                     first = false;
 
-                    out.fmt( ident)?;
+                    out.fmt(ident)?;
                     if let Some(expr) = expr {
                         out.fmt((" = ", expr))?;
                     }
@@ -643,7 +645,7 @@ impl Format for ast::Var {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
             ast::Var::Named { ty, ident } => match ty {
-                None => out.fmt( ident),
+                None => out.fmt(ident),
                 Some(ast::VarReadType::Int) => out.fmt(("$", ident)),
                 Some(ast::VarReadType::Float) => out.fmt(("%", ident)),
             },
@@ -790,7 +792,7 @@ mod tests {
         // * suppress initial 0 label
         // * prefer relative labels
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { 0: a(); 2: a(); 5: a(); }"#).as_bstr(),
+            reformat::<ast::Item>(9999, br#"void main() { 0: a(); 2: a(); 5: a(); }"#).trim().as_bstr(),
             br#"
 void main() {
     a();
@@ -805,7 +807,7 @@ void main() {
         // * absolute labels during decrease
         // * explicit 0 label
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { 5: a(); 3: a(); 0: a(); }"#).as_bstr(),
+            reformat::<ast::Item>(9999, br#"void main() { 5: a(); 3: a(); 0: a(); }"#).trim().as_bstr(),
             br#"
 void main() {
 +5: // 5
@@ -819,7 +821,7 @@ void main() {
 
         // negative label followed by zero or positive
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).as_bstr(),
+            reformat::<ast::Item>(9999, br#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).trim().as_bstr(),
             br#"
 void main() {
 -1:
@@ -836,7 +838,7 @@ void main() {
 
         // compression of identical time labels, regardless of sign
         assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).as_bstr(),
+            reformat::<ast::Item>(9999, br#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim().as_bstr(),
             br#"
 void main() {
     a();
