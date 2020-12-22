@@ -1,11 +1,19 @@
 use std::io::{self, Read, Cursor, Write, Seek};
+
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
+use anyhow::{anyhow, bail};
+
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
 use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
 
+pub type CompileError = anyhow::Error;
+
+// =============================================================================
+
+/// Game-independent representation of a STD file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StdFile {
     pub unknown: u32,
@@ -28,50 +36,11 @@ pub enum StdExtra {
 
 impl StdFile {
     pub fn decompile(&self, functions: &Functions) -> ast::Script {
-        use crate::signature::ArgEncoding;
+        _decompile_std(self, functions)
+    }
 
-        let code = self.script.iter().map(|instr| {
-            let Instr { time, opcode, args } = instr;
-            let ins_ident = {
-                functions.opcode_names.get(&(*opcode as u32)).cloned()
-                    .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
-            };
-            let args = match functions.ins_signature(&ins_ident) {
-                Some(siggy) => {
-                    let encodings = siggy.arg_encodings();
-                    assert_eq!(encodings.len(), args.len()); // FIXME: return Error
-                    encodings.iter().zip(args).map(|(enc, &arg)| match enc {
-                        ArgEncoding::Dword => <Box<Expr>>::from(arg as i32),
-                        ArgEncoding::Color => Box::new(Expr::LitInt {
-                            value: arg as i32,
-                            hex: true,
-                        }),
-                        ArgEncoding::Float => <Box<Expr>>::from(f32::from_bits(arg)),
-                    }).collect()
-                },
-                None => args.iter().map(|&x| <Box<Expr>>::from(x as i32)).collect(),
-            };
-            ast::Stmt {
-                time: *time,
-                labels: vec![],
-                body: ast::StmtBody::Expr(Box::new(Expr::Call { func: ins_ident, args })),
-            }
-        }).collect();
-
-        ast::Script {
-            items: vec! [
-                ast::Item::Meta {
-                    keyword: ast::MetaKeyword::Meta,
-                    name: None,
-                    meta: self.to_meta(),
-                },
-                ast::Item::AnmScript {
-                    number: None,
-                    name: "main".parse().unwrap(),
-                    code: ast::Block(code),
-                },
-            ],
-        }
+    pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
+        _compile_std(script, functions)
     }
 }
 
@@ -200,6 +169,148 @@ pub struct Instr {
     pub opcode: u16,
     pub args: Vec<u32>,
 }
+
+// =============================================================================
+
+fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
+    use crate::signature::ArgEncoding;
+
+    let code = std.script.iter().map(|instr| {
+        let Instr { time, opcode, args } = instr;
+        let ins_ident = {
+            functions.opcode_names.get(&(*opcode as u32)).cloned()
+                .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
+        };
+        let args = match functions.ins_signature(&ins_ident) {
+            Some(siggy) => {
+                let encodings = siggy.arg_encodings();
+                assert_eq!(encodings.len(), args.len()); // FIXME: return Error
+                encodings.iter().zip(args).map(|(enc, &arg)| match enc {
+                    ArgEncoding::Dword => <Box<Expr>>::from(arg as i32),
+                    ArgEncoding::Color => Box::new(Expr::LitInt {
+                        value: arg as i32,
+                        hex: true,
+                    }),
+                    ArgEncoding::Float => <Box<Expr>>::from(f32::from_bits(arg)),
+                }).collect()
+            },
+            None => args.iter().map(|&x| <Box<Expr>>::from(x as i32)).collect(),
+        };
+        ast::Stmt {
+            time: *time,
+            labels: vec![],
+            body: ast::StmtBody::Expr(Box::new(Expr::Call { func: ins_ident, args })),
+        }
+    }).collect();
+
+    ast::Script {
+        items: vec! [
+            ast::Item::Meta {
+                keyword: ast::MetaKeyword::Meta,
+                name: None,
+                meta: std.to_meta(),
+            },
+            ast::Item::AnmScript {
+                number: None,
+                name: "main".parse().unwrap(),
+                code: ast::Block(code),
+            },
+        ],
+    }
+}
+
+fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
+    use ast::Item;
+
+    let (meta, main_sub) = {
+        let (mut found_meta, mut found_main_sub) = (None, None);
+        for item in script.items.iter() {
+            match item {
+                Item::Meta { keyword: ast::MetaKeyword::Meta, name: None, meta } => {
+                    if let Some(_) = found_meta.replace(meta) {
+                        bail!("multiple 'meta's");
+                    }
+                    found_meta = Some(meta);
+                },
+                Item::Meta { keyword: ast::MetaKeyword::Meta, name: Some(name), .. } => bail!("unexpected named meta '{}' in STD file", name),
+                Item::Meta { keyword, .. } => bail!("unexpected '{}' in STD file", keyword),
+                Item::AnmScript { number: Some(_), .. } => bail!("unexpected numbered script in STD file"),
+                Item::AnmScript { number: None, name, code } => {
+                    if name != "main" {
+                        bail!("STD entry point must be called 'main'");
+                    }
+                    if let Some(_) = found_main_sub {
+                        bail!("multiple 'main' scripts");
+                    }
+                    found_main_sub = Some(code);
+                },
+                Item::FileList { .. } => bail!("unexpected file list in STD file"),
+                Item::Func { .. } => bail!("unexpected function def in STD file"),
+            }
+        }
+        match (found_meta, found_main_sub) {
+            (Some(meta), Some(main)) => (meta, main),
+            (None, _) => bail!("missing 'main' sub"),
+            (Some(_), None) => bail!("missing 'meta' section"),
+        }
+    };
+
+    let mut out = StdFile::from_meta(meta).map_err(|e| anyhow!("{}", e))?;
+    out.script = _compile_main(&main_sub.0, functions)?;
+
+    Ok(out)
+}
+
+fn _compile_main(code: &[ast::Stmt], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
+    use crate::signature::ArgEncoding;
+
+    let mut out = vec![];
+    for stmt in code {
+        match &stmt.body {
+            ast::StmtBody::Expr(e) => match **e {
+                ast::Expr::Call { ref func, ref args } => {
+                    let siggy = match functions.ins_signature(func) {
+                        Some(siggy) => siggy,
+                        None => bail!("signature of {} is not known", func),
+                    };
+                    let opcode = match functions.resolve_aliases(func).as_ins() {
+                        Some(opcode) => opcode,
+                        None => bail!("don't know how to compile function {} (not an instruction)"),
+                    };
+                    let encodings = siggy.arg_encodings();
+                    if encodings.len() != args.len() {
+                        bail!("wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
+                    }
+
+                    out.push(Instr {
+                        time: stmt.time,
+                        opcode: opcode as _,
+                        args: encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
+                            ArgEncoding::Dword |
+                            ArgEncoding::Color => match **arg {
+                                ast::Expr::LitInt { value, .. } => Ok(value as u32),
+                                ast::Expr::LitFloat { .. } |
+                                ast::Expr::LitString { .. } => bail!("expected an int for arg {} of {}", index+1, func),
+                                _ => bail!("unsupported expression type in STD file"),
+                            },
+                            ArgEncoding::Float => match **arg {
+                                ast::Expr::LitFloat { value, .. } => Ok(value.to_bits()),
+                                ast::Expr::LitInt { .. } |
+                                ast::Expr::LitString { .. } => bail!("expected a float for arg {} of {}", index+1, func),
+                                _ => bail!("unsupported expression type in STD file"),
+                            },
+                        }).collect::<Result<_, _>>()?,
+                    });
+                },
+                _ => bail!("unsupported expression type in STD file"), // FIXME: give location info
+            },
+            _ => bail!("unsupported statement type in STD file"), // FIXME: give location info
+        }
+    }
+    Ok(out)
+}
+
+// =============================================================================
 
 // FIXME clean up API, return Result
 pub fn read_std_10(bytes: &[u8]) -> StdFile {

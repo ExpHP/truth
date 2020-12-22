@@ -4,7 +4,7 @@ use getopts::Options;
 use std::env;
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} FILE (-o|--output) OUTPUT", program);
+    let brief = format!("Usage: {} FILE", program);
     print!("{}", opts.usage(&brief));
 }
 
@@ -23,6 +23,7 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
+
     let input = if !matches.free.is_empty() {
         matches.free[0].clone()
     } else {
@@ -30,7 +31,6 @@ fn main() {
         return;
     };
     run(&input, matches.opt_get_default("max-columns", 100).unwrap());
-
 }
 
 fn run(path: impl AsRef<std::path::Path>, ncol: usize) {

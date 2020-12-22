@@ -23,6 +23,7 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
+
     let input = if !matches.free.is_empty() {
         matches.free[0].clone()
     } else {
@@ -30,11 +31,11 @@ fn main() {
         return;
     };
     run(&input);
-
 }
 
 fn run(path: impl AsRef<std::path::Path>) {
     let text = std::fs::read(path).unwrap();
+
     let script = match ecl_parser::Script::parse(&text) {
         Ok(x) => x,
         Err(e) => panic!("{}", e),

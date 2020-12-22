@@ -1,4 +1,4 @@
-use ecl_parser;
+use ecl_parser::{self};
 
 use getopts::Options;
 use std::env;
@@ -35,8 +35,21 @@ fn main() {
 }
 
 fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
-    let bytes = std::fs::read(path).unwrap();
-    let parsed = ecl_parser::std::read_std_10(&bytes);
+    use ecl_parser::Parse;
+
+    let functions = {
+        let eclmap: ecl_parser::Eclmap = std::fs::read_to_string("src/std-14.stdm").unwrap().parse().unwrap();
+        let mut functions = ecl_parser::signature::Functions::new();
+        functions.add_from_eclmap(&eclmap);
+        functions
+    };
+
+    let text = std::fs::read(path).unwrap();
+    let script = match ecl_parser::Script::parse(&text) {
+        Ok(x) => x,
+        Err(e) => panic!("{}", e),
+    };
+    let std = ecl_parser::std::StdFile::compile(&script, &functions).unwrap();
     let mut out = std::fs::File::create(output).unwrap();
-    ecl_parser::std::write_std_10(&mut out, &parsed).unwrap();
+    ecl_parser::std::write_std_10(&mut out, &std).unwrap();
 }

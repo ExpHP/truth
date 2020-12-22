@@ -4,7 +4,7 @@ use crate::eclmap::Eclmap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Functions {
-    pub aliases: HashMap<Ident, Ident>,
+    aliases: HashMap<Ident, Ident>,
     opcode_signatures: HashMap<u32, Signature>,
     pub opcode_names: HashMap<u32, Ident>,
 }
@@ -14,17 +14,21 @@ impl Functions {
 
     /// Get the signature of a function as a single instruction, if known.
     pub fn ins_signature(&self, name: &Ident) -> Option<&Signature> {
+        let name = self.resolve_aliases(name);
+        match name.as_ins() {
+            Some(opcode) => self.opcode_signatures.get(&opcode),
+            _ => unimplemented!("function is not an instruction"),
+        }
+    }
+
+    pub fn resolve_aliases<'a>(&'a self, name: &'a Ident) -> &'a Ident {
         let mut name: &Ident = name;
         loop {
             if let Some(new_name) = self.aliases.get(name) {
                 name = new_name;
                 continue;
             }
-            break;
-        }
-        match name.as_ins() {
-            Some(opcode) => self.opcode_signatures.get(&opcode),
-            _ => unimplemented!("function is not an instruction"),
+            return name;
         }
     }
 }
