@@ -2,15 +2,17 @@ use std::io::{self, Read, Cursor, Write, Seek};
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
-use anyhow::{anyhow, bail};
+use codespan_reporting::diagnostic::{Diagnostic, Label};
 
-use crate::pos::Spanned;
+use crate::pos::{Spanned, FileId};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
 use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
 
-pub type CompileError = anyhow::Error;
+#[derive(thiserror::Error, Debug)]
+#[error("{}", .0.message)]
+pub struct CompileError(pub Diagnostic<FileId>);
 
 // =============================================================================
 
@@ -40,8 +42,8 @@ impl StdFile {
         _decompile_std(self, functions)
     }
 
-    pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
-        _compile_std(script, functions)
+    pub fn compile(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
+        _compile_std(file_id, script, functions)
     }
 }
 
@@ -220,7 +222,22 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
     }
 }
 
-fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
+macro_rules! bail_span {
+    ($file_id:expr, $span:expr, $($fmt_args:tt)+) => {{
+        return Err(CompileError(Diagnostic::error()
+            .with_labels(vec![Label::primary($file_id, $span.span).with_message(format!($($fmt_args)+))])
+        ));
+    }}
+}
+macro_rules! bail_nospan {
+    ($($fmt_args:tt)+) => {{
+        return Err(CompileError(Diagnostic::error()
+            .with_message(format!($($fmt_args)+))
+        ));
+    }}
+}
+
+fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
     use ast::Item;
 
     let (meta, main_sub) = {
@@ -229,40 +246,40 @@ fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, 
             match item {
                 Item::Meta { keyword: ast::MetaKeyword::Meta, name: None, meta } => {
                     if let Some(_) = found_meta.replace(meta) {
-                        bail!("multiple 'meta's");
+                        bail_nospan!("multiple 'meta's");
                     }
                     found_meta = Some(meta);
                 },
-                Item::Meta { keyword: ast::MetaKeyword::Meta, name: Some(name), .. } => bail!("unexpected named meta '{}' in STD file", name),
-                Item::Meta { keyword, .. } => bail!("unexpected '{}' in STD file", keyword),
-                Item::AnmScript { number: Some(_), .. } => bail!("unexpected numbered script in STD file"),
+                Item::Meta { keyword: ast::MetaKeyword::Meta, name: Some(name), .. } => bail_nospan!("unexpected named meta '{}' in STD file", name),
+                Item::Meta { keyword, .. } => bail_nospan!("unexpected '{}' in STD file", keyword),
+                Item::AnmScript { number: Some(_), .. } => bail_nospan!("unexpected numbered script in STD file"),
                 Item::AnmScript { number: None, name, code } => {
                     if name != "main" {
-                        bail!("STD entry point must be called 'main'");
+                        bail_nospan!("STD entry point must be called 'main'");
                     }
                     if let Some(_) = found_main_sub {
-                        bail!("multiple 'main' scripts");
+                        bail_nospan!("multiple 'main' scripts");
                     }
                     found_main_sub = Some(code);
                 },
-                Item::FileList { .. } => bail!("unexpected file list in STD file"),
-                Item::Func { .. } => bail!("unexpected function def in STD file"),
+                Item::FileList { .. } => bail_nospan!("unexpected file list in STD file"),
+                Item::Func { .. } => bail_nospan!("unexpected function def in STD file"),
             }
         }
         match (found_meta, found_main_sub) {
             (Some(meta), Some(main)) => (meta, main),
-            (None, _) => bail!("missing 'main' sub"),
-            (Some(_), None) => bail!("missing 'meta' section"),
+            (None, _) => bail_nospan!("missing 'main' sub"),
+            (Some(_), None) => bail_nospan!("missing 'meta' section"),
         }
     };
 
-    let mut out = StdFile::from_meta(meta).map_err(|e| anyhow!("{}", e))?;
-    out.script = _compile_main(&main_sub.0, functions)?;
+    let mut out = StdFile::from_meta(meta).map_err(|e| CompileError(Diagnostic::error().with_message(format!("{}", e))))?;
+    out.script = _compile_main(file_id, &main_sub.0, functions)?;
 
     Ok(out)
 }
 
-fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
+fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
     use crate::signature::ArgEncoding;
 
     let mut out = vec![];
@@ -272,15 +289,15 @@ fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<V
                 ast::Expr::Call { ref func, ref args } => {
                     let siggy = match functions.ins_signature(func) {
                         Some(siggy) => siggy,
-                        None => bail!("signature of {} is not known", func),
+                        None => bail_span!(file_id, stmt, "signature of {} is not known", func),
                     };
                     let opcode = match functions.resolve_aliases(func).as_ins() {
                         Some(opcode) => opcode,
-                        None => bail!("don't know how to compile function {} (not an instruction)"),
+                        None => bail_span!(file_id, stmt, "don't know how to compile function {} (not an instruction)", func),
                     };
                     let encodings = siggy.arg_encodings();
                     if encodings.len() != args.len() {
-                        bail!("wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
+                        bail_span!(file_id, stmt, "wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
                     }
 
                     out.push(Instr {
@@ -291,21 +308,21 @@ fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<V
                             ArgEncoding::Color => match **arg {
                                 ast::Expr::LitInt { value, .. } => Ok(value as u32),
                                 ast::Expr::LitFloat { .. } |
-                                ast::Expr::LitString { .. } => bail!("expected an int for arg {} of {}", index+1, func),
-                                _ => bail!("unsupported expression type in STD file"),
+                                ast::Expr::LitString { .. } => bail_span!(file_id, stmt, "expected an int for arg {} of {}", index+1, func),
+                                _ => bail_span!(file_id, stmt, "unsupported expression type in STD file"),
                             },
                             ArgEncoding::Float => match **arg {
                                 ast::Expr::LitFloat { value, .. } => Ok(value.to_bits()),
                                 ast::Expr::LitInt { .. } |
-                                ast::Expr::LitString { .. } => bail!("expected a float for arg {} of {}", index+1, func),
-                                _ => bail!("unsupported expression type in STD file"),
+                                ast::Expr::LitString { .. } => bail_span!(file_id, stmt, "expected a float for arg {} of {}", index+1, func),
+                                _ => bail_span!(file_id, stmt, "unsupported expression type in STD file"),
                             },
                         }).collect::<Result<_, _>>()?,
                     });
                 },
-                _ => bail!("unsupported expression type in STD file"), // FIXME: give location info
+                _ => bail_span!(file_id, stmt, "unsupported expression type in STD file"), // FIXME: give location info
             },
-            _ => bail!("unsupported statement type in STD file"), // FIXME: give location info
+            _ => bail_span!(file_id, stmt, "unsupported statement type in STD file"), // FIXME: give location info
         }
     }
     Ok(out)

@@ -1,13 +1,57 @@
-//! Source code locations (borrowed from [qluon])
+//! Source code locations (some parts borrowed from [qluon])
 //!
 //! [qluon]: https://github.com/gluon-lang/gluon/blob/master/base/src/pos.rs
 
 use std::fmt;
 use std::borrow::Cow;
 
-pub use codespan::Files;
+pub type FileId = usize;
+use codespan_reporting::{files as cs_files};
 pub use codespan::Span;
 pub use codespan::{ByteIndex as BytePos};
+pub type Files = NonUtf8Files;
+
+/// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
+#[derive(Debug, Clone)]
+pub struct NonUtf8Files {
+    inner: cs_files::SimpleFiles<String, String>,
+}
+
+impl NonUtf8Files {
+    pub fn new() -> Self { NonUtf8Files { inner: cs_files::SimpleFiles::new() } }
+
+    pub fn add(&mut self, name: impl AsRef<std::path::Path>, source: &[u8]) -> FileId {
+        self.inner.add(
+            name.as_ref().to_string_lossy().into_owned(),
+            prepare_diagnostic_text_source(source).into(),
+        )
+    }
+    pub fn source(&mut self, file_id: FileId) -> Result<&[u8], cs_files::Error> {
+        <_ as cs_files::Files>::source(&self.inner, file_id)
+            .map(|s| s.as_bytes())
+    }
+    pub fn get(&mut self, file_id: FileId) -> Result<&cs_files::SimpleFile<String, String>, cs_files::Error> {
+        self.inner.get(file_id)
+    }
+}
+
+impl<'a> cs_files::Files<'a> for NonUtf8Files {
+    type FileId = FileId;
+    type Name = String;
+    type Source = &'a str;
+
+    // Just delegate everything
+    fn name(&self, file_id: FileId) -> Result<String, cs_files::Error> { self.inner.name(file_id) }
+
+    fn source(&self, file_id: FileId) -> Result<&str, cs_files::Error> { self.inner.source(file_id) }
+
+    fn line_index(&self, file_id: FileId, byte_index: usize) -> Result<usize, cs_files::Error> {
+        self.inner.line_index(file_id, byte_index)
+    }
+    fn line_range(&self, file_id: FileId, line_index: usize) -> Result<std::ops::Range<usize>, cs_files::Error> {
+        self.inner.line_range(file_id, line_index)
+    }
+}
 
 /// A version of `from_utf8_lossy` that preserves byte positions.
 ///
@@ -16,7 +60,7 @@ pub use codespan::{ByteIndex as BytePos};
 /// It accomplishes this by using `?` as the replacement character, which only takes a single byte
 /// and can thus easily fill arbitrarily-sized spaces, unlike `U+FFFD REPLACEMENT CHARACTER`
 /// which takes three bytes.
-pub fn prepare_diagnostic_text_source(s: &[u8]) -> Cow<str> {
+fn prepare_diagnostic_text_source(s: &[u8]) -> Cow<str> {
     match std::str::from_utf8(s) {
         Ok(valid) => Cow::Borrowed(valid),
         Err(error) => {

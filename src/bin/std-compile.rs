@@ -36,6 +36,7 @@ fn main() {
 
 fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
     use ecl_parser::Parse;
+    use codespan_reporting::term::{self, termcolor as tc};
 
     let functions = {
         let eclmap: ecl_parser::Eclmap = std::fs::read_to_string("src/std-14.stdm").unwrap().parse().unwrap();
@@ -44,12 +45,24 @@ fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
         functions
     };
 
-    let text = std::fs::read(path).unwrap();
+    let text = std::fs::read(&path).unwrap();
     let script = match ecl_parser::Script::parse(&text) {
         Ok(x) => x,
         Err(e) => panic!("{}", e),
     };
-    let std = ecl_parser::std::StdFile::compile(&script, &functions).unwrap();
+    let mut files = ecl_parser::pos::Files::new();
+    let file_id = files.add(&path, &text);
+
+    let std = match ecl_parser::std::StdFile::compile(file_id, &script, &functions) {
+        Ok(x) => x,
+        Err(e) => {
+            let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
+            let config = term::Config::default();
+            term::emit(&mut writer.lock(), &config, &files, &e.0).unwrap();
+            return
+        },
+    };
+
     let mut out = std::fs::File::create(output).unwrap();
     ecl_parser::std::write_std_10(&mut out, &std).unwrap();
 }
