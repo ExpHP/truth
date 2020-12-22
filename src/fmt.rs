@@ -455,24 +455,6 @@ impl Format for ast::FuncKeyword {
     }
 }
 
-impl Format for ast::FileListKeyword {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::FileListKeyword::Anim => "anim",
-            ast::FileListKeyword::Ecli => "ecli",
-        })
-    }
-}
-
-impl Format for ast::MetaKeyword {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::MetaKeyword::Entry => "entry",
-            ast::MetaKeyword::Meta => "meta",
-        })
-    }
-}
-
 // =============================================================================
 // Statements
 
@@ -617,31 +599,6 @@ impl Format for ast::CallAsyncKind {
     }
 }
 
-impl Format for ast::CondKind {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::CondKind::If => "if",
-            ast::CondKind::Unless => "unless",
-        })
-    }
-}
-
-impl Format for ast::AssignOpKind {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::AssignOpKind::Assign => "=",
-            ast::AssignOpKind::Add => "+=",
-            ast::AssignOpKind::Sub => "-=",
-            ast::AssignOpKind::Mul => "*=",
-            ast::AssignOpKind::Div => "/=",
-            ast::AssignOpKind::Rem => "%=",
-            ast::AssignOpKind::BitOr => "|=",
-            ast::AssignOpKind::BitXor => "^=",
-            ast::AssignOpKind::BitAnd => "&=",
-        })
-    }
-}
-
 impl Format for ast::Block {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::Block(statements) = self;
@@ -687,73 +644,19 @@ impl Format for ast::Var {
         match self {
             ast::Var::Named { ty, ident } => match ty {
                 None => out.fmt( ident),
-                Some(ast::TypeKind::Int) => out.fmt(("$", ident)),
-                Some(ast::TypeKind::Float) => out.fmt(("%", ident)),
-                Some(ast::TypeKind::Void) => panic!("unexpected void variable"),
+                Some(ast::VarReadType::Int) => out.fmt(("$", ident)),
+                Some(ast::VarReadType::Float) => out.fmt(("%", ident)),
             },
             ast::Var::Unnamed { ty, number } => match ty {
-                ast::TypeKind::Int => out.fmt(("[", number, "]")),
-                ast::TypeKind::Float => out.fmt(("[", *number as f32, "]")),
-                ast::TypeKind::Void => panic!("unexpected void variable"),
+                ast::VarReadType::Int => out.fmt(("[", number, "]")),
+                ast::VarReadType::Float => out.fmt(("[", *number as f32, "]")),
             },
         }
     }
 }
 
-impl Format for ast::VarTypeKeyword {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::VarTypeKeyword::Int => "int",
-            ast::VarTypeKeyword::Float => "float",
-            ast::VarTypeKeyword::Var => "var",
-        })
-    }
-}
-
-impl Format for ast::BinopKind {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::BinopKind::Add => "+",
-            ast::BinopKind::Sub => "-",
-            ast::BinopKind::Mul => "*",
-            ast::BinopKind::Div => "/",
-            ast::BinopKind::Rem => "%",
-            ast::BinopKind::Eq => "==",
-            ast::BinopKind::Ne => "!=",
-            ast::BinopKind::Lt => "<",
-            ast::BinopKind::Le => "<=",
-            ast::BinopKind::Gt => ">",
-            ast::BinopKind::Ge => ">=",
-            ast::BinopKind::BitOr => "|",
-            ast::BinopKind::BitXor => "^",
-            ast::BinopKind::BitAnd => "&",
-            ast::BinopKind::LogicOr => "||",
-            ast::BinopKind::LogicAnd => "&&",
-        })
-    }
-}
-
-impl Format for ast::UnopKind {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::UnopKind::Not => "!",
-            ast::UnopKind::Neg => "-",
-        })
-    }
-}
-
 // =============================================================================
 // Basic tokens
-
-impl Format for ast::TypeKind {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt( match self {
-            ast::TypeKind::Int => "int",
-            ast::TypeKind::Float => "float",
-            ast::TypeKind::Void => "void",
-        })
-    }
-}
 
 impl Format for Ident {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {

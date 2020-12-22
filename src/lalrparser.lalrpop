@@ -6,10 +6,10 @@ use crate::ident::Ident;
 use crate::ast::{
     self,
     Script, MetaKeyword,
-    Item, FuncKeyword, FileListKeyword, AssignOpKind,
+    Item, FuncKeyword, FuncReturnType, FileListKeyword, AssignOpKind,
     Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
-    Expr, BinopKind, UnopKind, Var, TypeKind, LitString,
-    DifficultyLabel, VarTypeKeyword,
+    Expr, BinopKind, UnopKind, Var, VarDeclKeyword, VarReadType, LitString,
+    DifficultyLabel,
 };
 use crate::lalrparser_util::{parse_ascii, i32_from_ascii_radix, push};
 
@@ -142,7 +142,7 @@ Script: Script = {
 
 Item: Item = {
     <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
-        "(" <params:SeparatedTrailing<(<VarTypeKeyword> <Ident>), ",">> ")"
+        "(" <params:SeparatedTrailing<(<VarDeclKeyword> <Ident>), ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
     "script" <number:LitIntSigned?> <name:Ident> _TimeStackEnter <code:Block> _TimeStackPop
@@ -154,9 +154,9 @@ Item: Item = {
 };
 
 FuncKeyword: FuncKeyword = {
-    "int" => FuncKeyword::Type(TypeKind::Int),
-    "float" => FuncKeyword::Type(TypeKind::Float),
-    "void" => FuncKeyword::Type(TypeKind::Void),
+    "int" => FuncKeyword::Type(FuncReturnType::Int),
+    "float" => FuncKeyword::Type(FuncReturnType::Float),
+    "void" => FuncKeyword::Type(FuncReturnType::Void),
     "sub" => FuncKeyword::Sub,
     "timeline" => FuncKeyword::Timeline,
 };
@@ -217,7 +217,7 @@ StmtBody: StmtBody = {
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Expr> ";" => StmtBody::Expr(e),
     <var:Var> <op:OpAssign> <value:Expr> ";" => StmtBody::Assignment { var, op, value },
-    <ty:VarTypeKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
+    <ty:VarDeclKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
     },
     StmtSpecialCall,
@@ -468,10 +468,10 @@ LitIntUnsigned: i32 = {
 
 Var: Var = {
     <ident:Ident> => Var::Named { ty: None, ident },
-    "$" <ident:Ident> => Var::Named { ty: Some(TypeKind::Int), ident },
-    "%" <ident:Ident> => Var::Named { ty: Some(TypeKind::Float), ident },
+    "$" <ident:Ident> => Var::Named { ty: Some(VarReadType::Int), ident },
+    "%" <ident:Ident> => Var::Named { ty: Some(VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(Var::Unnamed { ty: TypeKind::Int, number: i32::wrapping_mul(x, sign) })
+        Ok(Var::Unnamed { ty: VarReadType::Int, number: i32::wrapping_mul(x, sign) })
     },
     "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
@@ -481,14 +481,14 @@ Var: Var = {
         if number as f32 != x * sign as f32 {
             return Err(ParseError::User { error: "non-integer variable ID" })
         }
-        Ok(Var::Unnamed { ty: TypeKind::Float, number })
+        Ok(Var::Unnamed { ty: VarReadType::Float, number })
     },
 };
 
-VarTypeKeyword: VarTypeKeyword = {
-    "int" => VarTypeKeyword::Int,
-    "float" => VarTypeKeyword::Float,
-    "var" => VarTypeKeyword::Var,
+VarDeclKeyword: VarDeclKeyword = {
+    "int" => VarDeclKeyword::Int,
+    "float" => VarDeclKeyword::Float,
+    "var" => VarDeclKeyword::Var,
 };
 
 OptionalMinus: i32 = {

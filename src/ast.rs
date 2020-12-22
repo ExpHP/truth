@@ -3,6 +3,41 @@ use bstr::{BString};
 use crate::meta::Meta;
 use crate::ident::Ident;
 
+// Quick little util for stringly enums.
+macro_rules! string_enum {
+    (
+        $(#[$($Enum_attr:tt)+])*
+        $vis:vis enum $Enum:ident {
+            $(
+                $(#[doc = $variant_doc:literal])*
+                #[str = $variant_str:literal] $Variant:ident,
+            )*
+        }
+    ) => {
+        $(#[$($Enum_attr)+])*
+        $vis enum $Enum {
+            $( $(#[doc = $variant_doc])* $Variant, )*
+        }
+
+        // used mainly for error messages
+        impl ::std::fmt::Display for $Enum {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                ::std::fmt::Display::fmt(match self {
+                    $( $Enum::$Variant => $variant_str, )*
+                }, f)
+            }
+        }
+
+        impl crate::fmt::Format for $Enum {
+            fn fmt<W: ::std::io::Write>(&self, out: &mut crate::fmt::Formatter<W>) -> crate::fmt::Result {
+                out.fmt(format_args!("{}", self))
+            }
+        }
+    }
+}
+
+// =============================================================================
+
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Script {
@@ -15,7 +50,7 @@ pub enum Item {
         inline: bool,
         keyword: FuncKeyword,
         name: Ident,
-        params: Vec<(VarTypeKeyword, Ident)>,
+        params: Vec<(VarDeclKeyword, Ident)>,
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
@@ -37,22 +72,35 @@ pub enum Item {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FuncKeyword {
-    Type(TypeKind),
+    Type(FuncReturnType),
     Sub,
     Timeline,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum FileListKeyword {
-    Anim, Ecli,
+string_enum!{
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum FuncReturnType {
+        #[str = "int"] Int,
+        #[str = "float"] Float,
+        #[str = "void"] Void,
+    }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MetaKeyword {
-    /// `entry` block for a texture in ANM.
-    Entry,
-    /// `meta`
-    Meta,
+string_enum!{
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum FileListKeyword {
+        #[str = "anim"] Anim,
+        #[str = "ecli"] Ecli,
+    }
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum MetaKeyword {
+        /// `entry` block for a texture in ANM.
+        #[str = "entry"] Entry,
+        #[str = "meta"] Meta,
+    }
 }
 
 // =============================================================================
@@ -109,8 +157,7 @@ pub enum StmtBody {
         value: Box<Expr>,
     },
     Declaration {
-        /// This is never `Void`. `None` means unspecified type (`var`).
-        ty: VarTypeKeyword,
+        ty: VarDeclKeyword,
         vars: Vec<(Ident, Option<Box<Expr>>)>,
     },
     /// An explicit subroutine call. (ECL only)
@@ -153,19 +200,30 @@ pub enum CallAsyncKind {
     CallAsyncId(Box<Expr>),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum CondKind {
-    If, Unless,
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum CondKind {
+        #[str = "if"] If,
+        #[str = "unless"] Unless,
+    }
 }
 
 // TODO: Parse
 pub type DifficultyLabel = BString;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AssignOpKind {
-    Assign,
-    Add, Sub, Mul, Div, Rem,
-    BitOr, BitXor, BitAnd,
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum AssignOpKind {
+        #[str = "="] Assign,
+        #[str = "+="] Add,
+        #[str = "-="] Sub,
+        #[str = "*="] Mul,
+        #[str = "/="] Div,
+        #[str = "%="] Rem,
+        #[str = "|="] BitOr,
+        #[str = "^="] BitXor,
+        #[str = "&="] BitAnd,
+    }
 }
 
 /// A braced series of statements, typically written at an increased
@@ -205,26 +263,43 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Var {
     Named {
-        ty: Option<TypeKind>,
+        ty: Option<VarReadType>,
         ident: Ident,
     },
     Unnamed {
-        ty: TypeKind,
+        ty: VarReadType,
         number: i32,
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BinopKind {
-    Add, Sub, Mul, Div, Rem,
-    Eq, Ne, Lt, Le, Gt, Ge,
-    BitOr, BitXor, BitAnd,
-    LogicOr, LogicAnd,
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum BinopKind {
+        #[str = "+"] Add,
+        #[str = "-"] Sub,
+        #[str = "*"] Mul,
+        #[str = "/"] Div,
+        #[str = "%"] Rem,
+        #[str = "=="] Eq,
+        #[str = "!="] Ne,
+        #[str = "<"] Lt,
+        #[str = "<="] Le,
+        #[str = ">"] Gt,
+        #[str = ">="] Ge,
+        #[str = "|"] BitOr,
+        #[str = "^"] BitXor,
+        #[str = "&"] BitAnd,
+        #[str = "||"] LogicOr,
+        #[str = "&&"] LogicAnd,
+    }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum UnopKind {
-    Not, Neg,
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum UnopKind {
+        #[str = "!"] Not,
+        #[str = "-"] Neg,
+    }
 }
 
 impl UnopKind {
@@ -281,7 +356,7 @@ impl Expr {
 }
 
 impl Var {
-    pub fn ty(&self) -> Option<TypeKind> {
+    pub fn ty(&self) -> Option<VarReadType> {
         match self {
             &Var::Unnamed { ty, .. } => Some(ty),
             &Var::Named { ty, .. } => ty,
@@ -289,11 +364,13 @@ impl Var {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VarTypeKeyword {
-    Int,
-    Float,
-    Var,
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum VarDeclKeyword {
+        #[str = "int"] Int,
+        #[str = "float"] Float,
+        #[str = "var"] Var,
+    }
 }
 
 impl From<i32> for Box<Expr> {
@@ -305,11 +382,14 @@ impl From<f32> for Box<Expr> {
 
 // =============================================================================
 
+/// The hinted type of a variable at a usage site.
+///
+/// E.g. a variable's type may be hinted with the use of `$` or `%` prefixes.
+/// (or it might not be hinted, meaning its type must be determined through other means)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TypeKind {
+pub enum VarReadType {
     Int,
     Float,
-    Void,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -106,18 +106,18 @@ mod tests {
 
     #[test]
     fn var_parse() {
-        use ast::{Var, TypeKind};
+        use ast::{Var, VarReadType};
 
-        assert_eq!(Var::parse("[244]"), Ok(Var::Unnamed { ty: TypeKind::Int, number: 244 }));
-        assert_eq!(Var::parse("[-99998]"), Ok(Var::Unnamed { ty: TypeKind::Int, number: -99998 }));
-        assert_eq!(Var::parse("[244f]"), Ok(Var::Unnamed { ty: TypeKind::Float, number: 244 }));
-        assert_eq!(Var::parse("[-99998.0]"), Ok(Var::Unnamed { ty: TypeKind::Float, number: -99998 }));
+        assert_eq!(Var::parse("[244]"), Ok(Var::Unnamed { ty: VarReadType::Int, number: 244 }));
+        assert_eq!(Var::parse("[-99998]"), Ok(Var::Unnamed { ty: VarReadType::Int, number: -99998 }));
+        assert_eq!(Var::parse("[244f]"), Ok(Var::Unnamed { ty: VarReadType::Float, number: 244 }));
+        assert_eq!(Var::parse("[-99998.0]"), Ok(Var::Unnamed { ty: VarReadType::Float, number: -99998 }));
         assert!(Var::parse("[-99998.5]").is_err());
         assert!(Var::parse("[-99998e5]").is_err());
         // FIXME: don't panic
         // assert!(parse("[12412151261243414]").is_err());
         assert_eq!(Var::parse("lmao"), Ok(Var::Named { ty: None, ident: "lmao".parse().unwrap() }));
-        assert_eq!(Var::parse("$lmao"), Ok(Var::Named { ty: Some(TypeKind::Int), ident: "lmao".parse().unwrap() }));
-        assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty: Some(TypeKind::Float), ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("$lmao"), Ok(Var::Named { ty: Some(VarReadType::Int), ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty: Some(VarReadType::Float), ident: "lmao".parse().unwrap() }));
     }
 }
