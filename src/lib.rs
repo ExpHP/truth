@@ -64,6 +64,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_color() {
+        // Even if we don't gracefully handle arbitrarily large integer literals,
+        // we should at least be able to parse unsigned ints with MSB = 1,
+        // which often show up in colors.
+        assert_eq!(
+            ast::Expr::parse("0xff000000").unwrap().const_eval_int(),
+            Some(0xff000000_u32 as i32),
+        );
+    }
+
+    #[test]
     fn time_labels() {
         let item = ast::Item::parse(r#"void main() {
             a();  // should start at t=0
