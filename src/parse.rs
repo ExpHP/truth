@@ -1,9 +1,10 @@
 use crate::lalrparser;
 use crate::{ast, meta};
 use crate::lexer::{Lexer, Token};
+use crate::pos::BytePos;
 
 pub type ErrorPayload = &'static str; // FIXME: this is the default for LALRPOP
-pub type Error<'input> = lalrpop_util::ParseError<usize, Token<'input>, ErrorPayload>;
+pub type Error<'input> = lalrpop_util::ParseError<BytePos, Token<'input>, ErrorPayload>;
 pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 
 pub trait Parse<'input>: Sized {
@@ -70,7 +71,7 @@ fn call_anything_parser<'input>(
     state: &mut State,
     lexer: Lexer<'input>,
 ) -> Result<'input, AnythingValue> {
-    let offset = lexer.offset();
+    let offset = BytePos(lexer.offset() as u32);
     let lexer = std::iter::once(Ok((offset, Token::VirtualDispatch(tag), offset))).chain(lexer);
     lalrparser::AnythingParser::new().parse(state, lexer)
 }

@@ -6,7 +6,7 @@ use regex::bytes::{Regex, RegexBuilder};
 use bstr::{BStr, ByteSlice};
 use lazy_static::lazy_static;
 
-pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
+use crate::pos::{BytePos, };
 
 // This is a simple lexer that tries to keep most of the maintainability
 // of the default lexer (though it is almost certainly nowhere near as fast).
@@ -249,7 +249,7 @@ macro_rules! impl_token_matchers {
 with_each_terminal!(impl_token_matchers);
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Spanned<Token<'a>, usize, LexerError>;
+    type Item = Result<(BytePos, Token<'a>, BytePos), LexerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(ws_match) = WHITESPACE_REGEX.find(self.remainder) {
@@ -286,7 +286,7 @@ impl<'a> Iterator for Lexer<'a> {
         let start = self.offset;
         self.offset += token.len();
         self.remainder = &self.remainder[token.len()..];
-        Some(Ok((start, token, self.offset)))
+        Some(Ok((BytePos(start as u32), token, BytePos(self.offset as u32))))
     }
 }
 
@@ -294,32 +294,36 @@ impl<'a> Iterator for Lexer<'a> {
 mod tests {
     use super::*;
 
-    fn tokenize(s: &str) -> Vec<(usize, Token<'_>, usize)> {
+    fn tokenize(s: &str) -> Vec<(BytePos, Token<'_>, BytePos)> {
         Lexer::new(s.as_ref()).map(|res| res.unwrap()).collect::<Vec<_>>()
     }
 
     #[test]
     fn ident_vs_keyword() {
-        assert_eq!(tokenize("int"), vec![(0, Token::Int, 3)]);
-        assert_eq!(tokenize("intint"), vec![(0, Token::Ident("intint".as_ref()), 6)]);
-        assert_eq!(tokenize("int int"), vec![(0, Token::Int, 3), (4, Token::Int, 7)]);
+        let p = BytePos;
+        assert_eq!(tokenize("int"), vec![(p(0), Token::Int, p(3))]);
+        assert_eq!(tokenize("intint"), vec![(p(0), Token::Ident("intint".as_ref()), p(6))]);
+        assert_eq!(tokenize("int int"), vec![(p(0), Token::Int, p(3)), (p(4), Token::Int, p(7))]);
     }
 
     #[test]
     fn no_whitespace() {
-        assert_eq!(tokenize("+("), vec![(0, Token::Plus, 1), (1, Token::ParenOpen, 2)]);
+        let p = BytePos;
+        assert_eq!(tokenize("+("), vec![(p(0), Token::Plus, p(1)), (p(1), Token::ParenOpen, p(2))]);
     }
 
     #[test]
     fn whitespace_at_end() {
-        assert_eq!(tokenize("+ "), vec![(0, Token::Plus, 1)]);
+        let p = BytePos;
+        assert_eq!(tokenize("+ "), vec![(p(0), Token::Plus, p(1))]);
     }
 
     #[test]
     fn multi_whitespace() {
+        let p = BytePos;
         assert_eq!(
             tokenize("  \r\n  /* lol */ // \n\n\n 32"),
-            vec![(23, Token::LitIntDec("32".as_ref()), 25)],
+            vec![(p(23), Token::LitIntDec("32".as_ref()), p(25))],
         );
     }
 }

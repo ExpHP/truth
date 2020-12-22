@@ -3,6 +3,7 @@ use bstr::{BStr, ByteSlice};
 use crate::lexer::{Token};
 use crate::meta::Meta;
 use crate::ident::Ident;
+use crate::pos::{Spanned, BytePos};
 use crate::ast::{
     self,
     Script, MetaKeyword,
@@ -16,7 +17,7 @@ use crate::lalrparser_util::{parse_ascii, u32_from_ascii_radix, push};
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
 
 extern {
-    type Location = usize;
+    type Location = BytePos;
     type Error = crate::parse::ErrorPayload;
 
     enum Token<'input> {
@@ -302,7 +303,7 @@ DifficultyLabel: DifficultyLabel = {
 };
 
 Block: Block = {
-    "{" <code:Stmt+> "}" => Block(code),
+    "{" <code:Spanned<Stmt>+> "}" => Block(code),
 };
 
 // ==================================================
@@ -507,6 +508,11 @@ Ident: Ident = {
 
 // ==================================================
 // Utility
+
+#[inline]
+Spanned<Rule>: Spanned<Rule> = {
+    <l: @L> <rule: Rule> <r: @R> => crate::pos::spanned2(l, r, rule),
+}
 
 /// Parse a separated sequence with an optional trailing separator.
 SeparatedTrailing<T, Sep>: Vec<T> = {

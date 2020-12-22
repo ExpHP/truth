@@ -2,6 +2,7 @@ use bstr::{BString};
 
 use crate::meta::Meta;
 use crate::ident::Ident;
+use crate::pos::Spanned;
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {
@@ -229,7 +230,7 @@ string_enum! {
 /// A braced series of statements, typically written at an increased
 /// indentation level.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Block(pub Vec<Stmt>);
+pub struct Block(pub Vec<Spanned<Stmt>>);
 
 // =============================================================================
 

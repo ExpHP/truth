@@ -4,6 +4,7 @@ use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
 use anyhow::{anyhow, bail};
 
+use crate::pos::Spanned;
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
@@ -196,11 +197,11 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
             },
             None => args.iter().map(|&x| <Box<Expr>>::from(x as i32)).collect(),
         };
-        ast::Stmt {
+        Spanned::from(ast::Stmt {
             time: *time,
             labels: vec![],
             body: ast::StmtBody::Expr(Box::new(Expr::Call { func: ins_ident, args })),
-        }
+        })
     }).collect();
 
     ast::Script {
@@ -261,7 +262,7 @@ fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, 
     Ok(out)
 }
 
-fn _compile_main(code: &[ast::Stmt], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
+fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
     use crate::signature::ArgEncoding;
 
     let mut out = vec![];

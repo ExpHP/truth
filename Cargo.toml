@@ -17,6 +17,7 @@ indexmap = "1.6"
 byteorder = "1.3"
 thiserror = "1.0"
 anyhow = "1.0"
+codespan = "0.11"
 
 # This is used at build time, so optimizing it immensely speeds up debug builds.
 [profile.dev.package.lalrpop]

@@ -21,6 +21,9 @@ pub mod eclmap;
 
 pub mod signature;
 
+pub use pos::{Span, Spanned};
+pub mod pos;
+
 pub use ident::{Ident, ParseIdentError};
 mod ident;
 

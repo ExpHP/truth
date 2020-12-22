@@ -4,6 +4,7 @@ use std::io::{self, Write};
 use crate::ast;
 use crate::meta::Meta;
 use crate::ident::Ident;
+use crate::pos::Spanned;
 
 // We can't impl Display because that's UTF-8 based.
 /// Trait for displaying Touhou script code.
@@ -321,6 +322,11 @@ impl<T: Format + ?Sized> Format for &T {
     }
 }
 impl<T: Format + ?Sized> Format for Box<T> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        Format::fmt(&**self, out)
+    }
+}
+impl<T: Format + ?Sized> Format for Spanned<T> {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         Format::fmt(&**self, out)
     }
