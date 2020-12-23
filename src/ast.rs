@@ -237,11 +237,11 @@ pub struct Block(pub Vec<Spanned<Stmt>>);
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Ternary {
-        cond: Box<Expr>,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        cond: Box<Spanned<Expr>>,
+        left: Box<Spanned<Expr>>,
+        right: Box<Spanned<Expr>>,
     },
-    Binop(Box<Expr>, BinopKind, Box<Expr>),
+    Binop(Box<Spanned<Expr>>, BinopKind, Box<Spanned<Expr>>),
     Call {
         func: Ident,
         args: Vec<Spanned<Expr>>,
@@ -249,7 +249,7 @@ pub enum Expr {
     Decrement {
         var: Var,
     },
-    Unop(UnopKind, Box<Expr>),
+    Unop(UnopKind, Box<Spanned<Expr>>),
     LitInt {
         value: i32,
         /// A hint to the formatter that it should use hexadecimal.

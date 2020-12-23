@@ -2,17 +2,14 @@ use std::io::{self, Read, Cursor, Write, Seek};
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
-use codespan_reporting::diagnostic::{Diagnostic, Label};
+use crate::error::Diagnostic;
 
+use crate::CompileError;
 use crate::pos::{Spanned, FileId};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
 use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
-
-#[derive(thiserror::Error, Debug)]
-#[error("{}", .0.message)]
-pub struct CompileError(pub Diagnostic<FileId>);
 
 // =============================================================================
 
@@ -220,21 +217,6 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
             },
         ],
     }
-}
-
-macro_rules! bail_span {
-    ($file_id:expr, $span:expr, $($fmt_args:tt)+) => {{
-        return Err(CompileError(Diagnostic::error()
-            .with_labels(vec![Label::primary($file_id, $span.span).with_message(format!($($fmt_args)+))])
-        ));
-    }}
-}
-macro_rules! bail_nospan {
-    ($($fmt_args:tt)+) => {{
-        return Err(CompileError(Diagnostic::error()
-            .with_message(format!($($fmt_args)+))
-        ));
-    }}
 }
 
 fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {

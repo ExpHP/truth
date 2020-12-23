@@ -1,3 +1,37 @@
+
+pub use error::CompileError;
+#[macro_use]
+mod error {
+    pub use ::codespan_reporting::diagnostic::{Diagnostic, Label};
+
+    // Lazy-ass macros to generate Diagnostics until we have something better.
+    // TODO: get rid of these
+    macro_rules! bail_span {
+        ($file_id:expr, $span:expr, $($fmt_args:tt)+) => {{
+            return Err(CompileError({
+                crate::error::Diagnostic::error()
+                    .with_labels(vec![
+                        crate::error::Label::primary($file_id, $span.span)
+                            .with_message(format!($($fmt_args)+))
+                    ])
+            }));
+        }};
+    }
+    macro_rules! bail_nospan {
+        ($($fmt_args:tt)+) => {{
+            return Err(CompileError({
+                crate::error::Diagnostic::error()
+                    .with_message(format!($($fmt_args)+))
+            }));
+        }};
+    }
+
+    #[derive(thiserror::Error, Debug)]
+    #[error("{}", .0.message)]
+    pub struct CompileError(pub Diagnostic<crate::pos::FileId>);
+}
+
+
 pub use ast::*;
 mod ast;
 pub use fmt::Format;

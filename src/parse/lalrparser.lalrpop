@@ -311,19 +311,22 @@ Block: Block = {
 
 // Precedence is encoded in the use of these macros
 RightTernary<NextTier>: Expr = {
-    <cond:Box<NextTier>>
-        "?" <left:Box<NextTier>>
-        ":" <right:Box<RightTernary<NextTier>>>
+    <cond:Box<Spanned<NextTier>>>
+        "?" <left:Box<Spanned<NextTier>>>
+        ":" <right:Box<Spanned<RightTernary<NextTier>>>>
         => Expr::Ternary { cond, left, right },
     NextTier,
 };
 LeftBinop<Op, NextTier>: Expr = {
-    <a:Box<LeftBinop<Op, NextTier>>> <op:Op> <b:Box<NextTier>> => Expr::Binop(a, op, b),
+    <a:Box<Spanned<LeftBinop<Op, NextTier>>>>
+        <op:Op>
+        <b:Box<Spanned<NextTier>>>
+        => Expr::Binop(a, op, b),
     NextTier,
 };
 LeftUnop<Op, NextTier>: Expr = {
     // no recursion; only allow one unary op
-    <op:Op> <e:Box<NextTier>> => Expr::Unop(op, e),
+    <op:Op> <e:Box<Spanned<NextTier>>> => Expr::Unop(op, e),
     NextTier,
 };
 
