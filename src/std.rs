@@ -189,20 +189,20 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
                 let encodings = siggy.arg_encodings();
                 assert_eq!(encodings.len(), args.len()); // FIXME: return Error
                 encodings.iter().zip(args).map(|(enc, &arg)| match enc {
-                    ArgEncoding::Dword => <Box<Expr>>::from(arg as i32),
-                    ArgEncoding::Color => Box::new(Expr::LitInt {
+                    ArgEncoding::Dword => <Spanned<Expr>>::new(arg as i32),
+                    ArgEncoding::Color => Spanned::new(Expr::LitInt {
                         value: arg as i32,
                         hex: true,
                     }),
-                    ArgEncoding::Float => <Box<Expr>>::from(f32::from_bits(arg)),
+                    ArgEncoding::Float => <Spanned<Expr>>::new(f32::from_bits(arg)),
                 }).collect()
             },
-            None => args.iter().map(|&x| <Box<Expr>>::from(x as i32)).collect(),
+            None => args.iter().map(|&x| <Spanned<Expr>>::new(x as i32)).collect(),
         };
         Spanned::from(ast::Stmt {
             time: *time,
             labels: vec![],
-            body: ast::StmtBody::Expr(Box::new(Expr::Call { func: ins_ident, args })),
+            body: ast::StmtBody::Expr(Expr::Call { func: ins_ident, args }),
         })
     }).collect();
 
@@ -285,8 +285,8 @@ fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Funct
     let mut out = vec![];
     for stmt in code {
         match &stmt.body {
-            ast::StmtBody::Expr(e) => match **e {
-                ast::Expr::Call { ref func, ref args } => {
+            ast::StmtBody::Expr(e) => match e {
+                ast::Expr::Call { func, args } => {
                     let siggy = match functions.ins_signature(func) {
                         Some(siggy) => siggy,
                         None => bail_span!(file_id, stmt, "signature of {} is not known", func),
@@ -308,14 +308,14 @@ fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Funct
                             ArgEncoding::Color => match **arg {
                                 ast::Expr::LitInt { value, .. } => Ok(value as u32),
                                 ast::Expr::LitFloat { .. } |
-                                ast::Expr::LitString { .. } => bail_span!(file_id, stmt, "expected an int for arg {} of {}", index+1, func),
-                                _ => bail_span!(file_id, stmt, "unsupported expression type in STD file"),
+                                ast::Expr::LitString { .. } => bail_span!(file_id, arg, "expected an int for arg {} of {}", index+1, func),
+                                _ => bail_span!(file_id, arg, "unsupported expression type in STD file"),
                             },
                             ArgEncoding::Float => match **arg {
                                 ast::Expr::LitFloat { value, .. } => Ok(value.to_bits()),
                                 ast::Expr::LitInt { .. } |
-                                ast::Expr::LitString { .. } => bail_span!(file_id, stmt, "expected a float for arg {} of {}", index+1, func),
-                                _ => bail_span!(file_id, stmt, "unsupported expression type in STD file"),
+                                ast::Expr::LitString { .. } => bail_span!(file_id, arg, "expected a float for arg {} of {}", index+1, func),
+                                _ => bail_span!(file_id, arg, "unsupported expression type in STD file"),
                             },
                         }).collect::<Result<_, _>>()?,
                     });

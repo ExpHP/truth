@@ -127,7 +127,7 @@ extern {
 pub Anything: crate::parse::AnythingValue = {
     Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
     Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
-    Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(*x),
+    Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(x),
     Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
     Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
     Dispatch_LitString <x:LitString> => crate::parse::AnythingValue::LitString(x),
@@ -255,10 +255,10 @@ StmtSpecialCall: StmtBody = {
 
 CallAsyncKind: ast::CallAsyncKind = {
     "async" => ast::CallAsyncKind::CallAsync,
-    "async" <id:Expr> => ast::CallAsyncKind::CallAsyncId(id),
+    "async" <id:Box<Expr>> => ast::CallAsyncKind::CallAsyncId(id),
 };
 
-StmtDeclarationListItem: (Ident, Option<Box<Expr>>) = {
+StmtDeclarationListItem: (Ident, Option<Expr>) = {
     <name:Ident> => (name, None),
     <name:Ident> "=" <value:Expr> => (name, Some(value)),
 };
@@ -310,24 +310,24 @@ Block: Block = {
 // Expressions
 
 // Precedence is encoded in the use of these macros
-RightTernary<NextTier>: Box<Expr> = {
-    <cond:NextTier>
-        "?" <left:NextTier>
-        ":" <right:RightTernary<NextTier>>
-        => Box::new(Expr::Ternary { cond, left, right }),
+RightTernary<NextTier>: Expr = {
+    <cond:Box<NextTier>>
+        "?" <left:Box<NextTier>>
+        ":" <right:Box<RightTernary<NextTier>>>
+        => Expr::Ternary { cond, left, right },
     NextTier,
 };
-LeftBinop<Op, NextTier>: Box<Expr> = {
-    <a:LeftBinop<Op, NextTier>> <op:Op> <b:NextTier> => Box::new(Expr::Binop(a, op, b)),
+LeftBinop<Op, NextTier>: Expr = {
+    <a:Box<LeftBinop<Op, NextTier>>> <op:Op> <b:Box<NextTier>> => Expr::Binop(a, op, b),
     NextTier,
 };
-LeftUnop<Op, NextTier>: Box<Expr> = {
+LeftUnop<Op, NextTier>: Expr = {
     // no recursion; only allow one unary op
-    <op:Op> <e:NextTier> => Box::new(Expr::Unop(op, e)),
+    <op:Op> <e:Box<NextTier>> => Expr::Unop(op, e),
     NextTier,
 };
 
-Expr: Box<Expr> = ExprWithOpers;
+Expr: Expr = ExprWithOpers;
 
 // Operator precedence table
 ExprWithOpers = ExprTernary;
@@ -384,21 +384,21 @@ OpAssign: AssignOpKind = {
 };
 
 // Expressions that don't contain a toplevel operator
-ExprTerm: Box<Expr> = {
+ExprTerm: Expr = {
     "(" <e:Expr> ")" => e,
     <call_parts:ExprCallParts> => {
         let (func, args) = call_parts;
-        Box::new(Expr::Call { func, args })
+        Expr::Call { func, args }
     },
-    <v:Var> => Box::new(Expr::Var(v)),
-    <var:Var> "--" => Box::new(Expr::Decrement { var }),
-    <value:LitIntUnsigned> => Box::new(Expr::LitInt { value, hex: false }),
-    <value:LitFloatUnsigned> => Box::new(Expr::LitFloat { value }),
-    <x:LitString> => Box::new(Expr::LitString(x)),
+    <v:Var> => Expr::Var(v),
+    <var:Var> "--" => Expr::Decrement { var },
+    <value:LitIntUnsigned> => Expr::LitInt { value, hex: false },
+    <value:LitFloatUnsigned> => Expr::LitFloat { value },
+    <x:LitString> => Expr::LitString(x),
 };
 
-ExprCallParts: (Ident, Vec<Box<Expr>>) = {
-    <Ident> "(" <SeparatedTrailing<Expr, ",">> ")",
+ExprCallParts: (Ident, Vec<Spanned<Expr>>) = {
+    <Ident> "(" <SeparatedTrailing<Spanned<Expr>, ",">> ")",
 };
 
 // ==================================================
@@ -513,6 +513,8 @@ Ident: Ident = {
 Spanned<Rule>: Spanned<Rule> = {
     <l: @L> <rule: Rule> <r: @R> => crate::pos::spanned2(l, r, rule),
 }
+
+Box<Rule>: Box<Rule> = <r:Rule> => Box::new(r);
 
 /// Parse a separated sequence with an optional trailing separator.
 SeparatedTrailing<T, Sep>: Vec<T> = {

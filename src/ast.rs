@@ -130,20 +130,20 @@ pub enum StmtBody {
     Jump(StmtGoto),
     CondJump {
         kind: CondKind,
-        cond: Box<Expr>,
+        cond: Expr,
         jump: StmtGoto,
     },
     Return {
-        value: Option<Box<Expr>>,
+        value: Option<Expr>,
     },
     CondChain(StmtCondChain),
     While {
         is_do_while: bool,
-        cond: Box<Expr>,
+        cond: Expr,
         block: Block,
     },
     Times {
-        count: Box<Expr>,
+        count: Expr,
         block: Block,
     },
     /// Expression followed by a semicolon.
@@ -151,15 +151,15 @@ pub enum StmtBody {
     /// This is primarily for void-type "expressions" like raw instruction
     /// calls (which are grammatically indistinguishable from value-returning
     /// function calls), but may also represent a stack push in ECL.
-    Expr(Box<Expr>),
+    Expr(Expr),
     Assignment {
         var: Var,
         op: AssignOpKind,
-        value: Box<Expr>,
+        value: Expr,
     },
     Declaration {
         ty: VarDeclKeyword,
-        vars: Vec<(Ident, Option<Box<Expr>>)>,
+        vars: Vec<(Ident, Option<Expr>)>,
     },
     /// An explicit subroutine call. (ECL only)
     ///
@@ -169,7 +169,7 @@ pub enum StmtBody {
         at_symbol: bool,
         async_: Option<CallAsyncKind>,
         func: Ident,
-        args: Vec<Box<Expr>>,
+        args: Vec<Spanned<Expr>>,
     }
 }
 
@@ -191,7 +191,7 @@ pub struct StmtCondChain {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
     pub kind: CondKind,
-    pub cond: Box<Expr>,
+    pub cond: Expr,
     pub block: Block,
 }
 
@@ -244,7 +244,7 @@ pub enum Expr {
     Binop(Box<Expr>, BinopKind, Box<Expr>),
     Call {
         func: Ident,
-        args: Vec<Box<Expr>>,
+        args: Vec<Spanned<Expr>>,
     },
     Decrement {
         var: Var,
@@ -374,11 +374,11 @@ string_enum! {
     }
 }
 
-impl From<i32> for Box<Expr> {
-    fn from(value: i32) -> Box<Expr> { Box::new(Expr::LitInt { value, hex: false })}
+impl From<i32> for Expr {
+    fn from(value: i32) -> Expr { Expr::LitInt { value, hex: false } }
 }
-impl From<f32> for Box<Expr> {
-    fn from(value: f32) -> Box<Expr> { Box::new(Expr::LitFloat { value })}
+impl From<f32> for Expr {
+    fn from(value: f32) -> Expr { Expr::LitFloat { value } }
 }
 
 // =============================================================================

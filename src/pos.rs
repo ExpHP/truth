@@ -125,6 +125,15 @@ pub struct Spanned<T: ?Sized> {
     pub value: T,
 }
 
+impl<T> Spanned<T> {
+    pub fn new<U: Into<T>>(value: U) -> Self {
+        Spanned {
+            span: Span::default(),
+            value: value.into(),
+        }
+    }
+}
+
 impl<T> From<T> for Spanned<T> {
     fn from(value: T) -> Self {
         Spanned {
