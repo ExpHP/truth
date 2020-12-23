@@ -55,17 +55,20 @@ fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
 
     let std = match ecl_parser::std::StdFile::compile(file_id, &script, &functions) {
         Ok(x) => x,
-        Err(e) => {
+        Err(es) => {
             let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
             let config = {
                 let mut config = term::Config::default();
                 // Make output closer to rustc. Fewer colors overall, looks better.
                 config.styles.primary_label_error.set_intense(true);
+                config.styles.secondary_label.set_intense(true);
                 config.styles.line_number.set_intense(true);
                 config.styles.source_border.set_intense(true);
                 config
             };
-            term::emit(&mut writer.lock(), &config, &files, &e.0).unwrap();
+            for e in es.0 {
+                term::emit(&mut writer.lock(), &config, &files, &e).unwrap();
+            }
             return
         },
     };

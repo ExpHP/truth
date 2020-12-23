@@ -2,33 +2,36 @@
 pub use error::CompileError;
 #[macro_use]
 mod error {
-    pub use ::codespan_reporting::diagnostic::{Diagnostic, Label};
+    use crate::pos::FileId;
+
+    pub type Diagnostic = ::codespan_reporting::diagnostic::Diagnostic<FileId>;
+    pub type Label = ::codespan_reporting::diagnostic::Label<FileId>;
 
     // Lazy-ass macros to generate Diagnostics until we have something better.
     // TODO: get rid of these
     macro_rules! bail_span {
         ($file_id:expr, $span:expr, $($fmt_args:tt)+) => {{
-            return Err(CompileError({
+            return Err(CompileError(vec![
                 crate::error::Diagnostic::error()
                     .with_labels(vec![
                         crate::error::Label::primary($file_id, $span.span)
                             .with_message(format!($($fmt_args)+))
-                    ])
-            }));
+                    ]),
+            ]));
         }};
     }
     macro_rules! bail_nospan {
         ($($fmt_args:tt)+) => {{
-            return Err(CompileError({
+            return Err(CompileError(vec![
                 crate::error::Diagnostic::error()
-                    .with_message(format!($($fmt_args)+))
-            }));
+                    .with_message(format!($($fmt_args)+)),
+            ]));
         }};
     }
 
     #[derive(thiserror::Error, Debug)]
-    #[error("{}", .0.message)]
-    pub struct CompileError(pub Diagnostic<crate::pos::FileId>);
+    #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .0)]
+    pub struct CompileError(pub Vec<Diagnostic>);
 }
 
 
@@ -52,12 +55,27 @@ pub mod signature;
 pub use pos::{Span, Spanned};
 pub mod pos;
 
+pub mod passes;
+
 pub use ident::{Ident, ParseIdentError};
 mod ident;
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast, Parse};
+    use crate::{ast, Parse, CompileError};
+
+    fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
+        use crate::ast::VisitMut;
+        let mut expr = crate::pos::Spanned::null_from(expr);
+
+        let mut files = crate::pos::Files::new();
+        let file_id = files.add("<input>", b"");
+        let mut visitor = crate::passes::const_simplify::Visitor::new(file_id);
+        visitor.visit_expr(&mut expr);
+        visitor.finish()?;
+
+        Ok(expr.value)
+    }
 
     #[test]
     fn expr_parse() {
@@ -68,29 +86,29 @@ mod tests {
                     ast::Expr::parse($with_parens).unwrap(),
                 );
                 $( assert_eq!(
-                    ast::Expr::parse($a).unwrap().const_eval_int(),
-                    $value,
+                    simplify_expr(ast::Expr::parse($a).unwrap()).unwrap(),
+                    ast::Expr::from($value),
                 ); )?
             }
         };
-        check_exprs_same!("1 + 1 * 2", "1 + (1 * 2)", Some(3));
-        check_exprs_same!("2 * 2 + 1", "(2 * 2) + 1", Some(5));
-        check_exprs_same!("-3 + 5 * 7", "(-3) + (5 * 7)", Some(32));
-        check_exprs_same!("-(1 + 1) * 2", "(-(1 + 1)) * 2", Some(-4));
+        check_exprs_same!("1 + 1 * 2", "1 + (1 * 2)", 3);
+        check_exprs_same!("2 * 2 + 1", "(2 * 2) + 1", 5);
+        check_exprs_same!("-3 + 5 * 7", "(-3) + (5 * 7)", 32);
+        check_exprs_same!("-(1 + 1) * 2", "(-(1 + 1)) * 2", -4);
         check_exprs_same!(
             "1 == 3 ? 1 : 3 == 3 ? 2 : 0",
             "(1 == 3) ? 1 : ((3 == 3) ? 2 : 0)",
-            Some(2),
+            2,
         );
-        check_exprs_same!("1 + [1]", "1 + [1]", None);
-        check_exprs_same!("boo(1, 2, 3)", "boo(1, 2, 3,)", None);
+        check_exprs_same!("1 + [1]", "1 + [1]");
+        check_exprs_same!("boo(1, 2, 3)", "boo(1, 2, 3,)");
     }
 
     #[test]
     fn expr_const_overflow() {
         assert_eq!(
-            ast::Expr::parse("0x100000 * 0xffff").unwrap().const_eval_int(),
-            Some(0xfff00000_u32 as i32),
+            simplify_expr(ast::Expr::parse("0x100000 * 0xffff").unwrap()).unwrap(),
+            ast::Expr::from(0xfff00000_u32 as i32),
         );
     }
 
@@ -100,8 +118,8 @@ mod tests {
         // we should at least be able to parse unsigned ints with MSB = 1,
         // which often show up in colors.
         assert_eq!(
-            ast::Expr::parse("0xff000000").unwrap().const_eval_int(),
-            Some(0xff000000_u32 as i32),
+            simplify_expr(ast::Expr::parse("0xff000000").unwrap()).unwrap(),
+            ast::Expr::from(0xff000000_u32 as i32),
         );
     }
 

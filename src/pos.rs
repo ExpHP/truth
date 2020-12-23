@@ -9,6 +9,7 @@ pub type FileId = usize;
 use codespan_reporting::{files as cs_files};
 pub use codespan::Span;
 pub use codespan::{ByteIndex as BytePos};
+
 pub type Files = NonUtf8Files;
 
 /// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
@@ -119,18 +120,33 @@ fn test_lossy_utf8() {
     assert_eq!(&output.as_bytes()[2+4..], &input[2+4..]);
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Hash)]
+/// An AST node with a span.  The span is not included in comparisons or hashes.
+#[derive(Copy, Clone, Default)]
 pub struct Spanned<T: ?Sized> {
     pub span: Span,
     pub value: T,
 }
 
+impl<T: fmt::Debug> fmt::Debug for Spanned<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Spanned")
+            // format as a range instead of Span's derived Debug
+            .field("span", &(self.span.start().0..self.span.end().0))
+            .field("value", &self.value)
+            .finish()
+    }
+}
+
 impl<T> Spanned<T> {
-    pub fn new<U: Into<T>>(value: U) -> Self {
+    pub fn null_from<U: Into<T>>(value: U) -> Self {
         Spanned {
             span: Span::default(),
             value: value.into(),
         }
+    }
+
+    pub fn new_from<U: Into<T>>(span: Span, value: U) -> Self {
+        Spanned { span, value: value.into() }
     }
 }
 
@@ -143,9 +159,23 @@ impl<T> From<T> for Spanned<T> {
     }
 }
 
+impl<T: ?Sized + Eq> Eq for Spanned<T> {}
+
+impl<T: ?Sized + PartialEq> PartialEq for Spanned<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
 impl<T: ?Sized + PartialEq> PartialEq<T> for Spanned<T> {
     fn eq(&self, other: &T) -> bool {
         self.value == *other
+    }
+}
+
+impl<T: ?Sized + std::hash::Hash> std::hash::Hash for Spanned<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
     }
 }
 
@@ -184,12 +214,4 @@ impl<T: ?Sized + fmt::Display> fmt::Display for Spanned<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.value)
     }
-}
-
-pub fn spanned<T>(span: Span, value: T) -> Spanned<T> {
-    Spanned { span, value }
-}
-
-pub fn spanned2<T>(start: BytePos, end: BytePos, value: T) -> Spanned<T> {
-    spanned(Span::new(start, end), value)
 }

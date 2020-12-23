@@ -1,7 +1,7 @@
 use lalrpop_util::lalrpop_mod;
 
 use crate::{ast, meta};
-use crate::pos::BytePos;
+use crate::pos::{BytePos, Spanned, Span};
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 mod lalrparser_util;
@@ -15,11 +15,15 @@ pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 
 pub trait Parse<'input>: Sized {
     fn parse<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Self> {
+        Self::parse_spanned(s).map(|x| x.value)
+    }
+
+    fn parse_spanned<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Spanned<Self>> {
         let mut state = State::new();
         Self::parse_stream(&mut state, Lexer::new(s.as_ref()))
     }
 
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self>;
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Spanned<Self>>;
 }
 
 /// Extra state during parsing.
@@ -76,71 +80,30 @@ fn call_anything_parser<'input>(
     tag: AnythingTag,
     state: &mut State,
     lexer: Lexer<'input>,
-) -> Result<'input, AnythingValue> {
+) -> Result<'input, Spanned<AnythingValue>> {
     let offset = BytePos(lexer.offset() as u32);
     let lexer = std::iter::once(Ok((offset, Token::VirtualDispatch(tag), offset))).chain(lexer);
     lalrparser::AnythingParser::new().parse(state, lexer)
 }
 
-impl<'input> Parse<'input> for ast::Script {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Script, state, lexer)? {
-            AnythingValue::Script(x) => Ok(x),
-            _ => unreachable!(),
+
+macro_rules! impl_parse {
+    ($AstType:ty, $TagName:ident) => {
+        impl<'input> Parse<'input> for $AstType {
+            fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Spanned<Self>> {
+                Ok(call_anything_parser(AnythingTag::$TagName, state, lexer)?.map(|x| match x {
+                    AnythingValue::$TagName(x) => x,
+                    _ => unreachable!(),
+                }))
+            }
         }
     }
 }
 
-impl<'input> Parse<'input> for ast::Item {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Item, state, lexer)? {
-            AnythingValue::Item(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'input> Parse<'input> for ast::Stmt {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Stmt, state, lexer)? {
-            AnythingValue::Stmt(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'input> Parse<'input> for ast::Expr {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Expr, state, lexer)? {
-            AnythingValue::Expr(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'input> Parse<'input> for ast::Var {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Var, state, lexer)? {
-            AnythingValue::Var(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'input> Parse<'input> for ast::LitString {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::LitString, state, lexer)? {
-            AnythingValue::LitString(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'input> Parse<'input> for meta::Meta {
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Self> {
-        match call_anything_parser(AnythingTag::Meta, state, lexer)? {
-            AnythingValue::Meta(x) => Ok(x),
-            _ => unreachable!(),
-        }
-    }
-}
+impl_parse!(ast::Script, Script);
+impl_parse!(ast::Item, Item);
+impl_parse!(ast::Stmt, Stmt);
+impl_parse!(ast::Expr, Expr);
+impl_parse!(ast::Var, Var);
+impl_parse!(ast::LitString, LitString);
+impl_parse!(meta::Meta, Meta);

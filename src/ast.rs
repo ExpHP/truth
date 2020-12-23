@@ -304,87 +304,6 @@ string_enum! {
     }
 }
 
-impl UnopKind {
-    fn eval_const_int(&self, x: i32) -> i32 {
-        match self {
-            UnopKind::Neg => i32::wrapping_neg(x),
-            UnopKind::Not => (x != 0) as i32,
-        }
-    }
-
-    fn eval_const_float(&self, x: f32) -> Option<f32> {
-        match self {
-            UnopKind::Neg => Some(-x),
-            UnopKind::Not => None,
-        }
-    }
-}
-
-impl BinopKind {
-    fn eval_const_int(&self, a: i32, b: i32) -> i32 {
-        match self {
-            BinopKind::Add => i32::wrapping_add(a, b),
-            BinopKind::Sub => i32::wrapping_sub(a, b),
-            BinopKind::Mul => i32::wrapping_mul(a, b),
-            BinopKind::Div => i32::wrapping_div(a, b),
-            BinopKind::Rem => i32::wrapping_rem(a, b),
-            BinopKind::Eq => (a == b) as i32,
-            BinopKind::Ne => (a != b) as i32,
-            BinopKind::Lt => (a < b) as i32,
-            BinopKind::Le => (a <= b) as i32,
-            BinopKind::Gt => (a > b) as i32,
-            BinopKind::Ge => (a >= b) as i32,
-            BinopKind::LogicOr => if a == 0 { b } else { a },
-            BinopKind::LogicAnd => if a == 0 { 0 } else { b },
-            BinopKind::BitXor => a ^ b,
-            BinopKind::BitAnd => a & b,
-            BinopKind::BitOr => a | b,
-        }
-    }
-
-    fn eval_const_float(&self, a: f32, b: f32) -> Option<Expr> {
-        match self {
-            BinopKind::Add => Some(Expr::from(a + b)),
-            BinopKind::Sub => Some(Expr::from(a - b)),
-            BinopKind::Mul => Some(Expr::from(a * b)),
-            BinopKind::Div => Some(Expr::from(a / b)),
-            BinopKind::Rem => Some(Expr::from(a % b)),
-            BinopKind::Eq => Some(Expr::from((a == b) as i32)),
-            BinopKind::Ne => Some(Expr::from((a != b) as i32)),
-            BinopKind::Lt => Some(Expr::from((a < b) as i32)),
-            BinopKind::Le => Some(Expr::from((a <= b) as i32)),
-            BinopKind::Gt => Some(Expr::from((a > b) as i32)),
-            BinopKind::Ge => Some(Expr::from((a >= b) as i32)),
-            BinopKind::LogicOr => None,
-            BinopKind::LogicAnd => None,
-            BinopKind::BitXor => None,
-            BinopKind::BitAnd => None,
-            BinopKind::BitOr => None,
-        }
-    }
-}
-
-impl Expr {
-    pub fn const_eval_int(&self) -> Option<i32> {
-        match self {
-            &Expr::Call { .. } => None,
-            &Expr::Ternary { ref cond, ref left, ref right } => {
-                match cond.const_eval_int()? {
-                    0 => right.const_eval_int(),
-                    _ => left.const_eval_int(),
-                }
-            },
-            &Expr::Binop(ref a, op, ref b) => Some(op.eval_const_int(a.const_eval_int()?, b.const_eval_int()?)),
-            &Expr::Unop(op, ref x) => Some(op.eval_const_int(x.const_eval_int()?)),
-            &Expr::Decrement { .. } => None,
-            &Expr::LitInt { value, hex: _ } => Some(value),
-            &Expr::LitFloat { .. } => None,
-            &Expr::LitString(_) => None,
-            &Expr::Var(_) => None,
-        }
-    }
-}
-
 impl From<i32> for Expr {
     fn from(value: i32) -> Expr { Expr::LitInt { value, hex: false } }
 }
@@ -428,7 +347,7 @@ pub struct LitString<S=BString> {
 }
 
 macro_rules! generate_visitor_stuff {
-    ($Visit: ident $(,$mut: tt)?) =>
+    ($Visit: ident $(,$mut: tt)?) => {
         /// Recursive AST traversal trait.
         pub trait $Visit {
             fn visit_item(&mut self, e: & $($mut)? Spanned<Item>) { walk_item(self, e) }

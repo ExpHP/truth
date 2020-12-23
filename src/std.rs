@@ -186,15 +186,15 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
                 let encodings = siggy.arg_encodings();
                 assert_eq!(encodings.len(), args.len()); // FIXME: return Error
                 encodings.iter().zip(args).map(|(enc, &arg)| match enc {
-                    ArgEncoding::Dword => <Spanned<Expr>>::new(arg as i32),
-                    ArgEncoding::Color => Spanned::new(Expr::LitInt {
+                    ArgEncoding::Dword => <Spanned<Expr>>::null_from(arg as i32),
+                    ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
                         value: arg as i32,
                         hex: true,
                     }),
-                    ArgEncoding::Float => <Spanned<Expr>>::new(f32::from_bits(arg)),
+                    ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(arg)),
                 }).collect()
             },
-            None => args.iter().map(|&x| <Spanned<Expr>>::new(x as i32)).collect(),
+            None => args.iter().map(|&x| <Spanned<Expr>>::null_from(x as i32)).collect(),
         };
         Spanned::from(ast::Stmt {
             time: *time,
@@ -221,6 +221,14 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
 
 fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
     use ast::Item;
+    use crate::ast::VisitMut;
+
+    let mut script = script.clone();
+
+    let mut visitor = crate::passes::const_simplify::Visitor::new(file_id);
+    crate::ast::walk_mut_script(&mut visitor, &mut script);
+    visitor.finish()?;
+
 
     let (meta, main_sub) = {
         let (mut found_meta, mut found_main_sub) = (None, None);
@@ -255,7 +263,7 @@ fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) ->
         }
     };
 
-    let mut out = StdFile::from_meta(meta).map_err(|e| CompileError(Diagnostic::error().with_message(format!("{}", e))))?;
+    let mut out = StdFile::from_meta(meta).map_err(|e| CompileError(vec![Diagnostic::error().with_message(format!("{}", e))]))?;
     out.script = _compile_main(file_id, &main_sub.0, functions)?;
 
     Ok(out)

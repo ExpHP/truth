@@ -124,7 +124,9 @@ extern {
 ///
 /// Don't use this directly; use the [`crate::parse::Parse`] trait, which takes
 /// care of all the silly virtual dispatch business.
-pub Anything: crate::parse::AnythingValue = {
+pub(crate) Anything: Spanned<crate::parse::AnythingValue> = Spanned<AnythingInner>;
+
+AnythingInner: crate::parse::AnythingValue = {
     Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
     Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
     Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(x),
@@ -514,7 +516,10 @@ Ident: Ident = {
 
 #[inline]
 Spanned<Rule>: Spanned<Rule> = {
-    <l: @L> <rule: Rule> <r: @R> => crate::pos::spanned2(l, r, rule),
+    <l: @L> <rule: Rule> <r: @R> => Spanned {
+        span: crate::pos::Span::new(l, r),
+        value: rule,
+    },
 }
 
 Box<Rule>: Box<Rule> = <r:Rule> => Box::new(r);
