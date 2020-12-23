@@ -6,7 +6,7 @@ use regex::bytes::{Regex, RegexBuilder};
 use bstr::{BStr, ByteSlice};
 use lazy_static::lazy_static;
 
-use crate::pos::{BytePos, };
+use crate::pos::{BytePos};
 
 // This is a simple lexer that tries to keep most of the maintainability
 // of the default lexer (though it is almost certainly nowhere near as fast).

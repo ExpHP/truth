@@ -1,3 +1,6 @@
+//! Helper functions that ideally would have been defined inside the grammar file, but aren't
+//! because they can't (?) be defined there.
+
 use std::str::FromStr;
 
 /// Uses `FromStr` to parse something from a byte string.

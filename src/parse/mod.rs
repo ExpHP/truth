@@ -1,7 +1,13 @@
-use crate::lalrparser;
+use lalrpop_util::lalrpop_mod;
+
 use crate::{ast, meta};
-use crate::lexer::{Lexer, Token};
 use crate::pos::BytePos;
+
+lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
+mod lalrparser_util;
+
+use lexer::{Lexer, Token};
+pub mod lexer;
 
 pub type ErrorPayload = &'static str; // FIXME: this is the default for LALRPOP
 pub type Error<'input> = lalrpop_util::ParseError<BytePos, Token<'input>, ErrorPayload>;

@@ -1,13 +1,7 @@
-use lalrpop_util::lalrpop_mod;
-
-lalrpop_mod!(pub lalrparser);
-mod lalrparser_util;
-
 pub use ast::*;
 mod ast;
 pub use fmt::Format;
 pub mod fmt;
-pub mod lexer;
 
 pub use parse::Parse;
 pub mod parse;
