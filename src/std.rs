@@ -199,22 +199,22 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
         Spanned::from(ast::Stmt {
             time: *time,
             labels: vec![],
-            body: ast::StmtBody::Expr(Expr::Call { func: ins_ident, args }),
+            body: Spanned::from(ast::StmtBody::Expr(Spanned::from(Expr::Call { func: ins_ident, args }))),
         })
     }).collect();
 
     ast::Script {
         items: vec! [
-            ast::Item::Meta {
+            Spanned::from(ast::Item::Meta {
                 keyword: ast::MetaKeyword::Meta,
                 name: None,
                 meta: std.to_meta(),
-            },
-            ast::Item::AnmScript {
+            }),
+            Spanned::from(ast::Item::AnmScript {
                 number: None,
                 name: "main".parse().unwrap(),
                 code: ast::Block(code),
-            },
+            }),
         ],
     }
 }
@@ -225,7 +225,7 @@ fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) ->
     let (meta, main_sub) = {
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
-            match item {
+            match &item.value {
                 Item::Meta { keyword: ast::MetaKeyword::Meta, name: None, meta } => {
                     if let Some(_) = found_meta.replace(meta) {
                         bail_nospan!("multiple 'meta's");
@@ -266,8 +266,8 @@ fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Funct
 
     let mut out = vec![];
     for stmt in code {
-        match &stmt.body {
-            ast::StmtBody::Expr(e) => match e {
+        match &stmt.body.value {
+            ast::StmtBody::Expr(e) => match &e.value {
                 ast::Expr::Call { func, args } => {
                     let siggy = match functions.ins_signature(func) {
                         Some(siggy) => siggy,

@@ -559,7 +559,7 @@ impl Format for ast::StmtBody {
                     out.fmt((" ", async_))?;
                 }
                 out.fmt(";")
-            }
+            },
         }
     }
 }
