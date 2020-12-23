@@ -57,7 +57,14 @@ fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
         Ok(x) => x,
         Err(e) => {
             let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
-            let config = term::Config::default();
+            let config = {
+                let mut config = term::Config::default();
+                // Make output closer to rustc. Fewer colors overall, looks better.
+                config.styles.primary_label_error.set_intense(true);
+                config.styles.line_number.set_intense(true);
+                config.styles.source_border.set_intense(true);
+                config
+            };
             term::emit(&mut writer.lock(), &config, &files, &e.0).unwrap();
             return
         },
