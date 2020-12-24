@@ -19,16 +19,14 @@
 //! let mut files = Files::new();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4";
-//! let file_id = files.add("<input>", text);
+//! let mut expr: Expr = files.parse("<input>", text).unwrap().value;
 //!
-//! let mut expr = Expr::parse_spanned(text).unwrap();
-//! let mut visitor = const_simplify::Visitor::new(file_id);
+//! let mut visitor = const_simplify::Visitor::new();
 //! visitor.visit_expr(&mut (expr));
 //! visitor.finish().expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * x";
-//! let file_id = files.add("<input>", text_simplified);
-//! let expected = Expr::parse_spanned(text_simplified).unwrap();
+//! let expected: Expr = files.parse("<input>", text_simplified).unwrap().value;
 //! assert_eq!(expr, expected);
 //! ```
 
@@ -100,14 +98,12 @@ impl BinopKind {
 ///
 /// See the [the module-level documentation][self] for more details.
 pub struct Visitor {
-    file_id: crate::pos::FileId,
     errors: Vec<crate::error::Diagnostic>,
 }
 
 impl Visitor {
-    pub fn new(file_id: crate::pos::FileId) -> Self {
+    pub fn new() -> Self {
         Visitor {
-            file_id,
             errors: vec![],
         }
     }
@@ -164,7 +160,7 @@ impl VisitMut for Visitor {
                             None => {
                                 self.errors.push({
                                     Diagnostic::error().with_labels(vec![
-                                        Label::primary(self.file_id, e.span).with_message("this operator requires an integer")
+                                        Label::primary(e.span.file_id, e.span).with_message("this operator requires an integer")
                                     ]).with_message("type error")
                                 });
                                 return;
@@ -193,7 +189,7 @@ impl VisitMut for Visitor {
                             None => {
                                 self.errors.push({
                                     Diagnostic::error().with_labels(vec![
-                                        Label::primary(self.file_id, e.span).with_message("operation not supported by floats")
+                                        Label::primary(e.span.file_id, e.span).with_message("operation not supported by floats")
                                     ]).with_message("type error")
                                 });
                                 return;
@@ -205,9 +201,9 @@ impl VisitMut for Visitor {
                     _ => {
                         self.errors.push({
                             Diagnostic::error().with_labels(vec![
-                                Label::primary(self.file_id, e.span).with_message("mismatched types"),
-                                Label::secondary(self.file_id, a.span).with_message(a_const.type_str()),
-                                Label::secondary(self.file_id, b.span).with_message(b_const.type_str()),
+                                Label::primary(e.span.file_id, e.span).with_message("mismatched types"),
+                                Label::secondary(a.span.file_id, a.span).with_message(a_const.type_str()),
+                                Label::secondary(b.span.file_id, b.span).with_message(b_const.type_str()),
                             ]).with_message("type error")
                         })
                     },
@@ -221,7 +217,7 @@ impl VisitMut for Visitor {
                 Some(cond_const) => {
                     self.errors.push({
                         Diagnostic::error().with_labels(vec![
-                            Label::primary(self.file_id, cond.span).with_message(cond_const.type_str())
+                            Label::primary(cond.span.file_id, cond.span).with_message(cond_const.type_str())
                         ]).with_message("ternary condition must be an integer")
                     });
                     return;

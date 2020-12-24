@@ -21,9 +21,9 @@ pub struct NonUtf8Files {
 impl NonUtf8Files {
     pub fn new() -> Self { NonUtf8Files { inner: cs_files::SimpleFiles::new() } }
 
-    pub fn add(&mut self, name: impl AsRef<std::path::Path>, source: &[u8]) -> FileId {
+    pub fn add(&mut self, name: &str, source: &[u8]) -> FileId {
         Self::shift_file_id(self.inner.add(
-            name.as_ref().to_string_lossy().into_owned(),
+            name.to_owned(),
             prepare_diagnostic_text_source(source).into(),
         ))
     }

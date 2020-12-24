@@ -5,7 +5,7 @@ use bstr::{BStr, BString, ByteSlice};
 use crate::error::Diagnostic;
 
 use crate::CompileError;
-use crate::pos::{Spanned, FileId};
+use crate::pos::{Spanned};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
@@ -39,8 +39,8 @@ impl StdFile {
         _decompile_std(self, functions)
     }
 
-    pub fn compile(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
-        _compile_std(file_id, script, functions)
+    pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
+        _compile_std(script, functions)
     }
 }
 
@@ -219,12 +219,12 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
     }
 }
 
-fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
+fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
     use ast::Item;
 
     let mut script = script.clone();
 
-    let mut visitor = crate::passes::const_simplify::Visitor::new(file_id);
+    let mut visitor = crate::passes::const_simplify::Visitor::new();
     crate::ast::walk_mut_script(&mut visitor, &mut script);
     visitor.finish()?;
 
@@ -262,12 +262,12 @@ fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) ->
     };
 
     let mut out = StdFile::from_meta(meta).map_err(|e| CompileError(vec![Diagnostic::error().with_message(format!("{}", e))]))?;
-    out.script = _compile_main(file_id, &main_sub.0, functions)?;
+    out.script = _compile_main(&main_sub.0, functions)?;
 
     Ok(out)
 }
 
-fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
+fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
     use crate::signature::ArgEncoding;
 
     let mut out = vec![];
@@ -277,15 +277,15 @@ fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Funct
                 ast::Expr::Call { func, args } => {
                     let siggy = match functions.ins_signature(func) {
                         Some(siggy) => siggy,
-                        None => bail_span!(file_id, stmt, "signature of {} is not known", func),
+                        None => bail_span!(stmt, "signature of {} is not known", func),
                     };
                     let opcode = match functions.resolve_aliases(func).as_ins() {
                         Some(opcode) => opcode,
-                        None => bail_span!(file_id, stmt, "don't know how to compile function {} (not an instruction)", func),
+                        None => bail_span!(stmt, "don't know how to compile function {} (not an instruction)", func),
                     };
                     let encodings = siggy.arg_encodings();
                     if encodings.len() != args.len() {
-                        bail_span!(file_id, stmt, "wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
+                        bail_span!(stmt, "wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
                     }
 
                     out.push(Instr {
@@ -296,21 +296,21 @@ fn _compile_main(file_id: FileId, code: &[Spanned<ast::Stmt>], functions: &Funct
                             ArgEncoding::Color => match **arg {
                                 ast::Expr::LitInt { value, .. } => Ok(value as u32),
                                 ast::Expr::LitFloat { .. } |
-                                ast::Expr::LitString { .. } => bail_span!(file_id, arg, "expected an int for arg {} of {}", index+1, func),
-                                _ => bail_span!(file_id, arg, "unsupported expression type in STD file"),
+                                ast::Expr::LitString { .. } => bail_span!(arg, "expected an int for arg {} of {}", index+1, func),
+                                _ => bail_span!(arg, "unsupported expression type in STD file"),
                             },
                             ArgEncoding::Float => match **arg {
                                 ast::Expr::LitFloat { value, .. } => Ok(value.to_bits()),
                                 ast::Expr::LitInt { .. } |
-                                ast::Expr::LitString { .. } => bail_span!(file_id, arg, "expected a float for arg {} of {}", index+1, func),
-                                _ => bail_span!(file_id, arg, "unsupported expression type in STD file"),
+                                ast::Expr::LitString { .. } => bail_span!(arg, "expected a float for arg {} of {}", index+1, func),
+                                _ => bail_span!(arg, "unsupported expression type in STD file"),
                             },
                         }).collect::<Result<_, _>>()?,
                     });
                 },
-                _ => bail_span!(file_id, stmt, "unsupported expression type in STD file"), // FIXME: give location info
+                _ => bail_span!(stmt, "unsupported expression type in STD file"), // FIXME: give location info
             },
-            _ => bail_span!(file_id, stmt, "unsupported statement type in STD file"), // FIXME: give location info
+            _ => bail_span!(stmt, "unsupported statement type in STD file"), // FIXME: give location info
         }
     }
     Ok(out)

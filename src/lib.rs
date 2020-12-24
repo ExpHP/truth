@@ -10,11 +10,11 @@ mod error {
     // Lazy-ass macros to generate Diagnostics until we have something better.
     // TODO: get rid of these
     macro_rules! bail_span {
-        ($file_id:expr, $span:expr, $($fmt_args:tt)+) => {{
+        ($span:expr, $($fmt_args:tt)+) => {{
             return Err(CompileError(vec![
                 crate::error::Diagnostic::error()
                     .with_labels(vec![
-                        crate::error::Label::primary($file_id, $span.span)
+                        crate::error::Label::primary($span.span.file_id, $span.span)
                             .with_message(format!($($fmt_args)+))
                     ]),
             ]));
@@ -66,11 +66,9 @@ mod tests {
 
     fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
         use crate::ast::VisitMut;
-        let mut expr = crate::pos::Spanned::null_from(expr);
 
-        let mut files = crate::pos::Files::new();
-        let file_id = files.add("<input>", b"");
-        let mut visitor = crate::passes::const_simplify::Visitor::new(file_id);
+        let mut expr = crate::pos::Spanned::null_from(expr);
+        let mut visitor = crate::passes::const_simplify::Visitor::new();
         visitor.visit_expr(&mut expr);
         visitor.finish()?;
 

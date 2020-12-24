@@ -35,7 +35,6 @@ fn main() {
 }
 
 fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
-    use ecl_parser::Parse;
     use codespan_reporting::term::{self, termcolor as tc};
 
     let functions = {
@@ -46,14 +45,13 @@ fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
     };
 
     let text = std::fs::read(&path).unwrap();
-    let script = match ecl_parser::Script::parse(&text) {
+    let mut files = ecl_parser::pos::Files::new();
+    let script = match files.parse(&path.as_ref().to_string_lossy(), &text) {
         Ok(x) => x,
         Err(e) => panic!("{}", e),
     };
-    let mut files = ecl_parser::pos::Files::new();
-    let file_id = files.add(&path, &text);
 
-    let std = match ecl_parser::std::StdFile::compile(file_id, &script, &functions) {
+    let std = match ecl_parser::std::StdFile::compile(&script, &functions) {
         Ok(x) => x,
         Err(es) => {
             let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
