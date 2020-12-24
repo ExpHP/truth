@@ -221,14 +221,12 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
 
 fn _compile_std(file_id: FileId, script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
     use ast::Item;
-    use crate::ast::VisitMut;
 
     let mut script = script.clone();
 
     let mut visitor = crate::passes::const_simplify::Visitor::new(file_id);
     crate::ast::walk_mut_script(&mut visitor, &mut script);
     visitor.finish()?;
-
 
     let (meta, main_sub) = {
         let (mut found_meta, mut found_main_sub) = (None, None);

@@ -517,7 +517,7 @@ Ident: Ident = {
 #[inline]
 Spanned<Rule>: Spanned<Rule> = {
     <l: @L> <rule: Rule> <r: @R> => Spanned {
-        span: crate::pos::Span::new(l, r),
+        span: crate::pos::Span::new(state.file_id, l, r),
         value: rule,
     },
 }

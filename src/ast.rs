@@ -3,7 +3,6 @@ use bstr::{BString};
 use crate::meta::Meta;
 use crate::ident::Ident;
 use crate::pos::Spanned;
-use crate::CompileError;
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {

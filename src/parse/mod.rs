@@ -1,7 +1,7 @@
 use lalrpop_util::lalrpop_mod;
 
 use crate::{ast, meta};
-use crate::pos::{BytePos, Spanned, Span};
+use crate::pos::{BytePos, Spanned, FileId};
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 mod lalrparser_util;
@@ -14,13 +14,16 @@ pub type Error<'input> = lalrpop_util::ParseError<BytePos, Token<'input>, ErrorP
 pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 
 pub trait Parse<'input>: Sized {
+    /// Parse a string into an AST node.
+    ///
+    /// This is for quick-and-dirty use only; the spans in the output will have incomplete
+    /// information and [`crate::pos::Files`] will be unable to locate the corresponding
+    /// strings of text. For proper diagnostics you should prefer the helper method
+    /// [`crate::pos::Files::parse`] instead.
     fn parse<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Self> {
-        Self::parse_spanned(s).map(|x| x.value)
-    }
-
-    fn parse_spanned<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Spanned<Self>> {
-        let mut state = State::new();
+        let mut state = State::new(None);
         Self::parse_stream(&mut state, Lexer::new(s.as_ref()))
+            .map(|x| x.value)
     }
 
     fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Spanned<Self>>;
@@ -28,23 +31,22 @@ pub trait Parse<'input>: Sized {
 
 /// Extra state during parsing.
 pub struct State {
+    file_id: FileId,
+
     /// When we are parsing instructions, tracks the last time label so that we can produce an
     /// AST with time fields instead of explicit labels.
     ///
     /// A stack is used *as if* we supported nested function definitions.  In practice, the level at
     /// index 0 gets used exclusively when parsing `Stmt` at toplevel, and a level at index 1 gets
     /// used when parsing `Item`s.
-    pub time_stack: Vec<i32>,
+    time_stack: Vec<i32>,
 }
 
 impl State {
-    pub fn new() -> State { State {
+    pub fn new(file_id: FileId) -> State { State {
+        file_id,
         time_stack: vec![0],
     }}
-}
-
-impl Default for State {
-    fn default() -> State { Self::new() }
 }
 
 /// Return type of the LALRPOP `Anything` parser.
