@@ -157,6 +157,18 @@ impl<T: FromMeta> FromMeta for [T; 3] {
     }
 }
 
+impl<T: FromMeta> FromMeta for [T; 4] {
+    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        match meta {
+            Meta::Array(xs) => match xs.len() {
+                4 => Ok([xs[0].parse()?, xs[1].parse()?, xs[2].parse()?, xs[3].parse()?]),
+                _ => Err(FromMetaError::expected("an array of length 4", meta)),
+            },
+            _ => Err(FromMetaError::expected("an array", meta)),
+        }
+    }
+}
+
 impl<T: ToMeta + ?Sized> ToMeta for &T {
     fn to_meta(&self) -> Meta { ToMeta::to_meta(&**self) }
 }
@@ -185,5 +197,8 @@ impl<T: ToMeta> ToMeta for [T; 2] {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 3] {
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
+}
+impl<T: ToMeta> ToMeta for [T; 4] {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
 }

@@ -79,5 +79,5 @@ fn run(
     };
 
     let mut out = std::fs::File::create(output).unwrap();
-    ecl_parser::std::write_std(&ecl_parser::std::InstrFormat10, &mut out, &std).unwrap();
+    ecl_parser::std::write_std(&ecl_parser::std::FileFormat10, &mut out, &std).unwrap();
 }

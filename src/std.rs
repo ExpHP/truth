@@ -10,7 +10,7 @@ use crate::pos::{Spanned};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
-use crate::meta::{ToMeta, FromMeta, Meta, FromMetaError};
+use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 
 // =============================================================================
 
@@ -27,8 +27,9 @@ pub struct StdFile {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StdExtra {
     Th06 {
-        bgm_names: [BString; 5],
-        bgm_paths: [BString; 5],
+        stage_name: BString,
+        bgm_names: [BString; 4],
+        bgm_paths: [BString; 4],
     },
     Th10 {
         anm_path: BString,
@@ -37,40 +38,32 @@ pub enum StdExtra {
 
 impl StdFile {
     pub fn decompile(&self, functions: &Functions) -> ast::Script {
-        _decompile_std(&InstrFormat10, self, functions)
+        _decompile_std(&FileFormat10, self, functions)
     }
 
     pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
-        _compile_std(&InstrFormat10, script, functions)
+        _compile_std(&FileFormat10, script, functions)
     }
 }
 
-impl FromMeta for StdFile {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+impl StdFile {
+    fn init_from_meta<'m>(file_format: &dyn FileFormat, meta: &'m Meta) -> Result<Self, FromMetaError<'m>> {
         Ok(StdFile {
             unknown: meta.expect_field("unknown")?,
             entries: meta.expect_field("objects")?,
             instances: meta.expect_field("instances")?,
             script: vec![],
-            extra: StdExtra::Th10 {
-                anm_path: meta.expect_field("anm_file")?,
-            },
+            extra: file_format.extra_from_meta(meta)?,
         })
     }
-}
 
-impl ToMeta for StdFile {
-    fn to_meta(&self) -> Meta {
-        let anm_path = match &self.extra {
-            StdExtra::Th10 { anm_path } => anm_path,
-            StdExtra::Th06 { .. } => unimplemented!(),
-        };
-        Meta::make_object()
-            .field("unknown", &self.unknown)
-            .field("anm_file", &anm_path)
-            .field("objects", &self.entries)
-            .field("instances", &self.instances)
-            .build()
+    fn make_meta(&self, file_format: &dyn FileFormat) -> Meta {
+        let mut b = Meta::make_object();
+        b = b.field("unknown", &self.unknown);
+        b = file_format.extra_to_meta(&self.extra, b);
+        b = b.field("objects", &self.entries);
+        b = b.field("instances", &self.instances);
+        b.build()
     }
 }
 
@@ -206,11 +199,13 @@ impl InstrArg {
 
 // =============================================================================
 
-fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions) -> ast::Script {
+fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions) -> ast::Script {
     use crate::signature::ArgEncoding;
 
+    let instr_format = format.instr_format();
+
     let opcode_intrinsics: HashMap<_, _> = {
-        format.intrinsic_opcode_pairs().into_iter()
+        instr_format.intrinsic_opcode_pairs().into_iter()
             .map(|(a, b)| (b, a)).collect()
     };
 
@@ -222,14 +217,14 @@ fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions
     let code = std.script.iter().map(|instr| {
         // For now we give every instruction a label and strip the unused ones later.
         let this_instr_label = Spanned::null_from(ast::StmtLabel::Label(default_label(offset)));
-        offset += format.instr_size(instr);
+        offset += instr_format.instr_size(instr);
 
         let Instr { time, opcode, args } = instr;
 
         match opcode_intrinsics.get(&opcode) {
             Some(IntrinsicInstrKind::Jmp) => {
                 assert_eq!(args.len(), 2); // FIXME: print proper error
-                let dest_offset = format.decode_label(args[0].expect_dword());
+                let dest_offset = instr_format.decode_label(args[0].expect_dword());
                 let dest_time = args[1].expect_dword() as i32;
                 return Spanned::null_from(ast::Stmt {
                     time: *time,
@@ -287,7 +282,7 @@ fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions
             Spanned::from(ast::Item::Meta {
                 keyword: ast::MetaKeyword::Meta,
                 name: None,
-                meta: std.to_meta(),
+                meta: std.make_meta(format),
             }),
             Spanned::from(ast::Item::AnmScript {
                 number: None,
@@ -299,7 +294,7 @@ fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions
 }
 
 fn _compile_std(
-    format: &dyn InstrFormat,
+    format: &dyn FileFormat,
     script: &ast::Script,
     functions: &Functions,
 ) -> Result<StdFile, CompileError> {
@@ -344,8 +339,10 @@ fn _compile_std(
         }
     };
 
-    let mut out = StdFile::from_meta(meta).map_err(|e| CompileError(vec![Diagnostic::error().with_message(format!("{}", e))]))?;
-    out.script = _compile_main(format, &main_sub.0, functions)?;
+    let mut out = StdFile::init_from_meta(format, meta).map_err(|e| {
+        CompileError(vec![Diagnostic::error().with_message(format!("{}", e))])
+    })?;
+    out.script = _compile_main(format.instr_format(), &main_sub.0, functions)?;
 
     Ok(out)
 }
@@ -547,7 +544,7 @@ impl<W: Write + Seek> WriteSeek for W {
 // =============================================================================
 
 // FIXME clean up API, return Result
-pub fn read_std(format: &dyn InstrFormat, bytes: &[u8]) -> StdFile {
+pub fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> StdFile {
     let mut f = Cursor::new(bytes);
 
     let num_entries = f.read_u16::<Le>().expect("incomplete header") as usize;
@@ -555,7 +552,7 @@ pub fn read_std(format: &dyn InstrFormat, bytes: &[u8]) -> StdFile {
     let instances_offset = f.read_u32::<Le>().expect("incomplete header") as usize;
     let script_offset = f.read_u32::<Le>().expect("incomplete header") as usize;
     let unknown = f.read_u32::<Le>().expect("incomplete header");
-    let extra = read_extra(&mut f).expect("incomplete header");
+    let extra = format.read_extra(&mut f);
     let entry_offsets = (0..num_entries).map(|_| f.read_u32::<Le>().expect("unexpected EOF")).collect::<Vec<_>>();
     let entries = (0..num_entries)
         .map(|i| read_entry(&bytes[entry_offsets[i] as usize..]))
@@ -569,10 +566,12 @@ pub fn read_std(format: &dyn InstrFormat, bytes: &[u8]) -> StdFile {
         }
         vec
     };
+
+    let instr_format = format.instr_format();
     let script = {
         let mut f = Cursor::new(&bytes[script_offset..]);
         let mut script = vec![];
-        while let Some(instr) = format.read_instr(&mut f) {
+        while let Some(instr) = instr_format.read_instr(&mut f) {
             script.push(instr);
         }
         script
@@ -580,7 +579,7 @@ pub fn read_std(format: &dyn InstrFormat, bytes: &[u8]) -> StdFile {
     StdFile { unknown, extra, entries, instances, script }
 }
 
-pub fn write_std(format: &dyn InstrFormat, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
+pub fn write_std(format: &dyn FileFormat, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
     let start_pos = f.seek(io::SeekFrom::Current(0))?;
 
     f.write_u16::<Le>(std.entries.len() as u16)?;
@@ -593,7 +592,7 @@ pub fn write_std(format: &dyn InstrFormat, f: &mut dyn WriteSeek, std: &StdFile)
 
     f.write_u32::<Le>(std.unknown)?;
 
-    write_extra(f.as_mut_write(), &std.extra)?;
+    format.write_extra(f.as_mut_write(), &std.extra)?;
 
     let entry_offsets_pos = f.seek(io::SeekFrom::Current(0))?;
     for _ in &std.entries {
@@ -612,11 +611,13 @@ pub fn write_std(format: &dyn InstrFormat, f: &mut dyn WriteSeek, std: &StdFile)
     }
     write_terminal_instance(f.as_mut_write())?;
 
+    let instr_format = format.instr_format();
+
     let script_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
     for instr in &std.script {
-        format.write_instr(f.as_mut_write(), instr)?;
+        instr_format.write_instr(f.as_mut_write(), instr)?;
     }
-    format.write_terminal_instr(f.as_mut_write())?;
+    instr_format.write_terminal_instr(f.as_mut_write())?;
 
     let end_pos = f.seek(io::SeekFrom::Current(0))?;
     f.seek(io::SeekFrom::Start(instances_offset_pos))?;
@@ -628,17 +629,6 @@ pub fn write_std(format: &dyn InstrFormat, f: &mut dyn WriteSeek, std: &StdFile)
         f.write_u32::<Le>(offset as u32)?;
     }
     f.seek(io::SeekFrom::Start(end_pos))?;
-    Ok(())
-}
-
-fn read_extra(f: &mut Cursor<&[u8]>) -> Option<StdExtra> {
-    Some(StdExtra::Th10 { anm_path: read_string_128(f) })
-}
-fn write_extra(f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
-    match x {
-        StdExtra::Th10 { anm_path } => write_string_128(f, anm_path.as_bstr())?,
-        StdExtra::Th06 { .. } => unimplemented!(),
-    };
     Ok(())
 }
 
@@ -764,7 +754,124 @@ fn write_terminal_instance(f: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
+pub struct FileFormat06;
+pub struct FileFormat10;
+
+pub trait FileFormat {
+    fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>>;
+    fn extra_to_meta(&self, extra: &StdExtra, b: meta::BuildObject) -> meta::BuildObject;
+    fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra;
+    fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()>;
+    fn instr_format(&self) -> &dyn InstrFormat;
+}
+
+impl FileFormat for FileFormat06 {
+    fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>> {
+        Ok(StdExtra::Th06 {
+            stage_name: meta.expect_field("stage_name")?,
+            bgm_names: meta.expect_field("bgm_names")?,
+            bgm_paths: meta.expect_field("bgm_paths")?,
+        })
+    }
+
+    fn extra_to_meta(&self, extra: &StdExtra, mut b: meta::BuildObject) -> meta::BuildObject {
+        match extra {
+            StdExtra::Th10 { .. } => unreachable!(),
+            StdExtra::Th06 { stage_name, bgm_names, bgm_paths } => {
+                b = b.field("stage_name", stage_name);
+                b = b.field("bgm_names", bgm_names);
+                b = b.field("bgm_paths", bgm_paths);
+                b
+            },
+        }
+    }
+
+    fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra {
+        StdExtra::Th06 {
+            stage_name: read_string_128(f),
+            bgm_names: [
+                read_string_128(f), read_string_128(f),
+                read_string_128(f), read_string_128(f),
+            ],
+            bgm_paths: [
+                read_string_128(f), read_string_128(f),
+                read_string_128(f), read_string_128(f),
+            ],
+        }
+    }
+
+    fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
+        match x {
+            StdExtra::Th06 { stage_name, bgm_names, bgm_paths } => {
+                write_string_128(f, stage_name.as_ref())?;
+                for s in bgm_names.iter().chain(bgm_paths) {
+                    write_string_128(f, s.as_ref())?;
+                }
+            },
+            StdExtra::Th10 { .. } => unreachable!(),
+        };
+        Ok(())
+    }
+
+    fn instr_format(&self) -> &dyn InstrFormat { &InstrFormat06 }
+}
+
+impl FileFormat for FileFormat10 {
+    fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>> {
+        Ok(StdExtra::Th10 {
+            anm_path: meta.expect_field("anm_file")?,
+        })
+    }
+
+    fn extra_to_meta(&self, extra: &StdExtra, b: meta::BuildObject) -> meta::BuildObject {
+        match extra {
+            StdExtra::Th10 { anm_path } => b.field("anm_path", anm_path),
+            StdExtra::Th06 { .. } => unreachable!(),
+        }
+    }
+
+    fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra {
+        StdExtra::Th10 { anm_path: read_string_128(f) }
+    }
+
+    fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
+        match x {
+            StdExtra::Th10 { anm_path } => write_string_128(f, anm_path.as_ref())?,
+            StdExtra::Th06 { .. } => unreachable!(),
+        };
+        Ok(())
+    }
+
+    fn instr_format(&self) -> &dyn InstrFormat { &InstrFormat10 }
+}
+
+pub struct InstrFormat06;
 pub struct InstrFormat10;
+impl InstrFormat for InstrFormat06 {
+    fn read_instr(&self, _f: &mut Cursor<&[u8]>) -> Option<Instr> {
+        unimplemented!()
+    }
+
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
+        unimplemented!()
+    }
+
+    fn write_instr(&self, _f: &mut dyn Write, _instr: &Instr) -> io::Result<()> {
+        unimplemented!()
+    }
+
+    fn write_terminal_instr(&self, _f: &mut dyn Write) -> io::Result<()> {
+        unimplemented!()
+    }
+
+    fn instr_size(&self, _instr: &Instr) -> usize {
+        unimplemented!()
+    }
+
+    fn encode_label(&self, _offset: usize) -> u32 { unimplemented!() }
+    fn decode_label(&self, _bits: u32) -> usize { unimplemented!() }
+}
+
 impl InstrFormat for InstrFormat10 {
     fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr> {
         let time = f.read_i32::<Le>().expect("unexpected EOF");
