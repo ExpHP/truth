@@ -1,5 +1,5 @@
 use std::io::{self, Read, Cursor, Write, Seek};
-use std::collections::HashMap;
+use std::collections::{HashMap};
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
@@ -37,7 +37,7 @@ pub enum StdExtra {
 
 impl StdFile {
     pub fn decompile(&self, functions: &Functions) -> ast::Script {
-        _decompile_std(self, functions)
+        _decompile_std(&InstrFormat10, self, functions)
     }
 
     pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
@@ -190,17 +190,64 @@ pub enum InstrArg {
     TimeOf(Spanned<Ident>),
 }
 
+impl InstrArg {
+    /// Call this at a time when the arg is known to have a fully resolved value.
+    ///
+    /// Such times are:
+    /// * During decompilation.
+    /// * Within [`InstrFormat::write_instr`].
+    fn expect_dword(&self) -> u32 {
+        match *self {
+            InstrArg::DwordBits(x) => x,
+            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
+        }
+    }
+}
+
 // =============================================================================
 
-fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
+fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions) -> ast::Script {
     use crate::signature::ArgEncoding;
 
+    let opcode_intrinsics: HashMap<_, _> = {
+        format.intrinsic_opcode_pairs().into_iter()
+            .map(|(a, b)| (b, a)).collect()
+    };
+
+    let default_label = |offset: usize| {
+        Spanned::null_from(format!("label_{}", offset).parse::<Ident>().unwrap())
+    };
+
+    let mut offset = 0;
     let code = std.script.iter().map(|instr| {
+        // For now we give every instruction a label and strip the unused ones later.
+        let this_instr_label = Spanned::null_from(ast::StmtLabel::Label(default_label(offset)));
+        offset += format.instr_size(instr);
+
         let Instr { time, opcode, args } = instr;
+
+        match opcode_intrinsics.get(&opcode) {
+            Some(IntrinsicInstrKind::Jmp) => {
+                assert_eq!(args.len(), 2); // FIXME: print proper error
+                let dest_offset = format.decode_label(args[0].expect_dword());
+                let dest_time = args[1].expect_dword() as i32;
+                return Spanned::null_from(ast::Stmt {
+                    time: *time,
+                    labels: vec![this_instr_label],
+                    body: Spanned::null_from(ast::StmtBody::Jump(ast::StmtGoto {
+                        destination: default_label(dest_offset),
+                        time: Some(dest_time),
+                    })),
+                })
+            },
+            None => {}, // continue
+        }
+
         let ins_ident = {
             functions.opcode_names.get(&(*opcode as u32)).cloned()
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
+
         let encodings = match functions.ins_signature(&ins_ident) {
             Some(siggy) => siggy.arg_encodings(),
             None => vec![ArgEncoding::Dword; args.len()],
@@ -208,11 +255,7 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
 
         assert_eq!(encodings.len(), args.len()); // FIXME: return Error
         let args = encodings.iter().zip(args).map(|(enc, arg)| {
-            let bits = match *arg {
-                InstrArg::DwordBits(bits) => bits,
-                InstrArg::Label(_) |
-                InstrArg::TimeOf(_) => panic!("bug: unexpected label when decompiling"),
-            };
+            let bits = arg.expect_dword();
             match enc {
                 ArgEncoding::Dword => <Spanned<Expr>>::null_from(bits as i32),
                 ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
@@ -222,9 +265,10 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
                 ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(bits)),
             }
         }).collect();
-        Spanned::from(ast::Stmt {
+
+        Spanned::null_from(ast::Stmt {
             time: *time,
-            labels: vec![],
+            labels: vec![this_instr_label],
             body: Spanned::from(ast::StmtBody::Expr(Spanned::from(Expr::Call { func: ins_ident, args }))),
         })
     }).collect();
@@ -304,6 +348,8 @@ fn _compile_main(
 ) -> Result<Vec<Instr>, CompileError> {
     use crate::signature::ArgEncoding;
 
+    let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
+
     let mut out = vec![];
     for stmt in code {
         for label in &stmt.labels {
@@ -321,8 +367,8 @@ fn _compile_main(
                 };
                 out.push(InstrOrLabel::Instr(Instr {
                     time: stmt.time,
-                    opcode: match format.intrinsic_opcode(IntrinsicInstrKind::Jmp) {
-                        Some(opcode) => opcode,
+                    opcode: match intrinsic_opcodes.get(&IntrinsicInstrKind::Jmp) {
+                        Some(&opcode) => opcode,
                         None => bail_span!(stmt, "'goto' not supported by current format"),
                     },
                     args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
@@ -450,6 +496,8 @@ fn encode_labels(
     Ok(())
 }
 
+// =============================================================================
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntrinsicInstrKind {
     Jmp,
@@ -459,8 +507,7 @@ pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction.
     fn instr_size(&self, instr: &Instr) -> usize;
 
-    /// Get the opcode for an intrinsic.
-    fn intrinsic_opcode(&self, intrinsic: IntrinsicInstrKind) -> Option<u16>;
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
 
     /// Read a single script instruction from an input stream.
     ///
@@ -726,10 +773,8 @@ impl InstrFormat for InstrFormat10 {
         Some(Instr { time, opcode: opcode as u16, args })
     }
 
-    fn intrinsic_opcode(&self, intrinsic: IntrinsicInstrKind) -> Option<u16> {
-        match intrinsic {
-            IntrinsicInstrKind::Jmp => Some(1),
-        }
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
+        vec![(IntrinsicInstrKind::Jmp, 1)]
     }
 
     fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()> {
@@ -737,11 +782,7 @@ impl InstrFormat for InstrFormat10 {
         f.write_u16::<Le>(instr.opcode)?;
         f.write_u16::<Le>(8 + 4 * instr.args.len() as u16)?;
         for x in &instr.args {
-            match *x {
-                InstrArg::DwordBits(x) => f.write_u32::<Le>(x)?,
-                InstrArg::Label(_) => unreachable!(),
-                InstrArg::TimeOf(_) => unreachable!(),
-            }
+            f.write_u32::<Le>(x.expect_dword())?;
         }
         Ok(())
     }
