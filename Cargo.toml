@@ -20,6 +20,9 @@ anyhow = "1.0"
 codespan-reporting = "0.11"
 codespan = "0.11"
 
+[dev-dependencies]
+insta = "1.3"
+
 # This is used at build time, so optimizing it immensely speeds up debug builds.
 [profile.dev.package.lalrpop]
 opt-level = 3

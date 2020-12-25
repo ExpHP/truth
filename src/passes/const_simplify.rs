@@ -13,20 +13,20 @@
 //!
 //! # Example
 //! ```
-//! use ecl_parser::{Parse, VisitMut, Expr, pos::{Files}};
+//! use ecl_parser::{Parse, VisitMut, Expr, pos::{Files, Spanned}};
 //! use ecl_parser::passes::const_simplify;
 //!
 //! let mut files = Files::new();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4";
-//! let mut expr: Expr = files.parse("<input>", text).unwrap().value;
+//! let mut expr: Spanned<Expr> = files.parse("<input>", text).unwrap();
 //!
 //! let mut visitor = const_simplify::Visitor::new();
-//! visitor.visit_expr(&mut (expr));
+//! visitor.visit_expr(&mut expr);
 //! visitor.finish().expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * x";
-//! let expected: Expr = files.parse("<input>", text_simplified).unwrap().value;
+//! let expected: Spanned<Expr> = files.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```
 

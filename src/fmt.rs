@@ -717,54 +717,44 @@ mod tests {
     const QUOTED_UTF8: &[u8] = "\"こんにちは\"".as_bytes();
 
     // Parse and dump back out, with some max columns.
-    fn reformat<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, meta_text: &'a [u8]) -> Vec<u8> {
+    fn reformat_bytes<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, meta_text: &'a [u8]) -> Vec<u8> {
         let mut f = Formatter::new(vec![]).with_max_columns(ncol);
         let value = T::parse(meta_text).unwrap_or_else(|e| panic!("{}", e));
         f.fmt(&value).unwrap();
         f.into_inner().unwrap()
     }
 
+    fn reformat<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, meta_text: &'a str) -> String {
+        String::from_utf8(reformat_bytes::<T>(ncol, meta_text.as_bytes())).unwrap()
+    }
+
     #[test]
     fn string_lit_utf8() {
-        assert_eq!(reformat::<ast::LitString>(100, QUOTED_UTF8), QUOTED_UTF8);
+        assert_eq!(reformat_bytes::<ast::LitString>(100, QUOTED_UTF8), QUOTED_UTF8);
     }
 
     #[test]
     fn string_lit_shift_jis() {
-        assert_eq!(reformat::<ast::LitString>(100, QUOTED_SJIS), QUOTED_SJIS);
+        assert_eq!(reformat_bytes::<ast::LitString>(100, QUOTED_SJIS), QUOTED_SJIS);
     }
 
     #[test]
     fn fancy_formatting() {
-        // inline format
-        assert_eq!(
-            reformat::<Meta>(100, br#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#).as_bstr(),
-            br#"{apple: "delicious", numbers: [1, 2, 3]}"#[..].as_bstr(),
+        assert_snapshot!(
+            "fancy_formatting__fully_inline_example",
+            reformat::<Meta>(100, r#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#).trim()
         );
 
         // block format
-        assert_eq!(
-            reformat::<Meta>(3, br#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim().as_bstr(),
-            br#"{
-    apple: "delicious",
-    numbers: [
-        1,
-        2,
-    ],
-}"#[..].as_bstr(),
+        assert_snapshot!(
+            "fancy_formatting__fully_block_example",
+            reformat::<Meta>(3, r#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim()
         );
 
         // mixed format
-        assert_eq!(
-            reformat::<Meta>(30, br#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim().as_bstr(),
-            br#"{
-    a: [10, 23],
-    b: [
-        10000000,
-        230000000,
-        4900000,
-    ],
-}"#[..].as_bstr()
+        assert_snapshot!(
+            "fancy_formatting__mixed_example",
+            reformat::<Meta>(30, r#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim()
         );
     }
 
@@ -774,22 +764,13 @@ mod tests {
         // to block formatting for max_columns <= 15.
         //
         // Verify that it switches at exactly the right point.
-        assert_eq!(
-            reformat::<Meta>(16, br#"{a: [10, 23], b: 30}"#).trim().as_bstr(),
-            br#"{
-    a: [10, 23],
-    b: 30,
-}"#[..].as_bstr(),
+        assert_snapshot!(
+            "fancy_formatting__before_trigger_point",
+            reformat::<Meta>(16, r#"{a: [10, 23], b: 30}"#).trim()
         );
-        assert_eq!(
-            reformat::<Meta>(15, br#"{a: [10, 23], b: 30}"#).trim().as_bstr(),
-            br#"{
-    a: [
-        10,
-        23,
-    ],
-    b: 30,
-}"#[..].as_bstr(),
+        assert_snapshot!(
+            "fancy_formatting__after_trigger_point",
+            reformat::<Meta>(15, r#"{a: [10, 23], b: 30}"#).trim()
         );
     }
 
@@ -797,65 +778,25 @@ mod tests {
     fn test_time_formatting() {
         // * suppress initial 0 label
         // * prefer relative labels
-        assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { 0: a(); 2: a(); 5: a(); }"#).trim().as_bstr(),
-            br#"
-void main() {
-    a();
-+2: // 2
-    a();
-+3: // 5
-    a();
-}"#[1..].as_bstr(),
+        assert_snapshot!(
+            reformat::<ast::Item>(9999, r#"void main() { 0: a(); 2: a(); 5: a(); }"#).trim()
         );
 
         // * nonzero beginning
         // * absolute labels during decrease
         // * explicit 0 label
-        assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { 5: a(); 3: a(); 0: a(); }"#).trim().as_bstr(),
-            br#"
-void main() {
-+5: // 5
-    a();
-3:
-    a();
-0:
-    a();
-}"#[1..].as_bstr(),
+        assert_snapshot!(
+            reformat::<ast::Item>(9999, r#"void main() { 5: a(); 3: a(); 0: a(); }"#).trim()
         );
 
         // negative label followed by zero or positive
-        assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).trim().as_bstr(),
-            br#"
-void main() {
--1:
-    a();
-0:
-    c();
--1:
-    e();
-0:
-+6: // 6
-    g();
-}"#[1..].as_bstr(),
+        assert_snapshot!(
+            reformat::<ast::Item>(9999, r#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).trim()
         );
 
         // compression of identical time labels, regardless of sign
-        assert_eq!(
-            reformat::<ast::Item>(9999, br#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim().as_bstr(),
-            br#"
-void main() {
-    a();
-    b();
-+6: // 6
-    c();
-    d();
--1:
-    e();
-    f();
-}"#[1..].as_bstr(),
+        assert_snapshot!(
+            reformat::<ast::Item>(9999, r#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim()
         );
     }
 }

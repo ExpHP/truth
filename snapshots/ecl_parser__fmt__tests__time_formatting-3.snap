@@ -1,0 +1,15 @@
+---
+source: src/fmt.rs
+expression: "reformat::<ast::Item>(9999,\n                      r#\"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }\"#).trim()"
+---
+void main() {
+-1:
+    a();
+0:
+    c();
+-1:
+    e();
+0:
++6: // 6
+    g();
+}

@@ -496,7 +496,7 @@ pub fn read_std(format: &dyn InstrFormat, bytes: &[u8]) -> StdFile {
     let entries = (0..num_entries)
         .map(|i| read_entry(&bytes[entry_offsets[i] as usize..]))
         .collect::<Vec<_>>();
-    assert_eq!(num_quads, entries.iter().map(|x| x.quads.len()).sum());
+    assert_eq!(num_quads, entries.iter().map(|x| x.quads.len()).sum::<usize>());
     let instances = {
         let mut f = Cursor::new(&bytes[instances_offset..]);
         let mut vec = vec![];

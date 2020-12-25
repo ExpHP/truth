@@ -34,6 +34,14 @@ mod error {
     pub struct CompileError(pub Vec<Diagnostic>);
 }
 
+#[cfg(test)]
+macro_rules! assert_snapshot {
+    ($($args:tt)+) => {
+        insta::with_settings!{{snapshot_path => concat!(env!("CARGO_MANIFEST_DIR"), "/snapshots")}, {
+            insta::assert_snapshot!{$($args)+}
+        }}
+    };
+}
 
 pub use ast::*;
 mod ast;
