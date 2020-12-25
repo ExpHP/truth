@@ -41,7 +41,7 @@ std-compile -m std-14.stdm in.stdspec -o out.std
 
 These should work on TH095-TH17.  *Probably*.  They **definitely absolutely will not work on TH06-TH08 yet** because there's a thing I haven't added yet so just chill out okay
 
-## Building and running from source
+## Building and installing from source
 
 [Install rust](https://rustup.rs/), and then:
 
@@ -49,9 +49,5 @@ These should work on TH095-TH17.  *Probably*.  They **definitely absolutely will
 git clone https://github.com/ExpHP/truth
 cd truth
 cargo install --path .
-
-# run them using `cargo run`
-cargo run --bin=std-decomp -- -m std-14.stdm in.std > out.stdspec
-cargo run --bin=std-decomp -- -m std-14.stdm out.stdspec > in.std
 ```
 
