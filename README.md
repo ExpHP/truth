@@ -48,6 +48,10 @@ These should work on TH095-TH17.  *Probably*.  They **definitely absolutely will
 ```sh
 git clone https://github.com/ExpHP/truth
 cd truth
-cargo install --path .
+cargo build --release
+
+# run them using `cargo run`	
+cargo run --bin=std-decomp -- -m std-14.stdm in.std > out.stdspec	
+cargo run --bin=std-decomp -- -m std-14.stdm out.stdspec > in.std
 ```
 
