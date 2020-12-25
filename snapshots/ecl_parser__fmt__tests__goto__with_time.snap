@@ -1,0 +1,5 @@
+---
+source: src/fmt.rs
+expression: "f(9999, r#\"  goto  lol@  123;\"#).trim()"
+---
+goto lol @ 123;

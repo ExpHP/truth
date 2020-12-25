@@ -1,0 +1,12 @@
+---
+source: src/fmt.rs
+expression: "f(30, r#\"{a: [10, 23], b: [10000000, 230000000, 4900000]}\"#).trim()\n\n'a' should be inline and 'b' should be block"
+---
+{
+    a: [10, 23],
+    b: [
+        10000000,
+        230000000,
+        4900000,
+    ],
+}

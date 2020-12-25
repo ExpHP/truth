@@ -1,8 +1,0 @@
----
-source: src/fmt.rs
-expression: "reformat::<Meta>(16, r#\"{a: [10, 23], b: 30}\"#).trim()"
----
-{
-    a: [10, 23],
-    b: 30,
-}

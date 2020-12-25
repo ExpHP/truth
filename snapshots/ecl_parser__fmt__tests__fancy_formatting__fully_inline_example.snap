@@ -1,5 +1,0 @@
----
-source: src/fmt.rs
-expression: "reformat::<Meta>(100,\n                 r#\"{  apple:  \"delicious\" ,numbers  : [1 ,2, 3]}\"#).trim()"
----
-{apple: "delicious", numbers: [1, 2, 3]}

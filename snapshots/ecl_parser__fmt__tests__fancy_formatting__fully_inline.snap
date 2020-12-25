@@ -1,0 +1,5 @@
+---
+source: src/fmt.rs
+expression: "f(100, r#\"{  apple:  \"delicious\" ,numbers  : [1 ,2, 3]}\"#).trim()\n\nThis should be all on ONE LINE!"
+---
+{apple: "delicious", numbers: [1, 2, 3]}

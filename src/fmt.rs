@@ -740,22 +740,21 @@ mod tests {
 
     #[test]
     fn fancy_formatting() {
-        assert_snapshot!(
-            "fancy_formatting__fully_inline_example",
-            reformat::<Meta>(100, r#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#).trim()
-        );
-
-        // block format
-        assert_snapshot!(
-            "fancy_formatting__fully_block_example",
-            reformat::<Meta>(3, r#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim()
-        );
-
-        // mixed format
-        assert_snapshot!(
-            "fancy_formatting__mixed_example",
-            reformat::<Meta>(30, r#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim()
-        );
+        let f = reformat::<Meta>;
+        prefix_snapshot_names!{"fancy_formatting", {
+            assert_snapshot!(
+                "fully_inline", f(100, r#"{  apple:  "delicious" ,numbers  : [1 ,2, 3]}"#).trim(),
+                "This should be all on ONE LINE!"
+            );
+            assert_snapshot!(
+                "fully_block", f(3, r#"{  apple:  "delicious" ,numbers  : [1 ,2]}"#).trim(),
+                "This should be ENTIRELY BLOCK FORMAT!"
+            );
+            assert_snapshot!(
+                "mixed_style", f(30, r#"{a: [10, 23], b: [10000000, 230000000, 4900000]}"#).trim(),
+                "'a' should be inline and 'b' should be block"
+            );
+        }}
     }
 
     #[test]
@@ -764,49 +763,52 @@ mod tests {
         // to block formatting for max_columns <= 15.
         //
         // Verify that it switches at exactly the right point.
-        assert_snapshot!(
-            "fancy_formatting__before_trigger_point",
-            reformat::<Meta>(16, r#"{a: [10, 23], b: 30}"#).trim()
-        );
-        assert_snapshot!(
-            "fancy_formatting__after_trigger_point",
-            reformat::<Meta>(15, r#"{a: [10, 23], b: 30}"#).trim()
-        );
+        let f = reformat::<Meta>;
+        prefix_snapshot_names!{"fancy_formatting", {
+            assert_snapshot!(
+                "before_trigger", f(16, r#"{a: [10, 23], b: 30}"#).trim(),
+                "This should use INLINE formatting for 'a'"
+            );
+            assert_snapshot!(
+                "after_trigger", f(15, r#"{a: [10, 23], b: 30}"#).trim(),
+                "This should use BLOCK formatting for 'a'"
+            );
+        }}
     }
 
     #[test]
     fn time_formatting() {
-        // * suppress initial 0 label
-        // * prefer relative labels
-        assert_snapshot!(
-            reformat::<ast::Item>(9999, r#"void main() { 0: a(); 2: a(); 5: a(); }"#).trim()
-        );
-
-        // * nonzero beginning
-        // * absolute labels during decrease
-        // * explicit 0 label
-        assert_snapshot!(
-            reformat::<ast::Item>(9999, r#"void main() { 5: a(); 3: a(); 0: a(); }"#).trim()
-        );
-
-        // negative label followed by zero or positive
-        assert_snapshot!(
-            reformat::<ast::Item>(9999, r#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).trim()
-        );
-
-        // compression of identical time labels, regardless of sign
-        assert_snapshot!(
-            reformat::<ast::Item>(9999, r#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim()
-        );
+        let f = reformat::<ast::Item>;
+        prefix_snapshot_names!{"time_formatting", {
+            // * suppress initial 0 label
+            // * prefer relative labels
+            assert_snapshot!("general_1", f(9999, r#"void main() { 0: a(); 2: a(); 5: a(); }"#).trim());
+            // * nonzero beginning
+            // * absolute labels during decrease
+            // * explicit 0 label
+            assert_snapshot!("general_2", f(9999, r#"void main() { 5: a(); 3: a(); 0: a(); }"#).trim());
+            // negative label followed by zero or positive
+            assert_snapshot!("after_neg", f(9999, r#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).trim());
+            // compression of identical time labels, regardless of sign
+            assert_snapshot!("compression", f(9999, r#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim());
+        }}
     }
 
     #[test]
     fn goto() {
-        assert_snapshot!(
-            reformat::<ast::Stmt>(9999, r#"  goto  lol  ;"#).trim()
-        );
-        assert_snapshot!(
-            reformat::<ast::Item>(9999, r#"  goto  lol@  123;"#).trim()
-        );
+        let f = reformat::<ast::Stmt>;
+        prefix_snapshot_names!{"goto", {
+            assert_snapshot!("no_time", f(9999, r#"  goto  lol  ;"#).trim());
+            assert_snapshot!("with_time", f(9999, r#"  goto  lol@  123;"#).trim());
+        }}
+    }
+
+    #[test]
+    fn trailing_newline() {
+        assert!(reformat::<ast::Script>(9999, r#"void fooo();"#).ends_with("\n"));
+        assert!(reformat::<ast::Script>(9999, r#"void foo() { nop(); }"#).ends_with("\n"));
+        assert!(reformat::<ast::Script>(9999, r#"meta { x: 25 }"#).ends_with("\n"));
+        assert!(reformat::<ast::Script>(3, r#"meta { x: 25 }"#).ends_with("\n"));
+        assert!(reformat::<ast::Script>(9999, r#"  script  lol { nop(); }"#).ends_with("\n"));
     }
 }

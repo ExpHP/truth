@@ -1,0 +1,11 @@
+---
+source: src/fmt.rs
+expression: "f(3, r#\"{  apple:  \"delicious\" ,numbers  : [1 ,2]}\"#).trim()\n\nThis should be ENTIRELY BLOCK FORMAT!"
+---
+{
+    apple: "delicious",
+    numbers: [
+        1,
+        2,
+    ],
+}

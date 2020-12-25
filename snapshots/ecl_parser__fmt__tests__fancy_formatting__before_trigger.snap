@@ -1,0 +1,8 @@
+---
+source: src/fmt.rs
+expression: "f(16, r#\"{a: [10, 23], b: 30}\"#).trim()\n\nThis should use INLINE formatting for 'a'"
+---
+{
+    a: [10, 23],
+    b: 30,
+}
