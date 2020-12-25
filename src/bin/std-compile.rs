@@ -15,6 +15,7 @@ fn main() {
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("o", "output", "output file", "OUTPUT");
+    opts.optopt("m", "map", "use a stdmap", "STDMAP");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
         Err(f) => { panic!(f.to_string()) }
@@ -31,16 +32,22 @@ fn main() {
         print_usage(&program, opts);
         return;
     };
-    run(&input, output);
+    run(&input, output, matches.opt_str("map"));
 }
 
-fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
+fn run(
+    path: impl AsRef<std::path::Path>,
+    output: impl AsRef<std::path::Path>,
+    map_path: Option<impl AsRef<std::path::Path>>,
+) {
     use codespan_reporting::term::{self, termcolor as tc};
 
     let functions = {
-        let eclmap: ecl_parser::Eclmap = std::fs::read_to_string("src/std-14.stdm").unwrap().parse().unwrap();
         let mut functions = ecl_parser::signature::Functions::new();
-        functions.add_from_eclmap(&eclmap);
+        if let Some(map_path) = map_path {
+            let eclmap: ecl_parser::Eclmap = std::fs::read_to_string(map_path).unwrap().parse().unwrap();
+            functions.add_from_eclmap(&eclmap);
+        }
         functions
     };
 

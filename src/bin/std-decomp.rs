@@ -15,6 +15,7 @@ fn main() {
     let mut opts = Options::new();
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("", "max-columns", "where possible, will attempt to break lines for < NUM columns", "NUM");
+    opts.optopt("m", "map", "use a stdmap", "STDMAP");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
         Err(f) => { panic!(f.to_string()) }
@@ -30,14 +31,16 @@ fn main() {
         print_usage(&program, opts);
         return;
     };
-    run(&input, matches.opt_get_default("max-columns", 100).unwrap());
+    run(&input, matches.opt_get_default("max-columns", 100).unwrap(), matches.opt_str("map"));
 }
 
-fn run(path: impl AsRef<std::path::Path>, ncol: usize) {
+fn run(path: impl AsRef<std::path::Path>, ncol: usize, map_path: Option<impl AsRef<std::path::Path>>) {
     let functions = {
-        let eclmap: ecl_parser::Eclmap = std::fs::read_to_string("src/std-14.stdm").unwrap().parse().unwrap();
         let mut functions = ecl_parser::signature::Functions::new();
-        functions.add_from_eclmap(&eclmap);
+        if let Some(map_path) = map_path {
+            let eclmap: ecl_parser::Eclmap = std::fs::read_to_string(map_path).unwrap().parse().unwrap();
+            functions.add_from_eclmap(&eclmap);
+        }
         functions
     };
 

@@ -40,6 +40,8 @@
 20 f
 
 
+#  IGNORE THIS STUFF LOL
+#
 # #pragma ins 1
 # void jump(int offset, int time);
 #
