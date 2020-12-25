@@ -273,6 +273,15 @@ fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions
         })
     }).collect();
 
+    let code = {
+        use crate::passes::unused_labels;
+        use crate::ast::VisitMut;
+
+        let mut code = ast::Block(code);
+        unused_labels::Visitor::new().visit_func_body(&mut code);
+        code
+    };
+
     ast::Script {
         items: vec! [
             Spanned::from(ast::Item::Meta {
@@ -283,7 +292,7 @@ fn _decompile_std(format: &dyn InstrFormat, std: &StdFile, functions: &Functions
             Spanned::from(ast::Item::AnmScript {
                 number: None,
                 name: "main".parse().unwrap(),
-                code: ast::Block(code),
+                code,
             }),
         ],
     }

@@ -350,6 +350,8 @@ macro_rules! generate_visitor_stuff {
         /// Recursive AST traversal trait.
         pub trait $Visit {
             fn visit_item(&mut self, e: & $($mut)? Spanned<Item>) { walk_item(self, e) }
+            /// This is called only on the outermost blocks of each function.
+            fn visit_func_body(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Spanned<Stmt>) { walk_stmt(self, e) }
             fn visit_stmt_body(&mut self, e: & $($mut)? Spanned<StmtBody>) { walk_stmt_body(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Spanned<Expr>) { walk_expr(self, e) }
@@ -371,11 +373,11 @@ macro_rules! generate_visitor_stuff {
                     code, inline: _, keyword: _, name: _, params: _,
                 } => {
                     if let Some(code) = code {
-                        walk_block(v, code);
+                        v.visit_func_body(code);
                     }
                 },
                 Item::AnmScript { number: _, name: _, code } => {
-                    walk_block(v, code);
+                    v.visit_func_body(code);
                 },
                 Item::Meta { .. } => {},
                 Item::FileList { .. } => {},

@@ -567,9 +567,9 @@ impl Format for ast::StmtBody {
 impl Format for ast::StmtGoto {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::StmtGoto { destination, time } = self;
-        out.fmt(("goto", destination))?;
+        out.fmt(("goto ", destination))?;
         if let Some(time) = time {
-            out.fmt(("@", time))?;
+            out.fmt((" @ ", time))?;
         }
         Ok(())
     }
@@ -775,7 +775,7 @@ mod tests {
     }
 
     #[test]
-    fn test_time_formatting() {
+    fn time_formatting() {
         // * suppress initial 0 label
         // * prefer relative labels
         assert_snapshot!(
@@ -797,6 +797,16 @@ mod tests {
         // compression of identical time labels, regardless of sign
         assert_snapshot!(
             reformat::<ast::Item>(9999, r#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim()
+        );
+    }
+
+    #[test]
+    fn goto() {
+        assert_snapshot!(
+            reformat::<ast::Stmt>(9999, r#"  goto  lol  ;"#).trim()
+        );
+        assert_snapshot!(
+            reformat::<ast::Item>(9999, r#"  goto  lol@  123;"#).trim()
         );
     }
 }
