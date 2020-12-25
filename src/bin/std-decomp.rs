@@ -43,7 +43,7 @@ fn run(path: impl AsRef<std::path::Path>, ncol: usize) {
 
     let script = {
         let bytes = std::fs::read(path).unwrap();
-        let parsed = ecl_parser::std::read_std_10(&bytes);
+        let parsed = ecl_parser::std::read_std(&ecl_parser::std::InstrFormat10, &bytes);
         parsed.decompile(&functions)
     };
 

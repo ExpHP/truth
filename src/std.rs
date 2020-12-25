@@ -1,4 +1,5 @@
 use std::io::{self, Read, Cursor, Write, Seek};
+use std::collections::HashMap;
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
@@ -40,7 +41,7 @@ impl StdFile {
     }
 
     pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
-        _compile_std(script, functions)
+        _compile_std(&InstrFormat10, script, functions)
     }
 }
 
@@ -164,10 +165,29 @@ impl ToMeta for Instance {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum InstrOrLabel {
+    Label(Ident),
+    Instr(Instr),
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct Instr {
     pub time: i32,
     pub opcode: u16,
-    pub args: Vec<u32>,
+    pub args: Vec<InstrArg>,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum InstrArg {
+    DwordBits(u32),
+    /// A label that has not yet been converted to an integer argument.
+    ///
+    /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
+    /// a dword before [`InstrFormat::write_instr`] is called.
+    Label(Ident),
+    /// A `timeof(label)` that has not yet been converted to an integer argument.
+    ///
+    /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
+    /// a dword before [`InstrFormat::write_instr`] is called.
+    TimeOf(Ident),
 }
 
 // =============================================================================
@@ -181,21 +201,27 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
             functions.opcode_names.get(&(*opcode as u32)).cloned()
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
-        let args = match functions.ins_signature(&ins_ident) {
-            Some(siggy) => {
-                let encodings = siggy.arg_encodings();
-                assert_eq!(encodings.len(), args.len()); // FIXME: return Error
-                encodings.iter().zip(args).map(|(enc, &arg)| match enc {
-                    ArgEncoding::Dword => <Spanned<Expr>>::null_from(arg as i32),
-                    ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
-                        value: arg as i32,
-                        hex: true,
-                    }),
-                    ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(arg)),
-                }).collect()
-            },
-            None => args.iter().map(|&x| <Spanned<Expr>>::null_from(x as i32)).collect(),
+        let encodings = match functions.ins_signature(&ins_ident) {
+            Some(siggy) => siggy.arg_encodings(),
+            None => vec![ArgEncoding::Dword; args.len()],
         };
+
+        assert_eq!(encodings.len(), args.len()); // FIXME: return Error
+        let args = encodings.iter().zip(args).map(|(enc, arg)| {
+            let bits = match *arg {
+                InstrArg::DwordBits(bits) => bits,
+                InstrArg::Label(_) |
+                InstrArg::TimeOf(_) => panic!("bug: unexpected label when decompiling"),
+            };
+            match enc {
+                ArgEncoding::Dword => <Spanned<Expr>>::null_from(bits as i32),
+                ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
+                    value: bits as i32,
+                    hex: true,
+                }),
+                ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(bits)),
+            }
+        }).collect();
         Spanned::from(ast::Stmt {
             time: *time,
             labels: vec![],
@@ -219,7 +245,11 @@ fn _decompile_std(std: &StdFile, functions: &Functions) -> ast::Script {
     }
 }
 
-fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, CompileError> {
+fn _compile_std(
+    format: &dyn InstrFormat,
+    script: &ast::Script,
+    functions: &Functions,
+) -> Result<StdFile, CompileError> {
     use ast::Item;
 
     let mut script = script.clone();
@@ -262,17 +292,43 @@ fn _compile_std(script: &ast::Script, functions: &Functions) -> Result<StdFile, 
     };
 
     let mut out = StdFile::from_meta(meta).map_err(|e| CompileError(vec![Diagnostic::error().with_message(format!("{}", e))]))?;
-    out.script = _compile_main(&main_sub.0, functions)?;
+    out.script = _compile_main(format, &main_sub.0, functions)?;
 
     Ok(out)
 }
 
-fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<Vec<Instr>, CompileError> {
+fn _compile_main(
+    format: &dyn InstrFormat,
+    code: &[Spanned<ast::Stmt>],
+    functions: &Functions,
+) -> Result<Vec<Instr>, CompileError> {
     use crate::signature::ArgEncoding;
 
     let mut out = vec![];
     for stmt in code {
+        for label in &stmt.labels {
+            match label {
+                ast::StmtLabel::Label(ident) => out.push(InstrOrLabel::Label(ident.clone())),
+                // FIXME use span of label
+                ast::StmtLabel::Difficulty { .. } => bail_nospan!("difficulty labels not supported by STD"),
+            }
+        }
+
         match &stmt.body.value {
+            ast::StmtBody::Jump(goto) => {
+                let time_arg = match goto.time {
+                    Some(time) => InstrArg::DwordBits(time as u32),
+                    None => InstrArg::TimeOf(goto.destination.clone()),
+                };
+                out.push(InstrOrLabel::Instr(Instr {
+                    time: stmt.time,
+                    opcode: match format.intrinsic_opcode(IntrinsicInstrKind::Jmp) {
+                        Some(opcode) => opcode,
+                        None => bail_span!(stmt, "'goto' not supported by current format"),
+                    },
+                    args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
+                }));
+            },
             ast::StmtBody::Expr(e) => match &e.value {
                 ast::Expr::Call { func, args } => {
                     let siggy = match functions.ins_signature(func) {
@@ -288,38 +344,146 @@ fn _compile_main(code: &[Spanned<ast::Stmt>], functions: &Functions) -> Result<V
                         bail_span!(stmt, "wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
                     }
 
-                    out.push(Instr {
+                    out.push(InstrOrLabel::Instr(Instr {
                         time: stmt.time,
                         opcode: opcode as _,
                         args: encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
                             ArgEncoding::Dword |
                             ArgEncoding::Color => match **arg {
-                                ast::Expr::LitInt { value, .. } => Ok(value as u32),
+                                ast::Expr::LitInt { value, .. } => Ok(InstrArg::DwordBits(value as u32)),
                                 ast::Expr::LitFloat { .. } |
                                 ast::Expr::LitString { .. } => bail_span!(arg, "expected an int for arg {} of {}", index+1, func),
                                 _ => bail_span!(arg, "unsupported expression type in STD file"),
                             },
                             ArgEncoding::Float => match **arg {
-                                ast::Expr::LitFloat { value, .. } => Ok(value.to_bits()),
+                                ast::Expr::LitFloat { value, .. } => Ok(InstrArg::DwordBits(value.to_bits())),
                                 ast::Expr::LitInt { .. } |
                                 ast::Expr::LitString { .. } => bail_span!(arg, "expected a float for arg {} of {}", index+1, func),
                                 _ => bail_span!(arg, "unsupported expression type in STD file"),
                             },
                         }).collect::<Result<_, _>>()?,
-                    });
+                    }));
                 },
-                _ => bail_span!(stmt, "unsupported expression type in STD file"), // FIXME: give location info
+                _ => bail_span!(stmt, "unsupported expression type in STD file"),
             },
-            _ => bail_span!(stmt, "unsupported statement type in STD file"), // FIXME: give location info
+            _ => bail_span!(stmt, "unsupported statement type in STD file"),
         }
     }
-    Ok(out)
+    // And fix the labels
+    encode_labels(format, 0, &mut out)?;
+
+    Ok(out.into_iter().filter_map(|x| match x {
+        InstrOrLabel::Instr(instr) => Some(instr),
+        InstrOrLabel::Label(_) => None,
+    }).collect())
+}
+
+struct RawLabelInfo {
+    time: i32,
+    offset: usize,
+}
+fn gather_label_info(
+    format: &dyn InstrFormat,
+    initial_offset: usize,
+    code: &[InstrOrLabel]
+) -> HashMap<Ident, RawLabelInfo> {
+    let mut offset = initial_offset;
+    let mut pending_labels = vec![];
+    let mut out = HashMap::new();
+    for thing in code {
+        match thing {
+            // can't insert labels until we see the time of the intructions they are labeling
+            InstrOrLabel::Label(ident) => pending_labels.push(ident),
+            InstrOrLabel::Instr(instr) => {
+                for label in pending_labels.drain(..) {
+                    out.insert(label.clone(), RawLabelInfo {
+                        time: instr.time,
+                        offset,
+                    });
+                }
+                offset += format.instr_size(instr)
+            },
+        }
+    }
+    assert!(pending_labels.is_empty(), "unexpected label after last instruction! (bug?)");
+    out
+}
+
+/// Eliminates all `InstrOrLabel::Label`s by replacing them with their dword values.
+fn encode_labels(
+    format: &dyn InstrFormat,
+    initial_offset: usize,
+    code: &mut [InstrOrLabel],
+) -> Result<(), CompileError> {
+    let label_info = gather_label_info(format, initial_offset, code);
+
+    for thing in code {
+        match thing {
+            InstrOrLabel::Instr(instr) => for arg in &mut instr.args {
+                match *arg {
+                    | InstrArg::Label(ref label)
+                    | InstrArg::TimeOf(ref label)
+                    => match label_info.get(label) {
+                        Some(info) => match arg {
+                            InstrArg::Label(_) => *arg = InstrArg::DwordBits(format.encode_label(info.offset)),
+                            InstrArg::TimeOf(_) => *arg = InstrArg::DwordBits(info.time as u32),
+                            _ => unreachable!(),
+                        },
+                        // FIXME: add a span once AST has spanned Idents
+                        // FIXME: gather multiple errors
+                        None => bail_nospan!("no such label: {}", label),
+                    },
+                    _ => {},
+                }
+            },
+            InstrOrLabel::Label(_) => {},
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IntrinsicInstrKind {
+    Jmp,
+}
+
+pub trait InstrFormat {
+    /// Get the number of bytes in the binary encoding of an instruction.
+    fn instr_size(&self, instr: &Instr) -> usize;
+
+    /// Get the opcode for an intrinsic.
+    fn intrinsic_opcode(&self, intrinsic: IntrinsicInstrKind) -> Option<u16>;
+
+    /// Read a single script instruction from an input stream.
+    ///
+    /// Should return `None` when it reaches the marker that indicates the end of the script.
+    /// When this occurs, it may leave the `Cursor` in an indeterminate state.
+    fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr>;
+
+    /// Write a single script instruction into an output stream.
+    fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()>;
+
+    /// Write a marker that goes after the final instruction in a function or script.
+    fn write_terminal_instr(&self, f: &mut dyn Write) -> io::Result<()>;
+
+    // Most formats encode labels as offsets from the beginning of the script (in which case
+    // these functions are trivial), but early STD is a special snowflake that writes the
+    // instruction *index* instead.
+    fn encode_label(&self, offset: usize) -> u32;
+    fn decode_label(&self, bits: u32) -> usize;
+}
+
+pub trait WriteSeek: Write + Seek {
+    fn as_mut_write(&mut self) -> &mut dyn Write;
+}
+impl<W: Write + Seek> WriteSeek for W {
+    fn as_mut_write(&mut self) -> &mut dyn Write { self }
 }
 
 // =============================================================================
 
 // FIXME clean up API, return Result
-pub fn read_std_10(bytes: &[u8]) -> StdFile {
+pub fn read_std(format: &dyn InstrFormat, bytes: &[u8]) -> StdFile {
     let mut f = Cursor::new(bytes);
 
     let num_entries = f.read_u16::<Le>().expect("incomplete header") as usize;
@@ -344,7 +508,7 @@ pub fn read_std_10(bytes: &[u8]) -> StdFile {
     let script = {
         let mut f = Cursor::new(&bytes[script_offset..]);
         let mut script = vec![];
-        while let Some(instr) = read_instr(&mut f) {
+        while let Some(instr) = format.read_instr(&mut f) {
             script.push(instr);
         }
         script
@@ -352,7 +516,7 @@ pub fn read_std_10(bytes: &[u8]) -> StdFile {
     StdFile { unknown, extra, entries, instances, script }
 }
 
-pub fn write_std_10(f: &mut (impl Write + Seek), std: &StdFile) -> io::Result<()> {
+pub fn write_std(format: &dyn InstrFormat, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
     let start_pos = f.seek(io::SeekFrom::Current(0))?;
 
     f.write_u16::<Le>(std.entries.len() as u16)?;
@@ -365,7 +529,7 @@ pub fn write_std_10(f: &mut (impl Write + Seek), std: &StdFile) -> io::Result<()
 
     f.write_u32::<Le>(std.unknown)?;
 
-    write_extra(f, &std.extra)?;
+    write_extra(f.as_mut_write(), &std.extra)?;
 
     let entry_offsets_pos = f.seek(io::SeekFrom::Current(0))?;
     for _ in &std.entries {
@@ -375,20 +539,20 @@ pub fn write_std_10(f: &mut (impl Write + Seek), std: &StdFile) -> io::Result<()
     let mut entry_offsets = vec![];
     for entry in &std.entries {
         entry_offsets.push(f.seek(io::SeekFrom::Current(0))? - start_pos);
-        write_entry(f, entry)?;
+        write_entry(f.as_mut_write(), entry)?;
     }
 
     let instances_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
     for instance in &std.instances {
-        write_instance(f, instance)?;
+        write_instance(f.as_mut_write(), instance)?;
     }
-    write_terminal_instance(f)?;
+    write_terminal_instance(f.as_mut_write())?;
 
     let script_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
     for instr in &std.script {
-        write_instr(f, instr)?;
+        format.write_instr(f.as_mut_write(), instr)?;
     }
-    write_terminal_instr(f)?;
+    format.write_terminal_instr(f.as_mut_write())?;
 
     let end_pos = f.seek(io::SeekFrom::Current(0))?;
     f.seek(io::SeekFrom::Start(instances_offset_pos))?;
@@ -406,7 +570,7 @@ pub fn write_std_10(f: &mut (impl Write + Seek), std: &StdFile) -> io::Result<()
 fn read_extra(f: &mut Cursor<&[u8]>) -> Option<StdExtra> {
     Some(StdExtra::Th10 { anm_path: read_string_128(f) })
 }
-fn write_extra(f: &mut impl Write, x: &StdExtra) -> io::Result<()> {
+fn write_extra(f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
     match x {
         StdExtra::Th10 { anm_path } => write_string_128(f, anm_path.as_bstr())?,
         StdExtra::Th06 { .. } => unimplemented!(),
@@ -423,7 +587,7 @@ fn read_string_128(f: &mut Cursor<&[u8]>) -> BString {
     }
     out
 }
-fn write_string_128(f: &mut impl Write, s: &BStr) -> io::Result<()> {
+fn write_string_128(f: &mut dyn Write, s: &BStr) -> io::Result<()> {
     let mut buf = [0u8; 128];
     assert!(s.len() < 127, "string too long: {:?}", s);
     buf[..s.len()].copy_from_slice(&s[..]);
@@ -438,12 +602,12 @@ fn read_vec3(f: &mut Cursor<&[u8]>) -> Option<[f32; 3]> {Some([
     f.read_f32::<Le>().ok()?,
 ])}
 
-fn write_vec2(f: &mut impl Write, x: &[f32; 2]) -> io::Result<()> {
+fn write_vec2(f: &mut dyn Write, x: &[f32; 2]) -> io::Result<()> {
     f.write_f32::<Le>(x[0])?;
     f.write_f32::<Le>(x[1])?;
     Ok(())
 }
-fn write_vec3(f: &mut impl Write, x: &[f32; 3]) -> io::Result<()> {
+fn write_vec3(f: &mut dyn Write, x: &[f32; 3]) -> io::Result<()> {
     f.write_f32::<Le>(x[0])?;
     f.write_f32::<Le>(x[1])?;
     f.write_f32::<Le>(x[2])?;
@@ -464,7 +628,7 @@ fn read_entry(bytes: &[u8]) -> Entry {
     Entry { id, unknown, pos, size, quads }
 }
 
-fn write_entry(f: &mut impl Write, x: &Entry) -> io::Result<()> {
+fn write_entry(f: &mut dyn Write, x: &Entry) -> io::Result<()> {
     f.write_u16::<Le>(x.id)?;
     f.write_u16::<Le>(x.unknown)?;
     write_vec3(f, &x.pos)?;
@@ -497,7 +661,7 @@ fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
     Some(Quad { unknown, anm_script, pos, size })
 }
 
-fn write_quad(f: &mut impl Write, quad: &Quad) -> io::Result<()> {
+fn write_quad(f: &mut dyn Write, quad: &Quad) -> io::Result<()> {
     f.write_u16::<Le>(quad.unknown)?;
     f.write_u16::<Le>(0x1c)?; // size
     f.write_u16::<Le>(quad.anm_script)?;
@@ -506,7 +670,7 @@ fn write_quad(f: &mut impl Write, quad: &Quad) -> io::Result<()> {
     write_vec2(f, &quad.size)?;
     Ok(())
 }
-fn write_terminal_quad(f: &mut impl Write) -> io::Result<()> {
+fn write_terminal_quad(f: &mut dyn Write) -> io::Result<()> {
     f.write_i16::<Le>(-1)?;
     f.write_u16::<Le>(0x4)?; // size
     Ok(())
@@ -523,44 +687,68 @@ fn read_instance(f: &mut Cursor<&[u8]>) -> Option<Instance> {
     Some(Instance { object_id, unknown, pos })
 }
 
-fn write_instance(f: &mut impl Write, inst: &Instance) -> io::Result<()> {
+fn write_instance(f: &mut dyn Write, inst: &Instance) -> io::Result<()> {
     f.write_u16::<Le>(inst.object_id)?;
     f.write_u16::<Le>(inst.unknown)?;
     write_vec3(f, &inst.pos)?;
     Ok(())
 }
-fn write_terminal_instance(f: &mut impl Write) -> io::Result<()> {
+fn write_terminal_instance(f: &mut dyn Write) -> io::Result<()> {
     for _ in 0..4 {
         f.write_i32::<Le>(-1)?;
     }
     Ok(())
 }
 
-fn read_instr(f: &mut Cursor<&[u8]>) -> Option<Instr> {
-    let time = f.read_i32::<Le>().expect("unexpected EOF");
-    let opcode = f.read_i16::<Le>().expect("unexpected EOF");
-    let size = f.read_u16::<Le>().expect("unexpected EOF");
-    if opcode == -1 {
-        return None
+pub struct InstrFormat10;
+impl InstrFormat for InstrFormat10 {
+    fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr> {
+        let time = f.read_i32::<Le>().expect("unexpected EOF");
+        let opcode = f.read_i16::<Le>().expect("unexpected EOF");
+        let size = f.read_u16::<Le>().expect("unexpected EOF");
+        if opcode == -1 {
+            return None
+        }
+
+        assert_eq!(size % 4, 0);
+        let nargs = (size - 8)/4;
+        let args = (0..nargs).map(|_| {
+            InstrArg::DwordBits(f.read_u32::<Le>().expect("unexpected EOF"))
+        }).collect::<Vec<_>>();
+        Some(Instr { time, opcode: opcode as u16, args })
     }
 
-    assert_eq!(size % 4, 0);
-    let nargs = (size - 8)/4;
-    let args = (0..nargs).map(|_| f.read_u32::<Le>().expect("unexpected EOF")).collect::<Vec<_>>();
-    Some(Instr { time, opcode: opcode as u16, args })
-}
-fn write_instr(f: &mut impl Write, instr: &Instr) -> io::Result<()> {
-    f.write_i32::<Le>(instr.time)?;
-    f.write_u16::<Le>(instr.opcode)?;
-    f.write_u16::<Le>(8 + 4 * instr.args.len() as u16)?;
-    for &x in &instr.args {
-        f.write_u32::<Le>(x)?;
+    fn intrinsic_opcode(&self, intrinsic: IntrinsicInstrKind) -> Option<u16> {
+        match intrinsic {
+            IntrinsicInstrKind::Jmp => Some(1),
+        }
     }
-    Ok(())
-}
-fn write_terminal_instr(f: &mut impl Write) -> io::Result<()> {
-    for _ in 0..5 {
-        f.write_i32::<Le>(-1)?;
+
+    fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()> {
+        f.write_i32::<Le>(instr.time)?;
+        f.write_u16::<Le>(instr.opcode)?;
+        f.write_u16::<Le>(8 + 4 * instr.args.len() as u16)?;
+        for x in &instr.args {
+            match *x {
+                InstrArg::DwordBits(x) => f.write_u32::<Le>(x)?,
+                InstrArg::Label(_) => unreachable!(),
+                InstrArg::TimeOf(_) => unreachable!(),
+            }
+        }
+        Ok(())
     }
-    Ok(())
+
+    fn write_terminal_instr(&self, f: &mut dyn Write) -> io::Result<()> {
+        for _ in 0..5 {
+            f.write_i32::<Le>(-1)?;
+        }
+        Ok(())
+    }
+
+    fn instr_size(&self, instr: &Instr) -> usize {
+        instr.args.len() * 4 + 8
+    }
+
+    fn encode_label(&self, offset: usize) -> u32 { offset as u32 }
+    fn decode_label(&self, bits: u32) -> usize { bits as usize }
 }

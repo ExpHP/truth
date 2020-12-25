@@ -36,7 +36,7 @@ fn main() {
 
 fn run(path: impl AsRef<std::path::Path>, output: impl AsRef<std::path::Path>) {
     let bytes = std::fs::read(path).unwrap();
-    let parsed = ecl_parser::std::read_std_10(&bytes);
+    let parsed = ecl_parser::std::read_std(&ecl_parser::std::InstrFormat10, &bytes);
     let mut out = std::fs::File::create(output).unwrap();
-    ecl_parser::std::write_std_10(&mut out, &parsed).unwrap();
+    ecl_parser::std::write_std(&ecl_parser::std::InstrFormat10, &mut out, &parsed).unwrap();
 }
