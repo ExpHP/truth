@@ -231,16 +231,20 @@ StmtTimeLabel: () = {
     <t:LitIntSigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") = t; },
 };
 
-StmtLabels: Vec<StmtLabel> = {
+StmtLabels: Vec<Spanned<StmtLabel>> = {
     => vec![],
-    <out:StmtLabels> StmtTimeLabel => out,
-    <out:StmtLabels> <name:Ident> ":" => push(out, StmtLabel::Label(name)),
-    <out:StmtLabels> <flags:DifficultyLabel> => push(out, StmtLabel::Difficulty { flags, temporary: false }),
-    <out:StmtLabels> <flags:DifficultyLabel> ":" => push(out, StmtLabel::Difficulty { flags, temporary: true }),
+    <out:StmtLabels> StmtTimeLabel => out, // side-effects of StmtTimeLabel handle this
+    <out:StmtLabels> <label:Spanned<StmtLabel>> => push(out, label),
+};
+
+StmtLabel: StmtLabel = {
+    <name:Spanned<Ident>> ":" => StmtLabel::Label(name),
+    <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
+    <flags:DifficultyLabel> ":" => StmtLabel::Difficulty { flags, temporary: true },
 };
 
 StmtGoto: StmtGoto = {
-    "goto" <destination:Ident> <time:("@" <LitIntSigned>)?> => StmtGoto { destination, time },
+    "goto" <destination:Spanned<Ident>> <time:("@" <LitIntSigned>)?> => StmtGoto { destination, time },
 };
 
 StmtSpecialCall: StmtBody = {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
-use crate::error::Diagnostic;
+use crate::error::{Diagnostic, Label};
 
 use crate::CompileError;
 use crate::pos::{Spanned};
@@ -166,7 +166,7 @@ impl ToMeta for Instance {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstrOrLabel {
-    Label(Ident),
+    Label(Spanned<Ident>),
     Instr(Instr),
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -182,12 +182,12 @@ pub enum InstrArg {
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
     /// a dword before [`InstrFormat::write_instr`] is called.
-    Label(Ident),
+    Label(Spanned<Ident>),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
     /// a dword before [`InstrFormat::write_instr`] is called.
-    TimeOf(Ident),
+    TimeOf(Spanned<Ident>),
 }
 
 // =============================================================================
@@ -307,10 +307,9 @@ fn _compile_main(
     let mut out = vec![];
     for stmt in code {
         for label in &stmt.labels {
-            match label {
+            match &label.value {
                 ast::StmtLabel::Label(ident) => out.push(InstrOrLabel::Label(ident.clone())),
-                // FIXME use span of label
-                ast::StmtLabel::Difficulty { .. } => bail_nospan!("difficulty labels not supported by STD"),
+                ast::StmtLabel::Difficulty { .. } => bail_span!(label, "difficulty labels not supported by STD"),
             }
         }
 
@@ -386,7 +385,9 @@ fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: usize,
     code: &[InstrOrLabel]
-) -> HashMap<Ident, RawLabelInfo> {
+) -> Result<HashMap<Spanned<Ident>, RawLabelInfo>, CompileError> {
+    use std::collections::hash_map::Entry;
+
     let mut offset = initial_offset;
     let mut pending_labels = vec![];
     let mut out = HashMap::new();
@@ -396,17 +397,25 @@ fn gather_label_info(
             InstrOrLabel::Label(ident) => pending_labels.push(ident),
             InstrOrLabel::Instr(instr) => {
                 for label in pending_labels.drain(..) {
-                    out.insert(label.clone(), RawLabelInfo {
-                        time: instr.time,
-                        offset,
-                    });
+                    match out.entry(label.clone()) {
+                        Entry::Vacant(e) => {
+                            e.insert(RawLabelInfo { time: instr.time, offset });
+                        },
+                        Entry::Occupied(e) => {
+                            let old = e.key();
+                            return Err(CompileError(vec![Diagnostic::error().with_labels(vec![
+                                Label::primary(label.span.file_id, label.span).with_message("duplicate label"),
+                                Label::secondary(old.span.file_id, old.span).with_message("previously defined here"),
+                            ]).with_message(format!("label '{}' already defined", label))]));
+                        },
+                    }
                 }
-                offset += format.instr_size(instr)
+                offset += format.instr_size(instr);
             },
         }
     }
     assert!(pending_labels.is_empty(), "unexpected label after last instruction! (bug?)");
-    out
+    Ok(out)
 }
 
 /// Eliminates all `InstrOrLabel::Label`s by replacing them with their dword values.
@@ -415,7 +424,7 @@ fn encode_labels(
     initial_offset: usize,
     code: &mut [InstrOrLabel],
 ) -> Result<(), CompileError> {
-    let label_info = gather_label_info(format, initial_offset, code);
+    let label_info = gather_label_info(format, initial_offset, code)?;
 
     for thing in code {
         match thing {
@@ -429,9 +438,8 @@ fn encode_labels(
                             InstrArg::TimeOf(_) => *arg = InstrArg::DwordBits(info.time as u32),
                             _ => unreachable!(),
                         },
-                        // FIXME: add a span once AST has spanned Idents
                         // FIXME: gather multiple errors
-                        None => bail_nospan!("no such label: {}", label),
+                        None => bail_span!(label, "no such label"),
                     },
                     _ => {},
                 }

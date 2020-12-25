@@ -109,13 +109,13 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub time: i32,
-    pub labels: Vec<StmtLabel>,
+    pub labels: Vec<Spanned<StmtLabel>>,
     pub body: Spanned<StmtBody>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtLabel {
-    Label(Ident),
+    Label(Spanned<Ident>),
     Difficulty {
         /// If `true`, the difficulty reverts to `"*"` after the next statement.
         temporary: bool,
@@ -176,7 +176,7 @@ pub enum StmtBody {
 /// The body of a `goto` statement, without the `;`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtGoto {
-    pub destination: Ident,
+    pub destination: Spanned<Ident>,
     pub time: Option<i32>,
 }
 
