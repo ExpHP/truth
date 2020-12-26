@@ -1,0 +1,74 @@
+!stdmap
+!ins_names
+0 posKeyframe
+1 fog
+2 fogTime
+3 stop
+4 jmp
+5 pos
+6 posTime
+7 facing
+8 facingTime
+9 up
+10 upTime
+11 fov
+12 fovTime
+13 clearColor
+14 posInitial
+15 posFinal
+16 posInitialDeriv
+17 posFinalDeriv
+18 posBezier
+19 facingInitial
+20 facingFinal
+21 facingInitialDeriv
+22 facingFinalDeriv
+23 facingBezier
+24 upInitial
+25 upFinal
+26 upInitialDeriv
+27 upFinalDeriv
+28 upBezier
+29 spriteA
+30 spriteB
+31 interruptLabel
+32 rockVector  # added in IN
+33 rockMode    # added in IN
+34 spriteC     # added in IN
+
+!ins_signatures
+0 fff
+1 Cff
+2 S__
+3 ___
+4 SS_  # ot
+5 fff
+6 fff
+7 fff
+8 SS_
+9 fff
+10 SS_
+11 f__
+12 SS_
+13 C__
+14 fff
+15 fff
+16 fff
+17 fff
+18 S__
+19 fff
+20 fff
+21 fff
+22 fff
+23 S__
+24 fff
+25 fff
+26 fff
+27 fff
+28 S__
+29 S__  # anm script
+30 S__  # anm script
+31 S__
+32 fff
+33 S__
+34 S__  # anm script

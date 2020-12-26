@@ -9,7 +9,7 @@ use crate::CompileError;
 use crate::pos::{Spanned};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
-use crate::signature::Functions;
+use crate::signature::{Functions, Signature, ArgEncoding};
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 
@@ -201,8 +201,6 @@ impl InstrArg {
 // =============================================================================
 
 fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions) -> ast::Script {
-    use crate::signature::ArgEncoding;
-
     let instr_format = format.instr_format();
 
     let opcode_intrinsics: HashMap<_, _> = {
@@ -224,7 +222,9 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 
         match opcode_intrinsics.get(&opcode) {
             Some(IntrinsicInstrKind::Jmp) => {
-                assert_eq!(args.len(), 2); // FIXME: print proper error
+                assert!(args.len() >= 2); // FIXME: print proper error
+                assert!(args[2..].iter().all(|a| a.expect_dword() == 0), "unsupported data in padding of intrinsic");
+
                 let dest_offset = instr_format.decode_label(args[0].expect_dword());
                 let dest_time = args[1].expect_dword() as i32;
                 return Spanned::null_from(ast::Stmt {
@@ -244,28 +244,16 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
 
-        let encodings = match functions.ins_signature(&ins_ident) {
-            Some(siggy) => siggy.arg_encodings(),
-            None => vec![ArgEncoding::Dword; args.len()],
-        };
-
-        assert_eq!(encodings.len(), args.len()); // FIXME: return Error
-        let args = encodings.iter().zip(args).map(|(enc, arg)| {
-            let bits = arg.expect_dword();
-            match enc {
-                ArgEncoding::Dword => <Spanned<Expr>>::null_from(bits as i32),
-                ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
-                    value: bits as i32,
-                    hex: true,
-                }),
-                ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(bits)),
-            }
-        }).collect();
-
         Spanned::null_from(ast::Stmt {
             time: *time,
             labels: vec![this_instr_label],
-            body: Spanned::from(ast::StmtBody::Expr(Spanned::from(Expr::Call { func: ins_ident, args }))),
+            body: Spanned::from(ast::StmtBody::Expr(Spanned::from(Expr::Call {
+                args: match functions.ins_signature(&ins_ident) {
+                    Some(siggy) => decompile_args(args, siggy),
+                    None => decompile_args(args, &crate::signature::Signature::auto(args.len())),
+                },
+                func: ins_ident,
+            }))),
         })
     }).collect();
 
@@ -292,6 +280,33 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
             }),
         ],
     }
+}
+
+fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Spanned<Expr>> {
+    let encodings = siggy.arg_encodings();
+
+    assert_eq!(args.len(), encodings.len()); // FIXME: return Error
+    let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
+        let bits = arg.expect_dword();
+        match enc {
+            ArgEncoding::Dword => <Spanned<Expr>>::null_from(bits as i32),
+            ArgEncoding::Padding => <Spanned<Expr>>::null_from(bits as i32),
+            ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
+                value: bits as i32,
+                hex: true,
+            }),
+            ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(bits)),
+        }
+    }).collect::<Vec<_>>();
+
+    // drop early STD padding args from the end as long as they're zero
+    for (enc, arg) in encodings.iter().zip(args).rev() {
+        match (enc, arg) {
+            (ArgEncoding::Padding, InstrArg::DwordBits(0)) => out.pop(),
+            _ => break,
+        };
+    }
+    out
 }
 
 fn _compile_std(
@@ -353,8 +368,6 @@ fn _compile_main(
     code: &[Spanned<ast::Stmt>],
     functions: &Functions,
 ) -> Result<Vec<Instr>, CompileError> {
-    use crate::signature::ArgEncoding;
-
     let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
 
     let mut out = vec![];
@@ -392,28 +405,14 @@ fn _compile_main(
                         None => bail_span!(stmt, "don't know how to compile function {} (not an instruction)", func),
                     };
                     let encodings = siggy.arg_encodings();
-                    if encodings.len() != args.len() {
+                    if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
                         bail_span!(stmt, "wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
                     }
 
                     out.push(InstrOrLabel::Instr(Instr {
                         time: stmt.time,
                         opcode: opcode as _,
-                        args: encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
-                            ArgEncoding::Dword |
-                            ArgEncoding::Color => match **arg {
-                                ast::Expr::LitInt { value, .. } => Ok(InstrArg::DwordBits(value as u32)),
-                                ast::Expr::LitFloat { .. } |
-                                ast::Expr::LitString { .. } => bail_span!(arg, "expected an int for arg {} of {}", index+1, func),
-                                _ => bail_span!(arg, "unsupported expression type in STD file"),
-                            },
-                            ArgEncoding::Float => match **arg {
-                                ast::Expr::LitFloat { value, .. } => Ok(InstrArg::DwordBits(value.to_bits())),
-                                ast::Expr::LitInt { .. } |
-                                ast::Expr::LitString { .. } => bail_span!(arg, "expected a float for arg {} of {}", index+1, func),
-                                _ => bail_span!(arg, "unsupported expression type in STD file"),
-                            },
-                        }).collect::<Result<_, _>>()?,
+                        args: compile_args(func, args, &encodings)?,
                     }));
                 },
                 _ => bail_span!(stmt, "unsupported expression type in STD file"),
@@ -428,6 +427,25 @@ fn _compile_main(
         InstrOrLabel::Instr(instr) => Some(instr),
         InstrOrLabel::Label(_) => None,
     }).collect())
+}
+
+fn compile_args(func: &Ident, args: &[Spanned<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
+    encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
+        ArgEncoding::Padding |
+        ArgEncoding::Dword |
+        ArgEncoding::Color => match **arg {
+            ast::Expr::LitInt { value, .. } => Ok(InstrArg::DwordBits(value as u32)),
+            ast::Expr::LitFloat { .. } |
+            ast::Expr::LitString { .. } => bail_span!(arg, "expected an int for arg {} of {}", index+1, func),
+            _ => bail_span!(arg, "unsupported expression type in STD file"),
+        },
+        ArgEncoding::Float => match **arg {
+            ast::Expr::LitFloat { value, .. } => Ok(InstrArg::DwordBits(value.to_bits())),
+            ast::Expr::LitInt { .. } |
+            ast::Expr::LitString { .. } => bail_span!(arg, "expected a float for arg {} of {}", index+1, func),
+            _ => bail_span!(arg, "unsupported expression type in STD file"),
+        },
+    }).collect::<Result<_, _>>()
 }
 
 struct RawLabelInfo {
@@ -760,11 +778,19 @@ fn write_terminal_instance(f: &mut dyn Write) -> io::Result<()> {
 }
 
 fn game_format(game: Game) -> Box<dyn FileFormat> {
-    if game < Game::Th095 { Box::new(FileFormat06) } else { Box::new(FileFormat10) }
+    match game {
+        Game::Th06
+        => Box::new(FileFormat06 { instr_format: InstrFormat06 { has_jmp: false } }),
+
+        g if (Game::Th07 <= g && g <= Game::Th09)
+        => Box::new(FileFormat06 { instr_format: InstrFormat06 { has_jmp: true } }),
+
+        _ => Box::new(FileFormat10),
+    }
 }
 
 /// STD format, EoSD to PoFV.
-struct FileFormat06;
+struct FileFormat06 { instr_format: InstrFormat06 }
 /// STD format, StB to present.
 struct FileFormat10;
 
@@ -824,7 +850,7 @@ impl FileFormat for FileFormat06 {
         Ok(())
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat { &InstrFormat06 }
+    fn instr_format(&self) -> &dyn InstrFormat { &self.instr_format }
 }
 
 impl FileFormat for FileFormat10 {
@@ -856,31 +882,60 @@ impl FileFormat for FileFormat10 {
     fn instr_format(&self) -> &dyn InstrFormat { &InstrFormat10 }
 }
 
-pub struct InstrFormat06;
+pub struct InstrFormat06 { has_jmp: bool }
 pub struct InstrFormat10;
 impl InstrFormat for InstrFormat06 {
-    fn read_instr(&self, _f: &mut Cursor<&[u8]>) -> Option<Instr> {
-        unimplemented!()
+    fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr> {
+        let time = f.read_i32::<Le>().expect("unexpected EOF");
+        let opcode = f.read_i16::<Le>().expect("unexpected EOF");
+        let argsize = f.read_u16::<Le>().expect("unexpected EOF");
+        if opcode == -1 {
+            return None
+        }
+
+        assert_eq!(argsize, 12);
+        let args = (0..3).map(|_| {
+            InstrArg::DwordBits(f.read_u32::<Le>().expect("unexpected EOF"))
+        }).collect::<Vec<_>>();
+        Some(Instr { time, opcode: opcode as u16, args })
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
-        unimplemented!()
+        match self.has_jmp {
+            false => vec![],
+            true => vec![(IntrinsicInstrKind::Jmp, 4)],
+        }
     }
 
-    fn write_instr(&self, _f: &mut dyn Write, _instr: &Instr) -> io::Result<()> {
-        unimplemented!()
+    fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()> {
+        f.write_i32::<Le>(instr.time)?;
+        f.write_u16::<Le>(instr.opcode)?;
+        f.write_u16::<Le>(12)?;
+        for arg in &instr.args {
+            f.write_u32::<Le>(arg.expect_dword())?;
+        }
+        for _ in instr.args.len()..3 {
+            f.write_u32::<Le>(0)?;  // padding
+        }
+        Ok(())
     }
 
-    fn write_terminal_instr(&self, _f: &mut dyn Write) -> io::Result<()> {
-        unimplemented!()
+    fn write_terminal_instr(&self, f: &mut dyn Write) -> io::Result<()> {
+        for _ in 0..5 {
+            f.write_i32::<Le>(-1)?;
+        }
+        Ok(())
     }
 
-    fn instr_size(&self, _instr: &Instr) -> usize {
-        unimplemented!()
-    }
+    fn instr_size(&self, _instr: &Instr) -> usize { 20 }
 
-    fn encode_label(&self, _offset: usize) -> u32 { unimplemented!() }
-    fn decode_label(&self, _bits: u32) -> usize { unimplemented!() }
+    fn encode_label(&self, offset: usize) -> u32 {
+        assert_eq!(offset % 20, 0);
+        (offset / 20) as u32
+    }
+    fn decode_label(&self, bits: u32) -> usize {
+        (bits * 20) as usize
+    }
 }
 
 impl InstrFormat for InstrFormat10 {

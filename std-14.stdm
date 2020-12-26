@@ -1,6 +1,6 @@
 !stdmap
 !ins_names
-1 jump
+1 jmp
 2 pos
 3 posTime
 4 facing
@@ -19,7 +19,7 @@
 18 upTime
 
 !ins_signatures
-1 SS
+1 SS  # ot
 2 fff
 3 SSfff
 4 fff
