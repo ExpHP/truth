@@ -51,6 +51,6 @@ cd truth
 cargo build --release
 
 cargo run --bin=std-decomp -- -g10 -m std-14.stdm in.std > out.stdspec
-cargo run --bin=std-decomp -- -g10 -m std-14.stdm out.stdspec > in.std
+cargo run --bin=std-compile -- -g10 -m std-14.stdm out.stdspec > in.std
 ```
 
