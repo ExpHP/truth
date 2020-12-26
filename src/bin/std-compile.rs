@@ -16,6 +16,7 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("o", "output", "output file", "OUTPUT");
     opts.optopt("m", "map", "use a stdmap", "STDMAP");
+    opts.reqopt("g", "game", "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.", "GAME");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
         Err(f) => { panic!(f.to_string()) }
@@ -25,6 +26,7 @@ fn main() {
         return;
     }
 
+    let game = matches.opt_get("game").expect("bad game").unwrap();
     let output = matches.opt_str("output").unwrap();
     let input = if !matches.free.is_empty() {
         matches.free[0].clone()
@@ -32,10 +34,11 @@ fn main() {
         print_usage(&program, opts);
         return;
     };
-    run(&input, output, matches.opt_str("map"));
+    run(game, &input, output, matches.opt_str("map"));
 }
 
 fn run(
+    game: ecl_parser::Game,
     path: impl AsRef<std::path::Path>,
     output: impl AsRef<std::path::Path>,
     map_path: Option<impl AsRef<std::path::Path>>,
@@ -58,7 +61,7 @@ fn run(
         Err(e) => panic!("{}", e),
     };
 
-    let std = match ecl_parser::std::StdFile::compile(&script, &functions) {
+    let std = match ecl_parser::std::StdFile::compile(game, &script, &functions) {
         Ok(x) => x,
         Err(es) => {
             let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
@@ -79,5 +82,5 @@ fn run(
     };
 
     let mut out = std::fs::File::create(output).unwrap();
-    ecl_parser::std::write_std(&ecl_parser::std::FileFormat10, &mut out, &std).unwrap();
+    ecl_parser::std::write_std(game, &mut out, &std).unwrap();
 }

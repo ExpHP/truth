@@ -11,6 +11,7 @@ use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::Functions;
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
+use crate::game::Game;
 
 // =============================================================================
 
@@ -37,12 +38,12 @@ pub enum StdExtra {
 }
 
 impl StdFile {
-    pub fn decompile(&self, functions: &Functions) -> ast::Script {
-        _decompile_std(&FileFormat10, self, functions)
+    pub fn decompile(&self, game: Game, functions: &Functions) -> ast::Script {
+        _decompile_std(&*game_format(game), self, functions)
     }
 
-    pub fn compile(script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
-        _compile_std(&FileFormat10, script, functions)
+    pub fn compile(game: Game, script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
+        _compile_std(&*game_format(game), script, functions)
     }
 }
 
@@ -544,7 +545,9 @@ impl<W: Write + Seek> WriteSeek for W {
 // =============================================================================
 
 // FIXME clean up API, return Result
-pub fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> StdFile {
+pub fn read_std(game: Game, bytes: &[u8]) -> StdFile {
+    let format = game_format(game);
+
     let mut f = Cursor::new(bytes);
 
     let num_entries = f.read_u16::<Le>().expect("incomplete header") as usize;
@@ -579,7 +582,9 @@ pub fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> StdFile {
     StdFile { unknown, extra, entries, instances, script }
 }
 
-pub fn write_std(format: &dyn FileFormat, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
+pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
+    let format = game_format(game);
+
     let start_pos = f.seek(io::SeekFrom::Current(0))?;
 
     f.write_u16::<Le>(std.entries.len() as u16)?;
@@ -754,10 +759,16 @@ fn write_terminal_instance(f: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
-pub struct FileFormat06;
-pub struct FileFormat10;
+fn game_format(game: Game) -> Box<dyn FileFormat> {
+    if game < Game::Th095 { Box::new(FileFormat06) } else { Box::new(FileFormat10) }
+}
 
-pub trait FileFormat {
+/// STD format, EoSD to PoFV.
+struct FileFormat06;
+/// STD format, StB to present.
+struct FileFormat10;
+
+trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: meta::BuildObject) -> meta::BuildObject;
     fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra;

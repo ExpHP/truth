@@ -98,6 +98,9 @@ pub mod passes;
 pub use ident::{Ident, ParseIdentError};
 mod ident;
 
+pub use game::Game;
+mod game;
+
 #[cfg(test)]
 mod tests {
     use crate::{ast, Parse, CompileError};

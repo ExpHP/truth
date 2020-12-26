@@ -16,6 +16,7 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("", "max-columns", "where possible, will attempt to break lines for < NUM columns", "NUM");
     opts.optopt("m", "map", "use a stdmap", "STDMAP");
+    opts.reqopt("g", "game", "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.", "GAME");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
         Err(f) => { panic!(f.to_string()) }
@@ -25,16 +26,22 @@ fn main() {
         return;
     }
 
+    let game = matches.opt_get("game").expect("bad game").unwrap();
     let input = if !matches.free.is_empty() {
         matches.free[0].clone()
     } else {
         print_usage(&program, opts);
         return;
     };
-    run(&input, matches.opt_get_default("max-columns", 100).unwrap(), matches.opt_str("map"));
+    run(game, &input, matches.opt_get_default("max-columns", 100).unwrap(), matches.opt_str("map"));
 }
 
-fn run(path: impl AsRef<std::path::Path>, ncol: usize, map_path: Option<impl AsRef<std::path::Path>>) {
+fn run(
+    game: ecl_parser::Game,
+    path: impl AsRef<std::path::Path>,
+    ncol: usize,
+    map_path: Option<impl AsRef<std::path::Path>>,
+) {
     let functions = {
         let mut functions = ecl_parser::signature::Functions::new();
         if let Some(map_path) = map_path {
@@ -46,8 +53,8 @@ fn run(path: impl AsRef<std::path::Path>, ncol: usize, map_path: Option<impl AsR
 
     let script = {
         let bytes = std::fs::read(path).unwrap();
-        let parsed = ecl_parser::std::read_std(&ecl_parser::std::FileFormat10, &bytes);
-        parsed.decompile(&functions)
+        let parsed = ecl_parser::std::read_std(game, &bytes);
+        parsed.decompile(game, &functions)
     };
 
     let stdout = std::io::stdout();
