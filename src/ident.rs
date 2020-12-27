@@ -67,6 +67,14 @@ impl PartialEq<[u8]> for Ident {
     fn eq(&self, s: &[u8]) -> bool { self.ident.as_bytes() == s }
 }
 
+impl PartialEq<Ident> for str {
+    fn eq(&self, s: &Ident) -> bool { s == self }
+}
+
+impl PartialEq<Ident> for [u8] {
+    fn eq(&self, s: &Ident) -> bool { s == self }
+}
+
 impl AsRef<str> for Ident {
     fn as_ref(&self) -> &str { &self.ident }
 }

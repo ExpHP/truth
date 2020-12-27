@@ -150,8 +150,8 @@ Item: Item = {
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
     "script" <number:LitIntSigned?> <name:Ident> _TimeStackEnter <code:Block> _TimeStackPop
         => Item::AnmScript { number, name, code },
-    <keyword:MetaKeyword> <name:Ident?> <meta:Meta>
-        => Item::Meta { keyword, name, meta },
+    <keyword:MetaKeyword> <name:Ident?> <fields:MetaBracedFields>
+        => Item::Meta { keyword, name, meta: Meta::Object(fields) },
     <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
         => Item::FileList { keyword, files },
 };
@@ -189,18 +189,23 @@ Meta: Meta = {
     <x:LitIntSigned> => Meta::Int(x),
     <x:LitFloatSigned> => Meta::Float(x),
     <x:LitString> => Meta::String(x.string),
+    <x:MetaBracedFields> => Meta::Object(x),
+    <name:Ident> <fields:MetaBracedFields> => Meta::Variant { name, fields },
+    "[" <items:SeparatedTrailing<Meta, ",">> "]" => Meta::Array(items),
+};
+
+MetaBracedFields: indexmap::IndexMap<Ident, Meta> = {
     "{" <kvs:SeparatedTrailing<(<Ident> ":" <Meta>), ",">> "}" =>? {
         let mut map = indexmap::IndexMap::with_capacity(kvs.len());
         for (key, value) in kvs {
             if let Some(_) = map.insert(key, value) {
                 return Err(ParseError::User {
                     error: "metadata contains duplicate key", // TODO: show key
-                })
+                });
             }
         }
-        Ok(Meta::Object(map))
+        Ok(map)
     },
-    "[" <items:SeparatedTrailing<Meta, ",">> "]" => Meta::Array(items),
 };
 
 // ==================================================

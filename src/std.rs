@@ -49,13 +49,13 @@ impl StdFile {
 
 impl StdFile {
     fn init_from_meta<'m>(file_format: &dyn FileFormat, meta: &'m Meta) -> Result<Self, FromMetaError<'m>> {
-        Ok(StdFile {
-            unknown: meta.expect_field("unknown")?,
-            entries: meta.expect_field("objects")?,
-            instances: meta.expect_field("instances")?,
+        meta.parse_object(|m| Ok(StdFile {
+            unknown: m.expect_field("unknown")?,
+            entries: m.expect_field("objects")?,
+            instances: m.expect_field("instances")?,
             script: vec![],
-            extra: file_format.extra_from_meta(meta)?,
-        })
+            extra: file_format.extra_from_meta(m)?,
+        }))
     }
 
     fn make_meta(&self, file_format: &dyn FileFormat) -> Meta {
@@ -79,13 +79,13 @@ pub struct Entry {
 
 impl FromMeta for Entry {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        Ok(Entry {
-            id: meta.expect_field::<i32>("id")? as u16,
-            unknown: meta.expect_field::<i32>("unknown")? as u16,
-            pos: meta.expect_field("pos")?,
-            size: meta.expect_field("size")?,
-            quads: meta.expect_field("quads")?,
-        })
+        meta.parse_object(|m| Ok(Entry {
+            id: m.expect_field::<i32>("id")? as u16,
+            unknown: m.expect_field::<i32>("unknown")? as u16,
+            pos: m.expect_field("pos")?,
+            size: m.expect_field("size")?,
+            quads: m.expect_field("quads")?,
+        }))
     }
 }
 
@@ -104,29 +104,66 @@ impl ToMeta for Entry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quad {
     pub anm_script: u16,
-    pub pos: [f32; 3],
-    pub size: [f32; 2],
-    pub extra: Option<[f32; 2]>
+    pub extra: QuadExtra,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuadExtra {
+    /// Type 0 quad.
+    Rect {
+        pos: [f32; 3],
+        size: [f32; 2],
+    },
+    /// Type 1 quad. Only available in IN and PoFV.
+    Strip {
+        start: [f32; 3],
+        end: [f32; 3],
+        width: f32,
+    }
 }
 
 impl FromMeta for Quad {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        Ok(Quad {
-            anm_script: meta.expect_field::<i32>("anm_script")? as u16,
-            pos: meta.expect_field("pos")?,
-            size: meta.expect_field("size")?,
-            extra: meta.get_field("extra")?,
-        })
+        meta.parse_variant()?
+            .variant("rect", |m| Ok(Quad {
+                anm_script: m.expect_field::<i32>("anm_script")? as u16,
+                extra: QuadExtra::Rect {
+                    pos: m.expect_field("pos")?,
+                    size: m.expect_field("size")?,
+                },
+            }))
+            .variant("strip", |m| Ok(Quad {
+                anm_script: m.expect_field::<i32>("anm_script")? as u16,
+                extra: QuadExtra::Strip {
+                    start: m.expect_field("start")?,
+                    end: m.expect_field("end")?,
+                    width: m.expect_field("width")?,
+                },
+            }))
+            .finish()
     }
 }
 
 impl ToMeta for Quad {
     fn to_meta(&self) -> Meta {
-        Meta::make_object()
+        let variant = match self.extra {
+            QuadExtra::Rect { .. } => "rect",
+            QuadExtra::Strip { .. } => "strip",
+        };
+
+        Meta::make_variant(variant)
             .field("anm_script", &(self.anm_script as i32))
-            .field("pos", &self.pos)
-            .field("size", &self.size)
-            .opt_field("extra", self.extra)
+            .with_mut(|b| match &self.extra {
+                QuadExtra::Rect { pos, size } => {
+                    b.field("pos", pos);
+                    b.field("size", size);
+                },
+                QuadExtra::Strip { start, end, width } => {
+                    b.field("start", start);
+                    b.field("end", end);
+                    b.field("width", width);
+                },
+            })
             .build()
     }
 }
@@ -140,11 +177,11 @@ pub struct Instance {
 
 impl FromMeta for Instance {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        Ok(Instance {
+        meta.parse_object(|meta| Ok(Instance {
             object_id: meta.expect_field::<i32>("object")? as u16,
             unknown: meta.get_field::<i32>("unknown")?.unwrap_or(256) as u16,
             pos: meta.expect_field("pos")?,
-        })
+        }))
     }
 }
 
@@ -720,7 +757,7 @@ fn write_entry(f: &mut dyn Write, x: &Entry) -> io::Result<()> {
 fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
     let kind = f.read_i16::<Le>().expect("unexpected EOF");
     let size = f.read_u16::<Le>().expect("unexpected EOF");
-    let is_large = match (kind, size) {
+    match (kind, size) {
         (-1, 4) => return None, // no more quads
         (0, 0x1c) => false,
         (1, 0x24) => true,
@@ -736,28 +773,42 @@ fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
         s => panic!("unexpected data in quad index field: {:#04x}", s),
     };
 
-    let pos = read_vec3(f).expect("unexpected EOF");
-    let size = read_vec2(f).expect("unexpected EOF");
-    let extra = match is_large {
-        true => Some(read_vec2(f).expect("unexpected EOF")),
-        false => None,
-    };
-    Some(Quad { anm_script, pos, size, extra })
+    Some(Quad {
+        anm_script,
+        extra: match kind {
+            0 => QuadExtra::Rect {
+                pos: read_vec3(f).expect("unexpected EOF"),
+                size: read_vec2(f).expect("unexpected EOF"),
+            },
+            1 => QuadExtra::Strip {
+                start: read_vec3(f).expect("unexpected EOF"),
+                end: read_vec3(f).expect("unexpected EOF"),
+                width: f.read_f32::<Le>().expect("unexpected EOF"),
+            },
+            _ => unreachable!(),
+        },
+    })
 }
 
 fn write_quad(f: &mut dyn Write, quad: &Quad) -> io::Result<()> {
     let (kind, size) = match quad.extra {
-        None => (0, 0x1c),
-        Some(_) => (1, 0x24),
+        QuadExtra::Rect { .. } => (0, 0x1c),
+        QuadExtra::Strip { .. } => (1, 0x24),
     };
     f.write_i16::<Le>(kind)?;
     f.write_u16::<Le>(size)?;
     f.write_u16::<Le>(quad.anm_script)?;
     f.write_u16::<Le>(0)?;
-    write_vec3(f, &quad.pos)?;
-    write_vec2(f, &quad.size)?;
-    if let Some(extra) = &quad.extra {
-        write_vec2(f, extra)?;
+    match quad.extra {
+        QuadExtra::Rect { pos, size } => {
+            write_vec3(f, &pos)?;
+            write_vec2(f, &size)?;
+        },
+        QuadExtra::Strip { start, end, width } => {
+            write_vec3(f, &start)?;
+            write_vec3(f, &end)?;
+            f.write_f32::<Le>(width)?;
+        },
     }
     Ok(())
 }
@@ -809,7 +860,7 @@ struct FileFormat06 { instr_format: InstrFormat06 }
 struct FileFormat10;
 
 trait FileFormat {
-    fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>>;
+    fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
     fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra;
     fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()>;
@@ -817,11 +868,11 @@ trait FileFormat {
 }
 
 impl FileFormat for FileFormat06 {
-    fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>> {
+    fn extra_from_meta<'m>(&self, m: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>> {
         Ok(StdExtra::Th06 {
-            stage_name: meta.expect_field("stage_name")?,
-            bgm_names: meta.expect_field("bgm_names")?,
-            bgm_paths: meta.expect_field("bgm_paths")?,
+            stage_name: m.expect_field("stage_name")?,
+            bgm_names: m.expect_field("bgm_names")?,
+            bgm_paths: m.expect_field("bgm_paths")?,
         })
     }
 
@@ -867,9 +918,9 @@ impl FileFormat for FileFormat06 {
 }
 
 impl FileFormat for FileFormat10 {
-    fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>> {
+    fn extra_from_meta<'m>(&self, m: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>> {
         Ok(StdExtra::Th10 {
-            anm_path: meta.expect_field("anm_file")?,
+            anm_path: m.expect_field("anm_file")?,
         })
     }
 

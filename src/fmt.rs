@@ -402,6 +402,10 @@ impl Format for Meta {
             Meta::String(x) => out.fmt(ast::LitString { string: x }),
             Meta::Object(map) => out.fmt_comma_separated("{", "}", map.iter().map(|(k, v)| (k, ": ", v))),
             Meta::Array(xs) => out.fmt_comma_separated("[", "]", xs),
+            Meta::Variant { name, fields } => {
+                out.fmt((name, " "))?;
+                out.fmt_comma_separated("{", "}", fields.iter().map(|(k, v)| (k, ": ", v)))
+            },
         }
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bstr::{BStr, BString};
 use indexmap::IndexMap as Map;
 use thiserror::Error;
@@ -9,8 +11,15 @@ pub enum Meta {
     Int(i32),
     Float(f32),
     String(BString),
+    // { key: value, ... }
     Object(Map<Ident, Meta>),
+    // [ value, ... ]
     Array(Vec<Meta>),
+    // ident { key: value, ... }
+    Variant {
+        name: Ident,
+        fields: Map<Ident, Meta>,
+    },
 }
 
 // For error messages
@@ -29,24 +38,159 @@ impl Meta {
     pub fn parse<T: FromMeta>(&self) -> Result<T, FromMetaError<'_>> {
         T::from_meta(self)
     }
-    pub fn get_field<'a, T: FromMeta>(&'a self, field: &'a str) -> Result<Option<T>, FromMetaError<'a>> {
+    pub fn make_object() -> BuildObject { BuildObject {
+        variant: None,
+        map: Some(Map::new()),
+    }}
+
+    /// Add a field to a meta.
+    pub fn make_variant(variant: impl AsRef<str>) -> BuildObject { BuildObject {
+        variant: Some(variant.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e))),
+        map: Some(Map::new()),
+    }}
+}
+
+pub trait FromMeta: Sized {
+    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>>;
+}
+pub trait ToMeta {
+    fn to_meta(&self) -> Meta;
+}
+
+#[derive(Error, Debug)]
+pub enum FromMetaError<'a> {
+    #[error("expected {}, got {}", .expected, .got)]
+    TypeError {
+        expected: &'static str,
+        got: &'a Meta,
+    },
+    #[error("object is missing field {:?}", .field)]
+    MissingField { field: &'a str },
+    #[error("object has unexpected field {:?}", .field)]
+    UnexpectedField { field: &'a Ident },
+    #[error("unexpected variant {}. Valid choices: [{}]", .invalid, .valid_variants)]
+    BadVariant {
+        invalid: &'a Ident,
+        valid_variants: String,
+    },
+}
+
+impl<'a> FromMetaError<'a> {
+    pub fn expected(expected: &'static str, got: &'a Meta) -> Self {
+        FromMetaError::TypeError { expected, got }
+    }
+}
+
+/// Used to parse an object.
+pub struct ParseObject<'a> {
+    armed: bool,
+    map: &'a Map<Ident, Meta>,
+    valid_fields: HashSet<&'static str>,
+}
+
+/// Used to parse a variant.
+pub struct ParseVariant<'a, T> {
+    ident: &'a Ident,
+    map: &'a Map<Ident, Meta>,
+    result: Option<Result<T, FromMetaError<'a>>>,
+    valid_variants: Vec<&'static str>,
+}
+
+impl<'a> ParseObject<'a> {
+    pub fn new(map: &'a Map<Ident, Meta>) -> Self {
+        ParseObject { map, armed: true, valid_fields: HashSet::new() }
+    }
+}
+
+impl<'a> Drop for ParseObject<'a> {
+    #[track_caller]
+    fn drop(&mut self) {
+        if self.armed {
+            panic!("ParseObject was dropped without finalization!")
+        }
+    }
+}
+
+impl Meta {
+    pub fn parse_object<'a, T>(
+        &'a self,
+        func: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
+    ) -> Result<T, FromMetaError<'_>> {
         match self {
-            Meta::Object(map) => match map.get(field) {
-                Some(x) => x.parse().map(Some),
-                None => Ok(None),
+            Meta::Object(map) => {
+                let mut helper = ParseObject::new(map);
+                let value = func(&mut helper)?;
+                helper.finish()?;
+                Ok(value)
             },
             _ => Err(FromMetaError::expected("an object", self)),
         }
     }
-    pub fn expect_field<'a, T: FromMeta>(&'a self, field: &'a str) -> Result<T, FromMetaError<'a>> {
-        self.get_field(field)?.ok_or(FromMetaError::MissingField { field })
+
+    pub fn parse_variant<T>(&self) -> Result<ParseVariant<'_, T>, FromMetaError<'_>> {
+        match self {
+            Meta::Variant { name, fields } => Ok(ParseVariant {
+                ident: name, map: fields, result: None,
+                valid_variants: vec![],
+            }),
+            _ => Err(FromMetaError::expected("a variant", self)),
+        }
     }
-    pub fn make_object() -> BuildObject { BuildObject { map: Some(Map::new()) } }
 }
 
-/// Builder pattern for an object.
+impl<'a> ParseObject<'a> {
+    pub fn get_field<T: FromMeta>(&mut self, field: &'static str) -> Result<Option<T>, FromMetaError<'a>> {
+        self.valid_fields.insert(field);
+        match self.map.get(field) {
+            Some(x) => x.parse().map(Some),
+            None => Ok(None),
+        }
+    }
+
+    pub fn expect_field<T: FromMeta>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
+        self.get_field(field)?.ok_or(FromMetaError::MissingField { field })
+    }
+
+    pub fn finish(&mut self) -> Result<(), FromMetaError<'a>> {
+        for key in self.map.keys() {
+            if !self.valid_fields.iter().map(|x| -> &str { x.as_ref() }).any(|x| x == key) {
+                return Err(FromMetaError::UnexpectedField { field: key });
+            }
+        }
+        self.armed = false;
+        Ok(())
+    }
+}
+
+impl<'a, T> ParseVariant<'a, T> {
+    pub fn variant(
+        &mut self,
+        variant: &str,
+        handler: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
+    ) -> &mut Self {
+        if self.ident == variant {
+            self.result = Some(handler(&mut ParseObject::new(&self.map)));
+        }
+        self
+    }
+
+    pub fn finish(&mut self) -> Result<T, FromMetaError<'a>> {
+        match self.result.take() {
+            Some(out) => out,
+            None => Err(FromMetaError::BadVariant {
+                invalid: self.ident,
+                valid_variants: self.valid_variants.join(", "),
+            }),
+        }
+    }
+}
+
+/// Builder pattern for an object or variant.
 #[derive(Debug, Clone)]
 pub struct BuildObject {
+    /// `None` for an object, `Some` for a variant.
+    variant: Option<Ident>,
+    /// This is taken by `build()`, poisoning the `BuildObject`.
     map: Option<Map<Ident, Meta>>,
 }
 
@@ -101,32 +245,15 @@ impl BuildObject {
     }
 
     pub fn build(&mut self) -> Meta {
-        Meta::Object(self.map.take().expect("(bug!) BuildObject::build called multiple times!"))
+        let fields = self.map.take().expect("(bug!) BuildObject::build called multiple times!");
+        match self.variant.take() {
+            Some(name) => Meta::Variant { name, fields },
+            None => Meta::Object(fields),
+        }
     }
 }
 
-impl<'a> FromMetaError<'a> {
-    pub fn expected(expected: &'static str, got: &'a Meta) -> Self {
-        FromMetaError::TypeError { expected, got }
-    }
-}
-#[derive(Error, Debug)]
-pub enum FromMetaError<'a> {
-    #[error("expected {}, got {}", .expected, .got)]
-    TypeError {
-        expected: &'static str,
-        got: &'a Meta,
-    },
-    #[error("object is missing field {:?}", .field)]
-    MissingField { field: &'a str },
-}
-
-pub trait FromMeta: Sized {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>>;
-}
-pub trait ToMeta {
-    fn to_meta(&self) -> Meta;
-}
+// =============================================================================
 
 impl FromMeta for i32 {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
@@ -239,4 +366,93 @@ impl<T: ToMeta> ToMeta for [T; 3] {
 }
 impl<T: ToMeta> ToMeta for [T; 4] {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
+}
+
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn str_meta(s: &str) -> Meta {
+        let mut files = crate::pos::Files::new();
+        files.parse("<input>", s.as_bytes()).unwrap().value
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Outer { abc: i32, def: Inner, opt: i32 }
+    #[derive(Debug, PartialEq, Eq)]
+    struct Inner { x: i32 }
+    #[derive(Debug, PartialEq, Eq)]
+    enum Enum {
+        A { a: i32 },
+        B { b: i32 },
+    }
+
+    impl FromMeta for Outer {
+        fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+            meta.parse_object(|m| Ok(Outer {
+                abc: m.expect_field("abc")?,
+                def: m.expect_field("def")?,
+                opt: m.get_field("opt")?.unwrap_or(0),
+            }))
+        }
+    }
+    impl FromMeta for Inner {
+        fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+            meta.parse_object(|m| Ok(Inner { x: m.expect_field("x")? }))
+        }
+    }
+    impl FromMeta for Enum {
+        fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+            meta.parse_variant()?
+                .variant("A", |m| Ok(Enum::A { a: m.expect_field("a")? }))
+                .variant("B", |m| Ok(Enum::B { b: m.expect_field("b")? }))
+                .finish()
+        }
+    }
+
+    fn parse_object() {
+        assert_eq!(
+            str_meta(r"{ abc: 123, def: { x: 4 } }").parse::<Outer>().unwrap(),
+            Outer { abc: 123, def: Inner { x: 4 }, opt: 0 },
+        );
+
+        assert_eq!(
+            str_meta(r"{ abc: 123, def: { x: 4 }, opt: 10 }").parse::<Outer>().unwrap(),
+            Outer { abc: 123, def: Inner { x: 4 }, opt: 10 },
+        );
+
+        assert!(matches!(
+            str_meta(r"{ def: { x: 4 } }").parse::<Outer>(),
+            Err(FromMetaError::MissingField { .. }),
+        ));
+
+        assert!(matches!(
+            str_meta(r"{ abc: 123, def: { y: 4 } }").parse::<Outer>(),
+            Err(FromMetaError::MissingField { .. }),
+        ));
+
+        assert!(matches!(
+            str_meta(r"{ abc: 123, def: { x: 4, y: 3 } }").parse::<Outer>(),
+            Err(FromMetaError::UnexpectedField { .. }),
+        ));
+
+        assert!(matches!(
+            str_meta(r#"{ abc: "123", def: { x: 4 } }"#).parse::<Outer>(),
+            Err(FromMetaError::TypeError { .. }),
+        ));
+    }
+
+    fn parse_variant() {
+        assert!(matches!(
+            str_meta(r#"A: { a: 1 }"#).parse::<Enum>().unwrap(),
+            Enum::A { a: 1 },
+        ));
+
+        assert!(matches!(
+            str_meta(r#"C: { a: 1 }"#).parse::<Enum>(),
+            Err(FromMetaError::BadVariant { .. }),
+        ));
+    }
 }
