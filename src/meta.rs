@@ -83,7 +83,6 @@ impl<'a> FromMetaError<'a> {
 
 /// Used to parse an object.
 pub struct ParseObject<'a> {
-    armed: bool,
     map: &'a Map<Ident, Meta>,
     valid_fields: HashSet<&'static str>,
 }
@@ -97,17 +96,8 @@ pub struct ParseVariant<'a, T> {
 }
 
 impl<'a> ParseObject<'a> {
-    pub fn new(map: &'a Map<Ident, Meta>) -> Self {
-        ParseObject { map, armed: true, valid_fields: HashSet::new() }
-    }
-}
-
-impl<'a> Drop for ParseObject<'a> {
-    #[track_caller]
-    fn drop(&mut self) {
-        if self.armed {
-            panic!("ParseObject was dropped without finalization!")
-        }
+    fn new(map: &'a Map<Ident, Meta>) -> Self {
+        ParseObject { map, valid_fields: HashSet::new() }
     }
 }
 
@@ -157,7 +147,6 @@ impl<'a> ParseObject<'a> {
                 return Err(FromMetaError::UnexpectedField { field: key });
             }
         }
-        self.armed = false;
         Ok(())
     }
 }
@@ -374,6 +363,7 @@ impl<T: ToMeta> ToMeta for [T; 4] {
 mod tests {
     use super::*;
 
+    #[track_caller]
     fn str_meta(s: &str) -> Meta {
         let mut files = crate::pos::Files::new();
         files.parse("<input>", s.as_bytes()).unwrap().value
@@ -412,6 +402,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn parse_object() {
         assert_eq!(
             str_meta(r"{ abc: 123, def: { x: 4 } }").parse::<Outer>().unwrap(),
@@ -444,14 +435,15 @@ mod tests {
         ));
     }
 
+    #[test]
     fn parse_variant() {
         assert!(matches!(
-            str_meta(r#"A: { a: 1 }"#).parse::<Enum>().unwrap(),
+            str_meta(r#"A { a: 1 }"#).parse::<Enum>().unwrap(),
             Enum::A { a: 1 },
         ));
 
         assert!(matches!(
-            str_meta(r#"C: { a: 1 }"#).parse::<Enum>(),
+            str_meta(r#"C { a: 1 }"#).parse::<Enum>(),
             Err(FromMetaError::BadVariant { .. }),
         ));
     }
