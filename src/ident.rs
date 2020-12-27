@@ -2,6 +2,8 @@ use thiserror::Error;
 use lazy_static::lazy_static;
 use regex::Regex;
 
+use crate::pos::Sp;
+
 /// An identifier.
 ///
 /// Identifiers must contain ASCII text.  Furthermore, if it begins with `ins_`, it is
@@ -67,12 +69,28 @@ impl PartialEq<[u8]> for Ident {
     fn eq(&self, s: &[u8]) -> bool { self.ident.as_bytes() == s }
 }
 
+impl PartialEq<str> for Sp<Ident> {
+    fn eq(&self, s: &str) -> bool { self.ident == s }
+}
+
+impl PartialEq<[u8]> for Sp<Ident>  {
+    fn eq(&self, s: &[u8]) -> bool { self.ident.as_bytes() == s }
+}
+
 impl PartialEq<Ident> for str {
     fn eq(&self, s: &Ident) -> bool { s == self }
 }
 
 impl PartialEq<Ident> for [u8] {
     fn eq(&self, s: &Ident) -> bool { s == self }
+}
+
+impl PartialEq<Sp<Ident>> for str {
+    fn eq(&self, s: &Sp<Ident>) -> bool { s == self }
+}
+
+impl PartialEq<Sp<Ident>> for [u8] {
+    fn eq(&self, s: &Sp<Ident>) -> bool { s == self }
 }
 
 impl AsRef<str> for Ident {
@@ -84,6 +102,10 @@ impl AsRef<[u8]> for Ident {
 }
 
 impl std::borrow::Borrow<str> for Ident {
+    fn borrow(&self) -> &str { &self.ident }
+}
+
+impl std::borrow::Borrow<str> for Sp<Ident> {
     fn borrow(&self) -> &str { &self.ident }
 }
 

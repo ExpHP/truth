@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use bstr::{BStr, BString};
 use indexmap::IndexMap as Map;
 use thiserror::Error;
+use crate::pos::Sp;
 use crate::ident::Ident;
 use crate::fmt::Formatter;
 
@@ -12,15 +13,17 @@ pub enum Meta {
     Float(f32),
     String(BString),
     // { key: value, ... }
-    Object(Map<Ident, Meta>),
+    Object(Fields),
     // [ value, ... ]
     Array(Vec<Meta>),
     // ident { key: value, ... }
     Variant {
-        name: Ident,
-        fields: Map<Ident, Meta>,
+        name: Sp<Ident>,
+        fields: Fields,
     },
 }
+
+pub type Fields = Map<Sp<Ident>, Meta>;
 
 // For error messages
 impl std::fmt::Display for Meta {
@@ -44,10 +47,13 @@ impl Meta {
     }}
 
     /// Add a field to a meta.
-    pub fn make_variant(variant: impl AsRef<str>) -> BuildObject { BuildObject {
-        variant: Some(variant.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e))),
-        map: Some(Map::new()),
-    }}
+    pub fn make_variant(variant: impl AsRef<str>) -> BuildObject {
+        let variant = variant.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
+        BuildObject {
+            variant: Some(Sp::null_from(variant)),
+            map: Some(Map::new()),
+        }
+    }
 }
 
 pub trait FromMeta: Sized {
@@ -67,10 +73,10 @@ pub enum FromMetaError<'a> {
     #[error("object is missing field {:?}", .field)]
     MissingField { field: &'a str },
     #[error("object has unexpected field {:?}", .field)]
-    UnexpectedField { field: &'a Ident },
+    UnexpectedField { field: &'a Sp<Ident> },
     #[error("unexpected variant {}. Valid choices: [{}]", .invalid, .valid_variants)]
     BadVariant {
-        invalid: &'a Ident,
+        invalid: &'a Sp<Ident>,
         valid_variants: String,
     },
 }
@@ -83,20 +89,20 @@ impl<'a> FromMetaError<'a> {
 
 /// Used to parse an object.
 pub struct ParseObject<'a> {
-    map: &'a Map<Ident, Meta>,
+    map: &'a Fields,
     valid_fields: HashSet<&'static str>,
 }
 
 /// Used to parse a variant.
 pub struct ParseVariant<'a, T> {
-    ident: &'a Ident,
-    map: &'a Map<Ident, Meta>,
+    ident: &'a Sp<Ident>,
+    map: &'a Fields,
     result: Option<Result<T, FromMetaError<'a>>>,
     valid_variants: Vec<&'static str>,
 }
 
 impl<'a> ParseObject<'a> {
-    fn new(map: &'a Map<Ident, Meta>) -> Self {
+    fn new(map: &'a Fields) -> Self {
         ParseObject { map, valid_fields: HashSet::new() }
     }
 }
@@ -178,20 +184,20 @@ impl<'a, T> ParseVariant<'a, T> {
 #[derive(Debug, Clone)]
 pub struct BuildObject {
     /// `None` for an object, `Some` for a variant.
-    variant: Option<Ident>,
+    variant: Option<Sp<Ident>>,
     /// This is taken by `build()`, poisoning the `BuildObject`.
-    map: Option<Map<Ident, Meta>>,
+    map: Option<Fields>,
 }
 
 impl BuildObject {
-    fn get_map(&mut self) -> &mut Map<Ident, Meta> {
+    fn get_map(&mut self) -> &mut Fields {
         self.map.as_mut().expect("(bug!) BuildObject used after .build()!")
     }
 
     /// Add a field to a meta.
     pub fn field(&mut self, key: impl AsRef<str>, value: &impl ToMeta) -> &mut Self {
-        let ident = key.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e));
-        self.get_map().insert(ident, value.to_meta());
+        let ident = key.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
+        self.get_map().insert(Sp::null_from(ident), value.to_meta());
         self
     }
 

@@ -354,7 +354,12 @@ mod test {
 }
 
 
-/// An AST node with a span.  The span is not included in comparisons or hashes.
+/// An AST node with a span.
+///
+/// This type generally tries to behave like `T`.  It implements `Deref`, and the span is not
+/// included in comparisons or hashes.
+///
+/// Use [`Sp::null_from`] to construct new AST nodes that are not derived from textual input.
 #[derive(Copy, Clone, Default)]
 pub struct Sp<T: ?Sized> {
     pub span: Span,
@@ -372,6 +377,7 @@ impl<T: fmt::Debug> fmt::Debug for Sp<T> {
 }
 
 impl<T> Sp<T> {
+    /// Synthesize an AST node with a meaningless span.  This is useful for generated code.
     pub fn null_from<U: Into<T>>(value: U) -> Self {
         Sp {
             span: Span::default(),
