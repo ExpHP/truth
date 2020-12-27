@@ -3,7 +3,7 @@ use bstr::{BStr, ByteSlice};
 use crate::parse::lexer::{Token};
 use crate::meta::Meta;
 use crate::ident::Ident;
-use crate::pos::{Spanned, BytePos};
+use crate::pos::{Sp, BytePos};
 use crate::ast::{
     self,
     Script, MetaKeyword,
@@ -124,7 +124,7 @@ extern {
 ///
 /// Don't use this directly; use the [`crate::parse::Parse`] trait, which takes
 /// care of all the silly virtual dispatch business.
-pub(crate) Anything: Spanned<crate::parse::AnythingValue> = Spanned<AnythingInner>;
+pub(crate) Anything: Sp<crate::parse::AnythingValue> = Sp<AnythingInner>;
 
 AnythingInner: crate::parse::AnythingValue = {
     Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
@@ -140,7 +140,7 @@ AnythingInner: crate::parse::AnythingValue = {
 // Items
 
 Script: Script = {
-    <items:Spanned<Item>+> => Script { items },
+    <items:Sp<Item>+> => Script { items },
 };
 
 Item: Item = {
@@ -212,19 +212,19 @@ MetaBracedFields: indexmap::IndexMap<Ident, Meta> = {
 // Statements
 
 Stmt: Stmt = {
-    <labels:StmtLabels> <body:Spanned<StmtBody>> => Stmt { time: *state.time_stack.last().unwrap(), labels, body },
+    <labels:StmtLabels> <body:Sp<StmtBody>> => Stmt { time: *state.time_stack.last().unwrap(), labels, body },
 };
 
 StmtBody: StmtBody = {
-    "return" <value:Spanned<Expr>?> ";" => StmtBody::Return { value },
+    "return" <value:Sp<Expr>?> ";" => StmtBody::Return { value },
     <chain: CondChain> => StmtBody::CondChain(chain),
-    <kind:CondKeyword> "(" <cond:Spanned<Expr>> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { kind, cond, jump },
-    "do" <block:StmtOrBlock> "while" "(" <cond:Spanned<Expr>> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
-    "while" "(" <cond:Spanned<Expr>> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
-    "times" "(" <count:Spanned<Expr>> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
+    <kind:CondKeyword> "(" <cond:Sp<Expr>> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { kind, cond, jump },
+    "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Expr>> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
+    "while" "(" <cond:Sp<Expr>> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
+    "times" "(" <count:Sp<Expr>> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
-    <e:Spanned<Expr>> ";" => StmtBody::Expr(e),
-    <var:Var> <op:OpAssign> <value:Spanned<Expr>> ";" => StmtBody::Assignment { var, op, value },
+    <e:Sp<Expr>> ";" => StmtBody::Expr(e),
+    <var:Var> <op:OpAssign> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
     <ty:VarDeclKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
     },
@@ -236,20 +236,20 @@ StmtTimeLabel: () = {
     <t:LitIntSigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") = t; },
 };
 
-StmtLabels: Vec<Spanned<StmtLabel>> = {
+StmtLabels: Vec<Sp<StmtLabel>> = {
     => vec![],
     <out:StmtLabels> StmtTimeLabel => out, // side-effects of StmtTimeLabel handle this
-    <out:StmtLabels> <label:Spanned<StmtLabel>> => push(out, label),
+    <out:StmtLabels> <label:Sp<StmtLabel>> => push(out, label),
 };
 
 StmtLabel: StmtLabel = {
-    <name:Spanned<Ident>> ":" => StmtLabel::Label(name),
+    <name:Sp<Ident>> ":" => StmtLabel::Label(name),
     <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
     <flags:DifficultyLabel> ":" => StmtLabel::Difficulty { flags, temporary: true },
 };
 
 StmtGoto: StmtGoto = {
-    "goto" <destination:Spanned<Ident>> <time:("@" <LitIntSigned>)?> => StmtGoto { destination, time },
+    "goto" <destination:Sp<Ident>> <time:("@" <LitIntSigned>)?> => StmtGoto { destination, time },
 };
 
 StmtSpecialCall: StmtBody = {
@@ -266,12 +266,12 @@ StmtSpecialCall: StmtBody = {
 
 CallAsyncKind: ast::CallAsyncKind = {
     "async" => ast::CallAsyncKind::CallAsync,
-    "async" <id:Box<Spanned<Expr>>> => ast::CallAsyncKind::CallAsyncId(id),
+    "async" <id:Box<Sp<Expr>>> => ast::CallAsyncKind::CallAsyncId(id),
 };
 
-StmtDeclarationListItem: (Ident, Option<Spanned<Expr>>) = {
+StmtDeclarationListItem: (Ident, Option<Sp<Expr>>) = {
     <name:Ident> => (name, None),
-    <name:Ident> "=" <value:Spanned<Expr>> => (name, Some(value)),
+    <name:Ident> "=" <value:Sp<Expr>> => (name, Some(value)),
 };
 
 CondChain: ast::StmtCondChain = {
@@ -293,7 +293,7 @@ CondChainWithoutElse: ast::StmtCondChain = {
 };
 
 CondBlock: CondBlock = {
-    <kind:CondKeyword> "(" <cond:Spanned<Expr>> ")" <block:StmtOrBlock> => CondBlock { kind, cond, block },
+    <kind:CondKeyword> "(" <cond:Sp<Expr>> ")" <block:StmtOrBlock> => CondBlock { kind, cond, block },
 };
 
 // block for an 'if', 'while', etc.
@@ -314,7 +314,7 @@ DifficultyLabel: DifficultyLabel = {
 };
 
 Block: Block = {
-    "{" <code:Spanned<Stmt>+> "}" => Block(code),
+    "{" <code:Sp<Stmt>+> "}" => Block(code),
 };
 
 // ==================================================
@@ -322,22 +322,22 @@ Block: Block = {
 
 // Precedence is encoded in the use of these macros
 RightTernary<NextTier>: Expr = {
-    <cond:Box<Spanned<NextTier>>>
-        "?" <left:Box<Spanned<NextTier>>>
-        ":" <right:Box<Spanned<RightTernary<NextTier>>>>
+    <cond:Box<Sp<NextTier>>>
+        "?" <left:Box<Sp<NextTier>>>
+        ":" <right:Box<Sp<RightTernary<NextTier>>>>
         => Expr::Ternary { cond, left, right },
     NextTier,
 };
 LeftBinop<Op, NextTier>: Expr = {
-    <a:Box<Spanned<LeftBinop<Op, NextTier>>>>
+    <a:Box<Sp<LeftBinop<Op, NextTier>>>>
         <op:Op>
-        <b:Box<Spanned<NextTier>>>
+        <b:Box<Sp<NextTier>>>
         => Expr::Binop(a, op, b),
     NextTier,
 };
 LeftUnop<Op, NextTier>: Expr = {
     // no recursion; only allow one unary op
-    <op:Op> <e:Box<Spanned<NextTier>>> => Expr::Unop(op, e),
+    <op:Op> <e:Box<Sp<NextTier>>> => Expr::Unop(op, e),
     NextTier,
 };
 
@@ -411,8 +411,8 @@ ExprTerm: Expr = {
     <x:LitString> => Expr::LitString(x),
 };
 
-ExprCallParts: (Ident, Vec<Spanned<Expr>>) = {
-    <Ident> "(" <SeparatedTrailing<Spanned<Expr>, ",">> ")",
+ExprCallParts: (Ident, Vec<Sp<Expr>>) = {
+    <Ident> "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
 };
 
 // ==================================================
@@ -524,8 +524,8 @@ Ident: Ident = {
 // Utility
 
 #[inline]
-Spanned<Rule>: Spanned<Rule> = {
-    <l: @L> <rule: Rule> <r: @R> => Spanned {
+Sp<Rule>: Sp<Rule> = {
+    <l: @L> <rule: Rule> <r: @R> => Sp {
         span: crate::pos::Span::new(state.file_id, l, r),
         value: rule,
     },

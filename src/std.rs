@@ -6,7 +6,7 @@ use bstr::{BStr, BString, ByteSlice};
 use crate::error::{Diagnostic, Label};
 
 use crate::CompileError;
-use crate::pos::{Spanned};
+use crate::pos::{Sp};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::signature::{Functions, Signature, ArgEncoding};
@@ -197,7 +197,7 @@ impl ToMeta for Instance {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstrOrLabel {
-    Label(Spanned<Ident>),
+    Label(Sp<Ident>),
     Instr(Instr),
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -213,12 +213,12 @@ pub enum InstrArg {
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
     /// a dword before [`InstrFormat::write_instr`] is called.
-    Label(Spanned<Ident>),
+    Label(Sp<Ident>),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
     /// a dword before [`InstrFormat::write_instr`] is called.
-    TimeOf(Spanned<Ident>),
+    TimeOf(Sp<Ident>),
 }
 
 impl InstrArg {
@@ -246,13 +246,13 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
     };
 
     let default_label = |offset: usize| {
-        Spanned::null_from(format!("label_{}", offset).parse::<Ident>().unwrap())
+        Sp::null_from(format!("label_{}", offset).parse::<Ident>().unwrap())
     };
 
     let mut offset = 0;
     let code = std.script.iter().map(|instr| {
         // For now we give every instruction a label and strip the unused ones later.
-        let this_instr_label = Spanned::null_from(ast::StmtLabel::Label(default_label(offset)));
+        let this_instr_label = Sp::null_from(ast::StmtLabel::Label(default_label(offset)));
         offset += instr_format.instr_size(instr);
 
         let Instr { time, opcode, args } = instr;
@@ -264,10 +264,10 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 
                 let dest_offset = instr_format.decode_label(args[0].expect_dword());
                 let dest_time = args[1].expect_dword() as i32;
-                return Spanned::null_from(ast::Stmt {
+                return Sp::null_from(ast::Stmt {
                     time: *time,
                     labels: vec![this_instr_label],
-                    body: Spanned::null_from(ast::StmtBody::Jump(ast::StmtGoto {
+                    body: Sp::null_from(ast::StmtBody::Jump(ast::StmtGoto {
                         destination: default_label(dest_offset),
                         time: Some(dest_time),
                     })),
@@ -281,10 +281,10 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
 
-        Spanned::null_from(ast::Stmt {
+        Sp::null_from(ast::Stmt {
             time: *time,
             labels: vec![this_instr_label],
-            body: Spanned::from(ast::StmtBody::Expr(Spanned::from(Expr::Call {
+            body: Sp::from(ast::StmtBody::Expr(Sp::from(Expr::Call {
                 args: match functions.ins_signature(&ins_ident) {
                     Some(siggy) => decompile_args(args, siggy),
                     None => decompile_args(args, &crate::signature::Signature::auto(args.len())),
@@ -305,12 +305,12 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 
     ast::Script {
         items: vec! [
-            Spanned::from(ast::Item::Meta {
+            Sp::from(ast::Item::Meta {
                 keyword: ast::MetaKeyword::Meta,
                 name: None,
                 meta: std.make_meta(format),
             }),
-            Spanned::from(ast::Item::AnmScript {
+            Sp::from(ast::Item::AnmScript {
                 number: None,
                 name: "main".parse().unwrap(),
                 code,
@@ -319,7 +319,7 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
     }
 }
 
-fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Spanned<Expr>> {
+fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
     let encodings = siggy.arg_encodings();
 
     // FIXME this fails sometimes
@@ -327,13 +327,13 @@ fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Spanned<Expr>> {
     let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
         let bits = arg.expect_dword();
         match enc {
-            ArgEncoding::Dword => <Spanned<Expr>>::null_from(bits as i32),
-            ArgEncoding::Padding => <Spanned<Expr>>::null_from(bits as i32),
-            ArgEncoding::Color => Spanned::null_from(Expr::LitInt {
+            ArgEncoding::Dword => <Sp<Expr>>::null_from(bits as i32),
+            ArgEncoding::Padding => <Sp<Expr>>::null_from(bits as i32),
+            ArgEncoding::Color => Sp::null_from(Expr::LitInt {
                 value: bits as i32,
                 hex: true,
             }),
-            ArgEncoding::Float => <Spanned<Expr>>::null_from(f32::from_bits(bits)),
+            ArgEncoding::Float => <Sp<Expr>>::null_from(f32::from_bits(bits)),
         }
     }).collect::<Vec<_>>();
 
@@ -403,7 +403,7 @@ fn _compile_std(
 
 fn _compile_main(
     format: &dyn InstrFormat,
-    code: &[Spanned<ast::Stmt>],
+    code: &[Sp<ast::Stmt>],
     functions: &Functions,
 ) -> Result<Vec<Instr>, CompileError> {
     let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
@@ -467,7 +467,7 @@ fn _compile_main(
     }).collect())
 }
 
-fn compile_args(func: &Ident, args: &[Spanned<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
+fn compile_args(func: &Ident, args: &[Sp<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
     encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
         ArgEncoding::Padding |
         ArgEncoding::Dword |
@@ -494,7 +494,7 @@ fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: usize,
     code: &[InstrOrLabel]
-) -> Result<HashMap<Spanned<Ident>, RawLabelInfo>, CompileError> {
+) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
 
     let mut offset = initial_offset;

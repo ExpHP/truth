@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::Ident;
 use crate::ast::{self, Visit, VisitMut};
-use crate::pos::Spanned;
+use crate::pos::Sp;
 
 /// Removes unused labels from function bodies.
 ///
@@ -31,7 +31,7 @@ impl VisitMut for Visitor {
         self.used_labels_stack.pop();
     }
 
-    fn visit_stmt(&mut self, x: &mut Spanned<ast::Stmt>) {
+    fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
         x.labels.retain(|label| match &label.value {
             ast::StmtLabel::Label(ident) => {
                 self.used_labels_stack
@@ -49,7 +49,7 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
     }
 
     impl Visit for UsedVisitor {
-        fn visit_stmt(&mut self, x: &Spanned<ast::Stmt>) {
+        fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
             match &x.body.value {
                 | ast::StmtBody::Jump(jump)
                 | ast::StmtBody::CondJump { jump, .. }
@@ -60,7 +60,7 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
         }
 
         // in case we ever get nested functions, don't visit them
-        fn visit_item(&mut self, _: &Spanned<ast::Item>) {}
+        fn visit_item(&mut self, _: &Sp<ast::Item>) {}
     }
 
     let mut v = UsedVisitor { labels: HashSet::new() };

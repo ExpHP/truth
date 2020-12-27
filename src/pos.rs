@@ -31,7 +31,7 @@ impl NonUtf8Files {
     /// Convenience method to parse a piece of code in a way that ensures that the `Span`s will
     /// be available for diagnostic rendering.
     pub fn parse<'input, T>(&mut self, filename: &str, source: &'input [u8])
-        -> crate::parse::Result<'input, Spanned<T>>
+        -> crate::parse::Result<'input, Sp<T>>
     where
         T: crate::Parse<'input>,
     {
@@ -356,14 +356,14 @@ mod test {
 
 /// An AST node with a span.  The span is not included in comparisons or hashes.
 #[derive(Copy, Clone, Default)]
-pub struct Spanned<T: ?Sized> {
+pub struct Sp<T: ?Sized> {
     pub span: Span,
     pub value: T,
 }
 
-impl<T: fmt::Debug> fmt::Debug for Spanned<T> {
+impl<T: fmt::Debug> fmt::Debug for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Spanned")
+        f.debug_struct("Sp")
             // format as a range instead of Span's derived Debug
             .field("span", &(self.span.start().0..self.span.end().0))
             .field("value", &self.value)
@@ -371,62 +371,62 @@ impl<T: fmt::Debug> fmt::Debug for Spanned<T> {
     }
 }
 
-impl<T> Spanned<T> {
+impl<T> Sp<T> {
     pub fn null_from<U: Into<T>>(value: U) -> Self {
-        Spanned {
+        Sp {
             span: Span::default(),
             value: value.into(),
         }
     }
 
     pub fn new_from<U: Into<T>>(span: Span, value: U) -> Self {
-        Spanned { span, value: value.into() }
+        Sp { span, value: value.into() }
     }
 }
 
-impl<T> From<T> for Spanned<T> {
+impl<T> From<T> for Sp<T> {
     fn from(value: T) -> Self {
-        Spanned {
+        Sp {
             span: Span::default(),
             value,
         }
     }
 }
 
-impl<T: ?Sized + Eq> Eq for Spanned<T> {}
+impl<T: ?Sized + Eq> Eq for Sp<T> {}
 
-impl<T: ?Sized + PartialEq> PartialEq for Spanned<T> {
+impl<T: ?Sized + PartialEq> PartialEq for Sp<T> {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
     }
 }
 
-impl<T: ?Sized + PartialEq> PartialEq<T> for Spanned<T> {
+impl<T: ?Sized + PartialEq> PartialEq<T> for Sp<T> {
     fn eq(&self, other: &T) -> bool {
         self.value == *other
     }
 }
 
-impl<T: ?Sized + std::hash::Hash> std::hash::Hash for Spanned<T> {
+impl<T: ?Sized + std::hash::Hash> std::hash::Hash for Sp<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.value.hash(state);
     }
 }
 
-impl<T: ?Sized> std::ops::Deref for Spanned<T> {
+impl<T: ?Sized> std::ops::Deref for Sp<T> {
     type Target = T;
     fn deref(&self) -> &T {
         &self.value
     }
 }
 
-impl<T: ?Sized> std::ops::DerefMut for Spanned<T> {
+impl<T: ?Sized> std::ops::DerefMut for Sp<T> {
     fn deref_mut(&mut self) -> &mut T {
         &mut self.value
     }
 }
 
-impl<T: ?Sized, U: ?Sized> AsRef<U> for Spanned<T>
+impl<T: ?Sized, U: ?Sized> AsRef<U> for Sp<T>
 where
     T: AsRef<U>,
 {
@@ -435,16 +435,16 @@ where
     }
 }
 
-impl<T> Spanned<T> {
-    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Spanned<U> {
-        Spanned {
+impl<T> Sp<T> {
+    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Sp<U> {
+        Sp {
             span: self.span,
             value: f(self.value),
         }
     }
 }
 
-impl<T: ?Sized + fmt::Display> fmt::Display for Spanned<T> {
+impl<T: ?Sized + fmt::Display> fmt::Display for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.value)
     }

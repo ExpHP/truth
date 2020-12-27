@@ -2,7 +2,7 @@ use bstr::{BString};
 
 use crate::meta::Meta;
 use crate::ident::Ident;
-use crate::pos::Spanned;
+use crate::pos::Sp;
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {
@@ -42,7 +42,7 @@ macro_rules! string_enum {
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Script {
-    pub items: Vec<Spanned<Item>>,
+    pub items: Vec<Sp<Item>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,13 +109,13 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub time: i32,
-    pub labels: Vec<Spanned<StmtLabel>>,
-    pub body: Spanned<StmtBody>,
+    pub labels: Vec<Sp<StmtLabel>>,
+    pub body: Sp<StmtBody>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtLabel {
-    Label(Spanned<Ident>),
+    Label(Sp<Ident>),
     Difficulty {
         /// If `true`, the difficulty reverts to `"*"` after the next statement.
         temporary: bool,
@@ -130,20 +130,20 @@ pub enum StmtBody {
     Jump(StmtGoto),
     CondJump {
         kind: CondKind,
-        cond: Spanned<Expr>,
+        cond: Sp<Expr>,
         jump: StmtGoto,
     },
     Return {
-        value: Option<Spanned<Expr>>,
+        value: Option<Sp<Expr>>,
     },
     CondChain(StmtCondChain),
     While {
         is_do_while: bool,
-        cond: Spanned<Expr>,
+        cond: Sp<Expr>,
         block: Block,
     },
     Times {
-        count: Spanned<Expr>,
+        count: Sp<Expr>,
         block: Block,
     },
     /// Expression followed by a semicolon.
@@ -151,15 +151,15 @@ pub enum StmtBody {
     /// This is primarily for void-type "expressions" like raw instruction
     /// calls (which are grammatically indistinguishable from value-returning
     /// function calls), but may also represent a stack push in ECL.
-    Expr(Spanned<Expr>),
+    Expr(Sp<Expr>),
     Assignment {
         var: Var,
         op: AssignOpKind,
-        value: Spanned<Expr>,
+        value: Sp<Expr>,
     },
     Declaration {
         ty: VarDeclKeyword,
-        vars: Vec<(Ident, Option<Spanned<Expr>>)>,
+        vars: Vec<(Ident, Option<Sp<Expr>>)>,
     },
     /// An explicit subroutine call. (ECL only)
     ///
@@ -169,14 +169,14 @@ pub enum StmtBody {
         at_symbol: bool,
         async_: Option<CallAsyncKind>,
         func: Ident,
-        args: Vec<Spanned<Expr>>,
+        args: Vec<Sp<Expr>>,
     }
 }
 
 /// The body of a `goto` statement, without the `;`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtGoto {
-    pub destination: Spanned<Ident>,
+    pub destination: Sp<Ident>,
     pub time: Option<i32>,
 }
 
@@ -191,14 +191,14 @@ pub struct StmtCondChain {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
     pub kind: CondKind,
-    pub cond: Spanned<Expr>,
+    pub cond: Sp<Expr>,
     pub block: Block,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallAsyncKind {
     CallAsync,
-    CallAsyncId(Box<Spanned<Expr>>),
+    CallAsyncId(Box<Sp<Expr>>),
 }
 
 string_enum! {
@@ -230,26 +230,26 @@ string_enum! {
 /// A braced series of statements, typically written at an increased
 /// indentation level.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Block(pub Vec<Spanned<Stmt>>);
+pub struct Block(pub Vec<Sp<Stmt>>);
 
 // =============================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Ternary {
-        cond: Box<Spanned<Expr>>,
-        left: Box<Spanned<Expr>>,
-        right: Box<Spanned<Expr>>,
+        cond: Box<Sp<Expr>>,
+        left: Box<Sp<Expr>>,
+        right: Box<Sp<Expr>>,
     },
-    Binop(Box<Spanned<Expr>>, BinopKind, Box<Spanned<Expr>>),
+    Binop(Box<Sp<Expr>>, BinopKind, Box<Sp<Expr>>),
     Call {
         func: Ident,
-        args: Vec<Spanned<Expr>>,
+        args: Vec<Sp<Expr>>,
     },
     Decrement {
         var: Var,
     },
-    Unop(UnopKind, Box<Spanned<Expr>>),
+    Unop(UnopKind, Box<Sp<Expr>>),
     LitInt {
         value: i32,
         /// A hint to the formatter that it should use hexadecimal.
@@ -349,12 +349,12 @@ macro_rules! generate_visitor_stuff {
     ($Visit: ident $(,$mut: tt)?) => {
         /// Recursive AST traversal trait.
         pub trait $Visit {
-            fn visit_item(&mut self, e: & $($mut)? Spanned<Item>) { walk_item(self, e) }
+            fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
             fn visit_func_body(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
-            fn visit_stmt(&mut self, e: & $($mut)? Spanned<Stmt>) { walk_stmt(self, e) }
-            fn visit_stmt_body(&mut self, e: & $($mut)? Spanned<StmtBody>) { walk_stmt_body(self, e) }
-            fn visit_expr(&mut self, e: & $($mut)? Spanned<Expr>) { walk_expr(self, e) }
+            fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
+            fn visit_stmt_body(&mut self, e: & $($mut)? Sp<StmtBody>) { walk_stmt_body(self, e) }
+            fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
         }
 
         pub fn walk_script<V>(v: &mut V, x: & $($mut)? Script)
@@ -365,7 +365,7 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        pub fn walk_item<V>(v: &mut V, x: & $($mut)? Spanned<Item>)
+        pub fn walk_item<V>(v: &mut V, x: & $($mut)? Sp<Item>)
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.value {
@@ -392,13 +392,13 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        pub fn walk_stmt<V>(v: &mut V, x: & $($mut)? Spanned<Stmt>)
+        pub fn walk_stmt<V>(v: &mut V, x: & $($mut)? Sp<Stmt>)
         where V: ?Sized + $Visit,
         {
             v.visit_stmt_body(& $($mut)? x.body);
         }
 
-        pub fn walk_stmt_body<V>(v: &mut V, x: & $($mut)? Spanned<StmtBody>)
+        pub fn walk_stmt_body<V>(v: &mut V, x: & $($mut)? Sp<StmtBody>)
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.value {
@@ -454,7 +454,7 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        pub fn walk_expr<V>(v: &mut V, e: & $($mut)? Spanned<Expr>)
+        pub fn walk_expr<V>(v: &mut V, e: & $($mut)? Sp<Expr>)
         where V: ?Sized + $Visit,
         {
             match & $($mut)? e.value {

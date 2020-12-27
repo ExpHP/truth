@@ -13,26 +13,26 @@
 //!
 //! # Example
 //! ```
-//! use ecl_parser::{Parse, VisitMut, Expr, pos::{Files, Spanned}};
+//! use ecl_parser::{Parse, VisitMut, Expr, pos::{Files, Sp}};
 //! use ecl_parser::passes::const_simplify;
 //!
 //! let mut files = Files::new();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4";
-//! let mut expr: Spanned<Expr> = files.parse("<input>", text).unwrap();
+//! let mut expr: Sp<Expr> = files.parse("<input>", text).unwrap();
 //!
 //! let mut visitor = const_simplify::Visitor::new();
 //! visitor.visit_expr(&mut expr);
 //! visitor.finish().expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * x";
-//! let expected: Spanned<Expr> = files.parse("<input>", text_simplified).unwrap();
+//! let expected: Sp<Expr> = files.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```
 
 use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
 use crate::error::{CompileError, Diagnostic, Label};
-use crate::pos::Spanned;
+use crate::pos::Sp;
 
 impl UnopKind {
     fn const_eval_int(&self, x: i32) -> i32 {
@@ -137,7 +137,7 @@ impl ConstType {
 }
 
 impl VisitMut for Visitor {
-    fn visit_expr(&mut self, e: &mut Spanned<Expr>) {
+    fn visit_expr(&mut self, e: &mut Sp<Expr>) {
         // simplify subexpressions first
         ast::walk_mut_expr(self, e);
 
@@ -152,7 +152,7 @@ impl VisitMut for Visitor {
                 match b_const {
                     ConstType::Int(b) => {
                         let new_value = op.const_eval_int(b);
-                        *e = Spanned::new_from(e.span, new_value);
+                        *e = Sp::new_from(e.span, new_value);
                     },
                     ConstType::Float(b) => {
                         let new_value = match op.const_eval_float(b) {
@@ -167,7 +167,7 @@ impl VisitMut for Visitor {
                             },
                         };
 
-                        *e = Spanned::new_from(e.span, new_value);
+                        *e = Sp::new_from(e.span, new_value);
                     },
                 }
             },
@@ -181,7 +181,7 @@ impl VisitMut for Visitor {
                 match (a_const, b_const) {
                     (ConstType::Int(a), ConstType::Int(b)) => {
                         let new_value = op.const_eval_int(a, b);
-                        *e = Spanned::new_from(e.span, new_value);
+                        *e = Sp::new_from(e.span, new_value);
                     },
                     (ConstType::Float(a), ConstType::Float(b)) => {
                         let new_value = match op.const_eval_float(a, b) {
@@ -196,7 +196,7 @@ impl VisitMut for Visitor {
                             },
                         };
 
-                        *e = Spanned::new_from(e.span, new_value);
+                        *e = Sp::new_from(e.span, new_value);
                     },
                     _ => {
                         self.errors.push({

@@ -1,7 +1,7 @@
 use lalrpop_util::lalrpop_mod;
 
 use crate::{ast, meta};
-use crate::pos::{BytePos, Spanned, FileId};
+use crate::pos::{BytePos, Sp, FileId};
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 mod lalrparser_util;
@@ -26,7 +26,7 @@ pub trait Parse<'input>: Sized {
             .map(|x| x.value)
     }
 
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Spanned<Self>>;
+    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>>;
 }
 
 /// Extra state during parsing.
@@ -82,7 +82,7 @@ fn call_anything_parser<'input>(
     tag: AnythingTag,
     state: &mut State,
     lexer: Lexer<'input>,
-) -> Result<'input, Spanned<AnythingValue>> {
+) -> Result<'input, Sp<AnythingValue>> {
     let offset = BytePos(lexer.offset() as u32);
     let lexer = std::iter::once(Ok((offset, Token::VirtualDispatch(tag), offset))).chain(lexer);
     lalrparser::AnythingParser::new().parse(state, lexer)
@@ -92,7 +92,7 @@ fn call_anything_parser<'input>(
 macro_rules! impl_parse {
     ($AstType:ty, $TagName:ident) => {
         impl<'input> Parse<'input> for $AstType {
-            fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Spanned<Self>> {
+            fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>> {
                 Ok(call_anything_parser(AnythingTag::$TagName, state, lexer)?.map(|x| match x {
                     AnythingValue::$TagName(x) => x,
                     _ => unreachable!(),

@@ -90,7 +90,7 @@ pub mod eclmap;
 
 pub mod signature;
 
-pub use pos::{Span, Spanned};
+pub use pos::{Span, Sp};
 pub mod pos;
 
 pub mod passes;
@@ -108,7 +108,7 @@ mod tests {
     fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
         use crate::ast::VisitMut;
 
-        let mut expr = crate::pos::Spanned::null_from(expr);
+        let mut expr = crate::pos::Sp::null_from(expr);
         let mut visitor = crate::passes::const_simplify::Visitor::new();
         visitor.visit_expr(&mut expr);
         visitor.finish()?;
