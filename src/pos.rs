@@ -40,14 +40,6 @@ impl NonUtf8Files {
         T::parse_stream(&mut state, crate::parse::lexer::Lexer::new(source.as_ref()))
     }
 
-    pub fn source(&mut self, file_id: FileId) -> Result<&[u8], cs_files::Error> {
-        <_ as cs_files::Files>::source(&self.inner, Self::unshift_file_id(file_id)?)
-            .map(|s| s.as_bytes())
-    }
-    pub fn get(&mut self, file_id: FileId) -> Result<&cs_files::SimpleFile<String, String>, cs_files::Error> {
-        self.inner.get(Self::unshift_file_id(file_id)?)
-    }
-
     fn unshift_file_id(file_id: FileId) -> Result<usize, cs_files::Error> {
         // produce Error on file_id = None; such spans aren't fit for diagnostics
         let file_id: u32 = file_id.ok_or(cs_files::Error::FileMissing)?.into();
@@ -59,6 +51,8 @@ impl NonUtf8Files {
     }
 }
 
+/// This implementation provides source text that has been lossily modified to be valid UTF-8,
+/// and which should only be used for diagnostic purposes.
 impl<'a> cs_files::Files<'a> for NonUtf8Files {
     type FileId = FileId;
     type Name = String;
