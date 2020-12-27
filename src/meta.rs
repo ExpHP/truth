@@ -41,30 +41,68 @@ impl Meta {
     pub fn expect_field<'a, T: FromMeta>(&'a self, field: &'a str) -> Result<T, FromMetaError<'a>> {
         self.get_field(field)?.ok_or(FromMetaError::MissingField { field })
     }
-    pub fn make_object() -> BuildObject { BuildObject { map: Map::new() } }
+    pub fn make_object() -> BuildObject { BuildObject { map: Some(Map::new()) } }
 }
 
 /// Builder pattern for an object.
+#[derive(Debug, Clone)]
 pub struct BuildObject {
-    map: Map<Ident, Meta>,
+    map: Option<Map<Ident, Meta>>,
 }
 
 impl BuildObject {
-    pub fn field(mut self, key: impl AsRef<str>, value: &impl ToMeta) -> Self {
+    fn get_map(&mut self) -> &mut Map<Ident, Meta> {
+        self.map.as_mut().expect("(bug!) BuildObject used after .build()!")
+    }
+
+    /// Add a field to a meta.
+    pub fn field(&mut self, key: impl AsRef<str>, value: &impl ToMeta) -> &mut Self {
         let ident = key.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e));
-        self.map.insert(ident, value.to_meta());
+        self.get_map().insert(ident, value.to_meta());
         self
     }
-    pub fn field_default<T>(mut self, key: impl AsRef<str>, value: &T, default: &T) -> Self
-    where T: ToMeta + PartialEq,
-    {
-        if value != default {
-            let ident = key.as_ref().parse().unwrap_or_else(|e| panic!("Bug: {}", e));
-            self.map.insert(ident, value.to_meta());
+
+    /// Add a field if the option is `Some(_)`.
+    pub fn opt_field(&mut self, key: impl AsRef<str>, value: Option<impl ToMeta>) -> &mut Self {
+        if let Some(value) = value {
+            self.field(key, &value);
         }
         self
     }
-    pub fn build(self) -> Meta { Meta::Object(self.map) }
+
+    /// Add a field if it's not equal to a default.
+    pub fn field_default<T>(&mut self, key: impl AsRef<str>, value: &T, default: &T) -> &mut Self
+    where T: ToMeta + PartialEq,
+    {
+        if value != default {
+            self.field(key, value);
+        }
+        self
+    }
+
+    /// This helper lets you do whatever to a `BuildObject` without breaking the method chain.
+    ///
+    /// # Example
+    /// ```
+    /// use ecl_parser::meta::{Meta, BuildObject};
+    ///
+    /// fn add_options(b: &mut BuildObject) { /* ... */ }
+    ///
+    /// let meta = Meta::make_object()
+    ///     .field("difficulty", 3)
+    ///     .field("color", "blue")
+    ///     .with_mut(|b| add_options(b))
+    ///     .build()?;
+    /// # let _ = meta;
+    /// ```
+    pub fn with_mut(&mut self, func: impl FnOnce(&mut BuildObject)) -> &mut Self {
+        func(self);
+        self
+    }
+
+    pub fn build(&mut self) -> Meta {
+        Meta::Object(self.map.take().expect("(bug!) BuildObject::build called multiple times!"))
+    }
 }
 
 impl<'a> FromMetaError<'a> {

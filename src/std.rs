@@ -59,12 +59,12 @@ impl StdFile {
     }
 
     fn make_meta(&self, file_format: &dyn FileFormat) -> Meta {
-        let mut b = Meta::make_object();
-        b = b.field("unknown", &self.unknown);
-        b = file_format.extra_to_meta(&self.extra, b);
-        b = b.field("objects", &self.entries);
-        b = b.field("instances", &self.instances);
-        b.build()
+        Meta::make_object()
+            .field("unknown", &self.unknown)
+            .with_mut(|b| file_format.extra_to_meta(&self.extra, b))
+            .field("objects", &self.entries)
+            .field("instances", &self.instances)
+            .build()
     }
 }
 
@@ -103,19 +103,19 @@ impl ToMeta for Entry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quad {
-    pub unknown: u16,
     pub anm_script: u16,
     pub pos: [f32; 3],
     pub size: [f32; 2],
+    pub extra: Option<[f32; 2]>
 }
 
 impl FromMeta for Quad {
     fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
         Ok(Quad {
-            unknown: meta.get_field::<i32>("unknown")?.unwrap_or(0) as u16,
             anm_script: meta.expect_field::<i32>("anm_script")? as u16,
             pos: meta.expect_field("pos")?,
             size: meta.expect_field("size")?,
+            extra: meta.get_field("extra")?,
         })
     }
 }
@@ -123,10 +123,10 @@ impl FromMeta for Quad {
 impl ToMeta for Quad {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field_default("unknown", &(self.unknown as i32), &0)
             .field("anm_script", &(self.anm_script as i32))
             .field("pos", &self.pos)
             .field("size", &self.size)
+            .opt_field("extra", self.extra)
             .build()
     }
 }
@@ -285,6 +285,7 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Spanned<Expr>> {
     let encodings = siggy.arg_encodings();
 
+    // FIXME this fails sometimes
     assert_eq!(args.len(), encodings.len()); // FIXME: return Error
     let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
         let bits = arg.expect_dword();
@@ -717,34 +718,47 @@ fn write_entry(f: &mut dyn Write, x: &Entry) -> io::Result<()> {
 }
 
 fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
-    let unknown = f.read_u16::<Le>().expect("unexpected EOF");
-    match f.read_u16::<Le>().expect("unexpected EOF") {
-        0x1c => {},
-        0x4 => { // End of stream
-            assert_eq!(unknown, 0xffff);
-            return None;
+    let kind = f.read_i16::<Le>().expect("unexpected EOF");
+    let size = f.read_u16::<Le>().expect("unexpected EOF");
+    let is_large = match (kind, size) {
+        (-1, 4) => return None, // no more quads
+        (0, 0x1c) => false,
+        (1, 0x24) => true,
+        (-1, _) | (0, _) | (1, _) => {
+            panic!("unexpected size for type {} quad: {:#x}", kind, size);
         },
-        s => panic!("bad object size: {}", s),
+        _ => panic!("unknown quad type: {}", kind),
     };
 
     let anm_script = f.read_u16::<Le>().expect("unexpected EOF");
     match f.read_u16::<Le>().expect("unexpected EOF") {
-        0 => {},
-        s => panic!("unexpected nonzero padding: {}", s),
+        0 => {},  // This word is zero in the file, and used to store an index in-game.
+        s => panic!("unexpected data in quad index field: {:#04x}", s),
     };
 
     let pos = read_vec3(f).expect("unexpected EOF");
     let size = read_vec2(f).expect("unexpected EOF");
-    Some(Quad { unknown, anm_script, pos, size })
+    let extra = match is_large {
+        true => Some(read_vec2(f).expect("unexpected EOF")),
+        false => None,
+    };
+    Some(Quad { anm_script, pos, size, extra })
 }
 
 fn write_quad(f: &mut dyn Write, quad: &Quad) -> io::Result<()> {
-    f.write_u16::<Le>(quad.unknown)?;
-    f.write_u16::<Le>(0x1c)?; // size
+    let (kind, size) = match quad.extra {
+        None => (0, 0x1c),
+        Some(_) => (1, 0x24),
+    };
+    f.write_i16::<Le>(kind)?;
+    f.write_u16::<Le>(size)?;
     f.write_u16::<Le>(quad.anm_script)?;
     f.write_u16::<Le>(0)?;
     write_vec3(f, &quad.pos)?;
     write_vec2(f, &quad.size)?;
+    if let Some(extra) = &quad.extra {
+        write_vec2(f, extra)?;
+    }
     Ok(())
 }
 fn write_terminal_quad(f: &mut dyn Write) -> io::Result<()> {
@@ -796,7 +810,7 @@ struct FileFormat10;
 
 trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &'m Meta) -> Result<StdExtra, FromMetaError<'m>>;
-    fn extra_to_meta(&self, extra: &StdExtra, b: meta::BuildObject) -> meta::BuildObject;
+    fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
     fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra;
     fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()>;
     fn instr_format(&self) -> &dyn InstrFormat;
@@ -811,14 +825,13 @@ impl FileFormat for FileFormat06 {
         })
     }
 
-    fn extra_to_meta(&self, extra: &StdExtra, mut b: meta::BuildObject) -> meta::BuildObject {
+    fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject) {
         match extra {
             StdExtra::Th10 { .. } => unreachable!(),
             StdExtra::Th06 { stage_name, bgm_names, bgm_paths } => {
-                b = b.field("stage_name", stage_name);
-                b = b.field("bgm_names", bgm_names);
-                b = b.field("bgm_paths", bgm_paths);
-                b
+                b.field("stage_name", stage_name);
+                b.field("bgm_names", bgm_names);
+                b.field("bgm_paths", bgm_paths);
             },
         }
     }
@@ -860,9 +873,9 @@ impl FileFormat for FileFormat10 {
         })
     }
 
-    fn extra_to_meta(&self, extra: &StdExtra, b: meta::BuildObject) -> meta::BuildObject {
+    fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject) {
         match extra {
-            StdExtra::Th10 { anm_path } => b.field("anm_path", anm_path),
+            StdExtra::Th10 { anm_path } => { b.field("anm_path", anm_path); },
             StdExtra::Th06 { .. } => unreachable!(),
         }
     }
