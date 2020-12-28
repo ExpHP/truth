@@ -316,7 +316,18 @@ DifficultyLabel: DifficultyLabel = {
 };
 
 Block: Block = {
-    "{" <code:Sp<Stmt>+> "}" => Block(code),
+    "{" <mut code:Sp<Stmt>+> <end_labels:Sp<StmtLabels>> <end_span:Span> "}" => {
+        // add a special "end of block" statement
+        code.push(Sp {
+            span: end_labels.span,
+            value: Stmt {
+                time: *state.time_stack.last().unwrap(),
+                labels: end_labels.value,
+                body: Sp { span: end_span, value: StmtBody::EndOfBlock },
+            },
+        });
+        Block(code)
+    },
 };
 
 // ==================================================
@@ -525,6 +536,7 @@ Ident: Ident = {
 // ==================================================
 // Utility
 
+/// Parse something while obtaining its span.
 #[inline]
 Sp<Rule>: Sp<Rule> = {
     <l: @L> <rule: Rule> <r: @R> => Sp {
@@ -532,6 +544,8 @@ Sp<Rule>: Sp<Rule> = {
         value: rule,
     },
 }
+/// Get a zero-length span at the current position.
+Span: crate::pos::Span = <sp:Sp<()>> => sp.span;
 
 Box<Rule>: Box<Rule> = <r:Rule> => Box::new(r);
 

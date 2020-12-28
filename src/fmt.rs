@@ -576,6 +576,7 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
+            ast::StmtBody::EndOfBlock => Ok(()),
         }
     }
 }

@@ -465,6 +465,7 @@ fn _compile_main(
                     args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
                 }));
             },
+
             ast::StmtBody::Expr(expr) => match &expr.value {
                 ast::Expr::Call { func, args } => {
                     let opcode = match functions.resolve_aliases(func).as_ins() {
@@ -494,9 +495,12 @@ fn _compile_main(
                         opcode: opcode as _,
                         args: compile_args(func, args, &encodings)?,
                     }));
-                }, // match expr
+                },
                 _ => return Err(unsupported(&expr.span)),
-            }, // match stmt
+            }, // match expr
+
+            ast::StmtBody::EndOfBlock => {},
+            
             _ => return Err(unsupported(&stmt.body.span)),
         }
         Ok(())

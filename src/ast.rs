@@ -173,7 +173,15 @@ pub enum StmtBody {
         async_: Option<CallAsyncKind>,
         func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
-    }
+    },
+    /// A virtual instruction added at the end of each block, to allow for
+    /// the possibility of a time label at the very end.
+    ///
+    /// It does not compile to any instructions.
+    ///
+    /// Note that these may also appear in the middle of a block in the AST if a transformation
+    /// pass has e.g. inlined the contents of one block into another.
+    EndOfBlock,
 }
 
 /// The body of a `goto` statement, without the `;`.
@@ -456,6 +464,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(arg);
                     }
                 },
+                StmtBody::EndOfBlock => {},
             }
         }
 
