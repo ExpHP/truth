@@ -1,6 +1,6 @@
 use bstr::{BString};
 
-use crate::meta::Meta;
+use crate::meta;
 use crate::ident::Ident;
 use crate::pos::Sp;
 
@@ -56,14 +56,14 @@ pub enum Item {
         code: Option<Block>,
     },
     AnmScript {
-        number: Option<i32>,
-        name: Ident,
+        number: Option<Sp<i32>>,
+        name: Sp<Ident>,
         code: Block,
     },
     Meta {
-        keyword: MetaKeyword,
-        name: Option<Ident>,
-        meta: Meta,
+        keyword: Sp<MetaKeyword>,
+        name: Option<Sp<Ident>>,
+        fields: Sp<meta::Fields>,
     },
     FileList {
         keyword: FileListKeyword,
@@ -168,7 +168,7 @@ pub enum StmtBody {
     CallSub {
         at_symbol: bool,
         async_: Option<CallAsyncKind>,
-        func: Ident,
+        func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
     }
 }
@@ -241,15 +241,15 @@ pub enum Expr {
         left: Box<Sp<Expr>>,
         right: Box<Sp<Expr>>,
     },
-    Binop(Box<Sp<Expr>>, BinopKind, Box<Sp<Expr>>),
+    Binop(Box<Sp<Expr>>, Sp<BinopKind>, Box<Sp<Expr>>),
     Call {
-        func: Ident,
+        func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
     },
     Decrement {
         var: Var,
     },
-    Unop(UnopKind, Box<Sp<Expr>>),
+    Unop(Sp<UnopKind>, Box<Sp<Expr>>),
     LitInt {
         value: i32,
         /// A hint to the formatter that it should use hexadecimal.

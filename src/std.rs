@@ -3,7 +3,7 @@ use std::collections::{HashMap};
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
-use crate::error::{Diagnostic, Label};
+use crate::error::{GatherErrorIteratorExt};
 
 use crate::CompileError;
 use crate::pos::{Sp};
@@ -48,23 +48,26 @@ impl StdFile {
 }
 
 impl StdFile {
-    fn init_from_meta<'m>(file_format: &dyn FileFormat, meta: &'m Meta) -> Result<Self, FromMetaError<'m>> {
-        meta.parse_object(|m| Ok(StdFile {
+    fn init_from_meta<'m>(file_format: &dyn FileFormat, fields: &'m Sp<meta::Fields>) -> Result<Self, FromMetaError<'m>> {
+        let mut m = meta::ParseObject::new(fields);
+        let out = StdFile {
             unknown: m.expect_field("unknown")?,
             entries: m.expect_field("objects")?,
             instances: m.expect_field("instances")?,
             script: vec![],
-            extra: file_format.extra_from_meta(m)?,
-        }))
+            extra: file_format.extra_from_meta(&mut m)?,
+        };
+        m.finish()?;
+        Ok(out)
     }
 
-    fn make_meta(&self, file_format: &dyn FileFormat) -> Meta {
+    fn make_meta(&self, file_format: &dyn FileFormat) -> meta::Fields {
         Meta::make_object()
             .field("unknown", &self.unknown)
             .with_mut(|b| file_format.extra_to_meta(&self.extra, b))
             .field("objects", &self.entries)
             .field("instances", &self.instances)
-            .build()
+            .build_fields()
     }
 }
 
@@ -78,7 +81,7 @@ pub struct Entry {
 }
 
 impl FromMeta for Entry {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Entry {
             id: m.expect_field::<i32>("id")? as u16,
             unknown: m.expect_field::<i32>("unknown")? as u16,
@@ -123,7 +126,7 @@ pub enum QuadExtra {
 }
 
 impl FromMeta for Quad {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_variant()?
             .variant("rect", |m| Ok(Quad {
                 anm_script: m.expect_field::<i32>("anm_script")? as u16,
@@ -176,7 +179,7 @@ pub struct Instance {
 }
 
 impl FromMeta for Instance {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|meta| Ok(Instance {
             object_id: meta.expect_field::<i32>("object")? as u16,
             unknown: meta.get_field::<i32>("unknown")?.unwrap_or(256) as u16,
@@ -246,13 +249,13 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
     };
 
     let default_label = |offset: usize| {
-        Sp::null_from(format!("label_{}", offset).parse::<Ident>().unwrap())
+        Sp::null(format!("label_{}", offset).parse::<Ident>().unwrap())
     };
 
     let mut offset = 0;
     let code = std.script.iter().map(|instr| {
         // For now we give every instruction a label and strip the unused ones later.
-        let this_instr_label = Sp::null_from(ast::StmtLabel::Label(default_label(offset)));
+        let this_instr_label = Sp::null(ast::StmtLabel::Label(default_label(offset)));
         offset += instr_format.instr_size(instr);
 
         let Instr { time, opcode, args } = instr;
@@ -264,10 +267,10 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 
                 let dest_offset = instr_format.decode_label(args[0].expect_dword());
                 let dest_time = args[1].expect_dword() as i32;
-                return Sp::null_from(ast::Stmt {
+                return Sp::null(ast::Stmt {
                     time: *time,
                     labels: vec![this_instr_label],
-                    body: Sp::null_from(ast::StmtBody::Jump(ast::StmtGoto {
+                    body: Sp::null(ast::StmtBody::Jump(ast::StmtGoto {
                         destination: default_label(dest_offset),
                         time: Some(dest_time),
                     })),
@@ -281,15 +284,15 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
 
-        Sp::null_from(ast::Stmt {
+        Sp::null(ast::Stmt {
             time: *time,
             labels: vec![this_instr_label],
-            body: Sp::from(ast::StmtBody::Expr(Sp::from(Expr::Call {
+            body: Sp::null(ast::StmtBody::Expr(Sp::null(Expr::Call {
                 args: match functions.ins_signature(&ins_ident) {
                     Some(siggy) => decompile_args(args, siggy),
                     None => decompile_args(args, &crate::signature::Signature::auto(args.len())),
                 },
-                func: ins_ident,
+                func: Sp::null(ins_ident),
             }))),
         })
     }).collect();
@@ -305,14 +308,14 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 
     ast::Script {
         items: vec! [
-            Sp::from(ast::Item::Meta {
-                keyword: ast::MetaKeyword::Meta,
+            Sp::null(ast::Item::Meta {
+                keyword: Sp::null(ast::MetaKeyword::Meta),
                 name: None,
-                meta: std.make_meta(format),
+                fields: Sp::null(std.make_meta(format)),
             }),
-            Sp::from(ast::Item::AnmScript {
+            Sp::null(ast::Item::AnmScript {
                 number: None,
-                name: "main".parse().unwrap(),
+                name: Sp::null("main".parse().unwrap()),
                 code,
             }),
         ],
@@ -327,13 +330,13 @@ fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
     let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
         let bits = arg.expect_dword();
         match enc {
-            ArgEncoding::Dword => <Sp<Expr>>::null_from(bits as i32),
-            ArgEncoding::Padding => <Sp<Expr>>::null_from(bits as i32),
-            ArgEncoding::Color => Sp::null_from(Expr::LitInt {
+            ArgEncoding::Dword => Sp::null(Expr::from(bits as i32)),
+            ArgEncoding::Padding => Sp::null(Expr::from(bits as i32)),
+            ArgEncoding::Color => Sp::null(Expr::LitInt {
                 value: bits as i32,
                 hex: true,
             }),
-            ArgEncoding::Float => <Sp<Expr>>::null_from(f32::from_bits(bits)),
+            ArgEncoding::Float => Sp::null(Expr::from(f32::from_bits(bits))),
         }
     }).collect::<Vec<_>>();
 
@@ -345,6 +348,13 @@ fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
         };
     }
     out
+}
+
+fn unsupported(span: &crate::pos::Span) -> CompileError {
+    error!(
+        message("feature not supported by format"),
+        primary(span, "not supported by STD files"),
+    )
 }
 
 fn _compile_std(
@@ -364,38 +374,56 @@ fn _compile_std(
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
-                Item::Meta { keyword: ast::MetaKeyword::Meta, name: None, meta } => {
-                    if let Some(_) = found_meta.replace(meta) {
-                        bail_nospan!("multiple 'meta's");
+                Item::Meta { keyword: Sp { span: kw_span, value: ast::MetaKeyword::Meta }, name: None, fields: meta } => {
+                    if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
+                        // FIXME show spans of metas or their keywords
+                        return Err(error!(
+                            message("'meta' supplied multiple times"),
+                            primary(kw_span, "duplicate 'meta'"),
+                            secondary(prev_kw_span, "previously supplied here"),
+                        ));
                     }
-                    found_meta = Some(meta);
                 },
-                Item::Meta { keyword: ast::MetaKeyword::Meta, name: Some(name), .. } => bail_nospan!("unexpected named meta '{}' in STD file", name),
-                Item::Meta { keyword, .. } => bail_nospan!("unexpected '{}' in STD file", keyword),
-                Item::AnmScript { number: Some(_), .. } => bail_nospan!("unexpected numbered script in STD file"),
+                Item::Meta { keyword: Sp { value: ast::MetaKeyword::Meta, .. }, name: Some(name), .. } => return Err(error!(
+                    message("unexpected named meta '{}' in STD file", name),
+                    primary(name, "unexpected name"),
+                )),
+                Item::Meta { keyword, .. } => return Err(error!(
+                    // FIXME: span of keyword or meta
+                    message("unexpected '{}' in STD file", keyword),
+                    primary(keyword, "not valid in STD files"),
+                )),
+                Item::AnmScript { number: Some(number), .. } => return Err(error!(
+                    message("unexpected numbered script in STD file"),
+                    primary(number, "unexpected number"),
+                )),
                 Item::AnmScript { number: None, name, code } => {
                     if name != "main" {
-                        bail_nospan!("STD entry point must be called 'main'");
+                        return Err(error!(
+                            message("STD script must be called 'main'"),
+                            primary(name, "invalid name for STD script"),
+                        ));
                     }
-                    if let Some(_) = found_main_sub {
-                        bail_nospan!("multiple 'main' scripts");
+                    if let Some((prev_item, _)) = found_main_sub.replace((item, code)) {
+                        return Err(error!(
+                            message("redefinition of 'main' script"),
+                            primary(item, "this defines a script called 'main'..."),
+                            secondary(prev_item, "...but 'main' was already defined here"),
+                        ));
                     }
-                    found_main_sub = Some(code);
                 },
-                Item::FileList { .. } => bail_nospan!("unexpected file list in STD file"),
-                Item::Func { .. } => bail_nospan!("unexpected function def in STD file"),
+                Item::FileList { .. } => return Err(unsupported(&item.span)),
+                Item::Func { .. } => return Err(unsupported(&item.span)),
             }
         }
         match (found_meta, found_main_sub) {
-            (Some(meta), Some(main)) => (meta, main),
-            (None, _) => bail_nospan!("missing 'main' sub"),
-            (Some(_), None) => bail_nospan!("missing 'meta' section"),
+            (Some((_, meta)), Some((_, main))) => (meta, main),
+            (None, _) => return Err(error!(message("missing 'main' sub"))),
+            (Some(_), None) => return Err(error!(message("missing 'meta' section"))),
         }
     };
 
-    let mut out = StdFile::init_from_meta(format, meta).map_err(|e| {
-        CompileError(vec![Diagnostic::error().with_message(format!("{}", e))])
-    })?;
+    let mut out = StdFile::init_from_meta(format, meta)?;
     out.script = _compile_main(format.instr_format(), &main_sub.0, functions)?;
 
     Ok(out)
@@ -409,11 +437,11 @@ fn _compile_main(
     let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
 
     let mut out = vec![];
-    for stmt in code {
+    code.iter().map(|stmt| {
         for label in &stmt.labels {
             match &label.value {
                 ast::StmtLabel::Label(ident) => out.push(InstrOrLabel::Label(ident.clone())),
-                ast::StmtLabel::Difficulty { .. } => bail_span!(label, "difficulty labels not supported by STD"),
+                ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span)),
             }
         }
 
@@ -427,24 +455,36 @@ fn _compile_main(
                     time: stmt.time,
                     opcode: match intrinsic_opcodes.get(&IntrinsicInstrKind::Jmp) {
                         Some(&opcode) => opcode,
-                        None => bail_span!(stmt, "'goto' not supported by current format"),
+                        None => return Err(error!(
+                            message("feature not supported by format"),
+                            primary(stmt, "'goto' not supported in this game"),
+                        )),
                     },
                     args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
                 }));
             },
-            ast::StmtBody::Expr(e) => match &e.value {
+            ast::StmtBody::Expr(expr) => match &expr.value {
                 ast::Expr::Call { func, args } => {
-                    let siggy = match functions.ins_signature(func) {
-                        Some(siggy) => siggy,
-                        None => bail_span!(stmt, "signature of {} is not known", func),
-                    };
                     let opcode = match functions.resolve_aliases(func).as_ins() {
                         Some(opcode) => opcode,
-                        None => bail_span!(stmt, "don't know how to compile function {} (not an instruction)", func),
+                        None => return Err(error!(
+                            message("cannot find instruction '{}'", func),
+                            primary(func, "not an instruction"),
+                        )),
+                    };
+                    let siggy = match functions.ins_signature(func) {
+                        Some(siggy) => siggy,
+                        None => return Err(error!(
+                            message("signature of '{}' is not known", func),
+                            primary(func, "don't know how to compile this instruction"),
+                        )),
                     };
                     let encodings = siggy.arg_encodings();
                     if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
-                        bail_span!(stmt, "wrong number of arguments (expected {}, got {})", encodings.len(), args.len())
+                        return Err(error!(
+                            message("wrong number of arguments to '{}'", func),
+                            primary(func, "expects {} arguments, got {}", encodings.len(), args.len()),
+                        ));
                     }
 
                     out.push(InstrOrLabel::Instr(Instr {
@@ -452,12 +492,13 @@ fn _compile_main(
                         opcode: opcode as _,
                         args: compile_args(func, args, &encodings)?,
                     }));
-                },
-                _ => bail_span!(stmt, "unsupported expression type in STD file"),
-            },
-            _ => bail_span!(stmt, "unsupported statement type in STD file"),
+                }, // match expr
+                _ => return Err(unsupported(&expr.span)),
+            }, // match stmt
+            _ => return Err(unsupported(&stmt.span)),
         }
-    }
+        Ok(())
+    }).collect_with_recovery()?;
     // And fix the labels
     encode_labels(format, 0, &mut out)?;
 
@@ -467,23 +508,31 @@ fn _compile_main(
     }).collect())
 }
 
-fn compile_args(func: &Ident, args: &[Sp<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
+fn compile_args(func: &Sp<Ident>, args: &[Sp<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
+    fn arg_type_error(index: usize, expected: &'static str, func: &Sp<Ident>, arg: &Sp<Expr>) -> CompileError {
+        error!(
+            message("argument {} to {} has wrong type", index+1, func),
+            primary(arg, "wrong type"),
+            secondary(func, "expects {} in arg {}", expected, index+1),
+        )
+    }
+
     encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
         ArgEncoding::Padding |
         ArgEncoding::Dword |
         ArgEncoding::Color => match **arg {
-            ast::Expr::LitInt { value, .. } => Ok(InstrArg::DwordBits(value as u32)),
-            ast::Expr::LitFloat { .. } |
-            ast::Expr::LitString { .. } => bail_span!(arg, "expected an int for arg {} of {}", index+1, func),
-            _ => bail_span!(arg, "unsupported expression type in STD file"),
+            Expr::LitInt { value, .. } => Ok(InstrArg::DwordBits(value as u32)),
+            Expr::LitFloat { .. } |
+            Expr::LitString { .. } => Err(arg_type_error(index, "an int", func, arg)),
+            _ => Err(unsupported(&arg.span)),
         },
         ArgEncoding::Float => match **arg {
-            ast::Expr::LitFloat { value, .. } => Ok(InstrArg::DwordBits(value.to_bits())),
-            ast::Expr::LitInt { .. } |
-            ast::Expr::LitString { .. } => bail_span!(arg, "expected a float for arg {} of {}", index+1, func),
-            _ => bail_span!(arg, "unsupported expression type in STD file"),
+            Expr::LitFloat { value, .. } => Ok(InstrArg::DwordBits(value.to_bits())),
+            Expr::LitInt { .. } |
+            Expr::LitString { .. } => Err(arg_type_error(index, "a float", func, arg)),
+            _ => Err(unsupported(&arg.span)),
         },
-    }).collect::<Result<_, _>>()
+    }).collect_with_recovery()
 }
 
 struct RawLabelInfo {
@@ -500,7 +549,7 @@ fn gather_label_info(
     let mut offset = initial_offset;
     let mut pending_labels = vec![];
     let mut out = HashMap::new();
-    for thing in code {
+    code.iter().map(|thing| {
         match thing {
             // can't insert labels until we see the time of the intructions they are labeling
             InstrOrLabel::Label(ident) => pending_labels.push(ident),
@@ -512,17 +561,19 @@ fn gather_label_info(
                         },
                         Entry::Occupied(e) => {
                             let old = e.key();
-                            return Err(CompileError(vec![Diagnostic::error().with_labels(vec![
-                                Label::primary(label.span.file_id, label.span).with_message("duplicate label"),
-                                Label::secondary(old.span.file_id, old.span).with_message("previously defined here"),
-                            ]).with_message(format!("label '{}' already defined", label))]));
+                            return Err(error!{
+                                message("duplicate label '{}'", label),
+                                primary(label, "redefined here"),
+                                secondary(old, "originally defined here"),
+                            });
                         },
                     }
                 }
                 offset += format.instr_size(instr);
             },
         }
-    }
+        Ok(())
+    }).collect_with_recovery()?;
     assert!(pending_labels.is_empty(), "unexpected label after last instruction! (bug?)");
     Ok(out)
 }
@@ -535,7 +586,7 @@ fn encode_labels(
 ) -> Result<(), CompileError> {
     let label_info = gather_label_info(format, initial_offset, code)?;
 
-    for thing in code {
+    code.iter_mut().map(|thing| {
         match thing {
             InstrOrLabel::Instr(instr) => for arg in &mut instr.args {
                 match *arg {
@@ -547,16 +598,18 @@ fn encode_labels(
                             InstrArg::TimeOf(_) => *arg = InstrArg::DwordBits(info.time as u32),
                             _ => unreachable!(),
                         },
-                        // FIXME: gather multiple errors
-                        None => bail_span!(label, "no such label"),
+                        None => return Err(error!{
+                            message("undefined label '{}'", label),
+                            primary(label, "there is no label by this name"),
+                        }),
                     },
                     _ => {},
                 }
             },
             InstrOrLabel::Label(_) => {},
         }
-    }
-    Ok(())
+        Ok(())
+    }).collect_with_recovery()
 }
 
 // =============================================================================

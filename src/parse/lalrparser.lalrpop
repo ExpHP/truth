@@ -1,7 +1,7 @@
 use lalrpop_util::ParseError;
 use bstr::{BStr, ByteSlice};
 use crate::parse::lexer::{Token};
-use crate::meta::Meta;
+use crate::meta::{self, Meta};
 use crate::ident::Ident;
 use crate::pos::{Sp, BytePos};
 use crate::ast::{
@@ -148,10 +148,10 @@ Item: Item = {
         "(" <params:SeparatedTrailing<(<VarDeclKeyword> <Ident>), ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
-    "script" <number:LitIntSigned?> <name:Ident> _TimeStackEnter <code:Block> _TimeStackPop
+    "script" <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
         => Item::AnmScript { number, name, code },
-    <keyword:MetaKeyword> <name:Ident?> <fields:MetaBracedFields>
-        => Item::Meta { keyword, name, meta: Meta::Object(fields) },
+    <keyword:Sp<MetaKeyword>> <name:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
+        => Item::Meta { keyword, name, fields },
     <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
         => Item::FileList { keyword, files },
 };
@@ -189,13 +189,13 @@ Meta: Meta = {
     <x:LitIntSigned> => Meta::Int(x),
     <x:LitFloatSigned> => Meta::Float(x),
     <x:LitString> => Meta::String(x.string),
-    <x:MetaBracedFields> => Meta::Object(x),
-    <name:Sp<Ident>> <fields:MetaBracedFields> => Meta::Variant { name, fields },
-    "[" <items:SeparatedTrailing<Meta, ",">> "]" => Meta::Array(items),
+    <x:Sp<MetaBracedFields>> => Meta::Object(x),
+    <name:Sp<Ident>> <fields:Sp<MetaBracedFields>> => Meta::Variant { name, fields },
+    "[" <items:SeparatedTrailing<Sp<Meta>, ",">> "]" => Meta::Array(items),
 };
 
-MetaBracedFields: indexmap::IndexMap<Sp<Ident>, Meta> = {
-    "{" <kvs:SeparatedTrailing<(<Sp<Ident>> ":" <Meta>), ",">> "}" =>? {
+MetaBracedFields: meta::Fields = {
+    "{" <kvs:SeparatedTrailing<(<Sp<Ident>> ":" <Sp<Meta>>), ",">> "}" =>? {
         let mut map = indexmap::IndexMap::with_capacity(kvs.len());
         for (key, value) in kvs {
             if let Some(_) = map.insert(key, value) {
@@ -330,14 +330,14 @@ RightTernary<NextTier>: Expr = {
 };
 LeftBinop<Op, NextTier>: Expr = {
     <a:Box<Sp<LeftBinop<Op, NextTier>>>>
-        <op:Op>
+        <op:Sp<Op>>
         <b:Box<Sp<NextTier>>>
         => Expr::Binop(a, op, b),
     NextTier,
 };
 LeftUnop<Op, NextTier>: Expr = {
     // no recursion; only allow one unary op
-    <op:Op> <e:Box<Sp<NextTier>>> => Expr::Unop(op, e),
+    <op:Sp<Op>> <e:Box<Sp<NextTier>>> => Expr::Unop(op, e),
     NextTier,
 };
 
@@ -411,8 +411,8 @@ ExprTerm: Expr = {
     <x:LitString> => Expr::LitString(x),
 };
 
-ExprCallParts: (Ident, Vec<Sp<Expr>>) = {
-    <Ident> "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
+ExprCallParts: (Sp<Ident>, Vec<Sp<Expr>>) = {
+    <Sp<Ident>> "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
 };
 
 // ==================================================

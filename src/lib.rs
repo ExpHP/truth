@@ -1,38 +1,7 @@
 
 pub use error::CompileError;
 #[macro_use]
-mod error {
-    use crate::pos::FileId;
-
-    pub type Diagnostic = ::codespan_reporting::diagnostic::Diagnostic<FileId>;
-    pub type Label = ::codespan_reporting::diagnostic::Label<FileId>;
-
-    // Lazy-ass macros to generate Diagnostics until we have something better.
-    // TODO: get rid of these
-    macro_rules! bail_span {
-        ($span:expr, $($fmt_args:tt)+) => {{
-            return Err(CompileError(vec![
-                crate::error::Diagnostic::error()
-                    .with_labels(vec![
-                        crate::error::Label::primary($span.span.file_id, $span.span)
-                            .with_message(format!($($fmt_args)+))
-                    ]),
-            ]));
-        }};
-    }
-    macro_rules! bail_nospan {
-        ($($fmt_args:tt)+) => {{
-            return Err(CompileError(vec![
-                crate::error::Diagnostic::error()
-                    .with_message(format!($($fmt_args)+)),
-            ]));
-        }};
-    }
-
-    #[derive(thiserror::Error, Debug)]
-    #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .0)]
-    pub struct CompileError(pub Vec<Diagnostic>);
-}
+mod error;
 
 #[cfg(test)]
 #[macro_use]
@@ -108,7 +77,7 @@ mod tests {
     fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
         use crate::ast::VisitMut;
 
-        let mut expr = crate::pos::Sp::null_from(expr);
+        let mut expr = crate::pos::Sp::null(expr);
         let mut visitor = crate::passes::const_simplify::Visitor::new();
         visitor.visit_expr(&mut expr);
         visitor.finish()?;

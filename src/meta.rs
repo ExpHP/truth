@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use bstr::{BStr, BString};
+use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap as Map;
 use thiserror::Error;
 use crate::pos::Sp;
@@ -13,17 +13,17 @@ pub enum Meta {
     Float(f32),
     String(BString),
     // { key: value, ... }
-    Object(Fields),
+    Object(Sp<Fields>),
     // [ value, ... ]
-    Array(Vec<Meta>),
+    Array(Vec<Sp<Meta>>),
     // ident { key: value, ... }
     Variant {
         name: Sp<Ident>,
-        fields: Fields,
+        fields: Sp<Fields>,
     },
 }
 
-pub type Fields = Map<Sp<Ident>, Meta>;
+pub type Fields = Map<Sp<Ident>, Sp<Meta>>;
 
 // For error messages
 impl std::fmt::Display for Meta {
@@ -38,9 +38,6 @@ impl std::fmt::Display for Meta {
 }
 
 impl Meta {
-    pub fn parse<T: FromMeta>(&self) -> Result<T, FromMetaError<'_>> {
-        T::from_meta(self)
-    }
     pub fn make_object() -> BuildObject { BuildObject {
         variant: None,
         map: Some(Map::new()),
@@ -50,14 +47,14 @@ impl Meta {
     pub fn make_variant(variant: impl AsRef<str>) -> BuildObject {
         let variant = variant.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
         BuildObject {
-            variant: Some(Sp::null_from(variant)),
+            variant: Some(Sp::null(variant)),
             map: Some(Map::new()),
         }
     }
 }
 
 pub trait FromMeta: Sized {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>>;
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>>;
 }
 pub trait ToMeta {
     fn to_meta(&self) -> Meta;
@@ -68,51 +65,83 @@ pub enum FromMetaError<'a> {
     #[error("expected {}, got {}", .expected, .got)]
     TypeError {
         expected: &'static str,
-        got: &'a Meta,
+        got: &'a Sp<Meta>,
     },
-    #[error("object is missing field {:?}", .field)]
-    MissingField { field: &'a str },
-    #[error("object has unexpected field {:?}", .field)]
-    UnexpectedField { field: &'a Sp<Ident> },
-    #[error("unexpected variant {}. Valid choices: [{}]", .invalid, .valid_variants)]
-    BadVariant {
+    #[error("object is missing field {:?}", .missing)]
+    MissingField {
+        fields: &'a Sp<Fields>,
+        missing: &'static str,
+    },
+    #[error("unrecognized field '{}'", .invalid)]
+    UnrecognizedField {
+        invalid: &'a Sp<Ident>,
+    },
+    #[error("unrecognized variant '{}'. Valid choices: [{}]", .invalid, .valid_variants)]
+    UnrecognizedVariant {
         invalid: &'a Sp<Ident>,
         valid_variants: String,
     },
 }
 
 impl<'a> FromMetaError<'a> {
-    pub fn expected(expected: &'static str, got: &'a Meta) -> Self {
+    pub fn expected(expected: &'static str, got: &'a Sp<Meta>) -> Self {
         FromMetaError::TypeError { expected, got }
     }
 }
 
+impl From<FromMetaError<'_>> for crate::error::CompileError {
+    fn from(e: FromMetaError<'_>) -> Self { match e {
+        FromMetaError::TypeError { expected, got } => error!(
+            message("metadata type error"),
+            primary(got, "expected {}", expected),
+        ),
+        FromMetaError::MissingField { fields, missing } => error!(
+            message("incomplete metadata object"),
+            primary(fields, "missing field '{}'", missing),
+        ),
+        FromMetaError::UnrecognizedField { invalid } => error!(
+            message("unexpected field in metadata"),
+            primary(invalid, "not a valid field here"),
+        ),
+        FromMetaError::UnrecognizedVariant { invalid, valid_variants } => error!(
+            message("unrecognized variant in metadata"),
+            primary(invalid, "unrecognized variant"),
+            note("valid choices: [{}]", valid_variants),
+        ),
+    }}
+}
+
 /// Used to parse an object.
 pub struct ParseObject<'a> {
-    map: &'a Fields,
+    map: &'a Sp<Fields>,
     valid_fields: HashSet<&'static str>,
 }
 
 /// Used to parse a variant.
 pub struct ParseVariant<'a, T> {
     ident: &'a Sp<Ident>,
-    map: &'a Fields,
+    map: &'a Sp<Fields>,
     result: Option<Result<T, FromMetaError<'a>>>,
     valid_variants: Vec<&'static str>,
 }
 
-impl<'a> ParseObject<'a> {
-    fn new(map: &'a Fields) -> Self {
-        ParseObject { map, valid_fields: HashSet::new() }
+impl Sp<Meta> {
+    /// Call [`FromMeta::from_meta`] to parse a [`Meta`] into a value.
+    pub fn parse<T: FromMeta>(&self) -> Result<T, FromMetaError<'_>> {
+        T::from_meta(self)
     }
-}
 
-impl Meta {
+    /// Parse an object.
+    ///
+    /// Any field not parsed by the closure will produce an 'unrecognized field' error
+    /// when the closure finishes.
+    ///
+    /// If you only have access to a [`Fields`] and not a [`Meta`], then see [`ParseObject::new`].
     pub fn parse_object<'a, T>(
         &'a self,
         func: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
     ) -> Result<T, FromMetaError<'_>> {
-        match self {
+        match &self.value {
             Meta::Object(map) => {
                 let mut helper = ParseObject::new(map);
                 let value = func(&mut helper)?;
@@ -124,7 +153,7 @@ impl Meta {
     }
 
     pub fn parse_variant<T>(&self) -> Result<ParseVariant<'_, T>, FromMetaError<'_>> {
-        match self {
+        match &self.value {
             Meta::Variant { name, fields } => Ok(ParseVariant {
                 ident: name, map: fields, result: None,
                 valid_variants: vec![],
@@ -135,6 +164,15 @@ impl Meta {
 }
 
 impl<'a> ParseObject<'a> {
+    /// Construct from a [`Fields`].
+    ///
+    /// Please be sure to call [`ParseObject::finish`] when you are done.  If you have a [`Meta`]
+    /// then it is preferable to use [`Meta::parse_object`] instead which will automatically call
+    /// the `finish` method for you.
+    pub fn new(map: &'a Sp<Fields>) -> Self {
+        ParseObject { map, valid_fields: HashSet::new() }
+    }
+
     pub fn get_field<T: FromMeta>(&mut self, field: &'static str) -> Result<Option<T>, FromMetaError<'a>> {
         self.valid_fields.insert(field);
         match self.map.get(field) {
@@ -144,13 +182,14 @@ impl<'a> ParseObject<'a> {
     }
 
     pub fn expect_field<T: FromMeta>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
-        self.get_field(field)?.ok_or(FromMetaError::MissingField { field })
+        self.get_field(field)?.ok_or(FromMetaError::MissingField { fields: &self.map, missing: field })
     }
 
-    pub fn finish(&mut self) -> Result<(), FromMetaError<'a>> {
+    /// Check for any user-supplied fields that were not parsed and emit errors on them.
+    pub fn finish(self) -> Result<(), FromMetaError<'a>> {
         for key in self.map.keys() {
             if !self.valid_fields.iter().map(|x| -> &str { x.as_ref() }).any(|x| x == key) {
-                return Err(FromMetaError::UnexpectedField { field: key });
+                return Err(FromMetaError::UnrecognizedField { invalid: key });
             }
         }
         Ok(())
@@ -172,7 +211,7 @@ impl<'a, T> ParseVariant<'a, T> {
     pub fn finish(&mut self) -> Result<T, FromMetaError<'a>> {
         match self.result.take() {
             Some(out) => out,
-            None => Err(FromMetaError::BadVariant {
+            None => Err(FromMetaError::UnrecognizedVariant {
                 invalid: self.ident,
                 valid_variants: self.valid_variants.join(", "),
             }),
@@ -195,9 +234,9 @@ impl BuildObject {
     }
 
     /// Add a field to a meta.
-    pub fn field(&mut self, key: impl AsRef<str>, value: &impl ToMeta) -> &mut Self {
+    pub fn field(&mut self, key: impl AsRef<str>, value: &(impl ?Sized + ToMeta)) -> &mut Self {
         let ident = key.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
-        self.get_map().insert(Sp::null_from(ident), value.to_meta());
+        self.get_map().insert(Sp::null(ident), Sp::null(value.to_meta()));
         self
     }
 
@@ -228,10 +267,10 @@ impl BuildObject {
     /// fn add_options(b: &mut BuildObject) { /* ... */ }
     ///
     /// let meta = Meta::make_object()
-    ///     .field("difficulty", 3)
+    ///     .field("difficulty", &3)
     ///     .field("color", "blue")
     ///     .with_mut(|b| add_options(b))
-    ///     .build()?;
+    ///     .build();
     /// # let _ = meta;
     /// ```
     pub fn with_mut(&mut self, func: impl FnOnce(&mut BuildObject)) -> &mut Self {
@@ -239,35 +278,45 @@ impl BuildObject {
         self
     }
 
+    /// Build either a `Meta::Object` or a `Meta::Variant`.
+    ///
+    /// This will poison the builder.  Please clone it if you want to call more methods.
     pub fn build(&mut self) -> Meta {
-        let fields = self.map.take().expect("(bug!) BuildObject::build called multiple times!");
+        let fields = Sp::null(self.build_fields());
         match self.variant.take() {
             Some(name) => Meta::Variant { name, fields },
             None => Meta::Object(fields),
         }
+    }
+
+    /// Build a `Fields`.
+    ///
+    /// This will poison the builder.  Please clone it if you want to call more methods.
+    pub fn build_fields(&mut self) -> Fields {
+        self.map.take().expect("(bug!) BuildObject::build called multiple times!")
     }
 }
 
 // =============================================================================
 
 impl FromMeta for i32 {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
-            Meta::Int(x) => Ok(*x),
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match meta.value {
+            Meta::Int(x) => Ok(x),
             _ => Err(FromMetaError::expected("an integer", meta)),
         }
     }
 }
 
 impl FromMeta for u32 {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         Ok(i32::from_meta(meta)? as u32)
     }
 }
 
 impl FromMeta for f32 {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
             Meta::Int(x) => Ok(*x as f32),
             Meta::Float(x) => Ok(*x),
             _ => Err(FromMetaError::expected("a number", meta)),
@@ -276,8 +325,8 @@ impl FromMeta for f32 {
 }
 
 impl FromMeta for BString {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
             Meta::String(x) => Ok(x.clone()),
             _ => Err(FromMetaError::expected("a string", meta)),
         }
@@ -285,8 +334,8 @@ impl FromMeta for BString {
 }
 
 impl<T: FromMeta> FromMeta for Vec<T> {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
             Meta::Array(xs) => xs.into_iter().map(|x| x.parse()).collect(),
             _ => Err(FromMetaError::expected("an array", meta)),
         }
@@ -294,8 +343,8 @@ impl<T: FromMeta> FromMeta for Vec<T> {
 }
 
 impl<T: FromMeta> FromMeta for [T; 2] {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
             Meta::Array(xs) => match xs.len() {
                 2 => Ok([xs[0].parse()?, xs[1].parse()?]),
                 _ => Err(FromMetaError::expected("an array of length 2", meta)),
@@ -306,8 +355,8 @@ impl<T: FromMeta> FromMeta for [T; 2] {
 }
 
 impl<T: FromMeta> FromMeta for [T; 3] {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
             Meta::Array(xs) => match xs.len() {
                 3 => Ok([xs[0].parse()?, xs[1].parse()?, xs[2].parse()?]),
                 _ => Err(FromMetaError::expected("an array of length 3", meta)),
@@ -318,8 +367,8 @@ impl<T: FromMeta> FromMeta for [T; 3] {
 }
 
 impl<T: FromMeta> FromMeta for [T; 4] {
-    fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
-        match meta {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
             Meta::Array(xs) => match xs.len() {
                 4 => Ok([xs[0].parse()?, xs[1].parse()?, xs[2].parse()?, xs[3].parse()?]),
                 _ => Err(FromMetaError::expected("an array of length 4", meta)),
@@ -350,17 +399,23 @@ impl ToMeta for BString {
 impl ToMeta for BStr {
     fn to_meta(&self) -> Meta { Meta::String(self.to_owned()) }
 }
+impl ToMeta for String {
+    fn to_meta(&self) -> Meta { Meta::String(self.as_bytes().as_bstr().to_owned()) }
+}
+impl ToMeta for str {
+    fn to_meta(&self) -> Meta { Meta::String(self.as_bytes().as_bstr().to_owned()) }
+}
 impl<T: ToMeta> ToMeta for Vec<T> {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 2] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 3] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 4] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
 }
 
 // =============================================================================
@@ -370,9 +425,9 @@ mod tests {
     use super::*;
 
     #[track_caller]
-    fn str_meta(s: &str) -> Meta {
+    fn str_meta(s: &str) -> Sp<Meta> {
         let mut files = crate::pos::Files::new();
-        files.parse("<input>", s.as_bytes()).unwrap().value
+        files.parse("<input>", s.as_bytes()).unwrap()
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -386,7 +441,7 @@ mod tests {
     }
 
     impl FromMeta for Outer {
-        fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
             meta.parse_object(|m| Ok(Outer {
                 abc: m.expect_field("abc")?,
                 def: m.expect_field("def")?,
@@ -395,12 +450,12 @@ mod tests {
         }
     }
     impl FromMeta for Inner {
-        fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
             meta.parse_object(|m| Ok(Inner { x: m.expect_field("x")? }))
         }
     }
     impl FromMeta for Enum {
-        fn from_meta(meta: &Meta) -> Result<Self, FromMetaError<'_>> {
+        fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
             meta.parse_variant()?
                 .variant("A", |m| Ok(Enum::A { a: m.expect_field("a")? }))
                 .variant("B", |m| Ok(Enum::B { b: m.expect_field("b")? }))
@@ -432,7 +487,7 @@ mod tests {
 
         assert!(matches!(
             str_meta(r"{ abc: 123, def: { x: 4, y: 3 } }").parse::<Outer>(),
-            Err(FromMetaError::UnexpectedField { .. }),
+            Err(FromMetaError::UnrecognizedField { .. }),
         ));
 
         assert!(matches!(
@@ -450,7 +505,7 @@ mod tests {
 
         assert!(matches!(
             str_meta(r#"C { a: 1 }"#).parse::<Enum>(),
-            Err(FromMetaError::BadVariant { .. }),
+            Err(FromMetaError::UnrecognizedVariant { .. }),
         ));
     }
 }

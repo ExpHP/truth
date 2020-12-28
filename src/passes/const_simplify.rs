@@ -31,7 +31,7 @@
 //! ```
 
 use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
-use crate::error::{CompileError, Diagnostic, Label};
+use crate::error::{CompileError};
 use crate::pos::Sp;
 
 impl UnopKind {
@@ -98,21 +98,16 @@ impl BinopKind {
 ///
 /// See the [the module-level documentation][self] for more details.
 pub struct Visitor {
-    errors: Vec<crate::error::Diagnostic>,
+    errors: CompileError,
 }
 
 impl Visitor {
     pub fn new() -> Self {
-        Visitor {
-            errors: vec![],
-        }
+        Visitor { errors: CompileError::new_empty() }
     }
 
     pub fn finish(self) -> Result<(), CompileError> {
-        match self.errors.len() {
-            0 => Ok(()),
-            _ => Err(CompileError(self.errors)),
-        }
+        self.errors.into_result(())
     }
 }
 
@@ -158,11 +153,10 @@ impl VisitMut for Visitor {
                         let new_value = match op.const_eval_float(b) {
                             Some(x) => x,
                             None => {
-                                self.errors.push({
-                                    Diagnostic::error().with_labels(vec![
-                                        Label::primary(e.span.file_id, e.span).with_message("this operator requires an integer")
-                                    ]).with_message("type error")
-                                });
+                                self.errors.append(error!(
+                                    message("type error"),
+                                    primary(op, "operation requires an integer argument")
+                                ));
                                 return;
                             },
                         };
@@ -187,26 +181,22 @@ impl VisitMut for Visitor {
                         let new_value = match op.const_eval_float(a, b) {
                             Some(x) => x,
                             None => {
-                                self.errors.push({
-                                    Diagnostic::error().with_labels(vec![
-                                        Label::primary(e.span.file_id, e.span).with_message("operation not supported by floats")
-                                    ]).with_message("type error")
-                                });
+                                self.errors.append(error!(
+                                    message("type error"),
+                                    primary(op, "operation requires integer arguments")
+                                ));
                                 return;
                             },
                         };
 
                         *e = Sp::new_from(e.span, new_value);
                     },
-                    _ => {
-                        self.errors.push({
-                            Diagnostic::error().with_labels(vec![
-                                Label::primary(e.span.file_id, e.span).with_message("mismatched types"),
-                                Label::secondary(a.span.file_id, a.span).with_message(a_const.type_str()),
-                                Label::secondary(b.span.file_id, b.span).with_message(b_const.type_str()),
-                            ]).with_message("type error")
-                        })
-                    },
+                    _ => self.errors.append(error!(
+                        message("type error"),
+                        primary(op, "operation requires operands of matching type"),
+                        secondary(a, "{}", a_const.type_str()),
+                        secondary(b, "{}", b_const.type_str()),
+                    )),
                 }
             },
 
@@ -214,12 +204,11 @@ impl VisitMut for Visitor {
                 // FIXME it should be possible to move somehow instead of cloning here...
                 Some(ConstType::Int(0)) => e.value = (***right).clone(),
                 Some(ConstType::Int(_)) => e.value = (***left).clone(),
-                Some(cond_const) => {
-                    self.errors.push({
-                        Diagnostic::error().with_labels(vec![
-                            Label::primary(cond.span.file_id, cond.span).with_message(cond_const.type_str())
-                        ]).with_message("ternary condition must be an integer")
-                    });
+                Some(_) => {
+                    self.errors.append(error!(
+                        message("type error"),
+                        primary(cond, "ternary condition must be an integer")
+                    ));
                     return;
                 },
                 _ => return, // can't simplify if subexpr is not const

@@ -378,24 +378,12 @@ impl<T: fmt::Debug> fmt::Debug for Sp<T> {
 
 impl<T> Sp<T> {
     /// Synthesize an AST node with a meaningless span.  This is useful for generated code.
-    pub fn null_from<U: Into<T>>(value: U) -> Self {
-        Sp {
-            span: Span::default(),
-            value: value.into(),
-        }
+    pub fn null(value: T) -> Self {
+        Sp { span: Span::default(), value }
     }
 
     pub fn new_from<U: Into<T>>(span: Span, value: U) -> Self {
         Sp { span, value: value.into() }
-    }
-}
-
-impl<T> From<T> for Sp<T> {
-    fn from(value: T) -> Self {
-        Sp {
-            span: Span::default(),
-            value,
-        }
     }
 }
 
@@ -454,4 +442,28 @@ impl<T: ?Sized + fmt::Display> fmt::Display for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.value)
     }
+}
+
+
+// =============================================================================
+
+/// Used by error macros to allow either an [`Sp`] or a [`Span`] to serve as a location.
+pub(crate) trait HasSpan {
+    fn span(&self) -> Span;
+}
+
+impl<T: ?Sized> HasSpan for Sp<T> {
+    fn span(&self) -> Span { self.span }
+}
+
+impl HasSpan for Span {
+    fn span(&self) -> Span { *self }
+}
+
+impl<T: ?Sized + HasSpan> HasSpan for &T {
+    fn span(&self) -> Span { (**self).span() }
+}
+
+impl<T: ?Sized + HasSpan> HasSpan for Box<T> {
+    fn span(&self) -> Span { (**self).span() }
 }

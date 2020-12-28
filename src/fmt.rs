@@ -2,7 +2,7 @@ use bstr::{BStr, BString, ByteSlice, ByteVec};
 use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast;
-use crate::meta::Meta;
+use crate::meta::{self, Meta};
 use crate::ident::Ident;
 use crate::pos::Sp;
 
@@ -400,13 +400,16 @@ impl Format for Meta {
             Meta::Int(x) => out.fmt(x),
             Meta::Float(x) => out.fmt(x),
             Meta::String(x) => out.fmt(ast::LitString { string: x }),
-            Meta::Object(map) => out.fmt_comma_separated("{", "}", map.iter().map(|(k, v)| (k, ": ", v))),
+            Meta::Object(fields) => out.fmt(fields),
             Meta::Array(xs) => out.fmt_comma_separated("[", "]", xs),
-            Meta::Variant { name, fields } => {
-                out.fmt((name, " "))?;
-                out.fmt_comma_separated("{", "}", fields.iter().map(|(k, v)| (k, ": ", v)))
-            },
+            Meta::Variant { name, fields } => out.fmt((name, " ", fields)),
         }
+    }
+}
+
+impl Format for meta::Fields {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt_comma_separated("{", "}", self.iter().map(|(k, v)| (k, ": ", v)))
     }
 }
 
@@ -437,7 +440,7 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
-            ast::Item::Meta { keyword, name, meta } => {
+            ast::Item::Meta { keyword, name, fields: meta } => {
                 out.fmt((keyword, " "))?;
                 if let Some(name) = name {
                     out.fmt((name, " "))?;
