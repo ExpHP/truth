@@ -295,11 +295,12 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
     }).collect();
 
     let code = {
-        use crate::passes::unused_labels;
+        use crate::passes::{unused_labels, decompile_loop};
         use crate::ast::VisitMut;
 
         let mut code = ast::Block(code);
         unused_labels::Visitor::new().visit_func_body(&mut code);
+        decompile_loop::Visitor::new().visit_func_body(&mut code);
         code
     };
 
@@ -361,17 +362,20 @@ fn _compile_std(
 ) -> Result<StdFile, CompileError> {
     use ast::Item;
 
-    let gensym_ctx = crate::ident::GensymContext::new();
+    let script = {
+        let gensym_ctx = crate::ident::GensymContext::new();
 
-    let mut script = script.clone();
+        let mut script = script.clone();
 
-    let mut visitor = crate::passes::const_simplify::Visitor::new();
-    crate::ast::walk_mut_script(&mut visitor, &mut script);
-    visitor.finish()?;
+        let mut visitor = crate::passes::const_simplify::Visitor::new();
+        crate::ast::walk_mut_script(&mut visitor, &mut script);
+        visitor.finish()?;
 
-    let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
-    crate::ast::walk_mut_script(&mut visitor, &mut script);
-    visitor.finish()?;
+        let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
+        crate::ast::walk_mut_script(&mut visitor, &mut script);
+
+        script
+    };
 
     let (meta, main_sub) = {
         let (mut found_meta, mut found_main_sub) = (None, None);
@@ -500,7 +504,7 @@ fn _compile_main(
             }, // match expr
 
             ast::StmtBody::EndOfBlock => {},
-            
+
             _ => return Err(unsupported(&stmt.body.span)),
         }
         Ok(())

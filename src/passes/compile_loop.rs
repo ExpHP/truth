@@ -1,13 +1,12 @@
 //! Loop compilation.
 //!
-//! This transforms `while(1) { ... }` syntax in STD to use a label and `goto`.
+//! This transforms `loop { ... }` syntax in STD to use a label and `goto`.
 //!
 //! It currently does this directly to the AST.  Which doesn't seem like a
 //! viable strategy long-term, but we'll see where things go...
 
 use crate::ast::{self, VisitMut};
 use crate::ident;
-use crate::error::{CompileError};
 use crate::pos::Sp;
 
 /// Visitor for loop compilation.
@@ -21,8 +20,6 @@ impl<'a> Visitor<'a> {
     pub fn new(gensym_ctx: &'a ident::GensymContext) -> Self {
         Visitor { gensym_ctx }
     }
-
-    pub fn finish(&mut self) -> Result<(), CompileError> { Ok(()) }
 }
 
 impl VisitMut for Visitor<'_> {
