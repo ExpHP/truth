@@ -73,7 +73,6 @@ impl StdFile {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
-    pub id: u16,
     pub unknown: u16,
     pub pos: [f32; 3],
     pub size: [f32; 3],
@@ -83,7 +82,6 @@ pub struct Entry {
 impl FromMeta for Entry {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Entry {
-            id: m.expect_field::<i32>("id")? as u16,
             unknown: m.expect_field::<i32>("unknown")? as u16,
             pos: m.expect_field("pos")?,
             size: m.expect_field("size")?,
@@ -95,7 +93,6 @@ impl FromMeta for Entry {
 impl ToMeta for Entry {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field("id", &(self.id as i32))
             .field("unknown", &(self.unknown as i32))
             .field("pos", &self.pos)
             .field("size", &self.size)
@@ -667,7 +664,7 @@ pub fn read_std(game: Game, bytes: &[u8]) -> StdFile {
     let extra = format.read_extra(&mut f);
     let entry_offsets = (0..num_entries).map(|_| f.read_u32::<Le>().expect("unexpected EOF")).collect::<Vec<_>>();
     let entries = (0..num_entries)
-        .map(|i| read_entry(&bytes[entry_offsets[i] as usize..]))
+        .map(|i| read_entry(i, &bytes[entry_offsets[i] as usize..]))
         .collect::<Vec<_>>();
     assert_eq!(num_quads, entries.iter().map(|x| x.quads.len()).sum::<usize>());
     let instances = {
@@ -714,9 +711,9 @@ pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result
     }
 
     let mut entry_offsets = vec![];
-    for entry in &std.entries {
+    for (entry_id, entry) in std.entries.iter().enumerate() {
         entry_offsets.push(f.seek(io::SeekFrom::Current(0))? - start_pos);
-        write_entry(f.as_mut_write(), entry)?;
+        write_entry(f.as_mut_write(), entry_id, entry)?;
     }
 
     let instances_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
@@ -783,9 +780,12 @@ fn write_vec3(f: &mut dyn Write, x: &[f32; 3]) -> io::Result<()> {
 }
 
 
-fn read_entry(bytes: &[u8]) -> Entry {
+fn read_entry(expected_id: usize, bytes: &[u8]) -> Entry {
     let mut f = Cursor::new(bytes);
     let id = f.read_u16::<Le>().expect("unexpected EOF");
+    // FIXME this should probably be a warning
+    assert_eq!(id as usize, expected_id, "object has wrong id!");
+
     let unknown = f.read_u16::<Le>().expect("unexpected EOF");
     let pos = read_vec3(&mut f).expect("unexpected EOF");
     let size = read_vec3(&mut f).expect("unexpected EOF");
@@ -793,11 +793,11 @@ fn read_entry(bytes: &[u8]) -> Entry {
     while let Some(quad) = read_quad(&mut f) {
         quads.push(quad);
     }
-    Entry { id, unknown, pos, size, quads }
+    Entry { unknown, pos, size, quads }
 }
 
-fn write_entry(f: &mut dyn Write, x: &Entry) -> io::Result<()> {
-    f.write_u16::<Le>(x.id)?;
+fn write_entry(f: &mut dyn Write, id: usize, x: &Entry) -> io::Result<()> {
+    f.write_u16::<Le>(id as u16)?;
     f.write_u16::<Le>(x.unknown)?;
     write_vec3(f, &x.pos)?;
     write_vec3(f, &x.size)?;
@@ -973,7 +973,7 @@ impl FileFormat for FileFormat06 {
 impl FileFormat for FileFormat10 {
     fn extra_from_meta<'m>(&self, m: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>> {
         Ok(StdExtra::Th10 {
-            anm_path: m.expect_field("anm_file")?,
+            anm_path: m.expect_field("anm_path")?,
         })
     }
 

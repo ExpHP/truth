@@ -5,7 +5,7 @@ use std::env;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} FILE (-o|--output) OUTPUT", program);
-    print!("{}", opts.usage(&brief));
+    eprint!("{}", opts.usage(&brief));
 }
 
 fn main() {

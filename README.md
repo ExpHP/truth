@@ -22,7 +22,8 @@ I mean, the current thstd is so ridiculously basic that this isn't even a fair c
 
 ### Disadvantages compared to thanm and thecl
 
-* Everything.
+* Well, it can't compile ANM or ECL yet, for starters.
+* Also everything else.
 
 ## Downloading
 
@@ -45,7 +46,7 @@ std-compile -m std-14.stdm in.stdspec -o out.std
 # don't even bother with them.
 ```
 
-These should work on all
+These should work on all games in the series, though I am still ironing out a small number of kinks at present.
 
 ## Building and installing from source
 
