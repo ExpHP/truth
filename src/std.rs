@@ -551,7 +551,7 @@ fn gather_label_info(
     let mut out = HashMap::new();
     code.iter().map(|thing| {
         match thing {
-            // can't insert labels until we see the time of the intructions they are labeling
+            // can't insert labels until we see the time of the instructions they are labeling
             InstrOrLabel::Label(ident) => pending_labels.push(ident),
             InstrOrLabel::Instr(instr) => {
                 for label in pending_labels.drain(..) {

@@ -2,7 +2,7 @@
 
 [THTK](https://github.com/thpatch/thtk/) alternative.
 
-Currently it can only handle STD files because (a) the current `thstd` is garbage and (b) STD is also the easiest format to handle since it has no variables.
+Currently it can only handle STD files because (a) STD is the easiest format to handle since it has no variables, and (b) the current `thstd` is garbage and I wanted to fill that hole.
 
 truth stands for "**t**htk **ru**st **th**ing".  Or maybe it stands for "**t**htk **ru**st **th**tk". I dunno, I mostly just picked it because `trustd` and `truecl` sound pretty dope
 
@@ -11,9 +11,14 @@ truth stands for "**t**htk **ru**st **th**ing".  Or maybe it stands for "**t**ht
 I mean, the current thstd is so ridiculously basic that this isn't even a fair comparison, but:
 
 * Nicer formatting of metadata. (more like ANM)
+* `stdmap`s for naming instructions.
 * Constant expression evaluation.  `(1 < 3) ? 4.0f : 2.0 + 0.5`
-* Labels.
+* Correct treatment of "strip" quads in TH08, TH09.
+* Labels and `goto`.
 * No segfaults.
+* Cool-ass error messages:
+
+![Sexy error message example](./doc/img/sexy-error.png)
 
 ### Disadvantages compared to thanm and thecl
 
@@ -36,10 +41,11 @@ With that in mind:
 std-decomp -m std-14.stdm in.std > out.stdspec
 std-compile -m std-14.stdm in.stdspec -o out.std
 
-# The other two binaries are entirely worthless, don't even bother with them.
+# Any other binaries included in the distribution are entirely worthless testing tools,
+# don't even bother with them.
 ```
 
-These should work on TH095-TH17.  *Probably*.  They **definitely absolutely will not work on TH06-TH08 yet** because there's a thing I haven't added yet so just chill out okay
+These should work on all
 
 ## Building and installing from source
 
@@ -50,7 +56,7 @@ git clone https://github.com/ExpHP/truth
 cd truth
 cargo build --release
 
-cargo run --bin=std-decomp -- -g10 -m std-14.stdm in.std > out.stdspec
-cargo run --bin=std-compile -- -g10 -m std-14.stdm out.stdspec > in.std
+cargo run --release --bin=std-decomp -- -g10 -m std-14.stdm in.std > out.stdspec
+cargo run --release --bin=std-compile -- -g10 -m std-14.stdm out.stdspec > in.std
 ```
 
