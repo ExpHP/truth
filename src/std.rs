@@ -361,9 +361,15 @@ fn _compile_std(
 ) -> Result<StdFile, CompileError> {
     use ast::Item;
 
+    let gensym_ctx = crate::ident::GensymContext::new();
+
     let mut script = script.clone();
 
     let mut visitor = crate::passes::const_simplify::Visitor::new();
+    crate::ast::walk_mut_script(&mut visitor, &mut script);
+    visitor.finish()?;
+
+    let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
     crate::ast::walk_mut_script(&mut visitor, &mut script);
     visitor.finish()?;
 

@@ -1,3 +1,5 @@
+use std::sync::atomic;
+
 use thiserror::Error;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -112,5 +114,27 @@ impl std::borrow::Borrow<str> for Sp<Ident> {
 impl std::fmt::Display for Ident {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", &self.ident[..])
+    }
+}
+
+// =============================================================================
+
+/// Helper for generating unique identifiers in a threadsafe manner.
+pub struct GensymContext {
+    next_id: atomic::AtomicU64,
+}
+
+impl GensymContext {
+    pub const fn new() -> Self {
+        GensymContext { next_id: atomic::AtomicU64::new(0) }
+    }
+
+    pub fn gensym(&self, prefix: &str) -> Ident {
+        let id = self.next_id();
+        format!("{}{}", prefix, id).parse().expect("invalid prefix")
+    }
+
+    fn next_id(&self) -> u64 {
+        self.next_id.fetch_add(1, atomic::Ordering::Relaxed)
     }
 }

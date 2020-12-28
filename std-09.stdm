@@ -36,6 +36,10 @@
 33 rockMode    # added in IN
 34 spriteC     # added in IN
 
+# STD in these games don't actually have a designated nop instruction.
+# However, it still treats all unrecognized opcodes as nops, so we can cheat.
+9000 nop
+
 !ins_signatures
 0 fff
 1 Cff
@@ -72,3 +76,4 @@
 32 fff
 33 S__
 34 S__  # anm script
+9000 ___

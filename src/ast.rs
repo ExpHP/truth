@@ -137,6 +137,9 @@ pub enum StmtBody {
         value: Option<Sp<Expr>>,
     },
     CondChain(StmtCondChain),
+    Loop {
+        block: Block,
+    },
     While {
         is_do_while: bool,
         cond: Sp<Expr>,
@@ -351,7 +354,8 @@ macro_rules! generate_visitor_stuff {
         pub trait $Visit {
             fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
-            fn visit_func_body(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
+            fn visit_func_body(&mut self, e: & $($mut)? Block) { self.visit_block(e) }
+            fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
             fn visit_stmt_body(&mut self, e: & $($mut)? Sp<StmtBody>) { walk_stmt_body(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
@@ -408,6 +412,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(value);
                     }
                 },
+                StmtBody::Loop { block } => v.visit_block(block),
                 StmtBody::CondJump { cond, kind: _, jump: _ } => {
                     v.visit_expr(cond);
                 },

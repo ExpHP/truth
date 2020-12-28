@@ -74,6 +74,7 @@ macro_rules! with_each_terminal {
             [0, b"insdef", Insdef]
             [0, b"return", Return]
             [0, b"goto", Goto]
+            [0, b"loop", Loop]
             [0, b"if", If]
             [0, b"else", Else]
             [0, b"unless", Unless]

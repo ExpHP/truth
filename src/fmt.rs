@@ -535,6 +535,7 @@ impl Format for ast::StmtBody {
             ast::StmtBody::CondJump { kind, cond, jump } => {
                 out.fmt((kind, " (", cond, ") ", jump, ";"))
             },
+            ast::StmtBody::Loop { block } => out.fmt(("loop ", block)),
             ast::StmtBody::CondChain(chain) => out.fmt(chain),
             ast::StmtBody::While { is_do_while: true, cond, block } => {
                 out.fmt(("do ", block, " while (", cond, ");"))
