@@ -511,7 +511,7 @@ fn _compile_main(
 fn compile_args(func: &Sp<Ident>, args: &[Sp<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
     fn arg_type_error(index: usize, expected: &'static str, func: &Sp<Ident>, arg: &Sp<Expr>) -> CompileError {
         error!(
-            message("argument {} to {} has wrong type", index+1, func),
+            message("argument {} to '{}' has wrong type", index+1, func),
             primary(arg, "wrong type"),
             secondary(func, "expects {} in arg {}", expected, index+1),
         )

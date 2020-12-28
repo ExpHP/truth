@@ -12,6 +12,14 @@ pub trait Format {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result;
 }
 
+/// Lossily write a value to string, for `eprintln` debugging.
+#[allow(unused)]
+pub(crate) fn stringify<T: Format>(value: &T) -> String {
+    let mut f = Formatter::new(vec![]).with_max_columns(1000);
+    f.fmt(value).expect("failed to write to vec!?");
+    String::from_utf8_lossy(&f.into_inner().unwrap()).into_owned()
+}
+
 //==============================================================================
 
 pub type Result<T = ()> = std::result::Result<T, Error>;

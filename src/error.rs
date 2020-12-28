@@ -12,8 +12,7 @@ pub type Label = ::codespan_reporting::diagnostic::Label<FileId>;
 #[derive(thiserror::Error, Debug)]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
-    #[doc(hidden)]
-    pub diagnostics: Vec<Diagnostic>
+    pub(crate) diagnostics: Vec<Diagnostic>
 }
 
 impl CompileError {
@@ -28,6 +27,7 @@ impl CompileError {
             _ => Err(self),
         }
     }
+    pub fn error_count(&self) -> usize { self.diagnostics.len() }
 
     /// Drain all errors from this object and write them to the standard error stream.
     ///
@@ -109,4 +109,28 @@ where
 
         errors.into_result(out)
     }
+}
+
+#[test]
+fn test_collect_with_recovery() {
+    // straightforward usage
+    let result = (0..10).map(|x| match x % 2 {
+        0 => Ok(x),
+        1 => Err(error!(message("odd number: {}", x))),
+        _ => unreachable!(),
+    }).collect_with_recovery::<Vec<_>>();
+    assert_eq!(result.unwrap_err().error_count(), 5);
+
+    // collecting into () for side-effects
+    let mut vec = vec![];
+    let result = (0..10).map(|x| match x % 2 {
+        0 => {
+            vec.push(x);
+            Ok(())
+        },
+        1 => Err(error!(message("odd number: {}", x))),
+        _ => unreachable!(),
+    }).collect_with_recovery::<()>();
+    assert_eq!(vec, vec![0, 2, 4, 6, 8]);
+    assert_eq!(result.unwrap_err().error_count(), 5);
 }

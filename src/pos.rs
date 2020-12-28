@@ -368,10 +368,10 @@ pub struct Sp<T: ?Sized> {
 
 impl<T: fmt::Debug> fmt::Debug for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sp")
+        f.debug_tuple("Sp")
             // format as a range instead of Span's derived Debug
-            .field("span", &(self.span.start().0..self.span.end().0))
-            .field("value", &self.value)
+            .field(&(self.span.start().0..self.span.end().0))
+            .field(&self.value)
             .finish()
     }
 }
