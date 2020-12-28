@@ -173,7 +173,7 @@ impl Span {
     /// Measure the span of a string.
     ///
     /// ```rust
-    /// use codespan::{ByteIndex, Span};
+    /// use ecl_parser::Span;
     ///
     /// let span = Span::from_str("hello");
     ///
@@ -191,7 +191,7 @@ impl Span {
     /// In that case, you can use `Span::disjoint` as a convenience function.
     ///
     /// ```rust
-    /// use codespan::Span;
+    /// use ecl_parser::Span;
     ///
     /// let span1 = Span::from(0..4);
     /// let span2 = Span::from(10..16);
@@ -210,7 +210,7 @@ impl Span {
     /// A helper function to tell whether two spans do not overlap.
     ///
     /// ```
-    /// use ecl_parser::pos::{Span};
+    /// use ecl_parser::Span;
     /// let span1 = Span::from(0..4);
     /// let span2 = Span::from(10..16);
     /// assert!(span1.disjoint(span2));

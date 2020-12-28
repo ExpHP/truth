@@ -422,7 +422,6 @@ fn _compile_std(
 
     let mut out = StdFile::init_from_meta(format, meta)?;
     out.script = _compile_main(format.instr_format(), &main_sub.0, functions)?;
-
     Ok(out)
 }
 
@@ -454,7 +453,7 @@ fn _compile_main(
                         Some(&opcode) => opcode,
                         None => return Err(error!(
                             message("feature not supported by format"),
-                            primary(stmt, "'goto' not supported in this game"),
+                            primary(stmt.body, "'goto' not supported in this game"),
                         )),
                     },
                     args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
@@ -492,7 +491,7 @@ fn _compile_main(
                 }, // match expr
                 _ => return Err(unsupported(&expr.span)),
             }, // match stmt
-            _ => return Err(unsupported(&stmt.span)),
+            _ => return Err(unsupported(&stmt.body.span)),
         }
         Ok(())
     }).collect_with_recovery()?;
@@ -713,7 +712,7 @@ pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result
     let mut entry_offsets = vec![];
     for (entry_id, entry) in std.entries.iter().enumerate() {
         entry_offsets.push(f.seek(io::SeekFrom::Current(0))? - start_pos);
-        write_entry(f.as_mut_write(), entry_id, entry)?;
+        write_entry(f.as_mut_write(), &*format, entry_id, entry)?;
     }
 
     let instances_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
@@ -796,13 +795,13 @@ fn read_entry(expected_id: usize, bytes: &[u8]) -> Entry {
     Entry { unknown, pos, size, quads }
 }
 
-fn write_entry(f: &mut dyn Write, id: usize, x: &Entry) -> io::Result<()> {
+fn write_entry(f: &mut dyn Write, format: &dyn FileFormat, id: usize, x: &Entry) -> io::Result<()> {
     f.write_u16::<Le>(id as u16)?;
     f.write_u16::<Le>(x.unknown)?;
     write_vec3(f, &x.pos)?;
     write_vec3(f, &x.size)?;
     for quad in &x.quads {
-        write_quad(f, quad)?;
+        write_quad(f, format, quad)?;
     }
     write_terminal_quad(f)
 }
@@ -843,7 +842,7 @@ fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
     })
 }
 
-fn write_quad(f: &mut dyn Write, quad: &Quad) -> io::Result<()> {
+fn write_quad(f: &mut dyn Write, format: &dyn FileFormat, quad: &Quad) -> io::Result<()> {
     let (kind, size) = match quad.extra {
         QuadExtra::Rect { .. } => (0, 0x1c),
         QuadExtra::Strip { .. } => (1, 0x24),
@@ -858,6 +857,12 @@ fn write_quad(f: &mut dyn Write, quad: &Quad) -> io::Result<()> {
             write_vec2(f, &size)?;
         },
         QuadExtra::Strip { start, end, width } => {
+            if !format.has_strips() {
+                // FIXME: Should be a warning instead.
+                //        At the very least, should be a pretty error and not a panic.
+                //        (but how should we carry span info here?)
+                panic!("ERROR: 'strip' quads can only be used in TH08 and TH09!")
+            }
             write_vec3(f, &start)?;
             write_vec3(f, &end)?;
             f.write_f32::<Le>(width)?;
@@ -896,19 +901,27 @@ fn write_terminal_instance(f: &mut dyn Write) -> io::Result<()> {
 }
 
 fn game_format(game: Game) -> Box<dyn FileFormat> {
-    match game {
-        Game::Th06
-        => Box::new(FileFormat06 { instr_format: InstrFormat06 { has_jmp: false } }),
+    if Game::Th095 <= game {
+        Box::new(FileFormat10)
+    } else {
+        let (has_strips, has_jmp) = match game {
+            Game::Th06 => (false, false),
+            Game::Th07 => (false, true),
+            Game::Th08 => (true, true),
+            Game::Th09 => (true, true),
+            _ => unreachable!(),
+        };
 
-        g if (Game::Th07 <= g && g <= Game::Th09)
-        => Box::new(FileFormat06 { instr_format: InstrFormat06 { has_jmp: true } }),
-
-        _ => Box::new(FileFormat10),
+        let instr_format = InstrFormat06 { has_jmp };
+        Box::new(FileFormat06 { has_strips, instr_format })
     }
 }
 
 /// STD format, EoSD to PoFV.
-struct FileFormat06 { instr_format: InstrFormat06 }
+struct FileFormat06 {
+    has_strips: bool,
+    instr_format: InstrFormat06,
+}
 /// STD format, StB to present.
 struct FileFormat10;
 
@@ -918,6 +931,7 @@ trait FileFormat {
     fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra;
     fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()>;
     fn instr_format(&self) -> &dyn InstrFormat;
+    fn has_strips(&self) -> bool;
 }
 
 impl FileFormat for FileFormat06 {
@@ -968,6 +982,7 @@ impl FileFormat for FileFormat06 {
     }
 
     fn instr_format(&self) -> &dyn InstrFormat { &self.instr_format }
+    fn has_strips(&self) -> bool { self.has_strips }
 }
 
 impl FileFormat for FileFormat10 {
@@ -997,6 +1012,7 @@ impl FileFormat for FileFormat10 {
     }
 
     fn instr_format(&self) -> &dyn InstrFormat { &InstrFormat10 }
+    fn has_strips(&self) -> bool { false }
 }
 
 pub struct InstrFormat06 { has_jmp: bool }
