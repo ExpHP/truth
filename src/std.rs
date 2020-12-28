@@ -299,8 +299,8 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
         use crate::ast::VisitMut;
 
         let mut code = ast::Block(code);
-        unused_labels::Visitor::new().visit_func_body(&mut code);
         decompile_loop::Visitor::new().visit_func_body(&mut code);
+        unused_labels::Visitor::new().visit_func_body(&mut code);
         code
     };
 

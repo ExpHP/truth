@@ -32,6 +32,7 @@ impl VisitMut for Visitor {
     }
 
     fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
+        ast::walk_mut_stmt(self, x);
         x.labels.retain(|label| match &label.value {
             ast::StmtLabel::Label(ident) => {
                 self.used_labels_stack

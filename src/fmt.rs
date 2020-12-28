@@ -63,6 +63,7 @@ mod formatter {
         indent: usize,
         is_label: bool,
         inline_depth: u32,
+        suppress_blank_line: bool,
         /// Contains state that is not directly managed by Formatter itself, but rather
         /// by various [`Format`] impls.
         pub(super) state: State,
@@ -86,6 +87,7 @@ mod formatter {
                 is_label: false,
                 inline_depth: 0,
                 pending_data: false,
+                suppress_blank_line: false,
                 // The initial level here is used when writing a Stmt as toplevel.
                 // When parsing items, we mostly use a second level that gets pushed/popped with functions.
                 line_buffer: vec![],
@@ -215,6 +217,11 @@ mod formatter {
         /// if currently in inline mode.
         pub fn next_line(&mut self) -> Result {
             self.backtrack_inline()?;
+            if self.suppress_blank_line && !self.pending_data {
+                self.suppress_blank_line = false;
+                return Ok(())
+            }
+
             self.is_label = false;
             self.pending_data = false;
             self.line_buffer.push(b'\n');
@@ -240,6 +247,11 @@ mod formatter {
             self.pending_data = true;
             write!(&mut self.line_buffer, "{}", x)?;
             Ok(())
+        }
+
+        /// Prevent the next call to `next_line` from taking effect if it will produce a blank line.
+        pub(super) fn suppress_blank_line(&mut self) {
+            self.suppress_blank_line = true;
         }
 
         /// If we're in inline mode, backtrack to the outermost [`Formatter::try_inline`].
@@ -576,7 +588,10 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
-            ast::StmtBody::EndOfBlock => Ok(()),
+            ast::StmtBody::EndOfBlock => {
+                out.suppress_blank_line();
+                Ok(())
+            },
         }
     }
 }
