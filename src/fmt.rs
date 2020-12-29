@@ -588,10 +588,10 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
-            ast::StmtBody::EndOfBlock => {
+            ast::StmtBody::NoInstruction => {
                 out.suppress_blank_line();
                 Ok(())
-            },
+            }
         }
     }
 }

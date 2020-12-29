@@ -131,19 +131,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn time_labels() {
-        let item = ast::Item::parse(r#"void main() {
-            a();  // should start at t=0
-        +2: a();  // relative label
-            a();  // check this is still at t=2
-        +3: a();  // should now be t=5
-        2:  a();  // absolute label
-        -1: a();  // should also be absolute (t=-1), not relative (t=1)
-        }"#).unwrap();
-        // last -1 is EndOfBlock
-        let expected_times = vec![0, 2, 2, 5, 2, -1, -1];
-
+    fn time_label_test(text: &'static str, expected_times: Vec<i32>) {
+        let item = ast::Item::parse(text).unwrap();
         let parsed_times = {
             let block = match item {
                 ast::Item::Func { code: Some(block), .. } => block,
@@ -153,6 +142,29 @@ mod tests {
         };
 
         assert_eq!(parsed_times, expected_times);
+    }
+
+    #[test]
+    fn time_labels() {
+        time_label_test(r#"void main() {
+                  // before all is a "super no-op" at t=0
+            a();  // should start at t=0
+        +2: a();  // relative label
+            a();  // check this is still at t=2
+        +3: a();  // should now be t=5
+        2:  a();  // absolute label
+        -1: a();  // should also be absolute (t=-1), not relative (t=1)
+                  // another "super no-op" with the end time
+        }"#, vec![0, 0, 2, 2, 5, 2, -1, -1])
+    }
+
+    #[test]
+    fn bookend_time_label() {
+        time_label_test(r#"void main() {
+                  // "super no-op" is still t=0 despite starting with a label
+        1:  a();  // t=1 as labeled
+        2:        // "super no-op" at end here is t=2
+        }"#, vec![0, 1, 2]);
     }
 
     #[test]

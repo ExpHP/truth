@@ -503,7 +503,7 @@ fn _compile_main(
                 _ => return Err(unsupported(&expr.span)),
             }, // match expr
 
-            ast::StmtBody::EndOfBlock => {},
+            ast::StmtBody::NoInstruction => {}
 
             _ => return Err(unsupported(&stmt.body.span)),
         }

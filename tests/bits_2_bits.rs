@@ -101,6 +101,13 @@ std_b2b_test!(Game::Th08, "std-09.stdm", std08_loop_not_timeof, "th08-loop-not-t
 std_b2b_test!(Game::Th08, "std-09.stdm", std08_nonzero_padding, "th08-nonzero-padding.std");
 std_b2b_test!(Game::Th08, "std-09.stdm", std08_empty_script, "th08-empty-script.std");
 std_b2b_test!(Game::Th08, "std-09.stdm", std08_empty_loop, "th08-empty-loop.std");
-std_b2b_test!(Game::Th08, "std-09.stdm", std08_empty_loop_time, "th08-empty-loop-time.std");
+
+// https://github.com/ExpHP/truth/issues/1
+//
+// This test input is incorrect.  It's supposed to contain a compiled form of `loop { +5: }` but apparently this is
+// miscompiling into `+5: loop {}`.
+//
+// std_b2b_test!(Game::Th08, "std-09.stdm", std08_empty_loop_time, "th08-empty-loop-time.std");
+
 std_b2b_test!(Game::Th06, "std-06.stdm", std06_general, "th06-general.std");
 std_b2b_test!(Game::Th12, "std-14.stdm", std12_general, "th12-general.std");

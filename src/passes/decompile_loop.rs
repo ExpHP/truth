@@ -51,7 +51,7 @@ impl VisitMut for Visitor {
                         // replace the goto with an EndOfBlock, preserving its time
                         let block_end = outer_stmts.0.last_mut().unwrap();
                         let block_end_span = block_end.span;
-                        block_end.body.value = ast::StmtBody::EndOfBlock;
+                        block_end.body.value = ast::StmtBody::NoInstruction;
 
                         let inner_stmts: Vec<_> = outer_stmts.0.drain(dest_index..).collect();
                         let inner_span = inner_stmts[0].span.merge(block_end_span);

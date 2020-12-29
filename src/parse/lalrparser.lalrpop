@@ -183,8 +183,22 @@ MetaKeyword: MetaKeyword = {
     "meta" => MetaKeyword::Meta,
 };
 
-_TimeStackEnter: () = { => { state.time_stack.push(0); } }
-_TimeStackPop: () = { => { state.time_stack.pop(); } }
+// NOTE: Working with state in LALRPOP is tricky as there are no midrules like bison.
+//
+// When working with state, you should generally prefer these non-inline versions, as the actions
+// will intuitively take place at the location they appear in the grammar.
+_TimeStackEnter: () = _TimeStackEnterInline;
+_TimeStackPop: () = _TimeStackPopInline;
+_TimeGet: i32 = _TimeGetInline;
+
+// Sometimes, unfortunately, the above rules lead to parsing ambiguities and you may need to
+// resort to these inline versions.
+//
+// The inline versions are only executed after the whole rule has been parsed. Thus, you should only
+// ever use them at the END OF A RULE; this may require breaking a rule in half.
+#[inline] _TimeStackEnterInline: () = => { state.time_stack.push(0); };
+#[inline] _TimeStackPopInline: () = => { state.time_stack.pop(); };
+#[inline] _TimeGetInline: i32 = => *state.time_stack.last().unwrap();
 
 // ==================================================
 // Metadata in a JSON-ish format, used by ANM
@@ -216,7 +230,10 @@ MetaBracedFields: meta::Fields = {
 // Statements
 
 Stmt: Stmt = {
-    <labels:StmtLabels> <body:Sp<StmtBody>> => Stmt { time: *state.time_stack.last().unwrap(), labels, body },
+    <stuff:StmtLabelsWithTime> <body:Sp<StmtBody>> => {
+        let (labels, time) = stuff;
+        Stmt { time, labels, body }
+    },
 };
 
 StmtBody: StmtBody = {
@@ -240,6 +257,9 @@ StmtTimeLabel: () = {
     "+" <dt:LitIntUnsigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") += dt; },
     <t:LitIntSigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") = t; },
 };
+
+#[inline]
+StmtLabelsWithTime: (Vec<Sp<StmtLabel>>, i32) = <StmtLabels> <_TimeGetInline>;
 
 StmtLabels: Vec<Sp<StmtLabel>> = {
     => vec![],
@@ -319,14 +339,24 @@ DifficultyLabel: DifficultyLabel = {
 };
 
 Block: Block = {
-    "{" <mut code:Sp<Stmt>*> <end_labels:Sp<StmtLabels>> <end_span:Span> "}" => {
+    "{" <start_span:Span> <start_time:_TimeGet> <mut code:Sp<Stmt>*>
+        <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span> "}"
+        => {
         // add a special "end of block" statement
+        code.insert(0, Sp {
+            span: start_span,
+            value: Stmt {
+                time: start_time,
+                labels: vec![],
+                body: Sp { span: start_span, value: StmtBody::NoInstruction },
+            },
+        });
         code.push(Sp {
             span: end_labels.span,
             value: Stmt {
-                time: *state.time_stack.last().unwrap(),
+                time: end_time,
                 labels: end_labels.value,
-                body: Sp { span: end_span, value: StmtBody::EndOfBlock },
+                body: Sp { span: end_span, value: StmtBody::NoInstruction },
             },
         });
         Block(code)

@@ -174,14 +174,18 @@ pub enum StmtBody {
         func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
     },
-    /// A virtual instruction added at the end of each block, to allow for
-    /// the possibility of a time label at the very end.
+    /// A virtual instruction that completely disappears during compilation.
     ///
-    /// It does not compile to any instructions.
+    /// This is a trivial statement that doesn't even compile to a `nop();`.
+    /// It is inserted at the beginning and end of code blocks in order to help implement some
+    /// of the following things:
+    ///
+    /// * A time label at the end of a block.
+    /// * A time label at the beginning of a loop's body.
     ///
     /// Note that these may also appear in the middle of a block in the AST if a transformation
     /// pass has e.g. inlined the contents of one block into another.
-    EndOfBlock,
+    NoInstruction,
 }
 
 /// The body of a `goto` statement, without the `;`.
@@ -464,7 +468,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(arg);
                     }
                 },
-                StmtBody::EndOfBlock => {},
+                StmtBody::NoInstruction => {},
             }
         }
 
