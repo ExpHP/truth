@@ -3,9 +3,14 @@ use ecl_parser::{self, Format};
 use getopts::Options;
 use std::env;
 
-fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} FILE", program);
-    eprint!("{}", opts.usage(&brief));
+fn usage(program: &str) -> String {
+    format!("Usage: {} FILE -g GAME [OPTIONS...]", program)
+}
+fn print_usage(program: &str) {
+    eprintln!("{}", usage(program));
+}
+fn print_help(program: &str, opts: Options) {
+    eprint!("{}", opts.usage(&usage(program)));
 }
 
 fn main() {
@@ -19,10 +24,14 @@ fn main() {
     opts.reqopt("g", "game", "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.", "GAME");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
-        Err(f) => { panic!(f.to_string()) }
+        Err(e) => {
+            print_usage(&program);
+            eprintln!("ERROR: {}", e);
+            std::process::exit(1);
+        }
     };
     if matches.opt_present("h") {
-        print_usage(&program, opts);
+        print_help(&program, opts);
         return;
     }
 
@@ -30,8 +39,8 @@ fn main() {
     let input = if !matches.free.is_empty() {
         matches.free[0].clone()
     } else {
-        print_usage(&program, opts);
-        return;
+        print_help(&program, opts);
+        std::process::exit(1);
     };
     run(game, &input, matches.opt_get_default("max-columns", 100).unwrap(), matches.opt_str("map"));
 }

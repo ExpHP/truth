@@ -177,7 +177,7 @@ impl Span {
     ///
     /// let span = Span::from_str("hello");
     ///
-    /// assert_eq!(span, Span::new(0, 5));
+    /// assert_eq!(span, Span::new(None, 0, 5));
     /// ```
     pub fn from_str(s: &str) -> Span {
         Span::new(None, 0, s.len() as RawIndex)

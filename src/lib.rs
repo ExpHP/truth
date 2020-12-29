@@ -141,7 +141,8 @@ mod tests {
         2:  a();  // absolute label
         -1: a();  // should also be absolute (t=-1), not relative (t=1)
         }"#).unwrap();
-        let expected_times = vec![0, 2, 2, 5, 2, -1];
+        // last -1 is EndOfBlock
+        let expected_times = vec![0, 2, 2, 5, 2, -1, -1];
 
         let parsed_times = {
             let block = match item {

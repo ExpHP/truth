@@ -149,10 +149,13 @@ Item: Item = {
         "(" <params:SeparatedTrailing<(<VarDeclKeyword> <Ident>), ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
         => Item::Func { inline: inline.is_some(), keyword, name, params, code },
+
     "script" <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
         => Item::AnmScript { number, name, code },
+
     <keyword:Sp<MetaKeyword>> <name:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
         => Item::Meta { keyword, name, fields },
+
     <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
         => Item::FileList { keyword, files },
 };

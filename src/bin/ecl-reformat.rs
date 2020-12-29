@@ -4,9 +4,14 @@ use ecl_parser::Parse;
 use getopts::Options;
 use std::env;
 
-fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} FILE", program);
-    eprint!("{}", opts.usage(&brief));
+fn usage(program: &str) -> String {
+    format!("Usage: {} FILE [OPTIONS...]", program)
+}
+fn print_usage(program: &str) {
+    eprintln!("{}", usage(program));
+}
+fn print_help(program: &str, opts: Options) {
+    eprint!("{}", opts.usage(&usage(program)));
 }
 
 fn main() {
@@ -17,18 +22,22 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => { m }
-        Err(f) => { panic!(f.to_string()) }
+        Err(e) => {
+            print_usage(&program);
+            eprintln!("ERROR: {}", e);
+            std::process::exit(1);
+        }
     };
     if matches.opt_present("h") {
-        print_usage(&program, opts);
+        print_help(&program, opts);
         return;
     }
 
     let input = if !matches.free.is_empty() {
         matches.free[0].clone()
     } else {
-        print_usage(&program, opts);
-        return;
+        print_help(&program, opts);
+        std::process::exit(1);
     };
     run(&input);
 }
