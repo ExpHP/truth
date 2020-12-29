@@ -208,7 +208,7 @@ Meta: Meta = {
     <x:LitFloatSigned> => Meta::Float(x),
     <x:LitString> => Meta::String(x.string),
     <x:Sp<MetaBracedFields>> => Meta::Object(x),
-    <name:Sp<Ident>> <fields:Sp<MetaBracedFields>> => Meta::Variant { name, fields },
+    <name:Sp<Ident>> ":"? <fields:Sp<MetaBracedFields>> => Meta::Variant { name, fields },
     "[" <items:SeparatedTrailing<Sp<Meta>, ",">> "]" => Meta::Array(items),
 };
 

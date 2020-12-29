@@ -3,9 +3,9 @@ use std::collections::{HashMap};
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
-use crate::error::{GatherErrorIteratorExt};
+use indexmap::IndexMap;
 
-use crate::CompileError;
+use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
@@ -19,7 +19,7 @@ use crate::game::Game;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StdFile {
     pub unknown: u32,
-    pub entries: Vec<Entry>,
+    pub objects: IndexMap<Sp<Ident>, Object>,
     pub instances: Vec<Instance>,
     pub script: Vec<Instr>,
     pub extra: StdExtra,
@@ -52,7 +52,7 @@ impl StdFile {
         let mut m = meta::ParseObject::new(fields);
         let out = StdFile {
             unknown: m.expect_field("unknown")?,
-            entries: m.expect_field("objects")?,
+            objects: m.expect_field("objects")?,
             instances: m.expect_field("instances")?,
             script: vec![],
             extra: file_format.extra_from_meta(&mut m)?,
@@ -65,23 +65,23 @@ impl StdFile {
         Meta::make_object()
             .field("unknown", &self.unknown)
             .with_mut(|b| file_format.extra_to_meta(&self.extra, b))
-            .field("objects", &self.entries)
+            .field("objects", &self.objects)
             .field("instances", &self.instances)
             .build_fields()
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Entry {
+pub struct Object {
     pub unknown: u16,
     pub pos: [f32; 3],
     pub size: [f32; 3],
     pub quads: Vec<Quad>,
 }
 
-impl FromMeta for Entry {
+impl FromMeta for Object {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        meta.parse_object(|m| Ok(Entry {
+        meta.parse_object(|m| Ok(Object {
             unknown: m.expect_field::<i32>("unknown")? as u16,
             pos: m.expect_field("pos")?,
             size: m.expect_field("size")?,
@@ -90,7 +90,7 @@ impl FromMeta for Entry {
     }
 }
 
-impl ToMeta for Entry {
+impl ToMeta for Object {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
             .field("unknown", &(self.unknown as i32))
@@ -170,15 +170,15 @@ impl ToMeta for Quad {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
-    pub object_id: u16,
+    pub object: Sp<Ident>,
     pub unknown: u16,
     pub pos: [f32; 3],
 }
 
 impl FromMeta for Instance {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        meta.parse_object(|meta| Ok(Instance {
-            object_id: meta.expect_field::<i32>("object")? as u16,
+        meta.parse_any_variant(|ident, meta| Ok(Instance {
+            object: ident.clone(),
             unknown: meta.get_field::<i32>("unknown")?.unwrap_or(256) as u16,
             pos: meta.expect_field("pos")?,
         }))
@@ -187,8 +187,7 @@ impl FromMeta for Instance {
 
 impl ToMeta for Instance {
     fn to_meta(&self) -> Meta {
-        Meta::make_object()
-            .field("object", &(self.object_id as i32))
+        Meta::make_variant(&self.object)
             .field_default("unknown", &(self.unknown as i32), &256)
             .field("pos", &self.pos)
             .build()
@@ -669,21 +668,26 @@ pub fn read_std(game: Game, bytes: &[u8]) -> StdFile {
 
     let mut f = Cursor::new(bytes);
 
-    let num_entries = f.read_u16::<Le>().expect("incomplete header") as usize;
+    let num_objects = f.read_u16::<Le>().expect("incomplete header") as usize;
     let num_quads = f.read_u16::<Le>().expect("incomplete header") as usize;
     let instances_offset = f.read_u32::<Le>().expect("incomplete header") as usize;
     let script_offset = f.read_u32::<Le>().expect("incomplete header") as usize;
     let unknown = f.read_u32::<Le>().expect("incomplete header");
     let extra = format.read_extra(&mut f);
-    let entry_offsets = (0..num_entries).map(|_| f.read_u32::<Le>().expect("unexpected EOF")).collect::<Vec<_>>();
-    let entries = (0..num_entries)
-        .map(|i| read_entry(i, &bytes[entry_offsets[i] as usize..]))
-        .collect::<Vec<_>>();
-    assert_eq!(num_quads, entries.iter().map(|x| x.quads.len()).sum::<usize>());
+
+    let object_offsets = (0..num_objects).map(|_| f.read_u32::<Le>().expect("unexpected EOF")).collect::<Vec<_>>();
+    let objects = (0..num_objects)
+        .map(|i| {
+            let key = Sp::null(format!("object{}", i).parse::<Ident>().unwrap());
+            let value = read_object(i, &bytes[object_offsets[i] as usize..]);
+            (key, value)
+        }).collect::<IndexMap<_, _>>();
+    assert_eq!(num_quads, objects.values().map(|x| x.quads.len()).sum::<usize>());
+
     let instances = {
         let mut f = Cursor::new(&bytes[instances_offset..]);
         let mut vec = vec![];
-        while let Some(instance) = read_instance(&mut f) {
+        while let Some(instance) = read_instance(&mut f, &objects) {
             vec.push(instance);
         }
         vec
@@ -698,7 +702,7 @@ pub fn read_std(game: Game, bytes: &[u8]) -> StdFile {
         }
         script
     };
-    StdFile { unknown, extra, entries, instances, script }
+    StdFile { unknown, extra, objects, instances, script }
 }
 
 pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
@@ -706,8 +710,8 @@ pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result
 
     let start_pos = f.seek(io::SeekFrom::Current(0))?;
 
-    f.write_u16::<Le>(std.entries.len() as u16)?;
-    f.write_u16::<Le>(std.entries.iter().map(|x| x.quads.len()).sum::<usize>() as u16)?;
+    f.write_u16::<Le>(std.objects.len() as u16)?;
+    f.write_u16::<Le>(std.objects.values().map(|x| x.quads.len()).sum::<usize>() as u16)?;
 
     let instances_offset_pos = f.seek(io::SeekFrom::Current(0))?;
     f.write_u32::<Le>(0)?;
@@ -718,20 +722,20 @@ pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result
 
     format.write_extra(f.as_mut_write(), &std.extra)?;
 
-    let entry_offsets_pos = f.seek(io::SeekFrom::Current(0))?;
-    for _ in &std.entries {
+    let object_offsets_pos = f.seek(io::SeekFrom::Current(0))?;
+    for _ in &std.objects {
         f.write_u32::<Le>(0)?;
     }
 
-    let mut entry_offsets = vec![];
-    for (entry_id, entry) in std.entries.iter().enumerate() {
-        entry_offsets.push(f.seek(io::SeekFrom::Current(0))? - start_pos);
-        write_entry(f.as_mut_write(), &*format, entry_id, entry)?;
+    let mut object_offsets = vec![];
+    for (object_id, object) in std.objects.values().enumerate() {
+        object_offsets.push(f.seek(io::SeekFrom::Current(0))? - start_pos);
+        write_object(f.as_mut_write(), &*format, object_id, object)?;
     }
 
     let instances_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
     for instance in &std.instances {
-        write_instance(f.as_mut_write(), instance)?;
+        write_instance(f.as_mut_write(), instance, &std.objects)?;
     }
     write_terminal_instance(f.as_mut_write())?;
 
@@ -748,8 +752,8 @@ pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result
     f.write_u32::<Le>(instances_offset as u32)?;
     f.seek(io::SeekFrom::Start(script_offset_pos))?;
     f.write_u32::<Le>(script_offset as u32)?;
-    f.seek(io::SeekFrom::Start(entry_offsets_pos))?;
-    for offset in entry_offsets {
+    f.seek(io::SeekFrom::Start(object_offsets_pos))?;
+    for offset in object_offsets {
         f.write_u32::<Le>(offset as u32)?;
     }
     f.seek(io::SeekFrom::Start(end_pos))?;
@@ -793,7 +797,7 @@ fn write_vec3(f: &mut dyn Write, x: &[f32; 3]) -> io::Result<()> {
 }
 
 
-fn read_entry(expected_id: usize, bytes: &[u8]) -> Entry {
+fn read_object(expected_id: usize, bytes: &[u8]) -> Object {
     let mut f = Cursor::new(bytes);
     let id = f.read_u16::<Le>().expect("unexpected EOF");
     // FIXME this should probably be a warning
@@ -806,10 +810,10 @@ fn read_entry(expected_id: usize, bytes: &[u8]) -> Entry {
     while let Some(quad) = read_quad(&mut f) {
         quads.push(quad);
     }
-    Entry { unknown, pos, size, quads }
+    Object { unknown, pos, size, quads }
 }
 
-fn write_entry(f: &mut dyn Write, format: &dyn FileFormat, id: usize, x: &Entry) -> io::Result<()> {
+fn write_object(f: &mut dyn Write, format: &dyn FileFormat, id: usize, x: &Object) -> io::Result<()> {
     f.write_u16::<Le>(id as u16)?;
     f.write_u16::<Le>(x.unknown)?;
     write_vec3(f, &x.pos)?;
@@ -891,18 +895,26 @@ fn write_terminal_quad(f: &mut dyn Write) -> io::Result<()> {
 }
 
 
-fn read_instance(f: &mut Cursor<&[u8]>) -> Option<Instance> {
+fn read_instance(f: &mut Cursor<&[u8]>, objects: &IndexMap<Sp<Ident>, Object>) -> Option<Instance> {
     let object_id = f.read_u16::<Le>().expect("unexpected EOF");
     let unknown = f.read_u16::<Le>().expect("unexpected EOF");
     if object_id == 0xffff {
         return None;
     }
+    let object = match objects.get_index(object_id as usize) {
+        Some((ident, _)) => ident.clone(),
+        None => panic!("object index too large! ({}, but there are only {} objects)", object_id, objects.len()),
+    };
     let pos = read_vec3(f).expect("unexpected EOF");
-    Some(Instance { object_id, unknown, pos })
+    Some(Instance { object, unknown, pos })
 }
 
-fn write_instance(f: &mut dyn Write, inst: &Instance) -> io::Result<()> {
-    f.write_u16::<Le>(inst.object_id)?;
+fn write_instance(f: &mut dyn Write, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> io::Result<()> {
+    match objects.get_index_of(&inst.object) {
+        Some(object_index) => f.write_u16::<Le>(object_index as u16)?,
+        // FIXME: This should be a diagnostic. Stop using io::Result noob
+        None => panic!("No object named {}", &inst.object),
+    }
     f.write_u16::<Le>(inst.unknown)?;
     write_vec3(f, &inst.pos)?;
     Ok(())

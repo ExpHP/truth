@@ -142,12 +142,7 @@ impl Sp<Meta> {
         func: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
     ) -> Result<T, FromMetaError<'_>> {
         match &self.value {
-            Meta::Object(map) => {
-                let mut helper = ParseObject::new(map);
-                let value = func(&mut helper)?;
-                helper.finish()?;
-                Ok(value)
-            },
+            Meta::Object(map) => ParseObject::scope(map, func),
             _ => Err(FromMetaError::expected("an object", self)),
         }
     }
@@ -161,6 +156,16 @@ impl Sp<Meta> {
             _ => Err(FromMetaError::expected("a variant", self)),
         }
     }
+
+    pub fn parse_any_variant<'a, T>(
+        &'a self,
+        func: impl FnOnce(&'a Sp<Ident>, &mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
+    ) -> Result<T, FromMetaError<'a>> {
+        match &self.value {
+            Meta::Variant { name, fields } => ParseObject::scope(fields, |helper| func(name, helper)),
+            _ => Err(FromMetaError::expected("a variant", self)),
+        }
+    }
 }
 
 impl<'a> ParseObject<'a> {
@@ -171,6 +176,20 @@ impl<'a> ParseObject<'a> {
     /// the `finish` method for you.
     pub fn new(map: &'a Sp<Fields>) -> Self {
         ParseObject { map, valid_fields: HashSet::new() }
+    }
+
+    /// Briefly construct a [`ParseObject`] for the duration of a closure.
+    ///
+    /// You must parse all expected fields inside the closure.  At the end, [`ParseObject::finish`]
+    /// will automatically be called, flagging any unused fields as errors.
+    pub fn scope<T>(
+        fields: &'a Sp<Fields>,
+        func: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
+    ) -> Result<T, FromMetaError<'a>> {
+        let mut helper = ParseObject::new(fields);
+        let value = func(&mut helper)?;
+        helper.finish()?;
+        Ok(value)
     }
 
     pub fn get_field<T: FromMeta>(&mut self, field: &'static str) -> Result<Option<T>, FromMetaError<'a>> {
@@ -203,7 +222,7 @@ impl<'a, T> ParseVariant<'a, T> {
         handler: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
     ) -> &mut Self {
         if self.ident == variant {
-            self.result = Some(handler(&mut ParseObject::new(&self.map)));
+            self.result = Some(ParseObject::scope(&self.map, handler));
         }
         self
     }
@@ -378,6 +397,15 @@ impl<T: FromMeta> FromMeta for [T; 4] {
     }
 }
 
+impl<T: FromMeta> FromMeta for indexmap::IndexMap<Sp<Ident>, T> {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
+            Meta::Object(kvs) => kvs.iter().map(|(k, v)| v.parse().map(|v| (k.clone(), v))).collect(),
+            _ => Err(FromMetaError::expected("an object", meta)),
+        }
+    }
+}
+
 impl<T: ToMeta + ?Sized> ToMeta for &T {
     fn to_meta(&self) -> Meta { ToMeta::to_meta(&**self) }
 }
@@ -416,6 +444,14 @@ impl<T: ToMeta> ToMeta for [T; 3] {
 }
 impl<T: ToMeta> ToMeta for [T; 4] {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
+}
+
+impl<T: ToMeta> ToMeta for indexmap::IndexMap<Sp<Ident>, T> {
+    fn to_meta(&self) -> Meta {
+        Meta::Object(Sp::null({
+            self.iter().map(|(k, v)| (k.clone(), Sp::null(v.to_meta()))).collect()
+        }))
+    }
 }
 
 // =============================================================================
