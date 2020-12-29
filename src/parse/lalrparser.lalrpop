@@ -319,7 +319,7 @@ DifficultyLabel: DifficultyLabel = {
 };
 
 Block: Block = {
-    "{" <mut code:Sp<Stmt>+> <end_labels:Sp<StmtLabels>> <end_span:Span> "}" => {
+    "{" <mut code:Sp<Stmt>*> <end_labels:Sp<StmtLabels>> <end_span:Span> "}" => {
         // add a special "end of block" statement
         code.push(Sp {
             span: end_labels.span,

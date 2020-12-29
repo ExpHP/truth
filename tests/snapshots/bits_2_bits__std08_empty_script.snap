@@ -1,0 +1,16 @@
+---
+source: tests/bits_2_bits.rs
+expression: s
+---
+meta {
+    unknown: 0,
+    stage_name: "dm",
+    bgm_names: ["dm", "dm", " ", " "],
+    bgm_paths: ["bgm/th08_08.mid", "bgm/th08_09.mid", " ", " "],
+    objects: [],
+    instances: [],
+}
+
+script main {
+}
+

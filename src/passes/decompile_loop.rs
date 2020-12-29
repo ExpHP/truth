@@ -37,10 +37,16 @@ impl VisitMut for Visitor {
                 if let Some(&dest_index) = label_indices.get(&goto.destination.value) {
 
                     // Is the label before the jump, and does it jump to timeof(label)?
-                    let src_index = outer_stmts.0.len() - 1;
-                    let time_of_label = outer_stmts.0[dest_index].time;
-                    let goto_time = goto.time.unwrap_or(time_of_label);
-                    if dest_index <= src_index && goto_time == time_of_label {
+                    let can_transform = {
+                        let src_index = outer_stmts.0.len() - 1;
+                        if dest_index <= src_index {
+                            let time_of_label = outer_stmts.0[dest_index].time;
+                            let goto_time = goto.time.unwrap_or(time_of_label);
+                            goto_time == time_of_label
+                        } else { false }
+
+                    };
+                    if can_transform {
 
                         // replace the goto with an EndOfBlock, preserving its time
                         let block_end = outer_stmts.0.last_mut().unwrap();

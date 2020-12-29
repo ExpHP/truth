@@ -1,0 +1,27 @@
+---
+source: tests/bits_2_bits.rs
+expression: s
+---
+meta {
+    unknown: 0,
+    stage_name: "dm",
+    bgm_names: ["dm", "dm", " ", " "],
+    bgm_paths: ["bgm/th08_08.mid", "bgm/th08_09.mid", " ", " "],
+    objects: [],
+    instances: [],
+}
+
+script main {
+    up(0.0, 1.0, -1.0);
++10: // 10
+    up(0.0, 1.0, -1.0);
+    loop {
+        pos(0.0, 4984.0, 20.0);
+        posTime(1024, 0);
+        pos(0.0, 5240.0, 20.0);
++1024: // 1034
+    }
+-1:
+    posKeyframe(0.0, 0.0, 0.0);
+}
+

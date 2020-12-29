@@ -22,6 +22,8 @@ codespan = "0.11"
 
 [dev-dependencies]
 insta = "1.3"
+tempfile = "3.0"
+assert_cmd = "1.0"
 
 # This is used at build time, so optimizing it immensely speeds up debug builds.
 [profile.dev.package.lalrpop]
