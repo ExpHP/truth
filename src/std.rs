@@ -29,12 +29,35 @@ pub struct StdFile {
 pub enum StdExtra {
     Th06 {
         stage_name: BString,
-        bgm_names: [BString; 4],
-        bgm_paths: [BString; 4],
+        bgm: [Std06Bgm; 4],
     },
     Th10 {
         anm_path: BString,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Std06Bgm {
+    pub path: BString,
+    pub name: BString,
+}
+
+impl FromMeta for Std06Bgm {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        meta.parse_object(|m| Ok(Std06Bgm {
+            path: m.expect_field("path")?,
+            name: m.expect_field("name")?,
+        }))
+    }
+}
+
+impl ToMeta for Std06Bgm {
+    fn to_meta(&self) -> Meta {
+        Meta::make_object()
+            .field("path", &self.path)
+            .field("name", &self.name)
+            .build()
+    }
 }
 
 impl StdFile {
@@ -964,41 +987,38 @@ impl FileFormat for FileFormat06 {
     fn extra_from_meta<'m>(&self, m: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>> {
         Ok(StdExtra::Th06 {
             stage_name: m.expect_field("stage_name")?,
-            bgm_names: m.expect_field("bgm_names")?,
-            bgm_paths: m.expect_field("bgm_paths")?,
+            bgm: m.expect_field("bgm")?,
         })
     }
 
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject) {
         match extra {
             StdExtra::Th10 { .. } => unreachable!(),
-            StdExtra::Th06 { stage_name, bgm_names, bgm_paths } => {
+            StdExtra::Th06 { stage_name, bgm } => {
                 b.field("stage_name", stage_name);
-                b.field("bgm_names", bgm_names);
-                b.field("bgm_paths", bgm_paths);
+                b.field("bgm", bgm);
             },
         }
     }
 
     fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra {
+        let stage_name = read_string_128(f);
+        let bgm_names = (0..4).map(|_| read_string_128(f)).collect::<Vec<_>>();
+        let bgm_paths = (0..4).map(|_| read_string_128(f)).collect::<Vec<_>>();
+        let mut bgms = bgm_names.into_iter().zip(bgm_paths).map(|(name, path)| Std06Bgm { name, path });
         StdExtra::Th06 {
-            stage_name: read_string_128(f),
-            bgm_names: [
-                read_string_128(f), read_string_128(f),
-                read_string_128(f), read_string_128(f),
-            ],
-            bgm_paths: [
-                read_string_128(f), read_string_128(f),
-                read_string_128(f), read_string_128(f),
-            ],
+            stage_name,
+            bgm: [bgms.next().unwrap(), bgms.next().unwrap(), bgms.next().unwrap(), bgms.next().unwrap()],
         }
     }
 
     fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
         match x {
-            StdExtra::Th06 { stage_name, bgm_names, bgm_paths } => {
+            StdExtra::Th06 { stage_name, bgm } => {
                 write_string_128(f, stage_name.as_ref())?;
-                for s in bgm_names.iter().chain(bgm_paths) {
+                let bgm_names = bgm.iter().map(|Std06Bgm { name, .. }| name);
+                let bgm_paths = bgm.iter().map(|Std06Bgm { path, .. }| path);
+                for s in bgm_names.chain(bgm_paths) {
                     write_string_128(f, s.as_ref())?;
                 }
             },
