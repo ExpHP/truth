@@ -21,7 +21,7 @@ pub struct Instr {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstrArg {
-    DwordBits(u32),
+    Raw(RawArg),
     /// A label that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
@@ -33,6 +33,11 @@ pub enum InstrArg {
     /// a dword before [`InstrFormat::write_instr`] is called.
     TimeOf(Sp<Ident>),
 }
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct RawArg {
+    pub bits: u32,
+    pub is_param: bool,
+}
 
 impl InstrArg {
     /// Call this at a time when the arg is known to have a fully resolved value.
@@ -40,12 +45,30 @@ impl InstrArg {
     /// Such times are:
     /// * During decompilation.
     /// * Within [`InstrFormat::write_instr`].
-    pub fn expect_dword(&self) -> u32 {
+    #[track_caller]
+    pub fn expect_raw(&self) -> RawArg {
         match *self {
-            InstrArg::DwordBits(x) => x,
+            InstrArg::Raw(x) => x,
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
         }
     }
+}
+
+impl RawArg {
+    pub fn as_int(&self) -> i32 { self.bits as i32 }
+    pub fn as_float(&self) -> f32 { f32::from_bits(self.bits) }
+}
+
+impl From<u32> for RawArg {
+    fn from(x: u32) -> RawArg { RawArg { bits: x, is_param: false } }
+}
+
+impl From<i32> for RawArg {
+    fn from(x: i32) -> RawArg { RawArg { bits: x as u32, is_param: false } }
+}
+
+impl From<f32> for RawArg {
+    fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_param: false } }
 }
 
 fn unsupported(span: &crate::pos::Span) -> CompileError {
@@ -76,7 +99,7 @@ pub fn lower_sub_ast_to_instrs(
         match &stmt.body.value {
             ast::StmtBody::Jump(goto) => {
                 let time_arg = match goto.time {
-                    Some(time) => InstrArg::DwordBits(time as u32),
+                    Some(time) => InstrArg::Raw(time.into()),
                     None => InstrArg::TimeOf(goto.destination.clone()),
                 };
                 out.push(InstrOrLabel::Instr(Instr {
@@ -153,13 +176,13 @@ fn lower_args(func: &Sp<Ident>, args: &[Sp<Expr>], encodings: &[ArgEncoding]) ->
         ArgEncoding::Padding |
         ArgEncoding::Dword |
         ArgEncoding::Color => match **arg {
-            Expr::LitInt { value, .. } => Ok(InstrArg::DwordBits(value as u32)),
+            Expr::LitInt { value, .. } => Ok(InstrArg::Raw(value.into())),
             Expr::LitFloat { .. } |
             Expr::LitString { .. } => Err(arg_type_error(index, "an int", func, arg)),
             _ => Err(unsupported(&arg.span)),
         },
         ArgEncoding::Float => match **arg {
-            Expr::LitFloat { value, .. } => Ok(InstrArg::DwordBits(value.to_bits())),
+            Expr::LitFloat { value, .. } => Ok(InstrArg::Raw(value.into())),
             Expr::LitInt { .. } |
             Expr::LitString { .. } => Err(arg_type_error(index, "a float", func, arg)),
             _ => Err(unsupported(&arg.span)),
@@ -188,10 +211,10 @@ pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFo
         match opcode_intrinsics.get(&opcode) {
             Some(IntrinsicInstrKind::Jmp) => {
                 assert!(args.len() >= 2); // FIXME: print proper error
-                assert!(args[2..].iter().all(|a| a.expect_dword() == 0), "unsupported data in padding of intrinsic");
+                assert!(args[2..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
 
-                let dest_offset = instr_format.decode_label(args[0].expect_dword());
-                let dest_time = args[1].expect_dword() as i32;
+                let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
+                let dest_time = args[1].expect_raw().as_int();
                 return Sp::null(ast::Stmt {
                     time: *time,
                     labels: vec![this_instr_label],
@@ -201,6 +224,11 @@ pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFo
                     })),
                 })
             },
+            Some(IntrinsicInstrKind::InterruptLabel) => unimplemented!(),
+            Some(IntrinsicInstrKind::AssignOp(_, _)) => unimplemented!(),
+            Some(IntrinsicInstrKind::Binop(_, _)) => unimplemented!(),
+            Some(IntrinsicInstrKind::CondJmp(_, _)) => unimplemented!(),
+            Some(IntrinsicInstrKind::Push(_)) => unimplemented!(),
             None => {}, // continue
         }
 
@@ -230,22 +258,19 @@ fn raise_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
     // FIXME opcode would be nice
     assert_eq!(args.len(), encodings.len(), "provided arg count does not match stdmap!"); // FIXME: return Error
     let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
-        let bits = arg.expect_dword();
+        let raw = arg.expect_raw();
         match enc {
-            ArgEncoding::Dword => Sp::null(Expr::from(bits as i32)),
-            ArgEncoding::Padding => Sp::null(Expr::from(bits as i32)),
-            ArgEncoding::Color => Sp::null(Expr::LitInt {
-                value: bits as i32,
-                hex: true,
-            }),
-            ArgEncoding::Float => Sp::null(Expr::from(f32::from_bits(bits))),
+            ArgEncoding::Dword => Sp::null(Expr::from(raw.as_int())),
+            ArgEncoding::Padding => Sp::null(Expr::from(raw.as_int())),
+            ArgEncoding::Color => Sp::null(Expr::LitInt { value: raw.as_int(), hex: true }),
+            ArgEncoding::Float => Sp::null(Expr::from(raw.as_float())),
         }
     }).collect::<Vec<_>>();
 
     // drop early STD padding args from the end as long as they're zero
     for (enc, arg) in encodings.iter().zip(args).rev() {
         match (enc, arg) {
-            (ArgEncoding::Padding, InstrArg::DwordBits(0)) => out.pop(),
+            (ArgEncoding::Padding, InstrArg::Raw(RawArg { bits: 0, .. })) => out.pop(),
             _ => break,
         };
     }
@@ -313,8 +338,8 @@ fn encode_labels(
                     | InstrArg::TimeOf(ref label)
                     => match label_info.get(label) {
                         Some(info) => match arg {
-                            InstrArg::Label(_) => *arg = InstrArg::DwordBits(format.encode_label(info.offset)),
-                            InstrArg::TimeOf(_) => *arg = InstrArg::DwordBits(info.time as u32),
+                            InstrArg::Label(_) => *arg = InstrArg::Raw(format.encode_label(info.offset).into()),
+                            InstrArg::TimeOf(_) => *arg = InstrArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },
                         None => return Err(error!{
@@ -335,8 +360,34 @@ fn encode_labels(
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntrinsicInstrKind {
+    /// Like `goto label @ t;`
+    ///
+    /// Args: `label, t`.
     Jmp,
+    /// Like `interrupt[n]:`
+    ///
+    /// Args: `n`.
+    InterruptLabel,
+    /// Like `a = b;` or `a += b;`
+    ///
+    /// Args: `a, b`.
+    AssignOp(ast::AssignOpKind, IntrinsicDataType),
+    /// Like `a = b + c;`
+    ///
+    /// Args: `a, b, c`.
+    Binop(ast::BinopKind, IntrinsicDataType),
+    /// Like `if (a == c) goto label @ t;`
+    ///
+    /// Args: `a, b, label, t`
+    CondJmp(ast::BinopKind, IntrinsicDataType),
+    /// Like `_push(a);`
+    ///
+    /// Args: `a`
+    Push(IntrinsicDataType),
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IntrinsicDataType { Int, Float }
 
 pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction.

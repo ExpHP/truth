@@ -740,7 +740,7 @@ impl InstrFormat for InstrFormat06 {
 
         assert_eq!(argsize, 12);
         let args = (0..3).map(|_| {
-            instr::InstrArg::DwordBits(f.read_u32::<Le>().expect("unexpected EOF"))
+            instr::InstrArg::Raw(f.read_u32::<Le>().expect("unexpected EOF").into())
         }).collect::<Vec<_>>();
         Some(Instr { time, opcode: opcode as u16, args })
     }
@@ -757,7 +757,7 @@ impl InstrFormat for InstrFormat06 {
         f.write_u16::<Le>(instr.opcode)?;
         f.write_u16::<Le>(12)?;
         for arg in &instr.args {
-            f.write_u32::<Le>(arg.expect_dword())?;
+            f.write_u32::<Le>(arg.expect_raw().bits)?;
         }
         for _ in instr.args.len()..3 {
             f.write_u32::<Le>(0)?;  // padding
@@ -795,7 +795,7 @@ impl InstrFormat for InstrFormat10 {
         assert_eq!(size % 4, 0);
         let nargs = (size - 8)/4;
         let args = (0..nargs).map(|_| {
-            instr::InstrArg::DwordBits(f.read_u32::<Le>().expect("unexpected EOF"))
+            instr::InstrArg::Raw(f.read_u32::<Le>().expect("unexpected EOF").into())
         }).collect::<Vec<_>>();
         Some(Instr { time, opcode: opcode as u16, args })
     }
@@ -809,7 +809,7 @@ impl InstrFormat for InstrFormat10 {
         f.write_u16::<Le>(instr.opcode)?;
         f.write_u16::<Le>(8 + 4 * instr.args.len() as u16)?;
         for x in &instr.args {
-            f.write_u32::<Le>(x.expect_dword())?;
+            f.write_u32::<Le>(x.expect_raw().bits)?;
         }
         Ok(())
     }
