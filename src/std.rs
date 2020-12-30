@@ -345,8 +345,8 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions)
 fn decompile_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
     let encodings = siggy.arg_encodings();
 
-    // FIXME this fails sometimes
-    assert_eq!(args.len(), encodings.len()); // FIXME: return Error
+    // FIXME opcode would be nice
+    assert_eq!(args.len(), encodings.len(), "provided arg count does not match stdmap!"); // FIXME: return Error
     let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
         let bits = arg.expect_dword();
         match enc {
@@ -824,7 +824,9 @@ fn read_object(expected_id: usize, bytes: &[u8]) -> Object {
     let mut f = Cursor::new(bytes);
     let id = f.read_u16::<Le>().expect("unexpected EOF");
     // FIXME this should probably be a warning
-    assert_eq!(id as usize, expected_id, "object has wrong id!");
+    if id as usize != expected_id {
+        fast_warning!("object has non-sequential id (expected {}, got {})", expected_id, id);
+    }
 
     let unknown = f.read_u16::<Le>().expect("unexpected EOF");
     let pos = read_vec3(&mut f).expect("unexpected EOF");

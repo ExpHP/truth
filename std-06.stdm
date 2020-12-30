@@ -1,4 +1,7 @@
 !stdmap
+
+# STD - TH06 only
+
 !ins_names
 0 posKeyframe
 1 fog

@@ -1,7 +1,8 @@
-use crate::pos::{FileId, Files};
+use crate::pos::{FileId};
 
-pub type Diagnostic = ::codespan_reporting::diagnostic::Diagnostic<FileId>;
-pub type Label = ::codespan_reporting::diagnostic::Label<FileId>;
+use codespan_reporting as cs;
+pub type Diagnostic = cs::diagnostic::Diagnostic<FileId>;
+pub type Label = cs::diagnostic::Label<FileId>;
 
 /// An error type that is intended to be pretty-printed through [`codespan_reporting`].
 ///
@@ -10,6 +11,7 @@ pub type Label = ::codespan_reporting::diagnostic::Label<FileId>;
 /// for use in code that attempts to gather errors from many sources (typically ending with a
 /// call to [`CompileError::into_result`]).
 #[derive(thiserror::Error, Debug)]
+#[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
     pub(crate) diagnostics: Vec<Diagnostic>
@@ -33,28 +35,32 @@ impl CompileError {
     ///
     /// In order to render spans correctly, the [`Files`] instance used to parse AST
     /// nodes is required.
-    pub fn emit(&mut self, files: &Files) -> Result<(), codespan_reporting::files::Error> {
+    pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> Result<(), codespan_reporting::files::Error> {
         use codespan_reporting::term::{self, termcolor as tc};
 
         let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
-        let config = {
-            let mut config = term::Config::default();
-            // Make output closer to rustc. Fewer colors overall, looks better.
-            config.styles.primary_label_error.set_intense(true);
-            config.styles.secondary_label.set_intense(true);
-            config.styles.line_number.set_intense(true);
-            config.styles.source_border.set_intense(true);
-            config
-        };
         for e in self.diagnostics.drain(..) {
-            term::emit(&mut writer.lock(), &config, files, &e).unwrap();
+            term::emit(&mut writer.lock(), &*TERM_CONFIG, files, &e).unwrap();
         }
         Ok(())
     }
 }
 
-macro_rules! error {
+lazy_static::lazy_static! {
+    static ref TERM_CONFIG: codespan_reporting::term::Config = {
+        let mut config = codespan_reporting::term::Config::default();
+        // Make output closer to rustc. Fewer colors overall, looks better.
+        config.styles.primary_label_error.set_intense(true);
+        config.styles.secondary_label.set_intense(true);
+        config.styles.line_number.set_intense(true);
+        config.styles.source_border.set_intense(true);
+        config
+    };
+}
+
+macro_rules! _diagnostic {
     (
+        @ $severity:ident,
         $(code=$code:literal,)? message($($message:tt)+)
         $(, primary( $primary_span:expr, $($primary_msg:tt)+ ) )*
         $(, secondary( $secondary_span:expr, $($secondary_msg:tt)+ ) )*
@@ -67,7 +73,7 @@ macro_rules! error {
         use crate::pos::HasSpan;
 
         CompileError { diagnostics: vec![
-            Diagnostic::error()
+            Diagnostic::$severity()
                 $( .with_code($code) )?
                 .with_message(format!( $($message)+ ))
                 .with_labels(vec![
@@ -80,6 +86,30 @@ macro_rules! error {
                 ])
                 .with_notes(vec![ $(format!( $($note_msg)+ ))* ]),
         ]}
+    }};
+}
+
+/// Generates a `CompileError` of severity `error`.
+macro_rules! error {
+    ($($arg:tt)+) => { _diagnostic!(@error, $($arg)+) };
+}
+
+/// Generates a `CompileError` of severity `warning`.
+macro_rules! warning {
+    ($($arg:tt)+) => { _diagnostic!(@warning, $($arg)+) };
+}
+
+/// Generates and immediately emits a `CompileError` of severity `warning` that has no labels.
+macro_rules! fast_warning {
+    ($($fmt_arg:tt)+) => {{
+        let result = warning!(message($($fmt_arg)+))
+            // because there are no labels, we know the methods of the Files will never be used,
+            // so we can use a dummy implementation.
+            .emit(&crate::error::PanicFiles);
+
+        // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
+        // which is hardly any reason to stop what we're doing, so just ignore all errors.
+        drop(result);
     }};
 }
 
@@ -133,4 +163,22 @@ fn test_collect_with_recovery() {
     }).collect_with_recovery::<()>();
     assert_eq!(vec, vec![0, 2, 4, 6, 8]);
     assert_eq!(result.unwrap_err().error_count(), 5);
+}
+
+/// Implementation of [`codespan_reporting::files::Files`] where all methods panic.
+#[doc(hidden)]
+pub struct PanicFiles;
+
+#[doc(hidden)]
+pub type CsResult<T> = Result<T, codespan_reporting::files::Error>;
+
+impl<'a> codespan_reporting::files::Files<'a> for PanicFiles {
+    type FileId = FileId;
+    type Name = &'static str;
+    type Source = &'static str;
+
+    fn name(&'a self, _: FileId) -> CsResult<Self::Name> { unreachable!() }
+    fn source(&'a self, _: FileId) -> CsResult<Self::Source> { unreachable!() }
+    fn line_index(&'a self, _: FileId, _: usize) -> CsResult<usize> { unreachable!() }
+    fn line_range(&'a self, _: FileId, _: usize) -> CsResult<std::ops::Range<usize>> { unreachable!() }
 }

@@ -43,6 +43,8 @@ pub enum ParseIdentError {
     #[error("Non-ascii byte '\\x{:02x}'", .0)]
     NonAsciiByte(u8),
 }
+
+// FIXME need separate ways to parse system idents and user idents
 impl std::str::FromStr for Ident {
     type Err = ParseIdentError;
 

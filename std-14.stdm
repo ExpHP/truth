@@ -1,5 +1,9 @@
 !stdmap
+
+# STD - TH14 to TH17
+
 !ins_names
+0 stop
 1 jmp
 2 pos
 3 posTime
@@ -14,11 +18,14 @@
 12 rockingMode
 13 bgColor
 14 sprite
+# 15 might be a nop
 16 interruptLabel
 17 distortion  # distorts bottom of screen
 18 upTime
+21 fovTime
 
 !ins_signatures
+0
 1 SS  # ot
 2 fff
 3 SSfff
@@ -32,12 +39,13 @@
 11 SSfffffffff
 12 S
 13 C
-14 SSS  # middle is anm script
-16 S
-17 S
-18 SSfff
-19 S
-20 f
+14 SSS    # middle is anm script  # SS in 13
+16 S      # TH11
+17 S      # TH11
+18 SSfff  # TH12
+19 S      # TH14
+20 f      # TH14
+21 SSf    # TH17
 
 
 #  IGNORE THIS STUFF LOL

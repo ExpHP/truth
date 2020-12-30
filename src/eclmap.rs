@@ -25,7 +25,7 @@ impl std::str::FromStr for Eclmap {
 
 lazy_static! {
     static ref SEQMAP_START_RE: Regex = Regex::new(r"^!([_a-zA-Z][_a-zA-Z0-9]*)$").unwrap();
-    static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s+(\S+)$").unwrap();
+    static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s*(\S*)$").unwrap();
 }
 
 pub enum Magic {
