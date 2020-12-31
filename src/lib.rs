@@ -57,7 +57,7 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
-pub mod signature;
+pub mod type_system;
 
 pub use pos::{Span, Sp};
 pub mod pos;

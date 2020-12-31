@@ -8,7 +8,7 @@ use crate::error::{CompileError};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
-use crate::signature::{Functions};
+use crate::type_system::{TypeSystem};
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 use crate::instr::{self, Instr, InstrFormat};
@@ -61,12 +61,12 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile(&self, game: Game, functions: &Functions) -> ast::Script {
-        _decompile_std(&*game_format(game), self, functions)
+    pub fn decompile(&self, game: Game, ty_ctx: &TypeSystem) -> ast::Script {
+        _decompile_std(&*game_format(game), self, ty_ctx)
     }
 
-    pub fn compile(game: Game, script: &ast::Script, functions: &Functions) -> Result<Self, CompileError> {
-        _compile_std(&*game_format(game), script, functions)
+    pub fn compile(game: Game, script: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
+        _compile_std(&*game_format(game), script, ty_ctx)
     }
 }
 
@@ -219,11 +219,11 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn _decompile_std(format: &dyn FileFormat, std: &StdFile, functions: &Functions) -> ast::Script {
+fn _decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -> ast::Script {
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = instr::raise_instrs_to_sub_ast(functions, instr_format, script);
+    let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, script);
 
     let code = {
         use crate::passes::{unused_labels, decompile_loop};
@@ -261,7 +261,7 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 fn _compile_std(
     format: &dyn FileFormat,
     script: &ast::Script,
-    functions: &Functions,
+    ty_ctx: &TypeSystem,
 ) -> Result<StdFile, CompileError> {
     use ast::Item;
 
@@ -334,7 +334,7 @@ fn _compile_std(
     };
 
     let mut out = StdFile::init_from_meta(format, meta)?;
-    out.script = crate::instr::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, functions)?;
+    out.script = crate::instr::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ty_ctx)?;
     Ok(out)
 }
 

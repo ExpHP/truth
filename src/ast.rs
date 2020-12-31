@@ -3,6 +3,7 @@ use bstr::{BString};
 use crate::meta;
 use crate::ident::Ident;
 use crate::pos::Sp;
+use crate::type_system;
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {
@@ -156,7 +157,7 @@ pub enum StmtBody {
     /// function calls), but may also represent a stack push in ECL.
     Expr(Sp<Expr>),
     Assignment {
-        var: Var,
+        var: Sp<Var>,
         op: AssignOpKind,
         value: Sp<Expr>,
     },
@@ -262,7 +263,7 @@ pub enum Expr {
         args: Vec<Sp<Expr>>,
     },
     Decrement {
-        var: Var,
+        var: Sp<Var>,
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
     LitInt {
@@ -273,7 +274,7 @@ pub enum Expr {
     },
     LitFloat { value: f32 },
     LitString(LitString),
-    Var(Var),
+    Var(Sp<Var>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -353,6 +354,24 @@ string_enum! {
 pub enum VarReadType {
     Int,
     Float,
+}
+
+impl From<type_system::ScalarType> for VarReadType {
+    fn from(x: type_system::ScalarType) -> VarReadType {
+        match x {
+            type_system::ScalarType::Int => VarReadType::Int,
+            type_system::ScalarType::Float => VarReadType::Float,
+        }
+    }
+}
+
+impl From<VarReadType> for type_system::ScalarType {
+    fn from(x: VarReadType) -> type_system::ScalarType {
+        match x {
+            VarReadType::Int => type_system::ScalarType::Int,
+            VarReadType::Float => type_system::ScalarType::Float,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

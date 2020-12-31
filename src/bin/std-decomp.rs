@@ -51,19 +51,19 @@ fn run(
     ncol: usize,
     map_path: Option<impl AsRef<std::path::Path>>,
 ) {
-    let functions = {
-        let mut functions = ecl_parser::signature::Functions::new();
+    let ty_ctx = {
+        let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
         if let Some(map_path) = map_path {
             let eclmap: ecl_parser::Eclmap = std::fs::read_to_string(map_path).unwrap().parse().unwrap();
-            functions.add_from_eclmap(&eclmap);
+            ty_ctx.extend_from_eclmap(&eclmap);
         }
-        functions
+        ty_ctx
     };
 
     let script = {
         let bytes = std::fs::read(path).unwrap();
         let parsed = ecl_parser::std::read_std(game, &bytes);
-        parsed.decompile(game, &functions)
+        parsed.decompile(game, &ty_ctx)
     };
 
     let stdout = std::io::stdout();

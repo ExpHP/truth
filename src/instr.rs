@@ -6,7 +6,7 @@ use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
-use crate::signature::{Functions, Signature, ArgEncoding};
+use crate::type_system::{TypeSystem, Signature, ArgEncoding, ScalarType};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstrOrLabel {
@@ -36,7 +36,7 @@ pub enum InstrArg {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RawArg {
     pub bits: u32,
-    pub is_param: bool,
+    pub is_var: bool,
 }
 
 impl InstrArg {
@@ -55,20 +55,25 @@ impl InstrArg {
 }
 
 impl RawArg {
-    pub fn as_int(&self) -> i32 { self.bits as i32 }
-    pub fn as_float(&self) -> f32 { f32::from_bits(self.bits) }
+    pub fn from_global_var(number: i32, ty: ScalarType) -> RawArg {
+        let bits = match ty {
+            ScalarType::Int => number as u32,
+            ScalarType::Float => (number as f32).to_bits(),
+        };
+        RawArg { bits, is_var: true }
+    }
 }
 
 impl From<u32> for RawArg {
-    fn from(x: u32) -> RawArg { RawArg { bits: x, is_param: false } }
+    fn from(x: u32) -> RawArg { RawArg { bits: x, is_var: false } }
 }
 
 impl From<i32> for RawArg {
-    fn from(x: i32) -> RawArg { RawArg { bits: x as u32, is_param: false } }
+    fn from(x: i32) -> RawArg { RawArg { bits: x as u32, is_var: false } }
 }
 
 impl From<f32> for RawArg {
-    fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_param: false } }
+    fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_var: false } }
 }
 
 fn unsupported(span: &crate::pos::Span) -> CompileError {
@@ -83,7 +88,7 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 pub fn lower_sub_ast_to_instrs(
     format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
-    functions: &Functions,
+    ty_ctx: &TypeSystem,
 ) -> Result<Vec<Instr>, CompileError> {
     let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
 
@@ -117,14 +122,14 @@ pub fn lower_sub_ast_to_instrs(
 
             ast::StmtBody::Expr(expr) => match &expr.value {
                 ast::Expr::Call { func, args } => {
-                    let opcode = match functions.resolve_aliases(func).as_ins() {
+                    let opcode = match ty_ctx.resolve_func_aliases(func).as_ins() {
                         Some(opcode) => opcode,
                         None => return Err(error!(
                             message("cannot find instruction '{}'", func),
                             primary(func, "not an instruction"),
                         )),
                     };
-                    let siggy = match functions.ins_signature(func) {
+                    let siggy = match ty_ctx.ins_signature(func) {
                         Some(siggy) => siggy,
                         None => return Err(error!(
                             message("signature of '{}' is not known", func),
@@ -142,7 +147,7 @@ pub fn lower_sub_ast_to_instrs(
                     out.push(InstrOrLabel::Instr(Instr {
                         time: stmt.time,
                         opcode: opcode as _,
-                        args: lower_args(func, args, &encodings)?,
+                        args: lower_args(func, args, &encodings, ty_ctx)?,
                     }));
                 },
                 _ => return Err(unsupported(&expr.span)),
@@ -163,34 +168,54 @@ pub fn lower_sub_ast_to_instrs(
     }).collect())
 }
 
-fn lower_args(func: &Sp<Ident>, args: &[Sp<Expr>], encodings: &[ArgEncoding]) -> Result<Vec<InstrArg>, CompileError> {
-    fn arg_type_error(index: usize, expected: &'static str, func: &Sp<Ident>, arg: &Sp<Expr>) -> CompileError {
-        error!(
-            message("argument {} to '{}' has wrong type", index+1, func),
-            primary(arg, "wrong type"),
-            secondary(func, "expects {} in arg {}", expected, index+1),
-        )
-    }
-
-    encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| match enc {
-        ArgEncoding::Padding |
-        ArgEncoding::Dword |
-        ArgEncoding::Color => match **arg {
-            Expr::LitInt { value, .. } => Ok(InstrArg::Raw(value.into())),
-            Expr::LitFloat { .. } |
-            Expr::LitString { .. } => Err(arg_type_error(index, "an int", func, arg)),
-            _ => Err(unsupported(&arg.span)),
-        },
-        ArgEncoding::Float => match **arg {
-            Expr::LitFloat { value, .. } => Ok(InstrArg::Raw(value.into())),
-            Expr::LitInt { .. } |
-            Expr::LitString { .. } => Err(arg_type_error(index, "a float", func, arg)),
-            _ => Err(unsupported(&arg.span)),
-        },
+fn lower_args(
+    func: &Sp<Ident>,
+    args: &[Sp<Expr>],
+    encodings: &[ArgEncoding],
+    ty_ctx: &TypeSystem,
+) -> Result<Vec<InstrArg>, CompileError> {
+    encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| {
+        let (lowered, value_type) = lower_simple_arg(arg, ty_ctx)?;
+        let (expected_type, expected_str) = match enc {
+            ArgEncoding::Padding |
+            ArgEncoding::Color |
+            ArgEncoding::Dword => (ScalarType::Int, "an int"),
+            ArgEncoding::Float => (ScalarType::Float, "a float"),
+        };
+        if value_type != expected_type {
+            return Err(error!(
+                message("argument {} to '{}' has wrong type", index+1, func),
+                primary(arg, "wrong type"),
+                secondary(func, "expects {} in arg {}", expected_str, index+1),
+            ));
+        }
+        Ok(lowered)
     }).collect_with_recovery()
 }
 
-pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFormat, script: &[Instr]) -> Vec<Sp<ast::Stmt>> {
+fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
+    match arg.value {
+        ast::Expr::LitInt { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Int)),
+        ast::Expr::LitFloat { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Float)),
+        ast::Expr::Var(ref var) => match (ty_ctx.gvar_id(var), ty_ctx.var_type(var)) {
+            (Some(opcode), Some(ty)) => {
+                let lowered = InstrArg::Raw(RawArg::from_global_var(opcode, ty));
+                Ok((lowered, ty))
+            },
+            (None, _) =>  return Err(error!(
+                message("unrecognized global variable"),
+                primary(var, "not a known global"),
+            )),
+            (Some(_), None) => return Err(error!(
+                message("variable requires a type prefix"),
+                primary(var, "needs a '$' or '%' prefix"),
+            )),
+        },
+        _ => Err(unsupported(&arg.span)),
+    }
+}
+
+pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrFormat, script: &[Instr]) -> Vec<Sp<ast::Stmt>> {
     let opcode_intrinsics: HashMap<_, _> = {
         instr_format.intrinsic_opcode_pairs().into_iter()
             .map(|(a, b)| (b, a)).collect()
@@ -214,7 +239,7 @@ pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFo
                 assert!(args[2..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
 
                 let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
-                let dest_time = args[1].expect_raw().as_int();
+                let dest_time = args[1].expect_raw().bits as i32;
                 return Sp::null(ast::Stmt {
                     time: *time,
                     labels: vec![this_instr_label],
@@ -233,7 +258,7 @@ pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFo
         }
 
         let ins_ident = {
-            functions.opcode_names.get(&(*opcode as u32)).cloned()
+            ty_ctx.opcode_names.get(&(*opcode as u32)).cloned()
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
 
@@ -241,9 +266,9 @@ pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFo
             time: *time,
             labels: vec![this_instr_label],
             body: Sp::null(ast::StmtBody::Expr(Sp::null(Expr::Call {
-                args: match functions.ins_signature(&ins_ident) {
-                    Some(siggy) => raise_args(args, siggy),
-                    None => raise_args(args, &crate::signature::Signature::auto(args.len())),
+                args: match ty_ctx.ins_signature(&ins_ident) {
+                    Some(siggy) => raise_args(args, siggy, ty_ctx),
+                    None => raise_args(args, &Signature::auto(args.len()), ty_ctx),
                 },
                 func: Sp::null(ins_ident),
             }))),
@@ -252,18 +277,37 @@ pub fn raise_instrs_to_sub_ast(functions: &Functions, instr_format: &dyn InstrFo
     code
 }
 
-fn raise_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
+fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Vec<Sp<Expr>> {
     let encodings = siggy.arg_encodings();
 
     // FIXME opcode would be nice
     assert_eq!(args.len(), encodings.len(), "provided arg count does not match stdmap!"); // FIXME: return Error
     let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
         let raw = arg.expect_raw();
-        match enc {
-            ArgEncoding::Dword => Sp::null(Expr::from(raw.as_int())),
-            ArgEncoding::Padding => Sp::null(Expr::from(raw.as_int())),
-            ArgEncoding::Color => Sp::null(Expr::LitInt { value: raw.as_int(), hex: true }),
-            ArgEncoding::Float => Sp::null(Expr::from(raw.as_float())),
+        if raw.is_var {
+            let (ty, id) = match enc {
+                ArgEncoding::Padding |
+                ArgEncoding::Color |
+                ArgEncoding::Dword => (ScalarType::Int, raw.bits as i32),
+                ArgEncoding::Float => {
+                    let float_id = f32::from_bits(raw.bits);
+                    if float_id != f32::round(float_id) {
+                        fast_warning!(
+                            "non-integer float variable [{}] in binary file will be truncated!",
+                            float_id,
+                        );
+                    }
+                    (ScalarType::Float, float_id as i32)
+                },
+            };
+            Sp::null(Expr::Var(Sp::null(ty_ctx.gvar_to_ast(id, ty))))
+        } else {
+            match enc {
+                ArgEncoding::Padding |
+                ArgEncoding::Dword => Sp::null(Expr::from(raw.bits as i32)),
+                ArgEncoding::Color => Sp::null(Expr::LitInt { value: raw.bits as i32, hex: true }),
+                ArgEncoding::Float => Sp::null(Expr::from(f32::from_bits(raw.bits))),
+            }
         }
     }).collect::<Vec<_>>();
 
@@ -276,7 +320,6 @@ fn raise_args(args: &[InstrArg], siggy: &Signature) -> Vec<Sp<Expr>> {
     }
     out
 }
-
 // =============================================================================
 
 struct RawLabelInfo {

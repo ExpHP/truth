@@ -52,13 +52,13 @@ fn run(
     output: impl AsRef<std::path::Path>,
     map_path: Option<impl AsRef<std::path::Path>>,
 ) {
-    let functions = {
-        let mut functions = ecl_parser::signature::Functions::new();
+    let ty_ctx = {
+        let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
         if let Some(map_path) = map_path {
             let eclmap: ecl_parser::Eclmap = std::fs::read_to_string(map_path).unwrap().parse().unwrap();
-            functions.add_from_eclmap(&eclmap);
+            ty_ctx.extend_from_eclmap(&eclmap);
         }
-        functions
+        ty_ctx
     };
 
     let text = std::fs::read(&path).unwrap();
@@ -68,7 +68,7 @@ fn run(
         Err(e) => panic!("{}", e),
     };
 
-    let std = match ecl_parser::std::StdFile::compile(game, &script, &functions) {
+    let std = match ecl_parser::std::StdFile::compile(game, &script, &ty_ctx) {
         Ok(x) => x,
         Err(mut es) => {
             es.emit(&files).expect("error while writing errors?!");

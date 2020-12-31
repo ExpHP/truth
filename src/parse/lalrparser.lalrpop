@@ -246,7 +246,7 @@ StmtBody: StmtBody = {
     "loop" <block:StmtOrBlock> => StmtBody::Loop { block },
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Sp<Expr>> ";" => StmtBody::Expr(e),
-    <var:Var> <op:OpAssign> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
+    <var:Sp<Var>> <op:OpAssign> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
     <ty:VarDeclKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
     },
@@ -450,8 +450,8 @@ ExprTerm: Expr = {
         let (func, args) = call_parts;
         Expr::Call { func, args }
     },
-    <v:Var> => Expr::Var(v),
-    <var:Var> "--" => Expr::Decrement { var },
+    <v:Sp<Var>> => Expr::Var(v),
+    <var:Sp<Var>> "--" => Expr::Decrement { var },
     <value:LitIntUnsigned> => Expr::LitInt { value, hex: false },
     <value:LitFloatUnsigned> => Expr::LitFloat { value },
     <x:LitString> => Expr::LitString(x),
