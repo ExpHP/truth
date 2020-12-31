@@ -1,4 +1,3 @@
-use std::io::{self, Cursor, Write};
 use std::collections::{HashMap};
 
 
@@ -7,6 +6,7 @@ use crate::pos::{Sp};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::type_system::{TypeSystem, Signature, ArgEncoding, ScalarType};
+use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstrOrLabel {
@@ -249,11 +249,11 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
                     })),
                 })
             },
-            Some(IntrinsicInstrKind::InterruptLabel) => unimplemented!(),
-            Some(IntrinsicInstrKind::AssignOp(_, _)) => unimplemented!(),
-            Some(IntrinsicInstrKind::Binop(_, _)) => unimplemented!(),
-            Some(IntrinsicInstrKind::CondJmp(_, _)) => unimplemented!(),
-            Some(IntrinsicInstrKind::Push(_)) => unimplemented!(),
+            // Some(IntrinsicInstrKind::InterruptLabel) => unimplemented!(),
+            // Some(IntrinsicInstrKind::AssignOp(_, _)) => unimplemented!(),
+            // Some(IntrinsicInstrKind::Binop(_, _)) => unimplemented!(),
+            // Some(IntrinsicInstrKind::CondJmp(_, _)) => unimplemented!(),
+            // Some(IntrinsicInstrKind::Push(_)) => unimplemented!(),
             None => {}, // continue
         }
 
@@ -407,30 +407,27 @@ pub enum IntrinsicInstrKind {
     ///
     /// Args: `label, t`.
     Jmp,
-    /// Like `interrupt[n]:`
-    ///
-    /// Args: `n`.
-    InterruptLabel,
-    /// Like `a = b;` or `a += b;`
-    ///
-    /// Args: `a, b`.
-    AssignOp(ast::AssignOpKind, IntrinsicDataType),
-    /// Like `a = b + c;`
-    ///
-    /// Args: `a, b, c`.
-    Binop(ast::BinopKind, IntrinsicDataType),
-    /// Like `if (a == c) goto label @ t;`
-    ///
-    /// Args: `a, b, label, t`
-    CondJmp(ast::BinopKind, IntrinsicDataType),
-    /// Like `_push(a);`
-    ///
-    /// Args: `a`
-    Push(IntrinsicDataType),
+    // /// Like `interrupt[n]:`
+    // ///
+    // /// Args: `n`.
+    // InterruptLabel,
+    // /// Like `a = b;` or `a += b;`
+    // ///
+    // /// Args: `a, b`.
+    // AssignOp(ast::AssignOpKind, ScalarType),
+    // /// Like `a = b + c;`
+    // ///
+    // /// Args: `a, b, c`.
+    // Binop(ast::BinopKind, ScalarType),
+    // /// Like `if (a == c) goto label @ t;`
+    // ///
+    // /// Args: `a, b, label, t`
+    // CondJmp(ast::BinopKind, ScalarType),
+    // /// Like `_push(a);`
+    // ///
+    // /// Args: `a`
+    // Push(ScalarType),
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum IntrinsicDataType { Int, Float }
 
 pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction.
@@ -442,13 +439,13 @@ pub trait InstrFormat {
     ///
     /// Should return `None` when it reaches the marker that indicates the end of the script.
     /// When this occurs, it may leave the `Cursor` in an indeterminate state.
-    fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr>;
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>>;
 
     /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()>;
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
-    fn write_terminal_instr(&self, f: &mut dyn Write) -> io::Result<()>;
+    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
 
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the

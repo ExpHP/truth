@@ -1,6 +1,3 @@
-use std::io::{self, Read, Cursor, Write, Seek};
-
-use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
 
@@ -12,6 +9,7 @@ use crate::type_system::{TypeSystem};
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 use crate::instr::{self, Instr, InstrFormat};
+use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult, bail};
 
 // =============================================================================
 
@@ -340,41 +338,31 @@ fn _compile_std(
 
 // =============================================================================
 
-pub trait WriteSeek: Write + Seek {
-    fn as_mut_write(&mut self) -> &mut dyn Write;
-}
-impl<W: Write + Seek> WriteSeek for W {
-    fn as_mut_write(&mut self) -> &mut dyn Write { self }
-}
-
-// =============================================================================
-
-// FIXME clean up API, return Result
-pub fn read_std(game: Game, bytes: &[u8]) -> StdFile {
+pub fn read_std(game: Game, bytes: &[u8]) -> ReadResult<StdFile> {
     let format = game_format(game);
 
-    let mut f = Cursor::new(bytes);
+    let mut f = bytes;
 
-    let num_objects = f.read_u16::<Le>().expect("incomplete header") as usize;
-    let num_quads = f.read_u16::<Le>().expect("incomplete header") as usize;
-    let instances_offset = f.read_u32::<Le>().expect("incomplete header") as usize;
-    let script_offset = f.read_u32::<Le>().expect("incomplete header") as usize;
-    let unknown = f.read_u32::<Le>().expect("incomplete header");
-    let extra = format.read_extra(&mut f);
+    let num_objects = f.read_u16()? as usize;
+    let num_quads = f.read_u16()? as usize;
+    let instances_offset = f.read_u32()? as usize;
+    let script_offset = f.read_u32()? as usize;
+    let unknown = f.read_u32()?;
+    let extra = format.read_extra(&mut f)?;
 
-    let object_offsets = (0..num_objects).map(|_| f.read_u32::<Le>().expect("unexpected EOF")).collect::<Vec<_>>();
+    let object_offsets = (0..num_objects).map(|_| f.read_u32()).collect::<ReadResult<Vec<_>>>()?;
     let objects = (0..num_objects)
         .map(|i| {
             let key = Sp::null(format!("object{}", i).parse::<Ident>().unwrap());
-            let value = read_object(i, &bytes[object_offsets[i] as usize..]);
-            (key, value)
-        }).collect::<IndexMap<_, _>>();
+            let value = read_object(i, &mut &bytes[object_offsets[i] as usize..])?;
+            Ok((key, value))
+        }).collect::<ReadResult<IndexMap<_, _>>>()?;
     assert_eq!(num_quads, objects.values().map(|x| x.quads.len()).sum::<usize>());
 
     let instances = {
-        let mut f = Cursor::new(&bytes[instances_offset..]);
+        let mut f = &bytes[instances_offset..];
         let mut vec = vec![];
-        while let Some(instance) = read_instance(&mut f, &objects) {
+        while let Some(instance) = read_instance(&mut f, &objects)? {
             vec.push(instance);
         }
         vec
@@ -382,235 +370,216 @@ pub fn read_std(game: Game, bytes: &[u8]) -> StdFile {
 
     let instr_format = format.instr_format();
     let script = {
-        let mut f = Cursor::new(&bytes[script_offset..]);
+        let mut f = &bytes[script_offset..];
         let mut script = vec![];
-        while let Some(instr) = instr_format.read_instr(&mut f) {
+        while let Some(instr) = instr_format.read_instr(&mut f)? {
             script.push(instr);
         }
         script
     };
-    StdFile { unknown, extra, objects, instances, script }
+    Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
-pub fn write_std(game: Game, f: &mut dyn WriteSeek, std: &StdFile) -> io::Result<()> {
+pub fn write_std(game: Game, f: &mut dyn BinWrite, std: &StdFile) -> WriteResult {
     let format = game_format(game);
 
-    let start_pos = f.seek(io::SeekFrom::Current(0))?;
+    let start_pos = f.pos()?;
 
-    f.write_u16::<Le>(std.objects.len() as u16)?;
-    f.write_u16::<Le>(std.objects.values().map(|x| x.quads.len()).sum::<usize>() as u16)?;
+    f.write_u16(std.objects.len() as u16)?;
+    f.write_u16(std.objects.values().map(|x| x.quads.len()).sum::<usize>() as u16)?;
 
-    let instances_offset_pos = f.seek(io::SeekFrom::Current(0))?;
-    f.write_u32::<Le>(0)?;
-    let script_offset_pos = f.seek(io::SeekFrom::Current(0))?;
-    f.write_u32::<Le>(0)?;
+    let instances_offset_pos = f.pos()?;
+    f.write_u32(0)?;
+    let script_offset_pos = f.pos()?;
+    f.write_u32(0)?;
 
-    f.write_u32::<Le>(std.unknown)?;
+    f.write_u32(std.unknown)?;
 
-    format.write_extra(f.as_mut_write(), &std.extra)?;
+    format.write_extra(f, &std.extra)?;
 
-    let object_offsets_pos = f.seek(io::SeekFrom::Current(0))?;
+    let object_offsets_pos = f.pos()?;
     for _ in &std.objects {
-        f.write_u32::<Le>(0)?;
+        f.write_u32(0)?;
     }
 
     let mut object_offsets = vec![];
     for (object_id, object) in std.objects.values().enumerate() {
-        object_offsets.push(f.seek(io::SeekFrom::Current(0))? - start_pos);
-        write_object(f.as_mut_write(), &*format, object_id, object)?;
+        object_offsets.push(f.pos()? - start_pos);
+        write_object(f, &*format, object_id, object)?;
     }
 
-    let instances_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
+    let instances_offset = f.pos()? - start_pos;
     for instance in &std.instances {
-        write_instance(f.as_mut_write(), instance, &std.objects)?;
+        write_instance(f, instance, &std.objects)?;
     }
-    write_terminal_instance(f.as_mut_write())?;
+    write_terminal_instance(f)?;
 
     let instr_format = format.instr_format();
 
-    let script_offset = f.seek(io::SeekFrom::Current(0))? - start_pos;
+    let script_offset = f.pos()? - start_pos;
     for instr in &std.script {
-        instr_format.write_instr(f.as_mut_write(), instr)?;
+        instr_format.write_instr(f, instr)?;
     }
-    instr_format.write_terminal_instr(f.as_mut_write())?;
+    instr_format.write_terminal_instr(f)?;
 
-    let end_pos = f.seek(io::SeekFrom::Current(0))?;
-    f.seek(io::SeekFrom::Start(instances_offset_pos))?;
-    f.write_u32::<Le>(instances_offset as u32)?;
-    f.seek(io::SeekFrom::Start(script_offset_pos))?;
-    f.write_u32::<Le>(script_offset as u32)?;
-    f.seek(io::SeekFrom::Start(object_offsets_pos))?;
+    let end_pos = f.pos()?;
+    f.seek_to(instances_offset_pos)?;
+    f.write_u32(instances_offset as u32)?;
+    f.seek_to(script_offset_pos)?;
+    f.write_u32(script_offset as u32)?;
+    f.seek_to(object_offsets_pos)?;
     for offset in object_offsets {
-        f.write_u32::<Le>(offset as u32)?;
+        f.write_u32(offset as u32)?;
     }
-    f.seek(io::SeekFrom::Start(end_pos))?;
+    f.seek_to(end_pos)?;
     Ok(())
 }
 
-fn read_string_128(f: &mut Cursor<&[u8]>) -> BString {
+fn read_string_128(f: &mut dyn BinRead) -> ReadResult<BString> {
     let mut out = [0u8; 128];
-    f.read_exact(&mut out).expect("unexpected EOF");
+    f.read_exact(&mut out)?;
+    
     let mut out = out.as_bstr().to_owned();
     while let Some(0) = out.last() {
         out.pop();
     }
-    out
+    Ok(out)
 }
-fn write_string_128(f: &mut dyn Write, s: &BStr) -> io::Result<()> {
+fn write_string_128(f: &mut dyn BinWrite, s: &BStr) -> WriteResult {
     let mut buf = [0u8; 128];
-    assert!(s.len() < 127, "string too long: {:?}", s);
+    if s.len() >= 128 {
+        bail!("string too long (max 127 bytes): {:?}", s);
+    }
+
     buf[..s.len()].copy_from_slice(&s[..]);
-    f.write_all(&mut buf)
-}
-fn read_vec2(f: &mut Cursor<&[u8]>) -> Option<[f32; 2]> {
-    Some([f.read_f32::<Le>().ok()?, f.read_f32::<Le>().ok()?])
-}
-fn read_vec3(f: &mut Cursor<&[u8]>) -> Option<[f32; 3]> {Some([
-    f.read_f32::<Le>().ok()?,
-    f.read_f32::<Le>().ok()?,
-    f.read_f32::<Le>().ok()?,
-])}
-
-fn write_vec2(f: &mut dyn Write, x: &[f32; 2]) -> io::Result<()> {
-    f.write_f32::<Le>(x[0])?;
-    f.write_f32::<Le>(x[1])?;
-    Ok(())
-}
-fn write_vec3(f: &mut dyn Write, x: &[f32; 3]) -> io::Result<()> {
-    f.write_f32::<Le>(x[0])?;
-    f.write_f32::<Le>(x[1])?;
-    f.write_f32::<Le>(x[2])?;
+    f.write_all(&mut buf)?;
     Ok(())
 }
 
-
-fn read_object(expected_id: usize, bytes: &[u8]) -> Object {
-    let mut f = Cursor::new(bytes);
-    let id = f.read_u16::<Le>().expect("unexpected EOF");
-    // FIXME this should probably be a warning
+fn read_object(expected_id: usize, bytes: &mut dyn BinRead) -> ReadResult<Object> {
+    let mut f = bytes;
+    let id = f.read_u16()?;
     if id as usize != expected_id {
         fast_warning!("object has non-sequential id (expected {}, got {})", expected_id, id);
     }
 
-    let unknown = f.read_u16::<Le>().expect("unexpected EOF");
-    let pos = read_vec3(&mut f).expect("unexpected EOF");
-    let size = read_vec3(&mut f).expect("unexpected EOF");
+    let unknown = f.read_u16()?;
+    let pos = f.read_f32s_3()?;
+    let size = f.read_f32s_3()?;
     let mut quads = vec![];
-    while let Some(quad) = read_quad(&mut f) {
+    while let Some(quad) = read_quad(&mut f)? {
         quads.push(quad);
     }
-    Object { unknown, pos, size, quads }
+    Ok(Object { unknown, pos, size, quads })
 }
 
-fn write_object(f: &mut dyn Write, format: &dyn FileFormat, id: usize, x: &Object) -> io::Result<()> {
-    f.write_u16::<Le>(id as u16)?;
-    f.write_u16::<Le>(x.unknown)?;
-    write_vec3(f, &x.pos)?;
-    write_vec3(f, &x.size)?;
+fn write_object(f: &mut dyn BinWrite, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
+    f.write_u16(id as u16)?;
+    f.write_u16(x.unknown)?;
+    f.write_f32s(&x.pos)?;
+    f.write_f32s(&x.size)?;
     for quad in &x.quads {
         write_quad(f, format, quad)?;
     }
     write_terminal_quad(f)
 }
 
-fn read_quad(f: &mut Cursor<&[u8]>) -> Option<Quad> {
-    let kind = f.read_i16::<Le>().expect("unexpected EOF");
-    let size = f.read_u16::<Le>().expect("unexpected EOF");
+fn read_quad(f: &mut dyn BinRead) -> ReadResult<Option<Quad>> {
+    let kind = f.read_i16()?;
+    let size = f.read_u16()?;
     match (kind, size) {
-        (-1, 4) => return None, // no more quads
+        (-1, 4) => return Ok(None), // no more quads
         (0, 0x1c) => false,
         (1, 0x24) => true,
         (-1, _) | (0, _) | (1, _) => {
-            panic!("unexpected size for type {} quad: {:#x}", kind, size);
+            bail!("unexpected size for type {} quad: {:#x}", kind, size);
         },
-        _ => panic!("unknown quad type: {}", kind),
+        _ => bail!("unknown quad type: {}", kind),
     };
 
-    let anm_script = f.read_u16::<Le>().expect("unexpected EOF");
-    match f.read_u16::<Le>().expect("unexpected EOF") {
+    let anm_script = f.read_u16()?;
+    match f.read_u16()? {
         0 => {},  // This word is zero in the file, and used to store an index in-game.
-        s => panic!("unexpected data in quad index field: {:#04x}", s),
+        s => bail!("unexpected data in quad index field: {:#04x}", s),
     };
 
-    Some(Quad {
+    Ok(Some(Quad {
         anm_script,
         extra: match kind {
             0 => QuadExtra::Rect {
-                pos: read_vec3(f).expect("unexpected EOF"),
-                size: read_vec2(f).expect("unexpected EOF"),
+                pos: f.read_f32s_3()?,
+                size: f.read_f32s_2()?,
             },
             1 => QuadExtra::Strip {
-                start: read_vec3(f).expect("unexpected EOF"),
-                end: read_vec3(f).expect("unexpected EOF"),
-                width: f.read_f32::<Le>().expect("unexpected EOF"),
+                start: f.read_f32s_3()?,
+                end: f.read_f32s_3()?,
+                width: f.read_f32()?,
             },
             _ => unreachable!(),
         },
-    })
+    }))
 }
 
-fn write_quad(f: &mut dyn Write, format: &dyn FileFormat, quad: &Quad) -> io::Result<()> {
+fn write_quad(f: &mut dyn BinWrite, format: &dyn FileFormat, quad: &Quad) -> WriteResult {
     let (kind, size) = match quad.extra {
         QuadExtra::Rect { .. } => (0, 0x1c),
         QuadExtra::Strip { .. } => (1, 0x24),
     };
-    f.write_i16::<Le>(kind)?;
-    f.write_u16::<Le>(size)?;
-    f.write_u16::<Le>(quad.anm_script)?;
-    f.write_u16::<Le>(0)?;
+    f.write_i16(kind)?;
+    f.write_u16(size)?;
+    f.write_u16(quad.anm_script)?;
+    f.write_u16(0)?;
     match quad.extra {
         QuadExtra::Rect { pos, size } => {
-            write_vec3(f, &pos)?;
-            write_vec2(f, &size)?;
+            f.write_f32s(&pos)?;
+            f.write_f32s(&size)?;
         },
         QuadExtra::Strip { start, end, width } => {
             if !format.has_strips() {
-                // FIXME: Should be a warning instead.
-                //        At the very least, should be a pretty error and not a panic.
-                //        (but how should we carry span info here?)
-                panic!("ERROR: 'strip' quads can only be used in TH08 and TH09!")
+                // FIXME: Could be better with a span, maybe check earlier
+                fast_warning!("'strip' quads can only be used in TH08 and TH09!")
             }
-            write_vec3(f, &start)?;
-            write_vec3(f, &end)?;
-            f.write_f32::<Le>(width)?;
+            f.write_f32s(&start)?;
+            f.write_f32s(&end)?;
+            f.write_f32(width)?;
         },
     }
     Ok(())
 }
-fn write_terminal_quad(f: &mut dyn Write) -> io::Result<()> {
-    f.write_i16::<Le>(-1)?;
-    f.write_u16::<Le>(0x4)?; // size
+fn write_terminal_quad(f: &mut dyn BinWrite) -> WriteResult {
+    f.write_i16(-1)?;
+    f.write_u16(0x4)?; // size
     Ok(())
 }
 
 
-fn read_instance(f: &mut Cursor<&[u8]>, objects: &IndexMap<Sp<Ident>, Object>) -> Option<Instance> {
-    let object_id = f.read_u16::<Le>().expect("unexpected EOF");
-    let unknown = f.read_u16::<Le>().expect("unexpected EOF");
+fn read_instance(f: &mut dyn BinRead, objects: &IndexMap<Sp<Ident>, Object>) -> ReadResult<Option<Instance>> {
+    let object_id = f.read_u16()?;
+    let unknown = f.read_u16()?;
     if object_id == 0xffff {
-        return None;
+        return Ok(None);
     }
     let object = match objects.get_index(object_id as usize) {
         Some((ident, _)) => ident.clone(),
-        None => panic!("object index too large! ({}, but there are only {} objects)", object_id, objects.len()),
+        None => bail!("object index too large! ({}, but there are only {} objects)", object_id, objects.len()),
     };
-    let pos = read_vec3(f).expect("unexpected EOF");
-    Some(Instance { object, unknown, pos })
+    let pos = f.read_f32s_3()?;
+    Ok(Some(Instance { object, unknown, pos }))
 }
 
-fn write_instance(f: &mut dyn Write, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> io::Result<()> {
+fn write_instance(f: &mut dyn BinWrite, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
     match objects.get_index_of(&inst.object) {
-        Some(object_index) => f.write_u16::<Le>(object_index as u16)?,
+        Some(object_index) => f.write_u16(object_index as u16)?,
         // FIXME: This should be a diagnostic. Stop using io::Result noob
-        None => panic!("No object named {}", &inst.object),
+        None => bail!("No object named {}", &inst.object),
     }
-    f.write_u16::<Le>(inst.unknown)?;
-    write_vec3(f, &inst.pos)?;
+    f.write_u16(inst.unknown)?;
+    f.write_f32s(&inst.pos)?;
     Ok(())
 }
-fn write_terminal_instance(f: &mut dyn Write) -> io::Result<()> {
+fn write_terminal_instance(f: &mut dyn BinWrite) -> WriteResult {
     for _ in 0..4 {
-        f.write_i32::<Le>(-1)?;
+        f.write_i32(-1)?;
     }
     Ok(())
 }
@@ -643,8 +612,8 @@ struct FileFormat10;
 trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
-    fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra;
-    fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()>;
+    fn read_extra(&self, f: &mut dyn BinRead) -> ReadResult<StdExtra>;
+    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult;
     fn instr_format(&self) -> &dyn InstrFormat;
     fn has_strips(&self) -> bool;
 }
@@ -667,18 +636,18 @@ impl FileFormat for FileFormat06 {
         }
     }
 
-    fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra {
-        let stage_name = read_string_128(f);
-        let bgm_names = (0..4).map(|_| read_string_128(f)).collect::<Vec<_>>();
-        let bgm_paths = (0..4).map(|_| read_string_128(f)).collect::<Vec<_>>();
+    fn read_extra(&self, f: &mut dyn BinRead) -> ReadResult<StdExtra> {
+        let stage_name = read_string_128(f)?;
+        let bgm_names = (0..4).map(|_| read_string_128(f)).collect::<Result<Vec<_>, _>>()?;
+        let bgm_paths = (0..4).map(|_| read_string_128(f)).collect::<Result<Vec<_>, _>>()?;
         let mut bgms = bgm_names.into_iter().zip(bgm_paths).map(|(name, path)| Std06Bgm { name, path });
-        StdExtra::Th06 {
+        Ok(StdExtra::Th06 {
             stage_name,
             bgm: [bgms.next().unwrap(), bgms.next().unwrap(), bgms.next().unwrap(), bgms.next().unwrap()],
-        }
+        })
     }
 
-    fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
+    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th06 { stage_name, bgm } => {
                 write_string_128(f, stage_name.as_ref())?;
@@ -711,11 +680,11 @@ impl FileFormat for FileFormat10 {
         }
     }
 
-    fn read_extra(&self, f: &mut Cursor<&[u8]>) -> StdExtra {
-        StdExtra::Th10 { anm_path: read_string_128(f) }
+    fn read_extra(&self, f: &mut dyn BinRead) -> ReadResult<StdExtra> {
+        Ok(StdExtra::Th10 { anm_path: read_string_128(f)? })
     }
 
-    fn write_extra(&self, f: &mut dyn Write, x: &StdExtra) -> io::Result<()> {
+    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th10 { anm_path } => write_string_128(f, anm_path.as_ref())?,
             StdExtra::Th06 { .. } => unreachable!(),
@@ -730,19 +699,19 @@ impl FileFormat for FileFormat10 {
 pub struct InstrFormat06 { has_jmp: bool }
 pub struct InstrFormat10;
 impl InstrFormat for InstrFormat06 {
-    fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr> {
-        let time = f.read_i32::<Le>().expect("unexpected EOF");
-        let opcode = f.read_i16::<Le>().expect("unexpected EOF");
-        let argsize = f.read_u16::<Le>().expect("unexpected EOF");
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
+        let time = f.read_i32()?;
+        let opcode = f.read_i16()?;
+        let argsize = f.read_u16()?;
         if opcode == -1 {
-            return None
+            return Ok(None)
         }
 
         assert_eq!(argsize, 12);
         let args = (0..3).map(|_| {
-            instr::InstrArg::Raw(f.read_u32::<Le>().expect("unexpected EOF").into())
-        }).collect::<Vec<_>>();
-        Some(Instr { time, opcode: opcode as u16, args })
+            Ok(instr::InstrArg::Raw(f.read_u32()?.into()))
+        }).collect::<ReadResult<Vec<_>>>()?;
+        Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(instr::IntrinsicInstrKind, u16)> {
@@ -752,22 +721,22 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
-    fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()> {
-        f.write_i32::<Le>(instr.time)?;
-        f.write_u16::<Le>(instr.opcode)?;
-        f.write_u16::<Le>(12)?;
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+        f.write_i32(instr.time)?;
+        f.write_u16(instr.opcode)?;
+        f.write_u16(12)?;
         for arg in &instr.args {
-            f.write_u32::<Le>(arg.expect_raw().bits)?;
+            f.write_u32(arg.expect_raw().bits)?;
         }
         for _ in instr.args.len()..3 {
-            f.write_u32::<Le>(0)?;  // padding
+            f.write_u32(0)?;  // padding
         }
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn Write) -> io::Result<()> {
+    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
         for _ in 0..5 {
-            f.write_i32::<Le>(-1)?;
+            f.write_i32(-1)?;
         }
         Ok(())
     }
@@ -784,39 +753,39 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat10 {
-    fn read_instr(&self, f: &mut Cursor<&[u8]>) -> Option<Instr> {
-        let time = f.read_i32::<Le>().expect("unexpected EOF");
-        let opcode = f.read_i16::<Le>().expect("unexpected EOF");
-        let size = f.read_u16::<Le>().expect("unexpected EOF");
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
+        let time = f.read_i32()?;
+        let opcode = f.read_i16()?;
+        let size = f.read_u16()?;
         if opcode == -1 {
-            return None
+            return Ok(None)
         }
 
         assert_eq!(size % 4, 0);
         let nargs = (size - 8)/4;
         let args = (0..nargs).map(|_| {
-            instr::InstrArg::Raw(f.read_u32::<Le>().expect("unexpected EOF").into())
-        }).collect::<Vec<_>>();
-        Some(Instr { time, opcode: opcode as u16, args })
+            Ok(instr::InstrArg::Raw(f.read_u32()?.into()))
+        }).collect::<ReadResult<Vec<_>>>()?;
+        Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(instr::IntrinsicInstrKind, u16)> {
         vec![(instr::IntrinsicInstrKind::Jmp, 1)]
     }
 
-    fn write_instr(&self, f: &mut dyn Write, instr: &Instr) -> io::Result<()> {
-        f.write_i32::<Le>(instr.time)?;
-        f.write_u16::<Le>(instr.opcode)?;
-        f.write_u16::<Le>(8 + 4 * instr.args.len() as u16)?;
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+        f.write_i32(instr.time)?;
+        f.write_u16(instr.opcode)?;
+        f.write_u16(8 + 4 * instr.args.len() as u16)?;
         for x in &instr.args {
-            f.write_u32::<Le>(x.expect_raw().bits)?;
+            f.write_u32(x.expect_raw().bits)?;
         }
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn Write) -> io::Result<()> {
+    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
         for _ in 0..5 {
-            f.write_i32::<Le>(-1)?;
+            f.write_i32(-1)?;
         }
         Ok(())
     }

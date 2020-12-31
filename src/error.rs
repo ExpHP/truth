@@ -44,6 +44,20 @@ impl CompileError {
         }
         Ok(())
     }
+
+    /// Emit errors that contain no labels.
+    ///
+    /// It is a bug to call this when there is any possibility that the errors have labels.
+    /// It should only be used when reading e.g. binary files, which have no position info.
+    pub fn emit_nospans<'a>(&mut self) {
+        // because there are no labels, we know the methods of the Files will never be used,
+        // so we can use a dummy implementation.
+        let result = self.emit(&crate::error::PanicFiles);
+
+        // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
+        // which is hardly any reason to stop what we're doing, so just ignore all errors.
+        drop(result);
+    }
 }
 
 lazy_static::lazy_static! {
@@ -102,15 +116,24 @@ macro_rules! warning {
 /// Generates and immediately emits a `CompileError` of severity `warning` that has no labels.
 macro_rules! fast_warning {
     ($($fmt_arg:tt)+) => {{
-        let result = warning!(message($($fmt_arg)+))
-            // because there are no labels, we know the methods of the Files will never be used,
-            // so we can use a dummy implementation.
-            .emit(&crate::error::PanicFiles);
-
-        // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
-        // which is hardly any reason to stop what we're doing, so just ignore all errors.
-        drop(result);
+        warning!(message($($fmt_arg)+)).emit_nospans()
     }};
+}
+
+impl<'a> From<crate::parse::Error<'a>> for CompileError {
+    fn from(e: crate::parse::Error<'a>) -> CompileError {
+        // FIXME We could certainly do better here by matching on the error, but we need FileId to
+        //       make spans from the positions on the error type.
+        //       This feature will be easier to add when we add error recovery to the parser,
+        //       as we can get the FileId from the parser state then.
+        error!(message("{}", e))
+    }
+}
+
+impl From<anyhow::Error> for CompileError {
+    fn from(e: anyhow::Error) -> CompileError {
+        error!(message("{}", e))
+    }
 }
 
 /// Trait for running an iterator and continuing after an `Err` to collect more errors.
@@ -177,8 +200,8 @@ impl<'a> codespan_reporting::files::Files<'a> for PanicFiles {
     type Name = &'static str;
     type Source = &'static str;
 
-    fn name(&'a self, _: FileId) -> CsResult<Self::Name> { unreachable!() }
-    fn source(&'a self, _: FileId) -> CsResult<Self::Source> { unreachable!() }
-    fn line_index(&'a self, _: FileId, _: usize) -> CsResult<usize> { unreachable!() }
-    fn line_range(&'a self, _: FileId, _: usize) -> CsResult<std::ops::Range<usize>> { unreachable!() }
+    fn name(&'a self, _: FileId) -> CsResult<Self::Name> { unreachable!("span in emit_nospans!") }
+    fn source(&'a self, _: FileId) -> CsResult<Self::Source> { unreachable!("span in emit_nospans!") }
+    fn line_index(&'a self, _: FileId, _: usize) -> CsResult<usize> { unreachable!("span in emit_nospans!") }
+    fn line_range(&'a self, _: FileId, _: usize) -> CsResult<std::ops::Range<usize>> { unreachable!("span in emit_nospans!") }
 }

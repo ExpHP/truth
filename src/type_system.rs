@@ -57,7 +57,7 @@ impl TypeSystem {
     /// Get the ID number of a variable, if it is a global.
     pub fn gvar_id(&self, var: &ast::Var) -> Option<i32> {
         match *var {
-            ast::Var::Named { ty, ref ident } => self.gvar_map.get(ident).copied(),
+            ast::Var::Named { ref ident, .. } => self.gvar_map.get(ident).copied(),
             ast::Var::Unnamed { number, .. } => Some(number),
         }
     }

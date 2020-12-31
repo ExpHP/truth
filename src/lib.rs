@@ -70,6 +70,8 @@ mod ident;
 pub use game::Game;
 mod game;
 
+mod binary_io;
+
 mod instr;
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
-use ecl_parser::{self, Format};
+use ecl_parser::{self, Format, CompileError};
 
+use anyhow::Context;
 use getopts::Options;
 use std::env;
 
@@ -61,9 +62,18 @@ fn run(
     };
 
     let script = {
-        let bytes = std::fs::read(path).unwrap();
-        let parsed = ecl_parser::std::read_std(game, &bytes);
-        parsed.decompile(game, &ty_ctx)
+        let bytes = std::fs::read(&path).unwrap();
+        let parsed = {
+            ecl_parser::std::read_std(game, &bytes)
+                .with_context(|| format!("in file: {}", path.as_ref().display()))
+        };
+        match parsed {
+            Ok(parsed) => parsed.decompile(game, &ty_ctx),
+            Err(e) => {
+                CompileError::from(e).emit_nospans();
+                return;
+            },
+        }
     };
 
     let stdout = std::io::stdout();
