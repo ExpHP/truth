@@ -5,15 +5,17 @@ expression: s
 meta {
     unknown: 0,
     stage_name: "   Scarlet is a nice color",
-    bgm_names: [
-        "   BGM: Cool Beans ~ Coffee and Steakhouse",
-        "                  BGM: Okay but why are you wearing my pants?",
-        " ",
-        " ",
-    ],
-    bgm_paths: ["bgm/th06_06.mid", "bgm/th06_07.mid", " ", " "],
-    objects: [
+    bgm: [
+        {path: "bgm/th06_06.mid", name: "   BGM: Cool Beans ~ Coffee and Steakhouse"},
         {
+            path: "bgm/th06_07.mid",
+            name: "                  BGM: Okay but why are you wearing my pants?",
+        },
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {
+        object0: {
             unknown: 0,
             pos: [-64.0, -32.0, 0.0],
             size: [480.0, 288.0, 0.0],
@@ -23,25 +25,25 @@ meta {
                 rect {anm_script: 0, pos: [96.0, 0.0, 0.0], size: [64.0, 64.0]},
             ],
         },
-        {
+        object1: {
             unknown: 2,
             pos: [-64.0, -32.0, 0.0],
             size: [480.0, 288.0, 0.0],
             quads: [rect {anm_script: 1, pos: [-32.0, 0.0, 0.0], size: [64.0, 64.0]}],
         },
-        {
+        object2: {
             unknown: 2,
             pos: [-64.0, -32.0, 0.0],
             size: [480.0, 288.0, 0.0],
             quads: [rect {anm_script: 2, pos: [-32.0, 0.0, 0.0], size: [64.0, 64.0]}],
         },
-    ],
+    },
     instances: [
-        {object: 0, pos: [0.0, -4184.0, 0.0]},
-        {object: 1, pos: [0.0, -3928.0, 0.0]},
-        {object: 2, pos: [0.0, -3672.0, 0.0]},
-        {object: 1, pos: [128.0, 72.0, -500.0]},
-        {object: 1, pos: [160.0, 88.0, -350.0]},
+        object0 {pos: [0.0, -4184.0, 0.0]},
+        object1 {pos: [0.0, -3928.0, 0.0]},
+        object2 {pos: [0.0, -3672.0, 0.0]},
+        object1 {pos: [128.0, 72.0, -500.0]},
+        object1 {pos: [160.0, 88.0, -350.0]},
     ],
 }
 

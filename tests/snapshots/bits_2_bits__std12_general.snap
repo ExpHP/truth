@@ -5,18 +5,18 @@ expression: s
 meta {
     unknown: 0,
     anm_path: "stage01.anm",
-    objects: [
-        {
+    objects: {
+        object0: {
             unknown: 0,
             pos: [-2.0, 0.0, -3.0],
             size: [751.0, 512.0, 5.0],
             quads: [rect {anm_script: 0, pos: [124.0, 0.0, 0.0], size: [256.0, 512.0]}],
         },
-    ],
+    },
     instances: [
-        {object: 0, pos: [0.0, 512.0, 0.0]},
-        {object: 0, pos: [0.0, 1024.0, 0.0]},
-        {object: 0, pos: [0.0, 1536.0, 0.0]},
+        object0 {pos: [0.0, 512.0, 0.0]},
+        object0 {pos: [0.0, 1024.0, 0.0]},
+        object0 {pos: [0.0, 1536.0, 0.0]},
     ],
 }
 
