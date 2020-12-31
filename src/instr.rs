@@ -453,3 +453,51 @@ pub trait InstrFormat {
     fn encode_label(&self, offset: usize) -> u32;
     fn decode_label(&self, bits: u32) -> usize;
 }
+
+/// Helper to help implement `InstrFormat::read_instr`.
+///
+/// Reads `size` bytes into `size/4` dword arguments and sets their `is_var` flags according to
+/// the parameter mask.  (it takes `size` instead of a count to help factor out divisibility checks,
+/// as a size is often what you have to work with given the format)
+pub fn read_dword_args_upto_size(
+    f: &mut dyn BinRead,
+    size: usize,
+    mut param_mask: u16,
+) -> ReadResult<Vec<InstrArg>> {
+    assert_eq!(size % 4, 0);
+    let nargs = size/4;
+
+    let out = (0..nargs).map(|_| {
+        let bits = f.read_u32()?;
+        let is_var = param_mask % 2 == 1;
+        param_mask /= 2;
+        Ok(InstrArg::Raw(RawArg { bits, is_var }))
+    }).collect::<ReadResult<_>>()?;
+
+    if param_mask != 0 {
+        fast_warning!(
+            "unused bits in param_mask! (arg {} is a variable, but there are only {} args!)",
+            param_mask.trailing_zeros() + nargs as u32 + 1, nargs,
+        );
+    }
+    Ok(out)
+}
+
+impl Instr {
+    pub fn param_mask(&self) -> u16 {
+        if self.args.len() > 16 {
+            panic!("Too many arguments in instruction!")
+        }
+        let mut mask = 0;
+        for arg in self.args.iter().rev(){
+            let bit = match *arg {
+                InstrArg::Raw(RawArg { is_var, .. }) => is_var as u16,
+                InstrArg::TimeOf(_) |
+                InstrArg::Label(_) => 0,
+            };
+            mask *= 2;
+            mask += bit;
+        }
+        mask
+    }
+}

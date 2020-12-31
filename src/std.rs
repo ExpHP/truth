@@ -601,6 +601,8 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
     }
 }
 
+// =============================================================================
+
 /// STD format, EoSD to PoFV.
 struct FileFormat06 {
     has_strips: bool,
@@ -698,6 +700,10 @@ impl FileFormat for FileFormat10 {
 
 pub struct InstrFormat06 { has_jmp: bool }
 pub struct InstrFormat10;
+impl InstrFormat10 {
+    const HEADER_SIZE: usize = 8;
+}
+
 impl InstrFormat for InstrFormat06 {
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
         let time = f.read_i32()?;
@@ -707,10 +713,7 @@ impl InstrFormat for InstrFormat06 {
             return Ok(None)
         }
 
-        assert_eq!(argsize, 12);
-        let args = (0..3).map(|_| {
-            Ok(instr::InstrArg::Raw(f.read_u32()?.into()))
-        }).collect::<ReadResult<Vec<_>>>()?;
+        let args = instr::read_dword_args_upto_size(f, 12, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
@@ -724,12 +727,12 @@ impl InstrFormat for InstrFormat06 {
     fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
-        f.write_u16(12)?;
+        f.write_u16(12)?;  // this version writes argsize rather than instr size
         for arg in &instr.args {
             f.write_u32(arg.expect_raw().bits)?;
         }
         for _ in instr.args.len()..3 {
-            f.write_u32(0)?;  // padding
+            f.write_u32(0)?;  // padding args
         }
         Ok(())
     }
@@ -756,16 +759,12 @@ impl InstrFormat for InstrFormat10 {
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
-        let size = f.read_u16()?;
+        let size = f.read_u16()? as usize;
         if opcode == -1 {
             return Ok(None)
         }
 
-        assert_eq!(size % 4, 0);
-        let nargs = (size - 8)/4;
-        let args = (0..nargs).map(|_| {
-            Ok(instr::InstrArg::Raw(f.read_u32()?.into()))
-        }).collect::<ReadResult<Vec<_>>>()?;
+        let args = instr::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
@@ -776,7 +775,7 @@ impl InstrFormat for InstrFormat10 {
     fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
-        f.write_u16(8 + 4 * instr.args.len() as u16)?;
+        f.write_u16(self.instr_size(instr) as u16)?;
         for x in &instr.args {
             f.write_u32(x.expect_raw().bits)?;
         }
@@ -790,9 +789,7 @@ impl InstrFormat for InstrFormat10 {
         Ok(())
     }
 
-    fn instr_size(&self, instr: &Instr) -> usize {
-        instr.args.len() * 4 + 8
-    }
+    fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
 
     fn encode_label(&self, offset: usize) -> u32 { offset as u32 }
     fn decode_label(&self, bits: u32) -> usize { bits as usize }
