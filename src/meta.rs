@@ -11,6 +11,7 @@ use crate::fmt::Formatter;
 pub enum Meta {
     Int(i32),
     Float(f32),
+    Bool(bool),
     String(BString),
     // { key: value, ... }
     Object(Sp<Fields>),
@@ -343,6 +344,17 @@ impl FromMeta for f32 {
     }
 }
 
+impl FromMeta for bool {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match meta.value {
+            Meta::Int(0) => Ok(false),
+            Meta::Int(_) => Ok(true),
+            Meta::Bool(b) => Ok(b),
+            _ => Err(FromMetaError::expected("a boolean", meta)),
+        }
+    }
+}
+
 impl FromMeta for BString {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match &meta.value {
@@ -420,6 +432,9 @@ impl ToMeta for u32 {
 }
 impl ToMeta for f32 {
     fn to_meta(&self) -> Meta { Meta::Float(*self) }
+}
+impl ToMeta for bool {
+    fn to_meta(&self) -> Meta { Meta::Bool(*self) }
 }
 impl ToMeta for BString {
     fn to_meta(&self) -> Meta { Meta::String(self.clone()) }

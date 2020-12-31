@@ -1,5 +1,6 @@
 use std::io::{Write, Seek, Read, SeekFrom};
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
+use bstr::BString;
 
 pub use anyhow::bail;
 
@@ -24,6 +25,34 @@ pub trait BinRead: Read {
     }
     fn read_f32s_3(&mut self) -> ReadResult<[f32; 3]> {
         Ok([self.read_f32()?, self.read_f32()?, self.read_f32()?])
+    }
+
+    /// Will consume blocks of the given size until a null terminator is found.
+    fn read_cstring(&mut self, block_size: usize) -> ReadResult<BString> {
+        assert_ne!(block_size, 0);
+
+        let mut out = vec![];
+        while out.last() != Some(&0) {
+            let old_end = out.len();
+            out.resize(old_end + block_size, 0);
+
+            self.read_exact(&mut out[old_end..])?;
+        }
+
+        while out.last() == Some(&0) {
+            out.pop();
+        }
+        Ok(out.into())
+    }
+
+    fn expect_magic(&mut self, magic: &str) -> ReadResult<()> {
+        let mut read_bytes = vec![0; magic.len()];
+        self.take(magic.len() as u64).read_exact(&mut read_bytes)?;
+
+        if read_bytes != magic.as_bytes() {
+            bail!("failed to find magic: '{}'", magic);
+        }
+        Ok(())
     }
 }
 

@@ -419,6 +419,7 @@ impl Format for Meta {
         match self {
             Meta::Int(x) => out.fmt(x),
             Meta::Float(x) => out.fmt(x),
+            Meta::Bool(x) => out.fmt(x),
             Meta::String(x) => out.fmt(ast::LitString { string: x }),
             Meta::Object(fields) => out.fmt(fields),
             Meta::Array(xs) => out.fmt_comma_separated("[", "]", xs),
@@ -735,6 +736,12 @@ impl Format for f32 {
             s.push_str(".0");
         }
         out.fmt(&s[..])
+    }
+}
+
+impl Format for bool {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.append_display_to_line(self)
     }
 }
 
