@@ -70,6 +70,8 @@ mod ident;
 pub use game::Game;
 mod game;
 
+mod instr;
+
 #[cfg(test)]
 mod tests {
     use crate::{ast, Parse, CompileError};
