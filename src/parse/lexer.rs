@@ -59,6 +59,7 @@ macro_rules! with_each_terminal {
             [0, b"&&", AndAnd]
             [0, b"--", MinusMinus]
             [0, b"$", Cash]
+            [0, b"#", Hash]
             [0, b"anim", Anim]
             [0, b"ecli", Ecli]
             [0, b"meta", Meta]
@@ -89,6 +90,8 @@ macro_rules! with_each_terminal {
             [0, b"global", Global]
             [0, b"false", False]
             [0, b"true", True]
+            [0, b"pragma", Pragma]
+            [0, b"mapfile", Mapfile]
         ]
         regex=[
             [0, r##""([^\\"]|\\.)*""##, LitString]
@@ -144,6 +147,13 @@ macro_rules! impl_token_helpers {
                     $(Token::$f_variant => $f_bytes.as_bstr(),)+
                     $(Token::$r_variant(bytes) => bytes,)+
                     Token::VirtualDispatch(_) => b"".as_bstr(),
+                }
+            }
+
+            pub fn as_static_bstr(&self) -> Option<&'static BStr> {
+                match *self {
+                    $(Token::$f_variant => Some($f_bytes.as_bstr()),)+
+                    _ => None,
                 }
             }
 

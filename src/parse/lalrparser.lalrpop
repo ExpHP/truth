@@ -71,6 +71,7 @@ extern {
         "&&" => Token::AndAnd,
         "--" => Token::MinusMinus,
         "$" => Token::Cash,
+        "#" => Token::Hash,
         "anim" => Token::Anim,
         "ecli" => Token::Ecli,
         "meta" => Token::Meta,
@@ -101,6 +102,8 @@ extern {
         "global" => Token::Global,
         "false" => Token::False,
         "true" => Token::True,
+        "pragma" => Token::Pragma,
+        "mapfile" => Token::Mapfile,
         // Virtual tokens for parsable nonterminals
         Dispatch_Script => Token::VirtualDispatch(crate::parse::AnythingTag::Script),
         Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
@@ -141,7 +144,24 @@ AnythingInner: crate::parse::AnythingValue = {
 // Items
 
 Script: Script = {
-    <items:Sp<Item>+> => Script { items },
+    <items:Items> => {
+        let mapfiles = state.mapfiles.clone();
+        Script { items, mapfiles }
+    },
+};
+
+Items: Vec<Sp<Item>> = {
+    => vec![],
+
+    <items:Items> <item:Sp<Item>> => push(items, item),
+
+    // FIXME: this syntax likely won't stay.  People might be confused that it is treated
+    //        in a declarative manner, and I don't know what I want our preprocessing solution
+    //        to look like
+    <items:Items> "#" "pragma" "mapfile" <file:Sp<LitString>> => {
+        state.mapfiles.push(file);
+        items
+    },
 };
 
 Item: Item = {
@@ -558,12 +578,24 @@ OptionalMinus: i32 = {
 };
 
 Ident: Ident = {
-    <tok:IDENT> =>? {
+    <tok:IdentStr> =>? {
         std::str::from_utf8(&tok[..]).expect("cannot fail because lexed token is ascii")
             .parse()
             // FIXME: user error should include error message from .parse()
             .map_err(|_| ParseError::User { error: "illegal identifier" })
     },
+};
+
+IdentStr: &'input BStr = {
+    // obviously
+    IDENT,
+    // contextual keywords
+    <s: "mapfile"> => s.as_static_bstr().unwrap(),
+    <s: "entry"> => s.as_static_bstr().unwrap(),
+    <s: "anim"> => s.as_static_bstr().unwrap(),
+    <s: "ecli"> => s.as_static_bstr().unwrap(),
+    <s: "timeline"> => s.as_static_bstr().unwrap(),
+    <s: "script"> => s.as_static_bstr().unwrap(),
 };
 
 // ==================================================

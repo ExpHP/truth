@@ -14,7 +14,8 @@ pub type Label = cs::diagnostic::Label<FileId>;
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
-    pub(crate) diagnostics: Vec<Diagnostic>
+    #[doc(hidden)]
+    pub diagnostics: Vec<Diagnostic>
 }
 
 impl CompileError {
@@ -72,6 +73,7 @@ lazy_static::lazy_static! {
     };
 }
 
+#[macro_export]
 macro_rules! _diagnostic {
     (
         @ $severity:ident,
@@ -82,9 +84,9 @@ macro_rules! _diagnostic {
         $(,)?
     ) => {{
         #[allow(unused)]
-        use crate::error::{CompileError, Diagnostic, Label};
+        use $crate::error::{CompileError, Diagnostic, Label};
         #[allow(unused)]
-        use crate::pos::HasSpan;
+        use $crate::pos::HasSpan;
 
         CompileError { diagnostics: vec![
             Diagnostic::$severity()
@@ -104,19 +106,22 @@ macro_rules! _diagnostic {
 }
 
 /// Generates a `CompileError` of severity `error`.
+#[macro_export]
 macro_rules! error {
-    ($($arg:tt)+) => { _diagnostic!(@error, $($arg)+) };
+    ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
 }
 
 /// Generates a `CompileError` of severity `warning`.
+#[macro_export]
 macro_rules! warning {
-    ($($arg:tt)+) => { _diagnostic!(@warning, $($arg)+) };
+    ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
 }
 
 /// Generates and immediately emits a `CompileError` of severity `warning` that has no labels.
+#[macro_export]
 macro_rules! fast_warning {
     ($($fmt_arg:tt)+) => {{
-        warning!(message($($fmt_arg)+)).emit_nospans()
+        $crate::warning!(message($($fmt_arg)+)).emit_nospans()
     }};
 }
 

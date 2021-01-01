@@ -406,7 +406,16 @@ impl_tuple_format!(a:A, b:B, c:C, d:D, e:E, f:F, g:G, h:H);
 
 impl Format for ast::Script {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Script { items } = self;
+        let ast::Script { items, mapfiles } = self;
+
+        if !mapfiles.is_empty() {
+            for file in mapfiles {
+                out.fmt(("#pragma mapfile ", file))?;
+                out.next_line()?;
+            }
+            out.next_line()?;
+        }
+
         out.fmt_separated(items, |out| {
             // all items end with a newline, so this creates a blank line to separate them
             out.next_line()

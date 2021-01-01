@@ -3,6 +3,7 @@ use bstr::{BString};
 use crate::meta;
 use crate::ident::Ident;
 use crate::pos::Sp;
+use crate::error::CompileError;
 use crate::type_system;
 
 // Quick little util for stringly enums.
@@ -43,6 +44,7 @@ macro_rules! string_enum {
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Script {
+    pub mapfiles: Vec<Sp<LitString>>,
     pub items: Vec<Sp<Item>>,
 }
 
@@ -374,9 +376,27 @@ impl From<VarReadType> for type_system::ScalarType {
     }
 }
 
+/// A literal string, which may be encoded in UTF-8 or Shift-JIS.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LitString<S=BString> {
     pub string: S,
+}
+
+impl<S: AsRef<[u8]>> Sp<LitString<S>> {
+    /// Interpret as a path.
+    ///
+    /// This will assume a UTF-8 encoding, and thus may fail on Shift-JIS encoded strings.
+    /// It has to do this because Windows path APIs are encoding-aware.
+    pub fn as_path(&self) -> Result<&std::path::Path, CompileError> {
+        match std::str::from_utf8(self.string.as_ref()) {
+            Err(_) => Err(error!(
+                message("cannot parse path as UTF-8"),
+                primary(self, "not valid UTF-8"),
+                note("paths are always read as UTF-8 regardless of the encoding of the file"),
+            )),
+            Ok(p) => Ok(p.as_ref()),
+        }
+    }
 }
 
 macro_rules! generate_visitor_stuff {

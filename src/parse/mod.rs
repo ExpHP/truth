@@ -32,6 +32,7 @@ pub trait Parse<'input>: Sized {
 /// Extra state during parsing.
 pub struct State {
     file_id: FileId,
+    mapfiles: Vec<Sp<ast::LitString>>,
 
     /// When we are parsing instructions, tracks the last time label so that we can produce an
     /// AST with time fields instead of explicit labels.
@@ -45,6 +46,7 @@ pub struct State {
 impl State {
     pub fn new(file_id: FileId) -> State { State {
         file_id,
+        mapfiles: vec![],
         time_stack: vec![0],
     }}
 }

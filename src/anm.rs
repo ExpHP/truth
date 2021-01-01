@@ -141,7 +141,7 @@ pub fn decompile(game: Game, entries: &[Entry], ty_ctx: &TypeSystem) -> ast::Scr
 
     use crate::passes::{unused_labels, decompile_loop};
 
-    let mut out = ast::Script { items };
+    let mut out = ast::Script { items, mapfiles: ty_ctx.mapfiles_to_ast() };
     crate::ast::walk_mut_script(&mut decompile_loop::Visitor::new(), &mut out);
     crate::ast::walk_mut_script(&mut unused_labels::Visitor::new(), &mut out);
     out
@@ -326,10 +326,14 @@ impl FileFormat {
             let has_data = f.read_u16()? as u32;
             let low_res_scale = f.read_u16()? as u32;
             let next_offset = f.read_u32()?;
+
             for _ in 0..6 {  // header gets padded to 16 dwords
                 if f.read_u32()? != 0 {
-                    fast_warning!("nonzero data in header padding!")
+                    fast_warning!("nonzero data in header padding will be lost")
                 }
+            }
+            if rt_textureslot != 0 {
+                fast_warning!("nonzero rt_textureslot will be lost (value: {})", rt_textureslot);
             }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
@@ -358,6 +362,11 @@ impl FileFormat {
             let unused_2 = f.read_u16()? as u32;
             let next_offset = f.read_u32()?;
             let unused_3 = f.read_u32()?;
+
+            if rt_textureslot != 0 { fast_warning!("nonzero rt_textureslot will be lost (value: {})", rt_textureslot); }
+            if unused_1 != 0 { fast_warning!("nonzero unused_1 will be lost (value: {})", unused_1); }
+            if unused_2 != 0 { fast_warning!("nonzero unused_2 will be lost (value: {})", unused_2); }
+            if unused_3 != 0 { fast_warning!("nonzero unused_3 will be lost (value: {})", unused_3); }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
                 width, height, format, name_offset,

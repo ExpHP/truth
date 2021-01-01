@@ -234,6 +234,7 @@ fn _decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -
     };
 
     ast::Script {
+        mapfiles: ty_ctx.mapfiles_to_ast(),
         items: vec! [
             Sp::null(ast::Item::Meta {
                 keyword: Sp::null(ast::MetaKeyword::Meta),
@@ -712,6 +713,7 @@ impl InstrFormat for InstrFormat06 {
         if opcode == -1 {
             return Ok(None)
         }
+        assert_eq!(argsize, 12);
 
         let args = instr::read_dword_args_upto_size(f, 12, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))

@@ -43,7 +43,10 @@ fn main() {
         print_help(&program, opts);
         std::process::exit(1);
     };
-    run(game, &input, output, matches.opt_str("map"));
+
+    if !run(game, &input, output, matches.opt_str("map")) {
+        std::process::exit(1);
+    }
 }
 
 fn run(
@@ -51,31 +54,48 @@ fn run(
     path: impl AsRef<std::path::Path>,
     output: impl AsRef<std::path::Path>,
     map_path: Option<impl AsRef<std::path::Path>>,
-) {
-    let ty_ctx = {
-        let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
-        if let Some(map_path) = map_path {
-            let eclmap = ecl_parser::Eclmap::load(map_path, Some(game)).unwrap();
-            ty_ctx.extend_from_eclmap(&eclmap);
-        }
-        ty_ctx
-    };
+) -> bool {
+    let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
+    if let Some(map_path) = map_path {
+        let eclmap = ecl_parser::Eclmap::load(&map_path, Some(game)).unwrap();
+        ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
+    }
 
     let text = std::fs::read(&path).unwrap();
     let mut files = ecl_parser::pos::Files::new();
-    let script = match files.parse(&path.as_ref().to_string_lossy(), &text) {
+    let script = match files.parse::<ecl_parser::Script>(&path.as_ref().to_string_lossy(), &text) {
         Ok(x) => x,
         Err(e) => panic!("{}", e),
     };
 
+    // FIXME nightmarish error handling
+    for path_literal in &script.mapfiles {
+        let path = match path_literal.as_path() {
+            Ok(x) => x,
+            Err(mut es) => {
+                es.emit(&files).expect("error while writing errors?!");
+                return false;
+            },
+        };
+        match ecl_parser::Eclmap::load(&path, Some(game)) {
+            Ok(eclmap) => {
+                ty_ctx.extend_from_eclmap(path, &eclmap)
+            },
+            Err(e) => {
+                ecl_parser::error!(message("{}", e), primary(path_literal, "error loading file")).emit(&files).expect("error while writing errors?!");
+                return false;
+            }
+        }
+    }
     let std = match ecl_parser::std::StdFile::compile(game, &script, &ty_ctx) {
         Ok(x) => x,
         Err(mut es) => {
             es.emit(&files).expect("error while writing errors?!");
-            return
+            return false;
         },
     };
 
     let mut out = std::fs::File::create(output).unwrap();
     ecl_parser::std::write_std(game, &mut out, &std).unwrap();
+    true
 }

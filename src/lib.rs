@@ -1,7 +1,8 @@
 
-pub use error::CompileError;
+pub use error::{CompileError};
 #[macro_use]
-mod error;
+#[doc(hidden)]
+pub mod error;
 
 #[cfg(test)]
 #[macro_use]

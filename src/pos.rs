@@ -448,7 +448,7 @@ impl<T: ?Sized + fmt::Display> fmt::Display for Sp<T> {
 // =============================================================================
 
 /// Used by error macros to allow either an [`Sp`] or a [`Span`] to serve as a location.
-pub(crate) trait HasSpan {
+pub trait HasSpan {
     fn span(&self) -> Span;
 }
 

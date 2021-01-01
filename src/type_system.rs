@@ -5,6 +5,9 @@ use crate::ast;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TypeSystem {
+    /// List of all loaded mapfiles
+    mapfiles: Vec<std::path::PathBuf>,
+
     // Functions
     func_aliases: HashMap<Ident, Ident>,
 
@@ -77,7 +80,11 @@ impl TypeSystem {
         }
     }
 
-    pub fn extend_from_eclmap(&mut self, eclmap: &Eclmap) {
+    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
+    /// into the file.
+    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
+        self.mapfiles.push(path.to_owned());
+
         for (&opcode, name) in &eclmap.ins_names {
             self.opcode_names.insert(opcode as u32, name.clone());
             self.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u32));
@@ -104,6 +111,13 @@ impl TypeSystem {
             };
             self.gvar_default_types.insert(id, ty);
         }
+    }
+
+    pub fn mapfiles_to_ast(&self) -> Vec<crate::pos::Sp<ast::LitString>> {
+        self.mapfiles.iter().map(|s| {
+            let string = s.to_str().expect("unpaired surrogate not supported!").into();
+            crate::pos::Sp::null(ast::LitString { string })
+        }).collect()
     }
 }
 
