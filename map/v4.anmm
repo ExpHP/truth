@@ -1,0 +1,303 @@
+!anmmap
+!ins_names
+
+#  v4.anmm  - for version 4:  StB, Mof
+#           - and version 7:  SA, UFO, DS, GFW
+
+0 nop
+1 delete
+2 static
+3 sprite
+4 jmp
+5 jmpDec
+
+6 iset
+7 fset
+8 iadd
+9 fadd
+10 isub
+11 fsub
+12 imul
+13 fmul
+14 idiv
+15 fdiv
+16 imod
+17 fmod
+18 isetAdd
+19 fsetAdd
+20 isetSub
+21 fsetSub
+22 isetMul
+23 fsetMul
+24 isetDiv
+25 fsetDiv
+26 isetMod
+27 fsetMod
+
+28 ije
+29 fje
+30 ijne
+31 fjne
+32 ijl
+33 fjl
+34 ijle
+35 fjle
+36 ijg
+37 fjg
+38 ijge
+39 fjge
+
+40 isetRand
+41 fsetRand
+42 fsin
+43 fcos
+44 ftan
+45 facos
+46 fatan
+47 validRad
+
+48 pos
+49 rotate
+50 scale
+51 alpha
+52 color
+53 angleVel
+54 scaleGrowth
+55 alphaTimeLinear
+56 posTime
+57 colorTime
+58 alphaTime
+59 rotateTime
+60 scaleTime
+61 flipX
+62 flipY
+63 stop
+64 case
+65 anchor
+66 blendMode
+67 type
+68 layer
+69 stopHide
+70 scrollX
+71 scrollY
+72 visible
+73 zWriteDisable
+# 74:  v8 ins 306??  # VERIFY
+75 wait
+76 color2
+77 alpha2
+78 color2Time
+79 alpha2Time
+
+80 colorMode
+81 caseReturn
+# 82:  unknown flag
+# 83:  v8 ins 422
+84 texCircle
+# 85:  unknown flag
+# 86:  unknown flag
+87 randMode
+
+88 scriptNew
+89 resampleMode
+90 scriptNewUI
+91 scriptNewFront
+92 scriptNewUIFront
+
+93 scrollXTime
+94 scrollYTime
+
+95 scriptNewRoot
+96 scriptNewPos
+97 scriptNewRootPos
+
+# 98:  v8 ins 418
+# 99:  v8 ins 419??  # VERIFY
+100 moveBezier
+# 101:  unidentified member of texCircle family
+102 spriteRand
+103 drawRect
+104 drawPoly
+105 drawPolyBorder
+106 zoomOut
+107 zoomOutTime
+108 drawRectGrad
+109 drawRectRot
+110 drawRectRotGrad
+
+# === TH 12.5+ ===
+# 111:  unknown biflag
+# 112:  v8 ins 507??  # VERIFY
+
+# === TH 12.8+ ===
+113 rotateTime2D
+# 114:  unidentified member of texCircle family
+
+!gvar_names
+10000 I0
+10001 I1
+10002 I2
+10003 I3
+
+10004 F0
+10005 F1
+10006 F2
+10007 F3
+
+10008 I4
+10009 I5
+
+10010 RANDRAD
+10011 RANDF
+10012 RANDF2
+
+10013 POS_X
+10014 POS_Y
+10015 POS_Z
+
+# 10016-10018 is related to background camera position but still a mystery
+# 10019-10021 may be normalized direction that the background camera is facing?
+
+10022 RAND
+
+!gvar_types
+10000 $
+10001 $
+10002 $
+10003 $
+10004 %
+10005 %
+10006 %
+10007 %
+10008 $
+10009 $
+10010 %
+10011 %
+10012 %
+10013 %
+10014 %
+10015 %
+10016 %
+10017 %
+10018 %
+10019 %
+10020 %
+10021 %
+10022 $
+
+!ins_signatures
+0
+1
+2
+3 n
+4 ot
+5 Sot
+6 SS
+7 ff
+8 SS
+9 ff
+10 SS
+11 ff
+12 SS
+13 ff
+14 SS
+15 ff
+16 SS
+17 ff
+18 SSS
+19 fff
+20 SSS
+21 fff
+22 SSS
+23 fff
+24 SSS
+25 fff
+26 SSS
+27 fff
+28 SSot
+29 ffot
+30 SSot
+31 ffot
+32 SSot
+33 ffot
+34 SSot
+35 ffot
+36 SSot
+37 ffot
+38 SSot
+39 ffot
+40 SS
+41 ff
+42 ff
+43 ff
+44 ff
+45 ff
+46 ff
+47 f
+48 fff
+49 fff
+50 ff
+51 S
+52 SSS
+53 fff
+54 ff
+55 SS
+56 SSfff
+57 SSSSS
+58 SSS
+59 SSfff
+60 SSff
+61
+62
+63
+64 S
+65 C  # FIXME ss
+66 S
+67 S
+68 S
+69
+70 f
+71 f
+72 S
+73 S
+74 S
+75 S
+76 SSS
+77 S
+78 SSSSS
+79 SSS
+80 S
+81
+82 S
+83
+84 S
+85 S
+86 S
+87 S
+88 N
+89 S
+90 N
+91 N
+92 N
+93 SSf
+94 SSf
+95 N
+96 Nff
+97 Nff
+98
+99 S
+100 Sfffffffff
+101 S
+102 nS
+103 ff
+104 fS
+105 fS
+106 ff
+107 SSff
+108 ff
+109 ff
+110 ff
+111 S
+112 S
+113 SSf
+114 S

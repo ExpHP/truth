@@ -211,11 +211,17 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
 
         let scripts = script_ids_and_offsets.iter().map(|&(id, offset)| {
             let key = Sp::null(auto_script_name(next_script_index));
+            eprintln!("script {}", next_script_index);
 
             let mut f = &entry_bytes[offset..];
             let mut instrs = vec![];
             while let Some(instr) = instr_format.read_instr(&mut f)? {
+                let is_early_terminator = instr_format.is_th06_anm_terminating_instr(&instr);
+
                 instrs.push(instr);
+                if is_early_terminator {
+                    break; // can't wait for read_instr to return None; it never does in TH06
+                }
             }
             next_script_index += 1;
             Ok((key, Script { id, instrs }))
@@ -395,31 +401,33 @@ impl InstrFormat for InstrFormat06 {
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
         let time = f.read_i16()? as i32;
         let opcode = f.read_i8()?;
-        let size = f.read_u8()? as usize;
-        if opcode == -1 {
-            return Ok(None);
-        }
+        let argsize = f.read_u8()? as usize;
+        println!("{:04x} {:02x} {:02x}", time as u32, opcode as u8, argsize);
 
-        let args = instr::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, 0)?;
+        let args = instr::read_dword_args_upto_size(f, argsize, 0)?;
+        println!("{:02x?}", args);
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult<()> {
-        f.write_u16(instr.opcode)?;
-        f.write_u16(self.instr_size(instr) as u16)?;
-        f.write_i16(instr.time as i16)?;
-        f.write_u16(0) // FIXME: param_mask
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+        f.write_i16(instr.time as _)?;
+        f.write_u8(instr.opcode as _)?;
+        f.write_u8((self.instr_size(instr) - Self::HEADER_SIZE) as _)?;
+        for x in &instr.args {
+            f.write_u32(x.expect_raw().bits)?;
+        }
+        Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult<()> {
-        f.write_i32(-1)?;
-        f.write_i32(-1)
+    fn is_th06_anm_terminating_instr(&self, instr: &Instr) -> bool {
+        // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
+        // Basically, the first `delete` or `static` marks the end of the script.
+        instr.opcode == 0 || instr.opcode == 15
     }
+
+    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult { Ok(()) }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
-
-    fn encode_label(&self, offset: usize) -> u32 { offset as _ }
-    fn decode_label(&self, bits: u32) -> usize { bits as _ }
 }
 
 impl InstrFormat for InstrFormat07 {
@@ -440,20 +448,21 @@ impl InstrFormat for InstrFormat07 {
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult<()> {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
         f.write_i16(instr.time as i16)?;
-        f.write_u16(instr.param_mask())
+        f.write_u16(instr.param_mask())?;
+        for x in &instr.args {
+            f.write_u32(x.expect_raw().bits)?;
+        }
+        Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult<()> {
+    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
         f.write_i32(-1)?;
         f.write_i32(-1)
     }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
-
-    fn encode_label(&self, offset: usize) -> u32 { offset as _ }
-    fn decode_label(&self, bits: u32) -> usize { bits as _ }
 }

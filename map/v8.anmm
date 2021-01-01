@@ -1,0 +1,363 @@
+!anmmap
+!ins_names
+
+#  v8.anmm  - for TH13-TH17
+
+0 nop
+1 delete
+2 static
+3 stop
+4 stopHide
+5 case
+6 wait
+7 caseReturn
+
+100 iset
+101 fset
+102 iadd
+103 fadd
+104 isub
+105 fsub
+106 imul
+107 fmul
+108 idiv
+109 fdiv
+110 imod
+111 fmod
+112 isetAdd
+113 fsetAdd
+114 isetSub
+115 fsetSub
+116 isetMul
+117 fsetMul
+118 isetDiv
+119 fsetDiv
+120 isetMod
+121 fsetMod
+122 isetRand
+123 fsetRand
+124 fsin
+125 fcos
+126 ftan
+127 facos
+128 fatan
+129 validRad
+130 circlePos   # ins_130(&x, &y, ang, dist) -> *x = cos(ang)*dist; *y = sin(ang*dist)
+131 circlePosRand
+# ins_131(float* x, float* y, float min, float max) {
+#     float r = randf() * (max - min) + min; // randf = (0.0f, 1.0f)
+#     float ang = randrad();  // randrad = (-pi, pi)
+#     *x = cos(ang) * r;
+#     *y = sin(ang) * r;
+# }
+
+200 jmp
+201 jmpDec
+# based on x86 asm conditional jmp names except there's a type prefix i(nt) or f(loat)
+202 ije
+203 fje
+204 ijne
+205 fjne
+206 ijl
+207 fjl
+208 ijle
+209 fjle
+210 ijg
+211 fjg
+212 ijge
+213 fjge
+
+300 sprite
+301 spriteRand
+302 type
+303 blendMode
+304 layer
+305 zWriteDisable
+# 306 bitflag, camera related
+307 randMode  # no known effect in v8 but games still use it
+308 flipX
+309 flipY
+310 visible
+311 resampleMode
+312 scrollMode
+313 resolutionMode  # TH14+
+# 314 has an effect when the parent rotates. (may also have other effects)
+315 colorizeChildren
+# 316 sets a bitflag  # TH15+
+# 317 disables it
+
+400 pos
+401 rotate
+402 scale
+403 alpha
+404 color
+405 alpha2
+406 color2
+407 posTime
+408 colorTime
+409 alphaTime
+410 rotateTime
+411 rotateTime2D
+412 scaleTime
+413 color2Time
+414 alpha2Time
+415 angleVel
+416 scaleGrowth  # adds to scale every frame
+417 alphaTimeLinear
+
+# unknown
+420 moveBezier
+421 anchor
+423 colorMode
+424 rotateAuto
+425 scrollX
+426 scrollY
+427 scrollXTime
+428 scrollYTime
+429 zoomOut  # scales UV coords (selects larger region of image file)
+430 zoomOutTime
+434 scale2  # stacks multiplicatively with scale
+435 scale2Time
+436 anchorOffset
+437 rotationMode
+438 originMode
+
+# Refer to https://gist.github.com/ExpHP/88bdef8f28f46fe4af6ab2e013b75896#creating-children
+500 scriptNew
+501 scriptNewUI
+502 scriptNewFront
+503 scriptNewUIFront
+504 scriptNewRoot   # create vm with no parent
+505 scriptNewPos    # create at an offset
+506 scriptNewRootPos
+# 507(1) appears to make an anm behave as if it has no parent.  No game really uses it...
+508 effectNew
+509 copyVars  # TH14+
+
+600 texCircle
+601 texArcEven
+602 texArc
+603 drawRect
+604 drawPoly
+605 drawPolyBorder
+606 drawRectGrad
+607 drawRectRot
+608 drawRectRotGrad
+609 texCylinder3D  # TH14+
+610 texRing3D
+611 drawRing  # TH15+
+612 drawRectBorder  # TH16+
+613 drawLine
+
+!gvar_names
+10000 I0
+10001 I1
+10002 I2
+10003 I3
+
+10004 F0
+10005 F1
+10006 F2
+10007 F3
+
+10008 I4
+10009 I5
+
+10010 RANDRAD
+10011 RANDF
+10012 RANDF2
+
+10013 POS_X
+10014 POS_Y
+10015 POS_Z
+
+# 10016-10018 is related to background camera position but still a mystery
+# 10019-10021 may be normalized direction that the background camera is facing?
+
+10022 RAND
+
+# 10023-10025 are one of the rotation-related vectors
+
+10027 RANDFLIMIT    # editable scale factor for RANDF/RANDF2, default 1f
+10028 RANDRADLIMIT  # editable scale factor for RANDRAD, default pi
+10029 RANDLIMIT     # editable modulus for RAND, default 65536
+
+10030 RANDRADREP  # using the ECL RNG seed; as such, will be saved in replays
+10031 RANDFREP
+10032 RANDF2REP
+
+!gvar_types
+10000 $
+10001 $
+10002 $
+10003 $
+10004 %
+10005 %
+10006 %
+10007 %
+10008 $
+10009 $
+10010 %
+10011 %
+10012 %
+10013 %
+10014 %
+10015 %
+10016 %
+10017 %
+10018 %
+10019 %
+10020 %
+10021 %
+10022 $
+10023 %
+10024 %
+10025 %
+10026 %
+10027 %
+10028 %
+10029 $
+10030 %
+10031 %
+10032 %
+10033 %
+10034 %
+10035 %
+
+!ins_signatures
+0
+1
+2
+3
+4
+5 S
+6 S
+7
+100 SS
+101 ff
+102 SS
+103 ff
+104 SS
+105 ff
+106 SS
+107 ff
+108 SS
+109 f
+110 S
+111 f
+112 SSS
+113 fff
+114 SSS
+115 fff
+116 SSS
+117 fff
+118 SSS
+119 fff
+120 SSS
+121 fff
+122 SS
+123 ff
+124 ff
+125 ff
+126 ff
+127 ff
+128 ff
+129 f
+130 ffff
+131 ffff
+200 ot
+201 Sot
+202 SSot
+203 ffot
+204 SSot
+205 ffot
+206 SSot
+207 ffot
+208 SSot
+209 ffot
+210 SSot
+211 ffot
+212 SSot
+213 ffot
+300 n
+301 nS
+302 S
+303 S
+304 S
+305 S
+306 S
+307 S
+308
+309
+310 S
+311 S
+312 SS
+313 S
+314 S
+315 S
+316
+317
+400 fff
+401 fff
+402 ff
+403 S
+404 SSS
+405 S
+406 SSS
+407 SSfff
+408 SSSSS
+409 SSS
+410 SSfff
+411 SSf
+412 SSff
+413 SSSSS
+414 SSS
+415 fff
+416 ff
+417 SS
+418
+419 S
+420 Sfffffffff
+421 C  # FIXME ss
+422
+423 S
+424 S
+425 f
+426 f
+427 SSf
+428 SSf
+429 ff
+430 SSff
+431 S
+432 S
+433 SSff
+434 ff
+435 SSff
+436 ff
+437 S
+438 S
+439 S
+500 N
+501 N
+502 N
+503 N
+504 N
+505 Nff
+506 Nff
+507 S
+508 S
+509
+600 S
+601 S
+602 S
+603 ff
+604 fS
+605 fS
+606 ff
+607 ff
+608 ff
+609 S
+610 S
+611 ffS
+612 ff
+613 ff

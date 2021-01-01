@@ -447,11 +447,17 @@ pub trait InstrFormat {
     /// Write a marker that goes after the final instruction in a function or script.
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
 
+    /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
+    ///
+    /// Unlike most formats, TH06 doesn't have a marker for the end of a script.
+    /// Instead, either of the opcodes that "return" mark the end of the script.
+    fn is_th06_anm_terminating_instr(&self, instr: &Instr) -> bool { false }
+
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the
     // instruction *index* instead.
-    fn encode_label(&self, offset: usize) -> u32;
-    fn decode_label(&self, bits: u32) -> usize;
+    fn encode_label(&self, offset: usize) -> u32 { offset as _ }
+    fn decode_label(&self, bits: u32) -> usize { bits as _ }
 }
 
 /// Helper to help implement `InstrFormat::read_instr`.

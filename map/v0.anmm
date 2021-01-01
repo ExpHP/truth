@@ -1,0 +1,78 @@
+!anmmap
+!ins_names
+
+#  v0.anmm  - for EoSD only
+# created with help from https://pytouhou.linkmauve.fr/doc/06/anm.xml
+
+0 delete
+1 sprite
+2 scale
+3 alpha
+4 color
+5 jmp
+6 nop
+7 flipX
+8 flipY
+9 rotate
+10 angleVel
+11 scaleGrowth
+12 alphaTimeLinear
+13 blendAdditive
+14 blendDefault
+15 static
+16 spriteRand
+17 pos
+18 posTimeLinear
+19 posTimeDecel   # quadratic
+20 posTimeDecel2  # quartic.  pytouhou called this "posTimeAccel"?!
+21 stop
+22 case
+23 anchorTopLeft
+24 stopHide
+25 posMode
+# 26 - sets word-sized field. Supposedly this is rotateAuto? Why a whole word?
+27 scrollNowX
+28 scrollNowY
+29 visible
+30 scaleTimeLinear
+31 zWriteDisable
+
+!gvar_names
+# EoSD has no vars
+
+!gvar_types
+# EoSD has no vars
+
+!ins_signatures
+0
+1 n
+2 ff
+3 S
+4 S
+5 o
+6
+7
+8
+9 fff
+10 fff
+11 ff
+12 SS
+13
+14
+15
+16 nS
+17 fff
+18 fffS
+19 fffS
+20 fffS
+21
+22 S
+23
+24
+25 S
+26 S
+27 f
+28 f
+29 S
+30 ffS
+31 S

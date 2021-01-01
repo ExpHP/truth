@@ -138,8 +138,13 @@ impl Signature {
         self.arg_string.chars().map(|c| match c {
             'S' => ArgEncoding::Dword,
             'C' => ArgEncoding::Color,
+            // o and t get no special encoding because we translate jumps directly into `goto`
+            'o' => ArgEncoding::Dword, // offset
+            't' => ArgEncoding::Dword, // time
             'f' => ArgEncoding::Float,
             '_' => ArgEncoding::Padding,
+            'n' => ArgEncoding::Dword, // FIXME sprite
+            'N' => ArgEncoding::Dword, // FIXME script
             _ => panic!("In mapfile: unknown signature character: {:?}", c)
         }).collect()
     }

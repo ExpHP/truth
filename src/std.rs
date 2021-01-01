@@ -792,7 +792,4 @@ impl InstrFormat for InstrFormat10 {
     }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
-
-    fn encode_label(&self, offset: usize) -> u32 { offset as u32 }
-    fn decode_label(&self, bits: u32) -> usize { bits as usize }
 }

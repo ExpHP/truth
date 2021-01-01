@@ -137,7 +137,7 @@ impl<'a> From<crate::parse::Error<'a>> for CompileError {
 
 impl From<anyhow::Error> for CompileError {
     fn from(e: anyhow::Error) -> CompileError {
-        error!(message("{}", e))
+        error!(message("{:#}", e))
     }
 }
 
