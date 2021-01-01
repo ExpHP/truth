@@ -53,9 +53,13 @@ fn run(
     map_path: Option<impl AsRef<std::path::Path>>,
 ) {
     let ty_ctx = {
+        use ecl_parser::Eclmap;
+
         let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
-        if let Some(map_path) = map_path {
-            let eclmap = ecl_parser::Eclmap::load(map_path, Some(game)).unwrap();
+
+        let map_path = map_path.map(|p| p.as_ref().to_owned());
+        if let Some(map_path) = map_path.or_else(|| Eclmap::default_map_file(".stdm")) {
+            let eclmap = Eclmap::load(map_path, Some(game)).unwrap();
             ty_ctx.extend_from_eclmap(&eclmap);
         }
         ty_ctx

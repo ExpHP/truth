@@ -34,6 +34,21 @@ impl Eclmap {
         Self::from_seqmap(seqmap)
     }
 
+    /// Check the default map directories for a file whose name is `any.{extension}`
+    /// and return it if it exists.
+    ///
+    /// Intended to be used with `Option::or_else` on an optional map path.
+    pub fn default_map_file(extension: &'static str) -> Option<std::path::PathBuf> {
+        std::env::var_os("TRUTH_MAP_PATH")
+            .filter(|s| !s.is_empty())
+            .into_iter().flat_map(|paths| {
+                std::env::split_paths(&paths)
+                    .map(|p| p.join(format!("any.{}", extension.trim_start_matches("."))))
+                    .filter(|p| p.exists())
+                    .collect::<Vec<_>>()  // stop borrowing
+            }).next()
+    }
+
     fn resolve_gamemap(base_dir: &std::path::Path, mut seqmap: SeqMap, game: Game) -> Result<SeqMap, anyhow::Error> {
         let game_files = match seqmap.maps.remove("game_files") {
             Some(game_files) => game_files,

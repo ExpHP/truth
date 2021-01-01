@@ -8,22 +8,22 @@ truth stands for "**t**htk **ru**st **th**ing".  Or maybe it stands for "**t**ht
 
 ### Advantages over thstd
 
-I mean, the current thstd is so ridiculously basic that this isn't even a fair comparison, but:
+I mean, this isn't really a fair comparison given how far `thstd` is behind its brothers is, but:
 
 * Nicer formatting of metadata. (more like ANM)
 * `stdmap`s for naming instructions.
+* [`gamemap`s](./map/any.stdm) so you don't need to memorize the right maps for each game
 * Constant expression evaluation.  `(1 < 3) ? 4.0f : 2.0 + 0.5`
 * Correct treatment of "strip" quads in TH08, TH09.
 * Labels and `goto`.
-* No segfaults.
-* Cool-ass error messages:
+* No possibility of segfaults!
+* Cool-ass error messages, sometimes:
 
 ![Sexy error message example](./doc/img/sexy-error.png)
 
 ### Disadvantages compared to thanm and thecl
 
-* Well, it can't compile ANM or ECL yet, for starters.
-* Also everything else.
+* Everything
 
 ## Downloading
 
@@ -39,14 +39,16 @@ Uhhmmmm........ I'm gonna see if I can get GitHub Actions to build rust binaries
 With that in mind:
 
 ```sh
-std-decomp -m std-14.stdm in.std > out.stdspec
-std-compile -m std-14.stdm in.stdspec -o out.std
+std-decomp -m map/any.stdm in.std > out.stdspec
+std-compile -m map/any.stdm in.stdspec -o out.std
 
 # Any other binaries included in the distribution are entirely worthless testing tools,
 # don't even bother with them.
 ```
 
 These should work on all games in the series, though I am still ironing out a small number of kinks at present.
+
+You can set the environment variable `TRUTH_MAP_PATH` to automatically locate mapfiles during decompilation.  Each directory listed in this `PATH`-like variable will be checked for a file named `any.stdm` if you are compiling STD, `any.anmm` if you are compiling ANM, and etc.  
 
 ## Building and installing from source
 
