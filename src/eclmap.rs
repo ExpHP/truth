@@ -1,7 +1,8 @@
 use std::collections::{HashMap};
 use regex::Regex;
 use lazy_static::lazy_static;
-use thiserror::Error;
+use anyhow::{bail, Context};
+use crate::Game;
 use crate::ident::Ident;
 
 pub struct Eclmap {
@@ -15,12 +16,77 @@ pub struct Eclmap {
     pub timeline_ins_signatures: HashMap<i32, String>,
 }
 
-#[derive(Debug, Error)]
-pub enum Error {}
+impl Eclmap {
+    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>) -> Result<Self, anyhow::Error> {
+        // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
+        let path = path.as_ref().canonicalize().with_context(|| format!("while resolving {}", path.as_ref().display()))?;
+        let text = std::fs::read_to_string(&path).with_context(|| format!("while reading {}", path.display()))?;
 
-impl std::str::FromStr for Eclmap {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> { Ok(parse(s)) }
+        let mut seqmap = parse_seqmap(&text)?;
+        if seqmap.magic == "!gamemap" {
+            let game = match game {
+                Some(game) => game,
+                None => bail!("can't use gamemap because no game was supplied!")
+            };
+            let base_dir = path.parent().expect("filename must have parent");
+            seqmap = Self::resolve_gamemap(base_dir, seqmap, game)?;
+        }
+        Self::from_seqmap(seqmap)
+    }
+
+    fn resolve_gamemap(base_dir: &std::path::Path, mut seqmap: SeqMap, game: Game) -> Result<SeqMap, anyhow::Error> {
+        let game_files = match seqmap.maps.remove("game_files") {
+            Some(game_files) => game_files,
+            None => bail!("no !game_files section in gamemap")
+        };
+        for (key, _) in seqmap.maps {
+            fast_warning!("unrecognized section in gamemap: {:?}", key);
+        }
+        let rel_path = match game_files.get(&(game.as_number() as i32)) {
+            Some(file) => file,
+            None => bail!("no entry in gamemap for {}", game.as_str()),
+        };
+        let final_path = base_dir.join(rel_path);
+
+        let text = std::fs::read_to_string(&final_path).with_context(|| format!("while reading {}", final_path.display()))?;
+        parse_seqmap(&text)
+    }
+
+    fn from_seqmap(seqmap: SeqMap) -> Result<Eclmap, anyhow::Error> {
+        let SeqMap { magic, mut maps } = seqmap;
+        let magic = match &magic[..] {
+            "!eclmap" => Magic::Eclmap,
+            "!anmmap" => Magic::Anmmap,
+            "!stdmap" => Magic::Stdmap,
+            _ => bail!("{:?}: bad magic", magic),
+        };
+
+        let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(HashMap::new);
+        let parse_idents = |m:HashMap<i32, String>| -> Result<HashMap<i32, Ident>, anyhow::Error> {
+            m.into_iter().map(|(key, s)| {
+                let ident: Ident = s.parse()?;
+                if let Some(_) = ident.as_ins() {
+                    bail!("invalid identifier (clashes with instruction)");
+                }
+                Ok((key, ident))
+            }).collect()
+        };
+        let out = Eclmap {
+            magic,
+            ins_names: parse_idents(pop_map("ins_names"))?,
+            ins_signatures: pop_map("ins_signatures"),
+            ins_rets: pop_map("ins_rets"),
+            gvar_names: parse_idents(pop_map("gvar_names"))?,
+            gvar_types: pop_map("gvar_types"),
+            timeline_ins_names: parse_idents(pop_map("timeline_ins_names"))?,
+            timeline_ins_signatures: pop_map("timeline_ins_signatures"),
+        };
+        for (key, _) in maps {
+            fast_warning!("unrecognized section in eclmap: {:?}", key);
+        }
+
+        Ok(out)
+    }
 }
 
 lazy_static! {
@@ -34,18 +100,24 @@ pub enum Magic {
     Stdmap,
 }
 
-fn parse(text: &str) -> Eclmap {
+struct SeqMap {
+    magic: String,
+    maps: HashMap<String, HashMap<i32, String>>,
+}
+
+fn parse_seqmap(text: &str) -> Result<SeqMap, anyhow::Error> {
     let mut maps = HashMap::new();
+    let mut cur_section = None;
     let mut cur_map = None;
     let mut lines = text.lines();
     let magic = match lines.next() {
-        Some(magic) => match magic.trim_end() {
-            "!eclmap" => Magic::Eclmap,
-            "!anmmap" => Magic::Anmmap,
-            "!stdmap" => Magic::Stdmap,
-            s => panic!("{:?}: bad magic", s), // FIXME return Error
+        Some(magic) => {
+            if magic.chars().next() != Some('!') {
+                bail!("this doesn't look like a seqmap file!");
+            }
+            magic.trim().to_string()
         },
-        None => panic!("empty file?"), // FIXME return Error
+        None => bail!("file is empty"),
     };
 
     for mut line in lines {
@@ -61,6 +133,7 @@ fn parse(text: &str) -> Eclmap {
                 Some(captures) => captures[1].to_string(),
                 None => panic!("parse error"), // FIXME return Error
             };
+            cur_section = Some(name.clone());
             cur_map = Some(maps.entry(name).or_insert_with(HashMap::new));
         } else {
             match SEQMAP_ITEM_RE.captures(line) {
@@ -69,36 +142,12 @@ fn parse(text: &str) -> Eclmap {
                     let number = captures[1].parse().unwrap();
                     let value = captures[2].to_string();
                     if let Some(_) = cur_map.as_mut().expect("missing section header").insert(number, value) { // FIXME return error
-                        panic!("duplicate key error"); // FIXME return Error
+                        let section_name = cur_section.as_ref().expect("can't be None if cur_map is Some");
+                        bail!("duplicate key error for id {} in section '{}'", number, section_name);
                     }
                 }
             }
         }
     }
-
-    let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(HashMap::new);
-    let parse_idents = |m:HashMap<i32, String>| -> HashMap<i32, Ident> {
-        m.into_iter().map(|(key, s)| {
-            let ident: Ident = s.parse().expect("invalid identifier"); // FIXME return Error
-            if let Some(_) = ident.as_ins() {
-                panic!("invalid identifier (clashes with instruction)"); // FIXME return Error
-            }
-            (key, ident)
-        }).collect()
-    };
-    let out = Eclmap {
-        magic,
-        ins_names: parse_idents(pop_map("ins_names")),
-        ins_signatures: pop_map("ins_signatures"),
-        ins_rets: pop_map("ins_rets"),
-        gvar_names: parse_idents(pop_map("gvar_names")),
-        gvar_types: pop_map("gvar_types"),
-        timeline_ins_names: parse_idents(pop_map("timeline_ins_names")),
-        timeline_ins_signatures: pop_map("timeline_ins_signatures"),
-    };
-    if !maps.is_empty() {
-        panic!("unrecognized sections: {:?}", maps.keys().collect::<Vec<_>>()); // FIXME return Error
-    }
-
-    out
+    Ok(SeqMap { magic, maps })
 }

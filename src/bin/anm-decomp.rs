@@ -55,7 +55,7 @@ fn run(
     let ty_ctx = {
         let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
         if let Some(map_path) = map_path {
-            let eclmap: ecl_parser::Eclmap = std::fs::read_to_string(map_path).unwrap().parse().unwrap();
+            let eclmap = ecl_parser::Eclmap::load(map_path, Some(game)).unwrap();
             ty_ctx.extend_from_eclmap(&eclmap);
         }
         ty_ctx

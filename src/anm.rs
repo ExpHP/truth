@@ -26,8 +26,8 @@ pub struct Entry {
 
 #[derive(Debug, Clone)]
 pub struct Script {
-    id: i32,
-    instrs: Vec<Instr>,
+    pub id: i32,
+    pub instrs: Vec<Instr>,
 }
 
 #[derive(Debug, Clone)]

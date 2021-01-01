@@ -31,6 +31,7 @@ impl std::str::FromStr for Game {
             9 => Ok(Game::Th09),
             95 => Ok(Game::Th095),
             10 => Ok(Game::Th10),
+            103 => Ok(Game::Alcostg),
             11 => Ok(Game::Th11),
             12 => Ok(Game::Th12),
             125 => Ok(Game::Th125),
@@ -68,6 +69,29 @@ impl Game {
             Game::Th16 => "th16",
             Game::Th165 => "th165",
             Game::Th17 => "th17",
+        }
+    }
+
+    pub fn as_number(self) -> u32 {
+        match self {
+            Game::Alcostg => 103,
+            Game::Th06 => 6,
+            Game::Th07 => 7,
+            Game::Th08 => 8,
+            Game::Th09 => 9,
+            Game::Th095 => 95,
+            Game::Th10 => 10,
+            Game::Th11 => 11,
+            Game::Th12 => 12,
+            Game::Th125 => 125,
+            Game::Th128 => 128,
+            Game::Th13 => 13,
+            Game::Th14 => 14,
+            Game::Th143 => 143,
+            Game::Th15 => 15,
+            Game::Th16 => 16,
+            Game::Th165 => 165,
+            Game::Th17 => 17,
         }
     }
 }
