@@ -1,5 +1,5 @@
 use std::fmt;
-use bstr::{BStr, BString, ByteSlice};
+use bstr::{BString};
 use indexmap::IndexMap;
 
 use crate::error::{CompileError, GatherErrorIteratorExt};
@@ -281,11 +281,11 @@ struct EntryHeaderData {
     next_offset: u32,
 }
 
-pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
+pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> {
     let format = game_format(game);
     let instr_format = format.instr_format();
 
-    let mut out = vec![];
+    let mut entries = vec![];
     let mut next_script_index = 0;
     let mut next_sprite_index = 0;
     loop {
@@ -304,6 +304,9 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
         let script_ids_and_offsets = (0..header_data.num_scripts).map(|_| {
             Ok((f.read_i32()?, f.read_u32()? as usize))
         }).collect::<ReadResult<Vec<_>>>()?;
+        // eprintln!("{:?}", header_data);
+        // eprintln!("{:?}", sprite_offsets);
+        // eprintln!("{:?}", script_ids_and_offsets);
 
         let path = (&entry_bytes[header_data.name_offset..]).read_cstring(16)?;
         let path_2 = {
@@ -352,14 +355,14 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
             low_res_scale: header_data.low_res_scale != 0,
         };
 
-        out.push(Entry { texture, specs, path, path_2, sprites, scripts });
+        entries.push(Entry { texture, specs, path, path_2, sprites, scripts });
 
         if header_data.next_offset == 0 {
             break;
         }
         entry_bytes = &entry_bytes[header_data.next_offset as usize..];
     }
-    Ok(out)
+    Ok(AnmFile { entries })
 }
 
 fn auto_sprite_name(i: u32) -> Ident {
@@ -703,10 +706,8 @@ impl InstrFormat for InstrFormat06 {
         let time = f.read_i16()? as i32;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
-        println!("{:04x} {:02x} {:02x}", time as u32, opcode as u8, argsize);
 
         let args = instr::read_dword_args_upto_size(f, argsize, 0)?;
-        println!("{:02x?}", args);
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 

@@ -103,6 +103,13 @@ macro_rules! _diagnostic {
                 .with_notes(vec![ $(format!( $($note_msg)+ ))* ]),
         ]}
     }};
+    ( // shorthand for message only
+        @ $severity:ident,
+        $message_fmt:literal $(, $message_arg:expr)* $(,)?
+    ) => { $crate::_diagnostic!{
+        @ $severity,
+        message($message_fmt $(, $message_arg)*),
+    }};
 }
 
 /// Generates a `CompileError` of severity `error`.

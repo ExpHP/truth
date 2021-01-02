@@ -1,50 +1,14 @@
 use ecl_parser::{self};
 
-use getopts::Options;
-use std::env;
-
-fn usage(program: &str) -> String {
-    format!("Usage: {} FILE -g GAME -o OUTPUT [OPTIONS...]", program)
-}
-fn print_usage(program: &str) {
-    eprintln!("{}", usage(program));
-}
-fn print_help(program: &str, opts: Options) {
-    eprint!("{}", opts.usage(&usage(program)));
-}
-
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let program = args[0].clone();
+    use ecl_parser::{cli_helper as cli, args, args_pat};
 
-    let mut opts = Options::new();
-    opts.optflag("h", "help", "print this help menu");
-    opts.reqopt("o", "output", "output file", "OUTPUT");
-    opts.optopt("m", "map", "use a stdmap", "STDMAP");
-    opts.reqopt("g", "game", "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.", "GAME");
-    let matches = match opts.parse(&args[1..]) {
-        Ok(m) => { m }
-        Err(e) => {
-            print_usage(&program);
-            eprintln!("ERROR: {}", e);
-            std::process::exit(1);
-        }
-    };
-    if matches.opt_present("h") {
-        print_help(&program, opts);
-        return;
-    }
+    let args_pat![input, output, mapfile, game] = cli::cli(
+        "FILE -g GAME -o OUTPUT [OPTIONS...]",
+        args![cli::input(), cli::required_output(), cli::mapfile(), cli::game()],
+    );
 
-    let game = matches.opt_get("game").expect("bad game").unwrap();
-    let output = matches.opt_str("output").unwrap();
-    let input = if !matches.free.is_empty() {
-        matches.free[0].clone()
-    } else {
-        print_help(&program, opts);
-        std::process::exit(1);
-    };
-
-    if !run(game, &input, output, matches.opt_str("map")) {
+    if !run(game, &input, output, mapfile) {
         std::process::exit(1);
     }
 }
@@ -96,6 +60,6 @@ fn run(
     };
 
     let mut out = std::fs::File::create(output).unwrap();
-    ecl_parser::std::write_std(game, &mut out, &std).unwrap();
+    ecl_parser::std::write_std(&mut out, game, &std).unwrap();
     true
 }

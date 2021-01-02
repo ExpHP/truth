@@ -7,7 +7,7 @@ pub use error::{CompileError};
 #[doc(hidden)]
 pub mod error;
 
-pub use pos::{Span, Sp};
+pub use pos::{Files, Span, Sp};
 #[macro_use]
 pub mod pos;
 
@@ -36,6 +36,8 @@ mod ident;
 
 pub use game::Game;
 mod game;
+
+pub mod cli_helper;
 
 mod binary_io;
 
