@@ -141,6 +141,15 @@ impl From<anyhow::Error> for CompileError {
     }
 }
 
+impl From<std::io::Error> for CompileError {
+    #[track_caller]
+    fn from(e: std::io::Error) -> CompileError {
+        // obviously not ideal but it's better than sitting there with a vague "file not found"
+        // and no backtrace
+        panic!("{}", e)
+    }
+}
+
 /// Trait for running an iterator and continuing after an `Err` to collect more errors.
 pub trait GatherErrorIteratorExt {
     type OkItem;

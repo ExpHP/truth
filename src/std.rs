@@ -381,7 +381,7 @@ pub fn read_std(game: Game, bytes: &[u8]) -> ReadResult<StdFile> {
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
-pub fn write_std(game: Game, f: &mut dyn BinWrite, std: &StdFile) -> WriteResult {
+pub fn write_std(f: &mut dyn BinWrite, game: Game, std: &StdFile) -> WriteResult {
     let format = game_format(game);
 
     let start_pos = f.pos()?;

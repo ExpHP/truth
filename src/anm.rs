@@ -369,12 +369,122 @@ fn auto_script_name(i: u32) -> Ident {
     format!("script{}", i).parse::<Ident>().unwrap()
 }
 
+pub fn write_anm(f: &mut dyn BinWrite, game: Game, file: &AnmFile) -> WriteResult {
+    let format = game_format(game);
+
+    let mut last_entry_pos = None;
+    for entry in &file.entries {
+        let entry_pos = f.pos()?;
+        if let Some(last_entry_pos) = last_entry_pos {
+            f.seek_to(last_entry_pos + format.offset_to_next_offset())?;
+            f.write_u32((entry_pos - last_entry_pos) as _)?;
+            f.seek_to(entry_pos)?;
+        }
+
+        write_entry(f, &format, entry)?;
+
+        last_entry_pos = Some(entry_pos);
+    }
+    Ok(())
+}
+
+fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) -> WriteResult {
+    let instr_format = file_format.instr_format();
+
+    let entry_pos = f.pos()?;
+
+    let EntrySpecs {
+        width, height, format, colorkey, offset_x, offset_y, memory_priority,
+        has_data, low_res_scale,
+    } = entry.specs;
+
+    file_format.write_header(f, &EntryHeaderData {
+        width, height, format, colorkey, offset_x, offset_y, memory_priority,
+        has_data: has_data as u32,
+        low_res_scale: low_res_scale as u32,
+        version: file_format.version as u32,
+        num_sprites: entry.sprites.len() as u32,
+        num_scripts: entry.scripts.len() as u32,
+        // we will overwrite these later
+        name_offset: 0, secondary_name_offset: None,
+        next_offset: 0, thtx_offset: None,
+    })?;
+
+    let sprite_offsets_pos = f.pos()?;
+    f.write_u32s(&vec![0; entry.sprites.len()])?;
+    let script_headers_pos = f.pos()?;
+    f.write_u32s(&vec![0; 2 * entry.scripts.len()])?;
+
+    let path_offset = f.pos()? - entry_pos;
+    f.write_cstring(&entry.path, 16)?;
+
+    let mut path_2_offset = 0;
+    if let Some(path_2) = &entry.path_2 {
+        path_2_offset = f.pos()? - entry_pos;
+        f.write_cstring(path_2, 16)?;
+    };
+
+    let sprite_offsets = entry.sprites.iter().map(|(_, sprite)| {
+        let sprite_offset = f.pos()? - entry_pos;
+        write_sprite(f, sprite)?;
+        Ok(sprite_offset)
+    }).collect::<WriteResult<Vec<_>>>()?;
+
+    let script_ids_and_offsets = entry.scripts.iter().map(|(_, script)| {
+        let script_offset = f.pos()? - entry_pos;
+        for instr in &script.instrs {
+            instr_format.write_instr(f, instr)?;
+        }
+        instr_format.write_terminal_instr(f)?;
+        Ok((script.id, script_offset))
+    }).collect::<WriteResult<Vec<_>>>()?;
+
+    let mut texture_offset = 0;
+    if let Some(texture) = &entry.texture {
+        texture_offset = f.pos()? - entry_pos;
+        write_texture(f, texture)?;
+    };
+
+    let end_pos = f.pos()?;
+
+    f.seek_to(entry_pos + file_format.offset_to_thtx_offset())?;
+    f.write_u32(texture_offset as _)?;
+
+    f.seek_to(entry_pos + file_format.offset_to_path_offset())?;
+    f.write_u32(path_offset as _)?;
+
+    if let Some(offset_to_path_2_offset) = file_format.offset_to_path_2_offset() {
+        f.seek_to(entry_pos + offset_to_path_2_offset)?;
+        f.write_u32(path_2_offset as _)?;
+    }
+
+    f.seek_to(sprite_offsets_pos)?;
+    for sprite_offset in sprite_offsets {
+        f.write_u32(sprite_offset as _)?;
+    }
+
+    f.seek_to(script_headers_pos)?;
+    for (script_id, script_offset) in script_ids_and_offsets {
+        f.write_u32(script_id as _)?;
+        f.write_u32(script_offset as _)?;
+    }
+
+    f.seek_to(end_pos)?;
+    Ok(())
+}
+
 pub fn read_sprite(f: &mut dyn BinRead) -> ReadResult<Sprite> {
     Ok(Sprite {
         id: f.read_u32()?,
-        offset: [f.read_f32()?, f.read_f32()?],
-        size: [f.read_f32()?, f.read_f32()?],
+        offset: f.read_f32s_2()?,
+        size: f.read_f32s_2()?,
     })
+}
+
+pub fn write_sprite(f: &mut dyn BinWrite, sprite: &Sprite) -> WriteResult {
+    f.write_u32(sprite.id as _)?;
+    f.write_f32s(&sprite.offset)?;
+    f.write_f32s(&sprite.size)
 }
 
 pub fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
@@ -396,10 +506,22 @@ pub fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
     Ok(Texture { thtx, data })
 }
 
+pub fn write_texture(f: &mut dyn BinWrite, texture: &Texture) -> WriteResult {
+    f.write_all(b"THTX")?;
+
+    f.write_u16(0)?;
+    f.write_u16(texture.thtx.format as _)?;
+    f.write_u16(texture.thtx.width as _)?;
+    f.write_u16(texture.thtx.height as _)?;
+    f.write_u32(texture.data.len() as _)?;
+    f.write_all(&texture.data)?;
+    Ok(())
+}
+
 // =============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Version { V0, V2, V3, V4, V7, V8 }
+enum Version { V0 = 0, V2 = 2, V3 = 3, V4 = 4, V7 = 7, V8 = 8 }
 impl Version {
     fn from_game(game: Game) -> Self {
         use Game::*;
@@ -413,7 +535,7 @@ impl Version {
         }
     }
 
-    fn is_new_header(self) -> bool { self >= Version::V7 }
+    fn is_old_header(self) -> bool { self < Version::V7 }
     fn has_vars(self) -> bool { self >= Version::V2 }
 }
 
@@ -421,6 +543,7 @@ fn game_format(game: Game) -> FileFormat {
     FileFormat { version: Version::from_game(game) }
 }
 
+/// Type responsible for dealing with version differences in the format.
 struct FileFormat { version: Version }
 struct InstrFormat06;
 struct InstrFormat07;
@@ -439,36 +562,7 @@ impl FileFormat {
             };
         }
 
-        if self.version.is_new_header() {
-            // new format
-            let version = f.read_u32()? as _;
-            let num_sprites = f.read_u16()? as _;
-            let num_scripts = f.read_u16()? as _;
-            warn_if_nonzero!("rt_textureslot", f.read_u16()?);
-            let width = f.read_u16()? as _;
-            let height = f.read_u16()? as _;
-            let format = f.read_u16()? as _;
-            let name_offset = f.read_u32()? as _;
-            let offset_x = f.read_u16()? as _;
-            let offset_y = f.read_u16()? as _;
-            let memory_priority = f.read_u32()? as _;
-            let thtx_offset = NonZeroUsize::new(f.read_u32()? as _);
-            let has_data = f.read_u16()? as _;
-            let low_res_scale = f.read_u16()? as _;
-            let next_offset = f.read_u32()? as _;
-
-            for _ in 0..6 {  // header gets padded to 16 dwords
-                warn_if_nonzero!("header padding", f.read_u32()?);
-            }
-            Ok(EntryHeaderData {
-                version, num_sprites, num_scripts,
-                width, height, format, name_offset,
-                offset_x, offset_y, low_res_scale, next_offset,
-                memory_priority, thtx_offset, has_data,
-                secondary_name_offset: None,
-                colorkey: 0,
-            })
-        } else {
+        if self.version.is_old_header() {
             // old format
             let num_sprites = f.read_u32()? as _;
             let num_scripts = f.read_u32()? as _;
@@ -494,9 +588,101 @@ impl FileFormat {
                 next_offset, secondary_name_offset, colorkey,
                 memory_priority, thtx_offset, has_data,
                 offset_x: 0, offset_y: 0, low_res_scale: 0,
+            })
 
+        } else {
+            // new format
+            let version = f.read_u32()? as _;
+            let num_sprites = f.read_u16()? as _;
+            let num_scripts = f.read_u16()? as _;
+            warn_if_nonzero!("rt_textureslot", f.read_u16()?);
+            let width = f.read_u16()? as _;
+            let height = f.read_u16()? as _;
+            let format = f.read_u16()? as _;
+            let name_offset = f.read_u32()? as _;
+            let offset_x = f.read_u16()? as _;
+            let offset_y = f.read_u16()? as _;
+            let memory_priority = f.read_u32()? as _;
+            let thtx_offset = NonZeroUsize::new(f.read_u32()? as _);
+            let has_data = f.read_u16()? as _;
+            let low_res_scale = f.read_u16()? as _;
+            let next_offset = f.read_u32()? as _;
+
+            for _ in 0..6 {  // header gets padded to 16 dwords
+            warn_if_nonzero!("header padding", f.read_u32()?);
+            }
+            Ok(EntryHeaderData {
+                version, num_sprites, num_scripts,
+                width, height, format, name_offset,
+                offset_x, offset_y, low_res_scale, next_offset,
+                memory_priority, thtx_offset, has_data,
+                secondary_name_offset: None,
+                colorkey: 0,
             })
         }
+    }
+
+    fn write_header(&self, f: &mut dyn BinWrite, header: &EntryHeaderData) -> WriteResult {
+        if self.version.is_old_header() {
+            // old format
+            f.write_u32(header.num_sprites as _)?;
+            f.write_u32(header.num_scripts as _)?;
+            f.write_u32(0)?;
+            f.write_u32(header.width as _)?;
+            f.write_u32(header.height as _)?;
+            f.write_u32(header.format as _)?;
+            f.write_u32(header.colorkey as _)?;
+            f.write_u32(header.name_offset as _)?;
+            f.write_u32(0)?;
+            f.write_u32(header.secondary_name_offset.map(NonZeroUsize::get).unwrap_or(0) as _)?;
+            f.write_u32(header.version)?;
+            f.write_u32(header.memory_priority)?;
+            f.write_u32(header.thtx_offset.map(NonZeroUsize::get).unwrap_or(0) as _)?;
+            f.write_u16(header.has_data as _)?;
+            f.write_u16(0)?;
+            f.write_u32(header.next_offset)?;
+            f.write_u32(0)?;
+
+        } else {
+            // new format
+            f.write_u32(header.version as _)?;
+            f.write_u16(header.num_sprites as _)?;
+            f.write_u16(header.num_scripts as _)?;
+            f.write_u16(0)?;
+            f.write_u16(header.width as _)?;
+            f.write_u16(header.height as _)?;
+            f.write_u16(header.format as _)?;
+            f.write_u32(header.name_offset as _)?;
+            f.write_u16(header.offset_x as _)?;
+            f.write_u16(header.offset_y as _)?;
+            f.write_u32(header.memory_priority as _)?;
+            f.write_u32(header.thtx_offset.map(NonZeroUsize::get).unwrap_or(0) as _)?;
+            f.write_u16(header.has_data as _)?;
+            f.write_u16(header.low_res_scale as _)?;
+            f.write_u32(header.next_offset as _)?;
+            f.write_u32s(&[0; 6])?;
+        }
+        Ok(())
+    }
+
+    /// Offset into entry of the `next_offset` field.
+    fn offset_to_next_offset(&self) -> u64 {
+        if self.version.is_old_header() { 0x38 } else { 0x24 }
+    }
+
+    /// Offset into entry of the `name_offset` field.
+    fn offset_to_path_offset(&self) -> u64 {
+        if self.version.is_old_header() { 0x1c } else { 0x10 }
+    }
+
+    /// Offset into entry of the `name_offset` field.
+    fn offset_to_path_2_offset(&self) -> Option<u64> {
+        if self.version.is_old_header() { Some(0x24) } else { None }
+    }
+
+    /// Offset into entry of the `thtx_offset` field.
+    fn offset_to_thtx_offset(&self) -> u64 {
+        if self.version.is_old_header() { 0x30 } else { 0x1c }
     }
 
     fn instr_format(&self) -> &dyn InstrFormat {

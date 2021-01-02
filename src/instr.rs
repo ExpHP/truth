@@ -470,7 +470,7 @@ pub trait InstrFormat {
     ///
     /// Unlike most formats, TH06 doesn't have a marker for the end of a script.
     /// Instead, either of the opcodes that "return" mark the end of the script.
-    fn is_th06_anm_terminating_instr(&self, instr: &Instr) -> bool { false }
+    fn is_th06_anm_terminating_instr(&self, _instr: &Instr) -> bool { false }
 
     /// Opcode of an instruction to automatically insert at the end of a function.
     /// E.g. `delete` for ANM and `return` for ECL.

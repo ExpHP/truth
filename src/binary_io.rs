@@ -66,6 +66,20 @@ pub trait BinWrite: Write + Seek {
     fn write_u32(&mut self, x: u32) -> WriteResult { WriteBytesExt::write_u32::<Le>(self, x).map_err(Into::into) }
     fn write_f32(&mut self, x: f32) -> WriteResult { WriteBytesExt::write_f32::<Le>(self, x).map_err(Into::into) }
 
+    /// Writes a null-separated string, padding it to a multiple of the given `block_size`.
+    fn write_cstring(&mut self, s: &[u8], block_size: usize) -> WriteResult<()> {
+        self.write_all(s)?;
+        self.write_u8(0)?;
+        let remainder = (s.len() + 1) % block_size;
+        if remainder != 0 {
+            self.write_all(&vec![0; block_size - remainder])?;
+        }
+        Ok(())
+    }
+
+    fn write_u32s(&mut self, xs: &[u32]) -> WriteResult {
+        xs.iter().copied().map(|x| self.write_u32(x)).collect()
+    }
     fn write_f32s(&mut self, xs: &[f32]) -> WriteResult {
         xs.iter().copied().map(|x| self.write_f32(x)).collect()
     }
@@ -80,3 +94,20 @@ pub trait BinWrite: Write + Seek {
 
 impl<R: Read> BinRead for R {}
 impl<R: Write + Seek> BinWrite for R {}
+
+
+#[test]
+fn test_write_cstring() {
+    fn check(block_size: usize, s: &[u8]) -> Vec<u8> {
+        let mut w = std::io::Cursor::new(vec![]);
+        w.write_cstring(s, block_size).unwrap();
+        w.into_inner()
+    }
+
+    assert_eq!(check(4, &[]), vec![0, 0, 0, 0]);
+    assert_eq!(check(4, &[1]), vec![1, 0, 0, 0]);
+    assert_eq!(check(4, &[1, 2]), vec![1, 2, 0, 0]);
+    assert_eq!(check(4, &[1, 2, 3]), vec![1, 2, 3, 0]);
+    assert_eq!(check(4, &[1, 2, 3, 4]), vec![1, 2, 3, 4, 0, 0, 0, 0]);
+    assert_eq!(check(4, &[1, 2, 3, 4, 5]), vec![1, 2, 3, 4, 5, 0, 0, 0]);
+}
