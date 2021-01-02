@@ -201,6 +201,12 @@ impl<'a> ParseObject<'a> {
         }
     }
 
+    /// Mark a field as valid without attempting to parse it.
+    pub fn allow_field(&mut self, field: &'static str) -> Result<(), FromMetaError<'a>> {
+        self.valid_fields.insert(field);
+        Ok(())
+    }
+
     pub fn expect_field<T: FromMeta>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
         self.get_field(field)?.ok_or(FromMetaError::MissingField { fields: &self.map, missing: field })
     }

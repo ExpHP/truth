@@ -92,8 +92,18 @@ pub fn lower_sub_ast_to_instrs(
 ) -> Result<Vec<Instr>, CompileError> {
     let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
 
+    let mut th06_anm_end_span = None;
     let mut out = vec![];
     code.iter().map(|stmt| {
+        if let Some(end) = th06_anm_end_span {
+            if !matches!(&stmt.body.value, ast::StmtBody::NoInstruction) { return Err(error!(
+                message("statement after end of script"),
+                primary(&stmt.body, "forbidden statement"),
+                secondary(&end, "marks the end of the script"),
+                note("In EoSD ANM, every script must have a single exit point (opcode 0 or 15), as the final instruction."),
+            ))}
+        }
+
         for label in &stmt.labels {
             match &label.value {
                 ast::StmtLabel::Label(ident) => out.push(InstrOrLabel::Label(ident.clone())),
@@ -144,11 +154,16 @@ pub fn lower_sub_ast_to_instrs(
                         ));
                     }
 
-                    out.push(InstrOrLabel::Instr(Instr {
+                    let instr = Instr {
                         time: stmt.time,
                         opcode: opcode as _,
                         args: lower_args(func, args, &encodings, ty_ctx)?,
-                    }));
+                    };
+                    if format.is_th06_anm_terminating_instr(&instr) {
+                        th06_anm_end_span = Some(func);
+                    }
+
+                    out.push(InstrOrLabel::Instr(instr));
                 },
                 _ => return Err(unsupported(&expr.span)),
             }, // match expr
@@ -429,6 +444,10 @@ pub enum IntrinsicInstrKind {
     // Push(ScalarType),
 }
 
+// TODO: * recompile ANM
+// TODO: * TH06: Error on instruction after delete/static
+// TODO: * TH06: Implicit delete
+
 pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction.
     fn instr_size(&self, instr: &Instr) -> usize;
@@ -452,6 +471,12 @@ pub trait InstrFormat {
     /// Unlike most formats, TH06 doesn't have a marker for the end of a script.
     /// Instead, either of the opcodes that "return" mark the end of the script.
     fn is_th06_anm_terminating_instr(&self, instr: &Instr) -> bool { false }
+
+    /// Opcode of an instruction to automatically insert at the end of a function.
+    /// E.g. `delete` for ANM and `return` for ECL.
+    ///
+    ///
+    fn implicit_end_instruction(&self) -> Option<u32> { None }
 
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the

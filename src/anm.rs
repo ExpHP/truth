@@ -2,7 +2,7 @@ use std::fmt;
 use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
 
-use crate::error::{CompileError};
+use crate::error::{CompileError, GatherErrorIteratorExt};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
@@ -11,15 +11,21 @@ use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 use crate::instr::{self, Instr, InstrFormat, IntrinsicInstrKind};
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult, bail};
+use std::num::NonZeroUsize;
 
 // =============================================================================
 
 #[derive(Debug, Clone)]
+pub struct AnmFile {
+    pub entries: Vec<Entry>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Entry {
     pub specs: EntrySpecs,
-    pub texture: Texture,
+    pub texture: Option<Texture>,
     pub path: BString,
-    pub eosd_name_2: Option<BString>, // idfk
+    pub path_2: Option<BString>,
     pub scripts: IndexMap<Sp<Ident>, Script>,
     pub sprites: IndexMap<Sp<Ident>, Sprite>,
 }
@@ -61,14 +67,42 @@ impl Entry {
             .field("low_res_scale", low_res_scale)
             .field("has_data", has_data)
             .field("path", &self.path)
-            .field("thtx_format", &self.texture.thtx.format)
-            .field("thtx_width", &self.texture.thtx.width)
-            .field("thtx_height", &self.texture.thtx.height)
-            .with_mut(|b| if let Some(s) = &self.eosd_name_2 {
-                b.field("eosd_name_2", s);
+            .with_mut(|b| if let Some(texture) = &self.texture {
+                b.field("thtx_format", &texture.thtx.format);
+                b.field("thtx_width", &texture.thtx.width);
+                b.field("thtx_height", &texture.thtx.height);
             })
+            .opt_field("path_2", self.path_2.as_ref())
             .field("sprites", &self.sprites)
             .build_fields()
+    }
+
+    fn from_fields(fields: &Sp<meta::Fields>) -> Result<Self, FromMetaError<'_>> {
+        meta::ParseObject::scope(fields, |m| {
+            let format = m.expect_field("format")?;
+            let width = m.expect_field("width")?;
+            let height = m.expect_field("height")?;
+            let colorkey = m.expect_field("colorkey")?;
+            let offset_x = m.expect_field("offset_x")?;
+            let offset_y = m.expect_field("offset_y")?;
+            let memory_priority = m.expect_field("memory_priority")?;
+            let low_res_scale = m.expect_field("low_res_scale")?;
+            let has_data = m.expect_field("has_data")?;
+            let path = m.expect_field("path")?;
+            let path_2 = m.get_field("path_2")?;
+            let texture = None;
+            m.allow_field("thtx_format")?;
+            m.allow_field("thtx_width")?;
+            m.allow_field("thtx_height")?;
+            let sprites = m.expect_field("sprites")?;
+
+            let specs = EntrySpecs {
+                width, height, format, colorkey, offset_x, offset_y,
+                memory_priority, has_data, low_res_scale,
+            };
+            let scripts = Default::default();
+            Ok(Entry { specs, texture, path, path_2, scripts, sprites })
+        })
     }
 }
 
@@ -114,6 +148,16 @@ impl ToMeta for Sprite {
     }
 }
 
+impl FromMeta for Sprite {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        meta.parse_object(|m| Ok(Sprite {
+            id: m.expect_field("id")?,
+            offset: [m.expect_field("x")?, m.expect_field("y")?],
+            size: [m.expect_field("w")?, m.expect_field("h")?],
+        }))
+    }
+}
+
 // =============================================================================
 
 pub fn decompile(game: Game, entries: &[Entry], ty_ctx: &TypeSystem) -> ast::Script {
@@ -147,6 +191,74 @@ pub fn decompile(game: Game, entries: &[Entry], ty_ctx: &TypeSystem) -> ast::Scr
     out
 }
 
+pub fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError> {
+    for (dest_entry, src_entry) in zip!(&mut dest_file.entries, &src_file.entries) {
+        dest_entry.scripts = src_entry.scripts.clone();
+    }
+    if dest_file.entries.len() < src_file.entries.len() {
+        dest_file.entries.extend(src_file.entries[src_file.entries.len()..].iter().cloned())
+    }
+    Ok(())
+}
+
+pub fn compile(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Vec<Entry>, CompileError> {
+    let format = game_format(game);
+    let instr_format = format.instr_format();
+
+    // group scripts by entry
+    let mut groups = vec![];
+    let mut cur_entry = None;
+    let mut cur_group = vec![];
+    for item in &ast.items {
+        match &item.value {
+            ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => {
+                if let Some(prev_entry) = cur_entry.take() {
+                    groups.push((prev_entry, cur_group));
+                }
+                cur_entry = Some(fields);
+                cur_group = vec![];
+            },
+            &ast::Item::AnmScript { number, ref name, ref code } => {
+                if cur_entry.is_none() { return Err(error!(
+                    message("orphaned ANM script with no entry"),
+                    primary(item, "orphaned script"),
+                    note("at least one `entry` must come before scripts in an ANM file"),
+                ))}
+                cur_group.push((number, name, code));
+            },
+            _ => return Err(error!(
+                message("feature not supported by format"),
+                primary(item, "not supported by ANM files"),
+            )),
+        }
+    }
+
+    let mut next_auto_id = 0;
+    groups.into_iter().map(|(entry_fields, ast_scripts)| {
+        let mut entry = Entry::from_fields(entry_fields)?;
+        for (given_number, name, code) in ast_scripts {
+            let id = given_number.map(|sp| sp.value).unwrap_or(next_auto_id);
+            next_auto_id = id + 1;
+
+            match entry.scripts.entry(name.clone()) {
+                indexmap::map::Entry::Vacant(e) => {
+                    let instrs = instr::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
+                    e.insert(Script { id, instrs });
+                },
+                indexmap::map::Entry::Occupied(e) => {
+                    let old = e.key();
+                    return Err(error!{
+                        message("duplicate script '{}'", name),
+                        primary(name, "redefined here"),
+                        secondary(old, "originally defined here"),
+                    });
+                },
+            }
+        }
+        Ok(entry)
+    }).collect_with_recovery()
+}
+
 // =============================================================================
 
 #[derive(Debug, Clone)]
@@ -158,12 +270,12 @@ struct EntryHeaderData {
     height: u32,
     format: u32,
     name_offset: usize,
-    secondary_name_offset: Option<usize>, // EoSD only?
+    secondary_name_offset: Option<NonZeroUsize>, // EoSD only?
     colorkey: u32, // Only in old format
     offset_x: u32,
     offset_y: u32,
     memory_priority: u32,
-    thtx_offset: usize,
+    thtx_offset: Option<NonZeroUsize>,
     has_data: u32,
     low_res_scale: u32,
     next_offset: u32,
@@ -181,7 +293,6 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
 
         // 64 byte header regardless of version
         let header_data = format.read_header(&mut f)?;
-        eprintln!("{:?}", header_data);
         if header_data.has_data != header_data.has_data % 2 {
             fast_warning!("non-boolean value found for 'has_data': {}", header_data.has_data);
         }
@@ -193,13 +304,11 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
         let script_ids_and_offsets = (0..header_data.num_scripts).map(|_| {
             Ok((f.read_i32()?, f.read_u32()? as usize))
         }).collect::<ReadResult<Vec<_>>>()?;
-        eprintln!("{:?}", sprite_offsets);
-        eprintln!("{:?}", script_ids_and_offsets);
 
         let path = (&entry_bytes[header_data.name_offset..]).read_cstring(16)?;
-        let eosd_name_2 = {
+        let path_2 = {
             header_data.secondary_name_offset
-                .map(|x| (&entry_bytes[x..]).read_cstring(16)).transpose()?
+                .map(|x| (&entry_bytes[x.get()..]).read_cstring(16)).transpose()?
         };
 
         let sprites = sprite_offsets.iter().map(|&offset| {
@@ -211,8 +320,6 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
 
         let scripts = script_ids_and_offsets.iter().map(|&(id, offset)| {
             let key = Sp::null(auto_script_name(next_script_index));
-            eprintln!("script {}", next_script_index);
-
             let mut f = &entry_bytes[offset..];
             let mut instrs = vec![];
             while let Some(instr) = instr_format.read_instr(&mut f)? {
@@ -227,7 +334,15 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
             Ok((key, Script { id, instrs }))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
-        let texture = read_texture(&mut &entry_bytes[header_data.thtx_offset..])?;
+        let expect_no_texture = header_data.has_data == 0 || path.starts_with(b"@");
+        if expect_no_texture != header_data.thtx_offset.is_none() {
+            bail!("inconsistency between thtx_offset and has_data/name");
+        }
+
+        let texture = match header_data.thtx_offset {
+            None => None,
+            Some(n) => Some(read_texture(&mut &entry_bytes[n.get()..])?),
+        };
         let specs = EntrySpecs {
             width: header_data.width, height: header_data.height,
             format: header_data.format, colorkey: header_data.colorkey,
@@ -237,7 +352,7 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<Vec<Entry>> {
             low_res_scale: header_data.low_res_scale != 0,
         };
 
-        out.push(Entry { texture, specs, path, eosd_name_2, sprites, scripts });
+        out.push(Entry { texture, specs, path, path_2, sprites, scripts });
 
         if header_data.next_offset == 0 {
             break;
@@ -315,31 +430,35 @@ impl InstrFormat07 { const HEADER_SIZE: usize = 8; }
 
 impl FileFormat {
     fn read_header(&self, f: &mut dyn BinRead) -> ReadResult<EntryHeaderData> {
+        macro_rules! warn_if_nonzero {
+            ($name:literal, $expr:expr) => {
+                match $expr {
+                    0 => {},
+                    x => fast_warning!("nonzero {} will be lost (value: {})", $name, x),
+                }
+            };
+        }
+
         if self.version.is_new_header() {
             // new format
-            let version = f.read_u32()?;
-            let num_sprites = f.read_u16()? as u32;
-            let num_scripts = f.read_u16()? as u32;
-            let rt_textureslot = f.read_u16()? as u32;
-            let width = f.read_u16()? as u32;
-            let height = f.read_u16()? as u32;
-            let format = f.read_u16()? as u32;
-            let name_offset = f.read_u32()? as usize;
-            let offset_x = f.read_u16()? as u32;
-            let offset_y = f.read_u16()? as u32;
-            let memory_priority = f.read_u32()?;
-            let thtx_offset = f.read_u32()? as usize;
-            let has_data = f.read_u16()? as u32;
-            let low_res_scale = f.read_u16()? as u32;
-            let next_offset = f.read_u32()?;
+            let version = f.read_u32()? as _;
+            let num_sprites = f.read_u16()? as _;
+            let num_scripts = f.read_u16()? as _;
+            warn_if_nonzero!("rt_textureslot", f.read_u16()?);
+            let width = f.read_u16()? as _;
+            let height = f.read_u16()? as _;
+            let format = f.read_u16()? as _;
+            let name_offset = f.read_u32()? as _;
+            let offset_x = f.read_u16()? as _;
+            let offset_y = f.read_u16()? as _;
+            let memory_priority = f.read_u32()? as _;
+            let thtx_offset = NonZeroUsize::new(f.read_u32()? as _);
+            let has_data = f.read_u16()? as _;
+            let low_res_scale = f.read_u16()? as _;
+            let next_offset = f.read_u32()? as _;
 
             for _ in 0..6 {  // header gets padded to 16 dwords
-                if f.read_u32()? != 0 {
-                    fast_warning!("nonzero data in header padding will be lost")
-                }
-            }
-            if rt_textureslot != 0 {
-                fast_warning!("nonzero rt_textureslot will be lost (value: {})", rt_textureslot);
+                warn_if_nonzero!("header padding", f.read_u32()?);
             }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
@@ -351,28 +470,24 @@ impl FileFormat {
             })
         } else {
             // old format
-            let num_sprites = f.read_u32()?;
-            let num_scripts = f.read_u32()?;
-            let rt_textureslot = f.read_u32()?;
-            let width = f.read_u32()?;
-            let height = f.read_u32()?;
-            let format = f.read_u32()?;
-            let colorkey = f.read_u32()?;
-            let name_offset = f.read_u32()? as usize;
-            let unused_1 = f.read_u32()?;
-            let secondary_name_offset = Some(f.read_u32()? as usize);
-            let version = f.read_u32()?;
-            let memory_priority = f.read_u32()?;
-            let thtx_offset = f.read_u32()? as usize;
-            let has_data = f.read_u16()? as u32;
-            let unused_2 = f.read_u16()? as u32;
-            let next_offset = f.read_u32()?;
-            let unused_3 = f.read_u32()?;
+            let num_sprites = f.read_u32()? as _;
+            let num_scripts = f.read_u32()? as _;
+            warn_if_nonzero!("rt_textureslot", f.read_u32()?);
+            let width = f.read_u32()? as _;
+            let height = f.read_u32()? as _;
+            let format = f.read_u32()? as _;
+            let colorkey = f.read_u32()? as _;
+            let name_offset = f.read_u32()? as _;
+            warn_if_nonzero!("unused_1", f.read_u32()?);
+            let secondary_name_offset = NonZeroUsize::new(f.read_u32()? as _);
+            let version = f.read_u32()? as _;
+            let memory_priority = f.read_u32()? as _;
+            let thtx_offset = NonZeroUsize::new(f.read_u32()? as _) as _;
+            let has_data = f.read_u16()? as _;
+            warn_if_nonzero!("unused_2", f.read_u16()?);
+            let next_offset = f.read_u32()? as _;
+            warn_if_nonzero!("unused_3", f.read_u32()?);
 
-            if rt_textureslot != 0 { fast_warning!("nonzero rt_textureslot will be lost (value: {})", rt_textureslot); }
-            if unused_1 != 0 { fast_warning!("nonzero unused_1 will be lost (value: {})", unused_1); }
-            if unused_2 != 0 { fast_warning!("nonzero unused_2 will be lost (value: {})", unused_2); }
-            if unused_3 != 0 { fast_warning!("nonzero unused_3 will be lost (value: {})", unused_3); }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
                 width, height, format, name_offset,
@@ -425,7 +540,7 @@ impl InstrFormat for InstrFormat06 {
         instr.opcode == 0 || instr.opcode == 15
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult { Ok(()) }
+    fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { Ok(()) }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
 }

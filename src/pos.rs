@@ -12,6 +12,17 @@ pub use codespan::{ByteIndex as BytePos, ByteOffset, RawIndex, RawOffset};
 
 pub type Files = NonUtf8Files;
 
+#[macro_export]
+macro_rules! sp {
+    ($span:expr => $expr:expr) => { $crate::Sp { span: $span, value: $expr } };
+    ($expr:expr) => { $crate::Sp { span: Span::default(), value: $expr } };
+}
+#[macro_export]
+macro_rules! sp_pat {
+    ($span:pat => $pat:pat) => { $crate::Sp { span: $span, value: $pat } };
+    ($pat:pat) => { $crate::Sp { value: $pat, span: _ } };
+}
+
 /// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
 #[derive(Debug, Clone)]
 pub struct NonUtf8Files {
