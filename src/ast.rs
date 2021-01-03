@@ -160,7 +160,7 @@ pub enum StmtBody {
     Expr(Sp<Expr>),
     Assignment {
         var: Sp<Var>,
-        op: AssignOpKind,
+        op: Sp<AssignOpKind>,
         value: Sp<Expr>,
     },
     Declaration {

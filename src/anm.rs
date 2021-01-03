@@ -215,12 +215,12 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> as
 }
 
 fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError> {
-    let dest = dest_file.entries.last().unwrap();
-    eprintln!("{:?}", dest.scripts.len());
-    eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
-    let dest = src_file.entries.last().unwrap();
-    eprintln!("{:?}", dest.scripts.len());
-    eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
+    // let dest = dest_file.entries.last().unwrap();
+    // eprintln!("{:?}", dest.scripts.len());
+    // eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
+    // let dest = src_file.entries.last().unwrap();
+    // eprintln!("{:?}", dest.scripts.len());
+    // eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
 
     for (dest_entry, src_entry) in zip!(&mut dest_file.entries, &src_file.entries) {
         dest_entry.scripts = src_entry.scripts.clone();

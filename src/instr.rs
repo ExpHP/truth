@@ -54,7 +54,7 @@ impl InstrArg {
     }
 
     #[track_caller]
-    pub fn to_var_or_err(&self) -> RawArg {
+    pub fn expect_var(&self) -> RawArg {
         match *self {
             InstrArg::Raw(x) => x,
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
@@ -146,6 +146,10 @@ pub fn lower_sub_ast_to_instrs(
                 }));
             },
 
+            ast::StmtBody::Assignment { var, op, value } => {
+                out.push(lower_assignment_stmt(stmt, var, op, value, &intrinsic_opcodes, ty_ctx)?);
+            },
+
             ast::StmtBody::Expr(expr) => match &expr.value {
                 ast::Expr::Call { func, args } => {
                     let opcode = match ty_ctx.resolve_func_aliases(func).as_ins() {
@@ -199,6 +203,59 @@ pub fn lower_sub_ast_to_instrs(
     }).collect())
 }
 
+/// Looks at a statement of the form `a = <expr>;` and tries to produce an instruction from it.
+///
+/// Only handles simple operands, e.g. `a = b + 3;` and not `a = (b + 1) + 3;`. Things like the latter are expected
+/// to have already been converted into another form if the format supports them.
+fn lower_assignment_stmt(
+    stmt: &ast::Stmt,
+    var: &Sp<ast::Var>,
+    assign_op: &Sp<ast::AssignOpKind>,
+    rhs: &Sp<ast::Expr>,
+    intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
+    ty_ctx: &TypeSystem,
+) -> Result<InstrOrLabel, CompileError>{
+    use IntrinsicInstrKind as IKind;
+
+    let get_opcode = |intrinsic, descr| -> Result<u16, CompileError> {
+        match intrinsic_opcodes.get(&intrinsic) {
+            Some(&opcode) => Ok(opcode),
+            None => Err(error!(
+                message("feature not supported by format"),
+                primary(stmt.body, "{} not supported in this game", descr),
+            )),
+        }
+    };
+
+    match (assign_op.value, &rhs.value) {
+        (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
+            let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
+            let (arg_a, ty_a) = lower_simple_arg(a, ty_ctx)?;
+            let (arg_b, ty_b) = lower_simple_arg(b, ty_ctx)?;
+            let ty_rhs = ty_a.check_same(ty_b, binop.span, (a.span, b.span))?;
+            let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
+
+            Ok(InstrOrLabel::Instr(Instr {
+                time: stmt.time,
+                opcode: get_opcode(IKind::Binop(binop.value, ty), "assignment of this binary operation")?,
+                args: vec![arg_var, arg_a, arg_b],
+            }))
+        },
+
+        (_, _) => {
+            let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
+            let (arg_rhs, ty_rhs) = lower_simple_arg(rhs, ty_ctx)?;
+            let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
+
+            Ok(InstrOrLabel::Instr(Instr {
+                time: stmt.time,
+                opcode: get_opcode(IKind::AssignOp(ast::AssignOpKind::Assign, ty), "simple variable assignment")?,
+                args: vec![arg_var, arg_rhs],
+            }))
+        },
+    }
+}
+
 fn lower_args(
     func: &Sp<Ident>,
     args: &[Sp<Expr>],
@@ -228,21 +285,25 @@ fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<(InstrAr
     match arg.value {
         ast::Expr::LitInt { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Int)),
         ast::Expr::LitFloat { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Float)),
-        ast::Expr::Var(ref var) => match (ty_ctx.gvar_id(var), ty_ctx.var_type(var)) {
-            (Some(opcode), Some(ty)) => {
-                let lowered = InstrArg::Raw(RawArg::from_global_var(opcode, ty));
-                Ok((lowered, ty))
-            },
-            (None, _) =>  return Err(error!(
-                message("unrecognized global variable"),
-                primary(var, "not a known global"),
-            )),
-            (Some(_), None) => return Err(error!(
-                message("variable requires a type prefix"),
-                primary(var, "needs a '$' or '%' prefix"),
-            )),
-        },
+        ast::Expr::Var(ref var) => lower_var_to_arg(var, ty_ctx),
         _ => Err(unsupported(&arg.span)),
+    }
+}
+
+fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
+    match (ty_ctx.gvar_id(var), ty_ctx.var_type(var)) {
+        (Some(opcode), Some(ty)) => {
+            let lowered = InstrArg::Raw(RawArg::from_global_var(opcode, ty));
+            Ok((lowered, ty))
+        },
+        (None, _) => return Err(error!(
+            message("unrecognized global variable"),
+            primary(var, "not a known global"),
+        )),
+        (Some(_), None) => return Err(error!(
+            message("variable requires a type prefix"),
+            primary(var, "needs a '$' or '%' prefix"),
+        )),
     }
 }
 
@@ -252,101 +313,103 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
             .map(|(a, b)| (b, a)).collect()
     };
 
-    let default_label = |offset: usize| {
-        sp!(format!("label_{}", offset).parse::<Ident>().unwrap())
-    };
-
+    // For now we give every instruction a label and strip the unused ones later.
     let mut offset = 0;
     let code = script.iter().map(|instr| {
-        // For now we give every instruction a label and strip the unused ones later.
-        let this_instr_label = sp!(ast::StmtLabel::Label(default_label(offset)));
+        let this_instr_label = sp!(ast::StmtLabel::Label(default_instr_label(offset)));
         offset += instr_format.instr_size(instr);
 
-        let Instr { time, opcode, args } = instr;
-
-        match opcode_intrinsics.get(&opcode) {
-            Some(IntrinsicInstrKind::Jmp) => {
-                let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
-                assert!(args.len() >= nargs); // FIXME: print proper error
-                assert!(args[nargs..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
-
-                let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
-                let dest_time = match instr_format.jump_has_time_arg() {
-                    true => Some(args[1].expect_raw().bits as i32),
-                    false => None,
-                };
-                return sp!(ast::Stmt {
-                    time: *time,
-                    labels: vec![this_instr_label],
-                    body: sp!(ast::StmtBody::Jump(ast::StmtGoto {
-                        destination: default_label(dest_offset),
-                        time: dest_time,
-                    })),
-                })
-            },
-            Some(IntrinsicInstrKind::InterruptLabel) |
-            Some(IntrinsicInstrKind::AssignOp(_, _)) |
-            Some(IntrinsicInstrKind::Binop(_, _)) |
-            Some(IntrinsicInstrKind::TransOp(_)) |
-            Some(IntrinsicInstrKind::CountJmp) |
-            Some(IntrinsicInstrKind::CondJmp(_, _)) => {
-                // TODO
-            },
-            None => {}, // continue
-        }
-
-        let ins_ident = {
-            ty_ctx.opcode_names.get(&(*opcode as u32)).cloned()
-                .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
-        };
-
+        let body = raise_instr(instr_format, instr, ty_ctx, &opcode_intrinsics);
         sp!(ast::Stmt {
-            time: *time,
+            time: instr.time,
             labels: vec![this_instr_label],
-            body: sp!(ast::StmtBody::Expr(sp!(Expr::Call {
+            body: sp!(body),
+        })
+    }).collect();
+    code
+}
+
+fn default_instr_label(offset: usize) -> Sp<Ident> {
+    sp!(format!("label_{}", offset).parse::<Ident>().unwrap())
+}
+
+fn raise_instr(
+    instr_format: &dyn InstrFormat,
+    instr: &Instr,
+    ty_ctx: &TypeSystem,
+    opcode_intrinsics: &HashMap<u16, IntrinsicInstrKind>,
+) -> ast::StmtBody {
+    let Instr { opcode, ref args, .. } = *instr;
+    match opcode_intrinsics.get(&opcode).copied() {
+        Some(IntrinsicInstrKind::Jmp) => {
+            let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
+
+            // This one is >= because it exists in STD where there can be padding args.
+            assert!(args.len() >= nargs); // FIXME: proper error
+            assert!(args[nargs..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
+
+            let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
+            let dest_time = match instr_format.jump_has_time_arg() {
+                true => Some(args[1].expect_raw().bits as i32),
+                false => None,
+            };
+            return ast::StmtBody::Jump(ast::StmtGoto {
+                destination: default_instr_label(dest_offset),
+                time: dest_time,
+            });
+        },
+
+        Some(IntrinsicInstrKind::AssignOp(op, ty)) => {
+            assert_eq!(args.len(), 2); // FIXME: proper error
+            ast::StmtBody::Assignment {
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)),
+                op: sp!(op),
+                value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)),
+            }
+        },
+        Some(IntrinsicInstrKind::Binop(op, ty)) => {
+            assert_eq!(args.len(), 3); // FIXME: proper error
+            ast::StmtBody::Assignment {
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)),
+                op: sp!(ast::AssignOpKind::Assign),
+                value: sp!(Expr::Binop(
+                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx))),
+                    sp!(op),
+                    Box::new(sp!(raise_arg(&args[2].expect_raw(), ty.default_encoding(), ty_ctx))),
+                )),
+            }
+        },
+        // raising of these not yet implemented
+        Some(IntrinsicInstrKind::TransOp(_)) |
+        Some(IntrinsicInstrKind::CountJmp) |
+        Some(IntrinsicInstrKind::CondJmp(_, _)) |
+        Some(IntrinsicInstrKind::InterruptLabel) |
+        None => {
+            // Default behavior for general instructions
+            let ins_ident = {
+                ty_ctx.opcode_names.get(&(opcode as u32)).cloned()
+                    .unwrap_or_else(|| Ident::new_ins(opcode as u32))
+            };
+
+            ast::StmtBody::Expr(sp!(Expr::Call {
                 args: match ty_ctx.ins_signature(&ins_ident) {
                     Some(siggy) => raise_args(args, siggy, ty_ctx),
                     None => raise_args(args, &Signature::auto(args.len()), ty_ctx),
                 },
                 func: sp!(ins_ident),
-            }))),
-        })
-    }).collect();
-    code
+            }))
+        },
+    }
+
 }
 
 fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Vec<Sp<Expr>> {
     let encodings = siggy.arg_encodings();
 
     // FIXME opcode would be nice
-    assert_eq!(args.len(), encodings.len(), "provided arg count does not match stdmap!"); // FIXME: return Error
-    let mut out = encodings.iter().zip(args).map(|(enc, arg)| {
-        let raw = arg.expect_raw();
-        if raw.is_var {
-            let (ty, id) = match enc {
-                ArgEncoding::Padding |
-                ArgEncoding::Color |
-                ArgEncoding::Dword => (ScalarType::Int, raw.bits as i32),
-                ArgEncoding::Float => {
-                    let float_id = f32::from_bits(raw.bits);
-                    if float_id != f32::round(float_id) {
-                        fast_warning!(
-                            "non-integer float variable [{}] in binary file will be truncated!",
-                            float_id,
-                        );
-                    }
-                    (ScalarType::Float, float_id as i32)
-                },
-            };
-            sp!(Expr::Var(sp!(ty_ctx.gvar_to_ast(id, ty))))
-        } else {
-            match enc {
-                ArgEncoding::Padding |
-                ArgEncoding::Dword => sp!(Expr::from(raw.bits as i32)),
-                ArgEncoding::Color => sp!(Expr::LitInt { value: raw.bits as i32, hex: true }),
-                ArgEncoding::Float => sp!(Expr::from(f32::from_bits(raw.bits))),
-            }
-        }
+    assert_eq!(args.len(), encodings.len(), "provided arg count does not match mapfile!"); // FIXME: return Error
+    let mut out = encodings.iter().zip(args).map(|(&enc, arg)| {
+        sp!(raise_arg(&arg.expect_raw(), enc, ty_ctx))
     }).collect::<Vec<_>>();
 
     // drop early STD padding args from the end as long as they're zero
@@ -358,6 +421,46 @@ fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Vec<
     }
     out
 }
+
+fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &TypeSystem) -> Expr {
+    if raw.is_var {
+        let ty = match enc {
+            ArgEncoding::Padding |
+            ArgEncoding::Color |
+            ArgEncoding::Dword => ScalarType::Int,
+            ArgEncoding::Float => ScalarType::Float,
+        };
+        Expr::Var(sp!(raise_arg_to_var(raw, ty, ty_ctx)))
+    } else {
+        raise_arg_to_literal(raw, enc)
+    }
+}
+
+fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Expr {
+    assert!(!raw.is_var);  // FIXME return error
+    match enc {
+        ArgEncoding::Padding |
+        ArgEncoding::Dword => Expr::from(raw.bits as i32),
+        ArgEncoding::Color => Expr::LitInt { value: raw.bits as i32, hex: true },
+        ArgEncoding::Float => Expr::from(f32::from_bits(raw.bits)),
+    }
+}
+
+fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &TypeSystem) -> ast::Var {
+    assert!(raw.is_var);  // FIXME return error
+    let id = match ty {
+        ScalarType::Int => raw.bits as i32,
+        ScalarType::Float => {
+            let float_id = f32::from_bits(raw.bits);
+            if float_id != f32::round(float_id) {
+                fast_warning!("non-integer float variable [{}] in binary file will be truncated!", float_id);
+            }
+            float_id as i32
+        },
+    };
+    ty_ctx.gvar_to_ast(id, ty)
+}
+
 // =============================================================================
 
 struct RawLabelInfo {

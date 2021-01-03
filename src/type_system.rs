@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use crate::CompileError;
 use crate::ident::Ident;
 use crate::eclmap::Eclmap;
 use crate::ast;
+use crate::pos::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TypeSystem {
@@ -170,9 +172,15 @@ impl Signature {
     }
 }
 
+/// Type of a value that exists at runtime in the script.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarType { Int, Float }
 
+/// Type of an argument to an instruction.
+///
+/// This is a bit more nuanced compared to [`ScalarType`].  Arguments with the same type
+/// may have different encodings based on how they are either stored in the file, or on how they
+/// may be written in a source file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArgEncoding {
     /// Script argument encoded as a 4-byte integer.
@@ -185,4 +193,34 @@ pub enum ArgEncoding {
     Color,
     /// Script argument encoded as a 4-byte float.
     Float,
+}
+
+impl ScalarType {
+    pub fn default_encoding(self) -> ArgEncoding {
+        match self {
+            ScalarType::Int => ArgEncoding::Dword,
+            ScalarType::Float => ArgEncoding::Float,
+        }
+    }
+
+    /// Textual description, e.g. `"an integer"`.
+    pub fn descr(self) -> &'static str {
+        match self {
+            ScalarType::Int => "an integer",
+            ScalarType::Float => "a float",
+        }
+    }
+
+    pub fn check_same(self, other: ScalarType, cause: Span, spans: (Span, Span)) -> Result<ScalarType, CompileError> {
+        if self == other {
+            Ok(self)
+        } else {
+            Err(error!(
+                message("type error"),
+                primary(spans.1, "{}", other.descr()),
+                secondary(cause, "same types required due to this"),
+                secondary(spans.0, "{}", self.descr()),
+            ))
+        }
+    }
 }

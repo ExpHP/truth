@@ -266,7 +266,7 @@ StmtBody: StmtBody = {
     "loop" <block:StmtOrBlock> => StmtBody::Loop { block },
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Sp<Expr>> ";" => StmtBody::Expr(e),
-    <var:Sp<Var>> <op:OpAssign> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
+    <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
     <ty:VarDeclKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
     },
