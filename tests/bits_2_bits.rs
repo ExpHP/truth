@@ -20,7 +20,7 @@ fn bits_to_bits(
     let output = {
         Command::cargo_bin("std-decomp").unwrap()
             .arg("-g").arg(format!("{}", game))
-            .arg("-m").arg(mapfile.as_ref().canonicalize().unwrap())
+            .arg("-m").arg(mapfile.as_ref())
             .arg(infile.as_ref().canonicalize().unwrap())
             .output().expect("failed to execute process")
     };
@@ -40,7 +40,7 @@ fn bits_to_bits(
     assert!({
         Command::cargo_bin("std-compile").unwrap()
             .arg("-g").arg(format!("{}", game))
-            .arg("-m").arg(mapfile.as_ref().canonicalize().unwrap())
+            .arg("-m").arg(mapfile.as_ref())
             .arg(temp.join("test.stdspec"))
             .arg("-o").arg(temp.join("test.std"))
             .status().expect("failed to execute process")

@@ -2,6 +2,8 @@
 source: tests/bits_2_bits.rs
 expression: s
 ---
+#pragma mapfile "map/any.stdm"
+
 meta {
     unknown: 0,
     anm_path: "stage01.anm",
