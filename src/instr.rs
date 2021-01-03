@@ -444,10 +444,6 @@ pub enum IntrinsicInstrKind {
     // Push(ScalarType),
 }
 
-// TODO: * recompile ANM
-// TODO: * TH06: Error on instruction after delete/static
-// TODO: * TH06: Implicit delete
-
 pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction.
     fn instr_size(&self, instr: &Instr) -> usize;
@@ -467,16 +463,7 @@ pub trait InstrFormat {
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
-    ///
-    /// Unlike most formats, TH06 doesn't have a marker for the end of a script.
-    /// Instead, either of the opcodes that "return" mark the end of the script.
     fn is_th06_anm_terminating_instr(&self, _instr: &Instr) -> bool { false }
-
-    /// Opcode of an instruction to automatically insert at the end of a function.
-    /// E.g. `delete` for ANM and `return` for ECL.
-    ///
-    ///
-    fn implicit_end_instruction(&self) -> Option<u32> { None }
 
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the

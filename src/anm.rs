@@ -160,12 +160,12 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-pub fn decompile(game: Game, entries: &[Entry], ty_ctx: &TypeSystem) -> ast::Script {
+pub fn decompile(game: Game, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> ast::Script {
     let format = game_format(game);
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    for entry in entries {
+    for entry in &anm_file.entries {
         items.push(Sp::null(ast::Item::Meta {
             keyword: Sp::null(ast::MetaKeyword::Entry),
             name: None,
@@ -325,13 +325,9 @@ pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> {
             let key = Sp::null(auto_script_name(next_script_index));
             let mut f = &entry_bytes[offset..];
             let mut instrs = vec![];
-            while let Some(instr) = instr_format.read_instr(&mut f)? {
-                let is_early_terminator = instr_format.is_th06_anm_terminating_instr(&instr);
 
+            while let Some(instr) = instr_format.read_instr(&mut f)? {
                 instrs.push(instr);
-                if is_early_terminator {
-                    break; // can't wait for read_instr to return None; it never does in TH06
-                }
             }
             next_script_index += 1;
             Ok((key, Script { id, instrs }))
@@ -706,6 +702,9 @@ impl InstrFormat for InstrFormat06 {
         let time = f.read_i16()? as i32;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
+        if (time, opcode, argsize) == (0, 0, 0) {
+            return Ok(None);
+        }
 
         let args = instr::read_dword_args_upto_size(f, argsize, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
@@ -727,7 +726,9 @@ impl InstrFormat for InstrFormat06 {
         instr.opcode == 0 || instr.opcode == 15
     }
 
-    fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { Ok(()) }
+    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
+        f.write_u32(0)
+    }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
 }
@@ -762,8 +763,10 @@ impl InstrFormat for InstrFormat07 {
     }
 
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
-        f.write_i32(-1)?;
-        f.write_i32(-1)
+        f.write_i16(-1)?;
+        f.write_u16(0)?;
+        f.write_u16(0)?;
+        f.write_u16(0)
     }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
