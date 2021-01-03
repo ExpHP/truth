@@ -585,13 +585,18 @@ impl Version {
 }
 
 fn game_format(game: Game) -> FileFormat {
-    FileFormat { version: Version::from_game(game) }
+    let version = Version::from_game(game);
+    let instr_format: Box<dyn InstrFormat> = match version.has_vars() {
+        true => Box::new(InstrFormat07 { version }),
+        false => Box::new(InstrFormat06),
+    };
+    FileFormat { version, instr_format }
 }
 
 /// Type responsible for dealing with version differences in the format.
-struct FileFormat { version: Version }
+struct FileFormat { version: Version, instr_format: Box<dyn InstrFormat> }
 struct InstrFormat06;
-struct InstrFormat07;
+struct InstrFormat07 { version: Version }
 
 impl InstrFormat06 { const HEADER_SIZE: usize = 4; }
 impl InstrFormat07 { const HEADER_SIZE: usize = 8; }
@@ -730,18 +735,15 @@ impl FileFormat {
         if self.version.is_old_header() { 0x30 } else { 0x1c }
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat {
-        if self.version.has_vars() {
-            &InstrFormat07
-        } else {
-            &InstrFormat06
-        }
-    }
+    fn instr_format(&self) -> &dyn InstrFormat { &*self.instr_format }
 }
 
 impl InstrFormat for InstrFormat06 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
-        vec![]
+        vec![
+            (IntrinsicInstrKind::Jmp, 5),
+            (IntrinsicInstrKind::InterruptLabel, 22),
+        ]
     }
 
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
@@ -766,6 +768,8 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
+    fn jump_has_time_arg(&self) -> bool { false }
+
     fn is_th06_anm_terminating_instr(&self, instr: &Instr) -> bool {
         // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
         // Basically, the first `delete` or `static` marks the end of the script.
@@ -781,7 +785,60 @@ impl InstrFormat for InstrFormat06 {
 
 impl InstrFormat for InstrFormat07 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
-        vec![]
+        use IntrinsicInstrKind as I;
+        use instr::TransOpKind as Tr;
+
+        match self.version {
+            Version::V0 => unreachable!(),
+            Version::V2 | Version::V3 => {
+                let mut out = vec![
+                    (I::Jmp, 4),
+                    (I::CountJmp, 5),
+                    (I::InterruptLabel, 21),
+                    (I::TransOp(Tr::Sin), 61),
+                    (I::TransOp(Tr::Cos), 62),
+                    (I::TransOp(Tr::Tan), 63),
+                    (I::TransOp(Tr::Acos), 64),
+                    (I::TransOp(Tr::Atan), 65),
+                ];
+                instr::register_assign_ops(&mut out, 37);
+                instr::register_binary_ops(&mut out, 49);
+                instr::register_cond_jumps(&mut out, 67);
+                out
+            },
+            Version::V4 | Version::V7 => {
+                let mut out = vec![
+                    (I::Jmp, 4),
+                    (I::CountJmp, 5),
+                    (I::InterruptLabel, 64),
+                    (I::TransOp(Tr::Sin), 42),
+                    (I::TransOp(Tr::Cos), 43),
+                    (I::TransOp(Tr::Tan), 44),
+                    (I::TransOp(Tr::Acos), 45),
+                    (I::TransOp(Tr::Atan), 46),
+                ];
+                instr::register_assign_ops(&mut out, 6);
+                instr::register_binary_ops(&mut out, 18);
+                instr::register_cond_jumps(&mut out, 28);
+                out
+            },
+            Version::V8 => {
+                let mut out = vec![
+                    (I::Jmp, 200),
+                    (I::CountJmp, 201),
+                    (I::InterruptLabel, 5),
+                    (I::TransOp(Tr::Sin), 124),
+                    (I::TransOp(Tr::Cos), 125),
+                    (I::TransOp(Tr::Tan), 126),
+                    (I::TransOp(Tr::Acos), 127),
+                    (I::TransOp(Tr::Atan), 128),
+                ];
+                instr::register_assign_ops(&mut out, 100);
+                instr::register_binary_ops(&mut out, 112);
+                instr::register_cond_jumps(&mut out, 202);
+                out
+            },
+        }
     }
 
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {

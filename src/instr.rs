@@ -113,10 +113,18 @@ pub fn lower_sub_ast_to_instrs(
         
         match &stmt.body.value {
             ast::StmtBody::Jump(goto) => {
+                if goto.time.is_some() && !format.jump_has_time_arg() {
+                    return Err(error!(
+                        message("feature not supported by format"),
+                        primary(stmt.body, "'goto @ time' not supported in this game"),
+                    ));
+                }
+
                 let time_arg = match goto.time {
                     Some(time) => InstrArg::Raw(time.into()),
                     None => InstrArg::TimeOf(goto.destination.clone()),
                 };
+
                 out.push(InstrOrLabel::Instr(Instr {
                     time: stmt.time,
                     opcode: match intrinsic_opcodes.get(&IntrinsicInstrKind::Jmp) {
@@ -250,25 +258,32 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
 
         match opcode_intrinsics.get(&opcode) {
             Some(IntrinsicInstrKind::Jmp) => {
-                assert!(args.len() >= 2); // FIXME: print proper error
-                assert!(args[2..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
+                let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
+                assert!(args.len() >= nargs); // FIXME: print proper error
+                assert!(args[nargs..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
 
                 let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
-                let dest_time = args[1].expect_raw().bits as i32;
+                let dest_time = match instr_format.jump_has_time_arg() {
+                    true => Some(args[1].expect_raw().bits as i32),
+                    false => None,
+                };
                 return Sp::null(ast::Stmt {
                     time: *time,
                     labels: vec![this_instr_label],
                     body: Sp::null(ast::StmtBody::Jump(ast::StmtGoto {
                         destination: default_label(dest_offset),
-                        time: Some(dest_time),
+                        time: dest_time,
                     })),
                 })
             },
-            // Some(IntrinsicInstrKind::InterruptLabel) => unimplemented!(),
-            // Some(IntrinsicInstrKind::AssignOp(_, _)) => unimplemented!(),
-            // Some(IntrinsicInstrKind::Binop(_, _)) => unimplemented!(),
-            // Some(IntrinsicInstrKind::CondJmp(_, _)) => unimplemented!(),
-            // Some(IntrinsicInstrKind::Push(_)) => unimplemented!(),
+            Some(IntrinsicInstrKind::InterruptLabel) |
+            Some(IntrinsicInstrKind::AssignOp(_, _)) |
+            Some(IntrinsicInstrKind::Binop(_, _)) |
+            Some(IntrinsicInstrKind::TransOp(_)) |
+            Some(IntrinsicInstrKind::CountJmp) |
+            Some(IntrinsicInstrKind::CondJmp(_, _)) => {
+                // TODO
+            },
             None => {}, // continue
         }
 
@@ -418,30 +433,80 @@ fn encode_labels(
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntrinsicInstrKind {
-    /// Like `goto label @ t;`
+    /// Like `goto label @ t;` (and `goto label;`)
     ///
     /// Args: `label, t`.
     Jmp,
-    // /// Like `interrupt[n]:`
-    // ///
-    // /// Args: `n`.
-    // InterruptLabel,
-    // /// Like `a = b;` or `a += b;`
-    // ///
-    // /// Args: `a, b`.
-    // AssignOp(ast::AssignOpKind, ScalarType),
-    // /// Like `a = b + c;`
-    // ///
-    // /// Args: `a, b, c`.
-    // Binop(ast::BinopKind, ScalarType),
-    // /// Like `if (a == c) goto label @ t;`
-    // ///
-    // /// Args: `a, b, label, t`
-    // CondJmp(ast::BinopKind, ScalarType),
-    // /// Like `_push(a);`
-    // ///
-    // /// Args: `a`
-    // Push(ScalarType),
+    /// Like `interrupt[n]:`
+    ///
+    /// Args: `n`.
+    InterruptLabel,
+    /// Like `a = b;` or `a += b;`
+    ///
+    /// Args: `a, b`.
+    AssignOp(ast::AssignOpKind, ScalarType),
+    /// Like `a = b + c;`
+    ///
+    /// Args: `a, b, c`.
+    Binop(ast::BinopKind, ScalarType),
+    /// Like `a = sin(b);`
+    ///
+    /// Args: `a, b`.
+    TransOp(TransOpKind),
+    /// Like `if (x--) goto label @ t`.
+    ///
+    /// Args: `x, label, t`.
+    CountJmp,
+    /// Like `if (a == c) goto label @ t;`
+    ///
+    /// Args: `a, b, label, t`
+    CondJmp(ast::BinopKind, ScalarType),
+}
+
+/// Transcendental functions available in at least one game.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TransOpKind { Sin, Cos, Tan, Acos, Atan }
+
+/// Add intrinsic pairs for binary operations in `a = b op c` form in their canonical order,
+/// which is `+, -, *, /, %`, with each operator having an int version and a float version.
+pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u16) {
+    use ast::BinopKind as B;
+
+    let mut opcode = start;
+    for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
+        for ty in vec![ScalarType::Int, ScalarType::Float] {
+            pairs.push((IntrinsicInstrKind::Binop(op, ty), opcode));
+            opcode += 1;
+        }
+    }
+}
+
+/// Add intrinsic pairs for assign ops in their cannonical order: `=, +=, -=, *=, /=, %=`,
+/// with each operator having an int version and a float version.
+pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u16) {
+    use ast::AssignOpKind as As;
+
+    let mut opcode = start;
+    for op in vec![As::Assign, As::Add, As::Sub, As::Mul, As::Div, As::Rem] {
+        for ty in vec![ScalarType::Int, ScalarType::Float] {
+            pairs.push((IntrinsicInstrKind::AssignOp(op, ty), opcode));
+            opcode += 1;
+        }
+    }
+}
+
+/// Add intrinsic pairs for conditional jumps in their cannonical order: `==, !=, <, <=, >, >=`,
+/// with each operator having an int version and a float version.
+pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u16) {
+    use ast::BinopKind as B;
+
+    let mut opcode = start;
+    for op in vec![B::Eq, B::Ne, B::Lt, B::Le, B::Gt, B::Ge] {
+        for ty in vec![ScalarType::Int, ScalarType::Float] {
+            pairs.push((IntrinsicInstrKind::CondJmp(op, ty), opcode));
+            opcode += 1;
+        }
+    }
 }
 
 pub trait InstrFormat {
@@ -461,6 +526,14 @@ pub trait InstrFormat {
 
     /// Write a marker that goes after the final instruction in a function or script.
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
+
+    // ---------------------------------------------------
+    // Special purpose functions only overridden by a few formats
+
+    /// Indicates that [`IntrinsicInstrKind::Jmp`] takes two arguments, where the second is time.
+    ///
+    /// TH06 ANM has no time arg. (it always sets the script clock to the destination's time)
+    fn jump_has_time_arg(&self) -> bool { true }
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
     fn is_th06_anm_terminating_instr(&self, _instr: &Instr) -> bool { false }

@@ -590,17 +590,16 @@ fn write_terminal_instance(f: &mut dyn BinWrite) -> WriteResult {
 
 fn game_format(game: Game) -> Box<dyn FileFormat> {
     if Game::Th095 <= game {
-        Box::new(FileFormat10)
+        let instr_format = InstrFormat10 { game };
+        Box::new(FileFormat10 { instr_format })
     } else {
-        let (has_strips, has_jmp) = match game {
-            Game::Th06 => (false, false),
-            Game::Th07 => (false, true),
-            Game::Th08 => (true, true),
-            Game::Th09 => (true, true),
+        let has_strips = match game {
+            Game::Th06 | Game::Th07 => false,
+            Game::Th08 | Game::Th09 => true,
             _ => unreachable!(),
         };
 
-        let instr_format = InstrFormat06 { has_jmp };
+        let instr_format = InstrFormat06 { game };
         Box::new(FileFormat06 { has_strips, instr_format })
     }
 }
@@ -613,7 +612,9 @@ struct FileFormat06 {
     instr_format: InstrFormat06,
 }
 /// STD format, StB to present.
-struct FileFormat10;
+struct FileFormat10 {
+    instr_format: InstrFormat10,
+}
 
 trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
@@ -698,12 +699,12 @@ impl FileFormat for FileFormat10 {
         Ok(())
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat { &InstrFormat10 }
+    fn instr_format(&self) -> &dyn InstrFormat { &self.instr_format }
     fn has_strips(&self) -> bool { false }
 }
 
-pub struct InstrFormat06 { has_jmp: bool }
-pub struct InstrFormat10;
+pub struct InstrFormat06 { game: Game }
+pub struct InstrFormat10 { game: Game }
 impl InstrFormat10 {
     const HEADER_SIZE: usize = 8;
 }
@@ -723,9 +724,13 @@ impl InstrFormat for InstrFormat06 {
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(instr::IntrinsicInstrKind, u16)> {
-        match self.has_jmp {
-            false => vec![],
-            true => vec![(instr::IntrinsicInstrKind::Jmp, 4)],
+        if Game::Th07 <= self.game && self.game <= Game::Th09 {
+            vec![
+                (instr::IntrinsicInstrKind::Jmp, 4),
+                (instr::IntrinsicInstrKind::InterruptLabel, 31),
+            ]
+        } else {
+            vec![]  // lul
         }
     }
 
@@ -774,7 +779,13 @@ impl InstrFormat for InstrFormat10 {
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(instr::IntrinsicInstrKind, u16)> {
-        vec![(instr::IntrinsicInstrKind::Jmp, 1)]
+        let mut out = vec![(instr::IntrinsicInstrKind::Jmp, 1)];
+
+        // TH095 and TH10 are missing this
+        if Game::Th11 <= self.game {
+            out.push((instr::IntrinsicInstrKind::InterruptLabel, 16));
+        }
+        out
     }
 
     fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
