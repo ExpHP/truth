@@ -42,8 +42,8 @@ With that in mind:
 ### STD
 
 ```sh
-std-decomp -m map/any.stdm in.std > out.stdspec
-std-compile -m map/any.stdm in.stdspec -o out.std
+std-decomp -g13 -m map/any.stdm in.std > out.stdspec
+std-compile -g13 -m map/any.stdm in.stdspec -o out.std
 
 # Any other binaries included in the distribution are entirely worthless testing tools,
 # don't even bother with them.
@@ -57,7 +57,7 @@ You can set the environment variable `TRUTH_MAP_PATH` to automatically locate ma
 
 You can decompile an ANM file into a script, similar to `thanm -l`.
 ```sh
-anm-decomp -m map/any.anmm in.anm > out.spec
+anm-decomp -g12 -m map/any.anmm in.anm > out.spec
 ```
 
 There is no image extraction from ANM files (and it is doubtful that there ever will need to be, since thtk remains perfectly fine for this purpose).
@@ -65,7 +65,7 @@ There is no image extraction from ANM files (and it is doubtful that there ever 
 Compilation currently requires the use of an existing ANM file as a base, to use as a source of embedded images.  The scripts and sprites in your script file will replace the ones in the ANM file.  This is just a concept I am playing around with, and some more experimentation is needed to see what sort of design will work well.
 
 ```sh
-anm-modify -m map/any.anmm in.anm text.spec -o out.anm
+anm-modify -g12 -m map/any.anmm in.anm text.spec -o out.anm
 ```
 
 More specifically, each `entry` in the text file will be matched to the corresponding one in the anm file by order of appearance, and the list of sprites and scripts under that entry in the text file will replace the lists in the original entry.  Brand new entries can also be added to the end.
