@@ -49,7 +49,7 @@ std-compile -m map/any.stdm in.stdspec -o out.std
 # don't even bother with them.
 ```
 
-These should work on all games in the series, though I am still ironing out a small number of kinks at present.
+These work on all games in the series.
 
 You can set the environment variable `TRUTH_MAP_PATH` to automatically locate mapfiles during decompilation.  Each directory listed in this `PATH`-like variable will be checked for a file named `any.stdm` if you are compiling STD, `any.anmm` if you are compiling ANM, and etc.  
 
