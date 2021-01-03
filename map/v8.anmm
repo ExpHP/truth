@@ -8,7 +8,7 @@
 2 static
 3 stop
 4 stopHide
-5 case
+5 interruptLabel
 6 wait
 7 caseReturn
 

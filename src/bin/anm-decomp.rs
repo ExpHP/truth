@@ -32,12 +32,12 @@ fn run(
 
     let script = {
         let bytes = std::fs::read(&path).unwrap();
-        let parsed = {
-            ecl_parser::anm::read_anm(game, &bytes)
+        let anm = {
+            ecl_parser::AnmFile::read_from_bytes(game, &bytes)
                 .with_context(|| format!("in file: {}", path.as_ref().display()))
         };
-        match parsed {
-            Ok(parsed) => ecl_parser::anm::decompile(game, &parsed, &ty_ctx),
+        match anm {
+            Ok(anm) => anm.decompile_to_ast(game, &ty_ctx),
             Err(e) => {
                 CompileError::from(e).emit_nospans();
                 return;

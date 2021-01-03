@@ -1,3 +1,4 @@
+use std::io;
 use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
 
@@ -59,12 +60,20 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile(&self, game: Game, ty_ctx: &TypeSystem) -> ast::Script {
-        _decompile_std(&*game_format(game), self, ty_ctx)
+    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> ast::Script {
+        decompile_std(&*game_format(game), self, ty_ctx)
     }
 
-    pub fn compile(game: Game, script: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
-        _compile_std(&*game_format(game), script, ty_ctx)
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
+        compile_std(&*game_format(game), script, ty_ctx)
+    }
+
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
+        write_std(&mut w, &*game_format(game), self)
+    }
+
+    pub fn read_from_bytes(game: Game, bytes: &[u8]) -> ReadResult<Self> {
+        read_std(&*game_format(game), bytes)
     }
 }
 
@@ -217,7 +226,7 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn _decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -> ast::Script {
+fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -> ast::Script {
     let instr_format = format.instr_format();
     let script = &std.script;
 
@@ -257,7 +266,7 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
     )
 }
 
-fn _compile_std(
+fn compile_std(
     format: &dyn FileFormat,
     script: &ast::Script,
     ty_ctx: &TypeSystem,
@@ -285,7 +294,6 @@ fn _compile_std(
             match &item.value {
                 Item::Meta { keyword: Sp { span: kw_span, value: ast::MetaKeyword::Meta }, name: None, fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
-                        // FIXME show spans of metas or their keywords
                         return Err(error!(
                             message("'meta' supplied multiple times"),
                             primary(kw_span, "duplicate 'meta'"),
@@ -298,7 +306,6 @@ fn _compile_std(
                     primary(name, "unexpected name"),
                 )),
                 Item::Meta { keyword, .. } => return Err(error!(
-                    // FIXME: span of keyword or meta
                     message("unexpected '{}' in STD file", keyword),
                     primary(keyword, "not valid in STD files"),
                 )),
@@ -339,9 +346,7 @@ fn _compile_std(
 
 // =============================================================================
 
-pub fn read_std(game: Game, bytes: &[u8]) -> ReadResult<StdFile> {
-    let format = game_format(game);
-
+fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> ReadResult<StdFile> {
     let mut f = bytes;
 
     let num_objects = f.read_u16()? as usize;
@@ -381,9 +386,7 @@ pub fn read_std(game: Game, bytes: &[u8]) -> ReadResult<StdFile> {
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
-pub fn write_std(f: &mut dyn BinWrite, game: Game, std: &StdFile) -> WriteResult {
-    let format = game_format(game);
-
+fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> WriteResult {
     let start_pos = f.pos()?;
 
     f.write_u16(std.objects.len() as u16)?;

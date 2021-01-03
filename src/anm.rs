@@ -1,3 +1,4 @@
+use std::io;
 use std::fmt;
 use bstr::{BString};
 use indexmap::IndexMap;
@@ -15,9 +16,32 @@ use std::num::NonZeroUsize;
 
 // =============================================================================
 
+/// Game-independent representation of an ANM file.
 #[derive(Debug, Clone)]
 pub struct AnmFile {
     pub entries: Vec<Entry>,
+}
+
+impl AnmFile {
+    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> ast::Script {
+        decompile(&game_format(game), self, ty_ctx)
+    }
+
+    pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
+        compile(&game_format(game), ast, ty_ctx)
+    }
+
+    pub fn merge(&mut self, other: &Self) -> Result<(), CompileError> {
+        merge(self, other)
+    }
+
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
+        write_anm(&mut w, &game_format(game), self)
+    }
+
+    pub fn read_from_bytes(game: Game, bytes: &[u8]) -> ReadResult<Self> {
+        read_anm(&game_format(game), bytes)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -160,8 +184,7 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-pub fn decompile(game: Game, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> ast::Script {
-    let format = game_format(game);
+fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> ast::Script {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -191,7 +214,14 @@ pub fn decompile(game: Game, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> ast::Sc
     out
 }
 
-pub fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError> {
+fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError> {
+    let dest = dest_file.entries.last().unwrap();
+    eprintln!("{:?}", dest.scripts.len());
+    eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
+    let dest = src_file.entries.last().unwrap();
+    eprintln!("{:?}", dest.scripts.len());
+    eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
+
     for (dest_entry, src_entry) in zip!(&mut dest_file.entries, &src_file.entries) {
         dest_entry.scripts = src_entry.scripts.clone();
     }
@@ -201,9 +231,23 @@ pub fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileE
     Ok(())
 }
 
-pub fn compile(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Vec<Entry>, CompileError> {
-    let format = game_format(game);
+fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
+
+    let ast = {
+        let gensym_ctx = crate::ident::GensymContext::new();
+
+        let mut ast = ast.clone();
+
+        let mut visitor = crate::passes::const_simplify::Visitor::new();
+        crate::ast::walk_mut_script(&mut visitor, &mut ast);
+        visitor.finish()?;
+
+        let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
+        crate::ast::walk_mut_script(&mut visitor, &mut ast);
+
+        ast
+    };
 
     // group scripts by entry
     let mut groups = vec![];
@@ -232,9 +276,13 @@ pub fn compile(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Vec
             )),
         }
     }
+    match cur_entry {
+        None => return Err(error!("empty ANM file")),
+        Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
+    }
 
     let mut next_auto_id = 0;
-    groups.into_iter().map(|(entry_fields, ast_scripts)| {
+    let entries = groups.into_iter().map(|(entry_fields, ast_scripts)| {
         let mut entry = Entry::from_fields(entry_fields)?;
         for (given_number, name, code) in ast_scripts {
             let id = given_number.map(|sp| sp.value).unwrap_or(next_auto_id);
@@ -256,7 +304,8 @@ pub fn compile(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Vec
             }
         }
         Ok(entry)
-    }).collect_with_recovery()
+    }).collect_with_recovery()?;
+    Ok(AnmFile { entries })
 }
 
 // =============================================================================
@@ -281,8 +330,7 @@ struct EntryHeaderData {
     next_offset: u32,
 }
 
-pub fn read_anm(game: Game, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> {
-    let format = game_format(game);
+fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> {
     let instr_format = format.instr_format();
 
     let mut entries = vec![];
@@ -368,9 +416,7 @@ fn auto_script_name(i: u32) -> Ident {
     format!("script{}", i).parse::<Ident>().unwrap()
 }
 
-pub fn write_anm(f: &mut dyn BinWrite, game: Game, file: &AnmFile) -> WriteResult {
-    let format = game_format(game);
-
+fn write_anm(f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> WriteResult {
     let mut last_entry_pos = None;
     for entry in &file.entries {
         let entry_pos = f.pos()?;
@@ -472,7 +518,7 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
     Ok(())
 }
 
-pub fn read_sprite(f: &mut dyn BinRead) -> ReadResult<Sprite> {
+fn read_sprite(f: &mut dyn BinRead) -> ReadResult<Sprite> {
     Ok(Sprite {
         id: f.read_u32()?,
         offset: f.read_f32s_2()?,
@@ -480,13 +526,13 @@ pub fn read_sprite(f: &mut dyn BinRead) -> ReadResult<Sprite> {
     })
 }
 
-pub fn write_sprite(f: &mut dyn BinWrite, sprite: &Sprite) -> WriteResult {
+fn write_sprite(f: &mut dyn BinWrite, sprite: &Sprite) -> WriteResult {
     f.write_u32(sprite.id as _)?;
     f.write_f32s(&sprite.offset)?;
     f.write_f32s(&sprite.size)
 }
 
-pub fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
+fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
     f.expect_magic("THTX")?;
 
     let zero = f.read_u16()?;
@@ -505,7 +551,7 @@ pub fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
     Ok(Texture { thtx, data })
 }
 
-pub fn write_texture(f: &mut dyn BinWrite, texture: &Texture) -> WriteResult {
+fn write_texture(f: &mut dyn BinWrite, texture: &Texture) -> WriteResult {
     f.write_all(b"THTX")?;
 
     f.write_u16(0)?;

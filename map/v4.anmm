@@ -72,7 +72,7 @@
 61 flipX
 62 flipY
 63 stop
-64 case
+64 interruptLabel
 65 anchor
 66 blendMode
 67 type

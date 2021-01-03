@@ -26,7 +26,7 @@
 19 posTimeDecel   # quadratic
 20 posTimeDecel2  # quartic.  pytouhou called this "posTimeAccel"?!
 21 stop
-22 case
+22 interruptLabel
 23 anchorTopLeft
 24 stopHide
 25 posMode

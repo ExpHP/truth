@@ -27,7 +27,7 @@
 18 posTimeDecel   # mode 4 - quadratic ease out
 19 posTimeDecel2  # mode 6 - quartic ease out
 20 stop
-21 case
+21 interruptLabel
 22 anchorTopLeft
 23 stopHide
 24 posMode

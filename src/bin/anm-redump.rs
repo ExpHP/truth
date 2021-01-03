@@ -36,12 +36,12 @@ fn _run(
 ) -> Result<(), CompileError> {
     let bytes = std::fs::read(&path).unwrap();
     let anm_file = {
-        ecl_parser::anm::read_anm(game, &bytes)
+        ecl_parser::AnmFile::read_from_bytes(game, &bytes)
             .with_context(|| format!("in file: {}", path.as_ref().display()))?
     };
 
     let mut buf = std::io::Cursor::new(vec![]);
-    ecl_parser::anm::write_anm(&mut buf, game, &anm_file)?;
+    anm_file.write_to_stream(&mut buf, game)?;
 
     std::fs::write(outpath, buf.into_inner())?;
     Ok(())

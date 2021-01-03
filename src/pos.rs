@@ -5,6 +5,7 @@
 use std::fmt;
 use std::borrow::Cow;
 use std::num::NonZeroU32;
+use std::path::Path;
 
 pub type FileId = Option<NonZeroU32>;
 use codespan_reporting::{files as cs_files};
@@ -24,6 +25,10 @@ macro_rules! sp_pat {
 }
 
 /// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
+///
+/// This is the type responsible for keeping track of source text so that snippets can be displayed
+/// in diagnostic error messages.  It provides helper methods for parsing text in a manner which
+/// automatically records that text for these purposes.
 #[derive(Debug, Clone)]
 pub struct NonUtf8Files {
     inner: cs_files::SimpleFiles<String, String>,
@@ -32,6 +37,11 @@ pub struct NonUtf8Files {
 impl NonUtf8Files {
     pub fn new() -> Self { NonUtf8Files { inner: cs_files::SimpleFiles::new() } }
 
+    /// Add a piece of source text to the database, and give it a name (usually a filepath)
+    /// which will appear in error messages.
+    ///
+    /// The name does not need to be a valid path or even unique; for instance, it is common to use
+    /// the name `"<input>"` for source text not associated with any file.
     pub fn add(&mut self, name: &str, source: &[u8]) -> FileId {
         Self::shift_file_id(self.inner.add(
             name.to_owned(),
@@ -39,8 +49,26 @@ impl NonUtf8Files {
         ))
     }
 
+    /// Read a file from the filesystem and automatically parse it into an AST type.
+    ///
+    /// This is just a wrapper around [`Self::parse`] and [`std::fs::read`] with suitable
+    /// handling of errors.
+    pub fn read_file<T>(&mut self, path: &Path)
+        -> Result<Sp<T>, crate::CompileError>
+    where
+        T: for<'a> crate::Parse<'a>,
+    {
+        use anyhow::Context;
+
+        let bytes = std::fs::read(path).with_context(|| format!("while reading {}", path.display()))?;
+        self.parse(&path.to_string_lossy(), &bytes).map_err(Into::into)
+    }
+
     /// Convenience method to parse a piece of code in a way that ensures that the `Span`s will
     /// be available for diagnostic rendering.
+    ///
+    /// The name does not need to be a valid path or even unique; for instance, it is common to use
+    /// the name `"<input>"` for source text not associated with any file.
     pub fn parse<'input, T>(&mut self, filename: &str, source: &'input [u8])
         -> crate::parse::Result<'input, Sp<T>>
     where

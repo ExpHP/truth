@@ -46,6 +46,9 @@ fn parse_args<A: CliArg>(args: &[String], arg_parsers: A) -> Result<A::Value, Pa
     if matches.opt_present("h") {
         return Err(ParseError::PrintHelp(opts));
     }
+
+    matches.free.reverse();
+
     let out = arg_parsers.extract_value(&mut matches).map_err(ParseError::Error)?;
 
     if let Some(unexpected_pos) = matches.free.pop() {
@@ -74,7 +77,8 @@ pub fn required_output() -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::
 }))}
 pub fn max_columns() -> impl CliArg<Value=usize> { opts::MaxColumnsOpt }
 pub fn game() -> impl CliArg<Value=Game> { opts::GameOpt }
-pub fn input() -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::Positional { metavar: "INPUT" }) }
+pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::Positional { metavar: s }) }
+pub fn input() -> impl CliArg<Value=PathBuf> { path_arg("INPUT") }
 
 
 /// A simple HList type for CliArg.

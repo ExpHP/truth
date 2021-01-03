@@ -1,4 +1,6 @@
-use ecl_parser::{self};
+use std::path::Path;
+use ecl_parser::{self, CompileError};
+use anyhow::Context;
 
 fn main() {
     use ecl_parser::{cli_helper as cli, args, args_pat};
@@ -8,58 +10,51 @@ fn main() {
         args![cli::input(), cli::required_output(), cli::mapfile(), cli::game()],
     );
 
-    if !run(game, &input, output, mapfile) {
+    if !run(game, &input, &output, mapfile.as_ref().map(AsRef::as_ref)) {
         std::process::exit(1);
     }
 }
 
 fn run(
     game: ecl_parser::Game,
-    path: impl AsRef<std::path::Path>,
-    output: impl AsRef<std::path::Path>,
-    map_path: Option<impl AsRef<std::path::Path>>,
+    path: &Path,
+    outpath: &Path,
+    map_path: Option<&Path>,
 ) -> bool {
+    let mut files = ecl_parser::Files::new();
+    match _run(&mut files, game, path, outpath, map_path) {
+        Ok(()) => true,
+        Err(mut e) => { let _ = e.emit(&files); false }
+    }
+}
+
+fn _run(
+    files: &mut ecl_parser::Files,
+    game: ecl_parser::Game,
+    path: &Path,
+    outpath: &Path,
+    map_path: Option<&Path>,
+) -> Result<(), CompileError> {
     let mut ty_ctx = ecl_parser::type_system::TypeSystem::new();
     if let Some(map_path) = map_path {
         let eclmap = ecl_parser::Eclmap::load(&map_path, Some(game)).unwrap();
         ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
     }
 
-    let text = std::fs::read(&path).unwrap();
-    let mut files = ecl_parser::pos::Files::new();
-    let script = match files.parse::<ecl_parser::Script>(&path.as_ref().to_string_lossy(), &text) {
-        Ok(x) => x,
-        Err(e) => panic!("{}", e),
-    };
+    let script = files.read_file::<ecl_parser::Script>(&path)?;
 
-    // FIXME nightmarish error handling
     for path_literal in &script.mapfiles {
-        let path = match path_literal.as_path() {
-            Ok(x) => x,
-            Err(mut es) => {
-                es.emit(&files).expect("error while writing errors?!");
-                return false;
-            },
-        };
+        let path = path_literal.as_path()?;
         match ecl_parser::Eclmap::load(&path, Some(game)) {
-            Ok(eclmap) => {
-                ty_ctx.extend_from_eclmap(path, &eclmap)
-            },
-            Err(e) => {
-                ecl_parser::error!(message("{}", e), primary(path_literal, "error loading file")).emit(&files).expect("error while writing errors?!");
-                return false;
-            }
+            Ok(eclmap) => ty_ctx.extend_from_eclmap(path, &eclmap),
+            Err(e) => return Err(ecl_parser::error!(
+                message("{}", e), primary(path_literal, "error loading file"),
+            )),
         }
     }
-    let std = match ecl_parser::std::StdFile::compile(game, &script, &ty_ctx) {
-        Ok(x) => x,
-        Err(mut es) => {
-            es.emit(&files).expect("error while writing errors?!");
-            return false;
-        },
-    };
+    let std = ecl_parser::StdFile::compile_from_ast(game, &script, &ty_ctx)?;
 
-    let mut out = std::fs::File::create(output).unwrap();
-    ecl_parser::std::write_std(&mut out, game, &std).unwrap();
-    true
+    let mut out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
+    std.write_to_stream(&mut out, game).unwrap();
+    Ok(())
 }

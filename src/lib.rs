@@ -19,7 +19,9 @@ pub mod fmt;
 pub use parse::Parse;
 pub mod parse;
 
+pub use anm::AnmFile;
 pub mod anm;
+pub use self::std::StdFile;
 pub mod std;
 
 pub mod meta;

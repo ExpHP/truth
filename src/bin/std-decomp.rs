@@ -33,11 +33,11 @@ fn run(
     let script = {
         let bytes = std::fs::read(&path).unwrap();
         let parsed = {
-            ecl_parser::std::read_std(game, &bytes)
+            ecl_parser::StdFile::read_from_bytes(game, &bytes)
                 .with_context(|| format!("in file: {}", path.as_ref().display()))
         };
         match parsed {
-            Ok(parsed) => parsed.decompile(game, &ty_ctx),
+            Ok(parsed) => parsed.decompile_to_ast(game, &ty_ctx),
             Err(e) => {
                 CompileError::from(e).emit_nospans();
                 return;
