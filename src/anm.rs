@@ -189,17 +189,17 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> as
 
     let mut items = vec![];
     for entry in &anm_file.entries {
-        items.push(Sp::null(ast::Item::Meta {
-            keyword: Sp::null(ast::MetaKeyword::Entry),
+        items.push(sp!(ast::Item::Meta {
+            keyword: sp!(ast::MetaKeyword::Entry),
             name: None,
-            fields: Sp::null(entry.make_meta()),
+            fields: sp!(entry.make_meta()),
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
             let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, instrs);
 
-            items.push(Sp::null(ast::Item::AnmScript {
-                number: Some(Sp::null(id)),
+            items.push(sp!(ast::Item::AnmScript {
+                number: Some(sp!(id)),
                 name: name.clone(),
                 code: ast::Block(code),
             }));
@@ -363,14 +363,14 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
         };
 
         let sprites = sprite_offsets.iter().map(|&offset| {
-            let key = Sp::null(auto_sprite_name(next_sprite_index as u32));
+            let key = sp!(auto_sprite_name(next_sprite_index as u32));
             let value = read_sprite(&mut &entry_bytes[offset as usize..])?;
             next_sprite_index += 1;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
         let scripts = script_ids_and_offsets.iter().map(|&(id, offset)| {
-            let key = Sp::null(auto_script_name(next_script_index));
+            let key = sp!(auto_script_name(next_script_index));
             let mut f = &entry_bytes[offset..];
             let mut instrs = vec![];
 

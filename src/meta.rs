@@ -48,7 +48,7 @@ impl Meta {
     pub fn make_variant(variant: impl AsRef<str>) -> BuildObject {
         let variant = variant.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
         BuildObject {
-            variant: Some(Sp::null(variant)),
+            variant: Some(sp!(variant)),
             map: Some(Map::new()),
         }
     }
@@ -173,7 +173,7 @@ impl<'a> ParseObject<'a> {
     /// Construct from a [`Fields`].
     ///
     /// Please be sure to call [`ParseObject::finish`] when you are done.  If you have a [`Meta`]
-    /// then it is preferable to use [`Meta::parse_object`] instead which will automatically call
+    /// then it is preferable to use [`Sp<Meta>::parse_object`] instead which will automatically call
     /// the `finish` method for you.
     pub fn new(map: &'a Sp<Fields>) -> Self {
         ParseObject { map, valid_fields: HashSet::new() }
@@ -262,7 +262,7 @@ impl BuildObject {
     /// Add a field to a meta.
     pub fn field(&mut self, key: impl AsRef<str>, value: &(impl ?Sized + ToMeta)) -> &mut Self {
         let ident = key.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
-        self.get_map().insert(Sp::null(ident), Sp::null(value.to_meta()));
+        self.get_map().insert(sp!(ident), sp!(value.to_meta()));
         self
     }
 
@@ -308,7 +308,7 @@ impl BuildObject {
     ///
     /// This will poison the builder.  Please clone it if you want to call more methods.
     pub fn build(&mut self) -> Meta {
-        let fields = Sp::null(self.build_fields());
+        let fields = sp!(self.build_fields());
         match self.variant.take() {
             Some(name) => Meta::Variant { name, fields },
             None => Meta::Object(fields),
@@ -455,22 +455,22 @@ impl ToMeta for str {
     fn to_meta(&self) -> Meta { Meta::String(self.as_bytes().as_bstr().to_owned()) }
 }
 impl<T: ToMeta> ToMeta for Vec<T> {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 2] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 3] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
 }
 impl<T: ToMeta> ToMeta for [T; 4] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(Sp::null).collect()) }
+    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
 }
 
 impl<T: ToMeta> ToMeta for indexmap::IndexMap<Sp<Ident>, T> {
     fn to_meta(&self) -> Meta {
-        Meta::Object(Sp::null({
-            self.iter().map(|(k, v)| (k.clone(), Sp::null(v.to_meta()))).collect()
+        Meta::Object(sp!({
+            self.iter().map(|(k, v)| (k.clone(), sp!(v.to_meta()))).collect()
         }))
     }
 }

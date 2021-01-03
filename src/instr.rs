@@ -52,6 +52,14 @@ impl InstrArg {
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
         }
     }
+
+    #[track_caller]
+    pub fn to_var_or_err(&self) -> RawArg {
+        match *self {
+            InstrArg::Raw(x) => x,
+            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
+        }
+    }
 }
 
 impl RawArg {
@@ -245,13 +253,13 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
     };
 
     let default_label = |offset: usize| {
-        Sp::null(format!("label_{}", offset).parse::<Ident>().unwrap())
+        sp!(format!("label_{}", offset).parse::<Ident>().unwrap())
     };
 
     let mut offset = 0;
     let code = script.iter().map(|instr| {
         // For now we give every instruction a label and strip the unused ones later.
-        let this_instr_label = Sp::null(ast::StmtLabel::Label(default_label(offset)));
+        let this_instr_label = sp!(ast::StmtLabel::Label(default_label(offset)));
         offset += instr_format.instr_size(instr);
 
         let Instr { time, opcode, args } = instr;
@@ -267,10 +275,10 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
                     true => Some(args[1].expect_raw().bits as i32),
                     false => None,
                 };
-                return Sp::null(ast::Stmt {
+                return sp!(ast::Stmt {
                     time: *time,
                     labels: vec![this_instr_label],
-                    body: Sp::null(ast::StmtBody::Jump(ast::StmtGoto {
+                    body: sp!(ast::StmtBody::Jump(ast::StmtGoto {
                         destination: default_label(dest_offset),
                         time: dest_time,
                     })),
@@ -292,15 +300,15 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
                 .unwrap_or_else(|| Ident::new_ins(*opcode as u32))
         };
 
-        Sp::null(ast::Stmt {
+        sp!(ast::Stmt {
             time: *time,
             labels: vec![this_instr_label],
-            body: Sp::null(ast::StmtBody::Expr(Sp::null(Expr::Call {
+            body: sp!(ast::StmtBody::Expr(sp!(Expr::Call {
                 args: match ty_ctx.ins_signature(&ins_ident) {
                     Some(siggy) => raise_args(args, siggy, ty_ctx),
                     None => raise_args(args, &Signature::auto(args.len()), ty_ctx),
                 },
-                func: Sp::null(ins_ident),
+                func: sp!(ins_ident),
             }))),
         })
     }).collect();
@@ -330,13 +338,13 @@ fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Vec<
                     (ScalarType::Float, float_id as i32)
                 },
             };
-            Sp::null(Expr::Var(Sp::null(ty_ctx.gvar_to_ast(id, ty))))
+            sp!(Expr::Var(sp!(ty_ctx.gvar_to_ast(id, ty))))
         } else {
             match enc {
                 ArgEncoding::Padding |
-                ArgEncoding::Dword => Sp::null(Expr::from(raw.bits as i32)),
-                ArgEncoding::Color => Sp::null(Expr::LitInt { value: raw.bits as i32, hex: true }),
-                ArgEncoding::Float => Sp::null(Expr::from(f32::from_bits(raw.bits))),
+                ArgEncoding::Dword => sp!(Expr::from(raw.bits as i32)),
+                ArgEncoding::Color => sp!(Expr::LitInt { value: raw.bits as i32, hex: true }),
+                ArgEncoding::Float => sp!(Expr::from(f32::from_bits(raw.bits))),
             }
         }
     }).collect::<Vec<_>>();

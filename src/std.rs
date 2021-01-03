@@ -245,14 +245,14 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) ->
     ast::Script {
         mapfiles: ty_ctx.mapfiles_to_ast(),
         items: vec! [
-            Sp::null(ast::Item::Meta {
-                keyword: Sp::null(ast::MetaKeyword::Meta),
+            sp!(ast::Item::Meta {
+                keyword: sp!(ast::MetaKeyword::Meta),
                 name: None,
-                fields: Sp::null(std.make_meta(format)),
+                fields: sp!(std.make_meta(format)),
             }),
-            Sp::null(ast::Item::AnmScript {
+            sp!(ast::Item::AnmScript {
                 number: None,
-                name: Sp::null("main".parse().unwrap()),
+                name: sp!("main".parse().unwrap()),
                 code,
             }),
         ],
@@ -359,7 +359,7 @@ fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> ReadResult<StdFile> {
     let object_offsets = (0..num_objects).map(|_| f.read_u32()).collect::<ReadResult<Vec<_>>>()?;
     let objects = (0..num_objects)
         .map(|i| {
-            let key = Sp::null(format!("object{}", i).parse::<Ident>().unwrap());
+            let key = sp!(format!("object{}", i).parse::<Ident>().unwrap());
             let value = read_object(i, &mut &bytes[object_offsets[i] as usize..])?;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;

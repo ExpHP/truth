@@ -34,7 +34,7 @@ impl CompileError {
 
     /// Drain all errors from this object and write them to the standard error stream.
     ///
-    /// In order to render spans correctly, the [`Files`] instance used to parse AST
+    /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
     /// nodes is required.
     pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> Result<(), codespan_reporting::files::Error> {
         use codespan_reporting::term::{self, termcolor as tc};

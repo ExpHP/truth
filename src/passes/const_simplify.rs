@@ -147,7 +147,7 @@ impl VisitMut for Visitor {
                 match b_const {
                     ConstType::Int(b) => {
                         let new_value = op.const_eval_int(b);
-                        *e = Sp::new_from(e.span, new_value);
+                        *e = sp!(e.span => new_value.into());
                     },
                     ConstType::Float(b) => {
                         let new_value = match op.const_eval_float(b) {
@@ -161,7 +161,7 @@ impl VisitMut for Visitor {
                             },
                         };
 
-                        *e = Sp::new_from(e.span, new_value);
+                        *e = sp!(e.span => new_value.into());
                     },
                 }
             },
@@ -175,7 +175,7 @@ impl VisitMut for Visitor {
                 match (a_const, b_const) {
                     (ConstType::Int(a), ConstType::Int(b)) => {
                         let new_value = op.const_eval_int(a, b);
-                        *e = Sp::new_from(e.span, new_value);
+                        *e = sp!(e.span => new_value.into());
                     },
                     (ConstType::Float(a), ConstType::Float(b)) => {
                         let new_value = match op.const_eval_float(a, b) {
@@ -189,7 +189,7 @@ impl VisitMut for Visitor {
                             },
                         };
 
-                        *e = Sp::new_from(e.span, new_value);
+                        *e = sp!(e.span => new_value.into());
                     },
                     _ => self.errors.append(error!(
                         message("type error"),

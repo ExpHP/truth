@@ -7,7 +7,6 @@
 
 use crate::ast::{self, VisitMut};
 use crate::ident;
-use crate::pos::Sp;
 
 /// Visitor for loop compilation.
 ///
@@ -33,15 +32,15 @@ impl VisitMut for Visitor<'_> {
                 ast::StmtBody::Loop { block: mut inner_block } => {
                     let end_time = inner_block.0.last().map(|s| s.time).unwrap_or(outer_stmt.value.time);
                     let label_ident = self.gensym_ctx.gensym("@loop#");
-                    inner_block.0.push(Sp::null(ast::Stmt {
+                    inner_block.0.push(sp!(ast::Stmt {
                         labels: vec![],
                         time: end_time,
-                        body: Sp::null(ast::StmtBody::Jump(ast::StmtGoto {
-                            destination: Sp::null(label_ident.clone()),
+                        body: sp!(ast::StmtBody::Jump(ast::StmtGoto {
+                            destination: sp!(label_ident.clone()),
                             time: None,
                         }))
                     }));
-                    inner_block.0[0].labels.push(Sp::null(ast::StmtLabel::Label(Sp::null(label_ident))));
+                    inner_block.0[0].labels.push(sp!(ast::StmtLabel::Label(sp!(label_ident))));
 
                     new_stmts.append(&mut inner_block.0);
                 },

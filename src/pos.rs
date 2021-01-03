@@ -13,16 +13,72 @@ pub use codespan::{ByteIndex as BytePos, ByteOffset, RawIndex, RawOffset};
 
 pub type Files = NonUtf8Files;
 
+/// Helper to wrap a value in [`Sp`].
+///
+/// * `sp!(span => value)` uses the given span.
+/// * `sp!(value)` uses [`DUMMY_SPAN`].
+///
+/// ```
+/// # let my_span = ecl_parser::pos::DUMMY_SPAN;
+/// # fn do_something() -> Expr { ecl_parser::Expr::LitFloat { value: 2.0 } };
+/// # fn do_something_else() -> Sp<Stmt> { ecl_parser::Expr::LitFloat { value: 2.0 } };
+/// use ecl_parser::{sp, Sp, Expr, Stmt};
+///
+/// let expr: Expr = do_something();
+/// let something_else: Sp<Stmt> = do_something_else();
+///
+/// // creating a value with the span of something else
+/// let spanned: Sp<Expr> = sp!(something_else.span => expr.clone());
+/// assert_eq!(spanned.span, something_else.span);
+///
+/// // creating a value with a dummy span (useful for generated code, e.g. during decompilation)
+/// let spanned: Sp<Expr> = sp!(expr);
+/// # let _ = spanned;
+/// ```
 #[macro_export]
 macro_rules! sp {
     ($span:expr => $expr:expr) => { $crate::Sp { span: $span, value: $expr } };
-    ($expr:expr) => { $crate::Sp { span: Span::default(), value: $expr } };
+    ($expr:expr) => { $crate::Sp { span: $crate::pos::DUMMY_SPAN, value: $expr } };
 }
+
+/// Pattern for matching against [`Sp`].
+///
+/// In this crate it is more common to match a pattern against `x.value` rather than to match
+/// `sp_pat!` against `x`, but this can be useful to reduce nesting of `match`es when dealing
+/// with nested `Sp`s.
+///
+/// ```
+/// # let my_span = ecl_parser::pos::DUMMY_SPAN;
+/// # fn do_something() -> Sp<Expr> { ecl_parser::sp!(ecl_parser::Expr::LitFloat { value: 2.0 }) };
+/// use ecl_parser::{sp_pat, Sp, Expr, Stmt, BinopKind};
+///
+/// let expr: Sp<Expr> = do_something();
+///
+/// // extracting just the value
+/// let sp_pat!(value_1) = &expr;   // value has type &Expr
+///
+/// // extracting both the value and the span
+/// let sp_pat!(span => value_2) = &expr;  // span has type &Span
+///
+/// assert_eq!(span, expr.span);
+/// assert_eq!(value_1, value_2);
+///
+/// // example use for matching a nested `Sp`
+/// match &expr.value {
+///     Expr::Binop(_, sp_pat!(BinopKind::Add), _) => println!("adding!"),
+///     _ => println!("not adding!"),
+/// }
+/// ```
 #[macro_export]
 macro_rules! sp_pat {
     ($span:pat => $pat:pat) => { $crate::Sp { span: $span, value: $pat } };
     ($pat:pat) => { $crate::Sp { value: $pat, span: _ } };
 }
+
+/// A dummy span for generated code during decompilation.
+///
+/// Diagnostic labels using this Span cannot be displayed.
+pub const DUMMY_SPAN: Span = Span { start: BytePos(0), end: BytePos(0), file_id: None };
 
 /// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
 ///
@@ -392,13 +448,12 @@ mod test {
     }
 }
 
-
 /// An AST node with a span.
 ///
 /// This type generally tries to behave like `T`.  It implements `Deref`, and the span is not
 /// included in comparisons or hashes.
 ///
-/// Use [`Sp::null_from`] to construct new AST nodes that are not derived from textual input.
+/// Use [`sp!`](sp) without a span to construct new AST nodes that are not derived from textual input.
 #[derive(Copy, Clone, Default)]
 pub struct Sp<T: ?Sized> {
     pub span: Span,
@@ -412,17 +467,6 @@ impl<T: fmt::Debug> fmt::Debug for Sp<T> {
             .field(&(self.span.start().0..self.span.end().0))
             .field(&self.value)
             .finish()
-    }
-}
-
-impl<T> Sp<T> {
-    /// Synthesize an AST node with a meaningless span.  This is useful for generated code.
-    pub fn null(value: T) -> Self {
-        Sp { span: Span::default(), value }
-    }
-
-    pub fn new_from<U: Into<T>>(span: Span, value: U) -> Self {
-        Sp { span, value: value.into() }
     }
 }
 
@@ -482,7 +526,6 @@ impl<T: ?Sized + fmt::Display> fmt::Display for Sp<T> {
         write!(f, "{}", &self.value)
     }
 }
-
 
 // =============================================================================
 

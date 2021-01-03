@@ -52,7 +52,7 @@ mod tests {
     fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
         use crate::ast::VisitMut;
 
-        let mut expr = crate::pos::Sp::null(expr);
+        let mut expr = sp!(expr);
         let mut visitor = crate::passes::const_simplify::Visitor::new();
         visitor.visit_expr(&mut expr);
         visitor.finish()?;

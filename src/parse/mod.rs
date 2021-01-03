@@ -17,9 +17,9 @@ pub trait Parse<'input>: Sized {
     /// Parse a string into an AST node.
     ///
     /// This is for quick-and-dirty use only; the spans in the output will have incomplete
-    /// information and [`crate::pos::Files`] will be unable to locate the corresponding
+    /// information and [`crate::Files`] will be unable to locate the corresponding
     /// strings of text. For proper diagnostics you should prefer the helper method
-    /// [`crate::pos::Files::parse`] instead.
+    /// [`crate::pos::NonUtf8Files::parse`] instead.
     fn parse<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Self> {
         let mut state = State::new(None);
         Self::parse_stream(&mut state, Lexer::new(s.as_ref()))

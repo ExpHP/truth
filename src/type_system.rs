@@ -116,7 +116,7 @@ impl TypeSystem {
     pub fn mapfiles_to_ast(&self) -> Vec<crate::pos::Sp<ast::LitString>> {
         self.mapfiles.iter().map(|s| {
             let string = s.to_str().expect("unpaired surrogate not supported!").into();
-            crate::pos::Sp::null(ast::LitString { string })
+            sp!(ast::LitString { string })
         }).collect()
     }
 }
