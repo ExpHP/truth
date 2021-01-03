@@ -44,9 +44,6 @@ With that in mind:
 ```sh
 std-decomp -g13 -m map/any.stdm in.std > out.stdspec
 std-compile -g13 -m map/any.stdm in.stdspec -o out.std
-
-# Any other binaries included in the distribution are entirely worthless testing tools,
-# don't even bother with them.
 ```
 
 These work on all games in the series.
@@ -77,9 +74,12 @@ More specifically, each `entry` in the text file will be matched to the correspo
 ```sh
 git clone https://github.com/ExpHP/truth
 cd truth
-cargo build --release
 
-cargo run --release --bin=std-decomp -- -g10 -m map/any.stdm in.std > out.stdspec
-cargo run --release --bin=std-compile -- -g10 -m map/any.stdm out.stdspec > in.std
+# Debug builds  (for optimized builds, change it to `cargo run --release`)
+cargo run --bin=std-decomp -- -g10 -m map/any.stdm in.std > out.stdspec
+cargo run --bin=std-compile -- -g10 -m map/any.stdm out.stdspec > in.std
+
+# If you want optimized binaries installed globally:
+cargo install --path=.
 ```
 
