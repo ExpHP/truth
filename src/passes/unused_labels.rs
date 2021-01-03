@@ -51,6 +51,8 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
 
     impl Visit for UsedVisitor {
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
+            ast::walk_stmt(self, x);
+
             match &x.body.value {
                 | ast::StmtBody::Jump(jump)
                 | ast::StmtBody::CondJump { jump, .. }

@@ -101,6 +101,7 @@ std_b2b_test!(Game::Th08, "map/any.stdm", std08_loop_not_timeof, "th08-loop-not-
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_nonzero_padding, "th08-nonzero-padding.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_script, "th08-empty-script.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_loop, "th08-empty-loop.std");
+std_b2b_test!(Game::Th08, "map/any.stdm", std08_2loops_1label, "th08-2loops-1label.std");
 
 // https://github.com/ExpHP/truth/issues/1
 //

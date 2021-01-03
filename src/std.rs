@@ -237,8 +237,10 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) ->
         use crate::ast::VisitMut;
 
         let mut code = ast::Block(code);
-        decompile_loop::Visitor::new().visit_func_body(&mut code);
-        unused_labels::Visitor::new().visit_func_body(&mut code);
+        if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() != Some("1") {
+            decompile_loop::Visitor::new().visit_func_body(&mut code);
+            unused_labels::Visitor::new().visit_func_body(&mut code);
+        }
         code
     };
 

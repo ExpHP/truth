@@ -44,10 +44,9 @@ impl VisitMut for Visitor {
                             let goto_time = goto.time.unwrap_or(time_of_label);
                             goto_time == time_of_label
                         } else { false }
-
                     };
-                    if can_transform {
 
+                    if can_transform {
                         // replace the goto with an EndOfBlock, preserving its time
                         let block_end = outer_stmts.0.last_mut().unwrap();
                         let block_end_span = block_end.span;
@@ -78,6 +77,8 @@ impl VisitMut for Visitor {
         // put them in the right order
         reversed_out.reverse();
         outer_stmts.0 = reversed_out;
+
+        ast::walk_mut_block(self, outer_stmts);
     }
 }
 

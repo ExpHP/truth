@@ -209,8 +209,10 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> as
     use crate::passes::{unused_labels, decompile_loop};
 
     let mut out = ast::Script { items, mapfiles: ty_ctx.mapfiles_to_ast() };
-    crate::ast::walk_mut_script(&mut decompile_loop::Visitor::new(), &mut out);
-    crate::ast::walk_mut_script(&mut unused_labels::Visitor::new(), &mut out);
+    if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() != Some("1") {
+        crate::ast::walk_mut_script(&mut decompile_loop::Visitor::new(), &mut out);
+        crate::ast::walk_mut_script(&mut unused_labels::Visitor::new(), &mut out);
+    }
     out
 }
 
