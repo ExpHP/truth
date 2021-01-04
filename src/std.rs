@@ -376,7 +376,7 @@ fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> ReadResult<StdFile> {
         vec
     };
 
-    let script = instr::read_instrs(&mut &bytes[script_offset..], format.instr_format())?;
+    let script = instr::read_instrs(&mut &bytes[script_offset..], format.instr_format(), 0, None)?;
 
     Ok(StdFile { unknown, extra, objects, instances, script })
 }

@@ -109,16 +109,36 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 // =============================================================================
 
 /// Reads the instructions of a complete script, attaching useful information on errors.
+///
+/// Though it primarily uses the `None` output of [`InstrFormat::read_instr`] to determine when to stop reading
+/// instructions, it also may be given an end offset. This will cause it to stop with a warning if it lands on this
+/// offset without receiving a `None` result, or to fail outright if it goes past this offset.  This enables the
+/// reading of TH095's `front.anm`, which contains the only ANM script in existence to have no end marker.  *Sigh.*
 pub fn read_instrs(
     f: &mut dyn BinRead,
     format: &dyn InstrFormat,
+    starting_offset: usize,
+    end_offset: Option<usize>,
 ) -> ReadResult<Vec<Instr>> {
     let mut script = vec![];
-    let mut offset = 0;
+    let mut offset = starting_offset;
     for index in 0.. {
         if let Some(instr) = format.read_instr(f).with_context(|| format!("in instruction {} (offset {:#x})", index, offset))? {
             offset += format.instr_size(&instr);
             script.push(instr);
+
+            if let Some(end_offset) = end_offset {
+                match offset.cmp(&end_offset) {
+                    std::cmp::Ordering::Less => {},
+                    std::cmp::Ordering::Equal => {
+                        fast_warning!("original file is missing an end-of-script marker; one will be added on recompilation");
+                        break;
+                    },
+                    std::cmp::Ordering::Greater => {
+                        bail!("script read past expected end at offset {:#x} (we're now at offset {:#x}!)", end_offset, offset);
+                    },
+                }
+            }
         } else {
             break;  // no more instructions
         }

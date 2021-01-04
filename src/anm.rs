@@ -372,12 +372,21 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
+        // Blame StB
+        let mut all_offsets = vec![header_data.name_offset];
+        all_offsets.extend(header_data.thtx_offset.map(NonZeroUsize::get));
+        all_offsets.extend(header_data.secondary_name_offset.map(NonZeroUsize::get));
+        all_offsets.extend(sprite_offsets.iter().map(|&offset| offset as usize));
+        all_offsets.extend(script_ids_and_offsets.iter().map(|&(_, offset)| offset as usize));
+
         let scripts = script_ids_and_offsets.iter().map(|&(id, offset)| {
             let key = sp!(auto_script_name(next_script_index));
             next_script_index += 1;
 
+            let end_offset = all_offsets.iter().copied().filter(|&x| x > offset).min();
+
             let instrs = {
-                instr::read_instrs(&mut &entry_bytes[offset..], instr_format)
+                instr::read_instrs(&mut &entry_bytes[offset..], instr_format, offset, end_offset)
                     .with_context(|| format!("while reading {}", key))?
             };
             Ok((key, Script { id, instrs }))
@@ -852,6 +861,7 @@ impl InstrFormat for InstrFormat07 {
         let time = f.read_i16()? as i32;
         let param_mask = f.read_u16()?;
         let args = instr::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, param_mask)?;
+        // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
