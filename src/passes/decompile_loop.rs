@@ -28,6 +28,7 @@ impl VisitMut for Visitor {
         let mut reversed_out = vec![];
 
         let label_indices = get_label_indices(&outer_stmts.0);
+        let interrupt_label_indices = get_interrupt_label_indices(&outer_stmts.0);
 
         // Dumb strategy: We just greedily replace the first backwards jump we find.
         while let Some(last_stmt) = outer_stmts.0.last() {
@@ -37,8 +38,8 @@ impl VisitMut for Visitor {
                 if let Some(&dest_index) = label_indices.get(&goto.destination.value) {
 
                     // Is the label before the jump, and does it jump to timeof(label)?
+                    let src_index = outer_stmts.0.len() - 1;
                     let can_transform = {
-                        let src_index = outer_stmts.0.len() - 1;
                         if dest_index <= src_index {
                             let time_of_label = outer_stmts.0[dest_index].time;
                             let goto_time = goto.time.unwrap_or(time_of_label);
@@ -46,7 +47,14 @@ impl VisitMut for Visitor {
                         } else { false }
                     };
 
-                    if can_transform {
+                    // Don't let a loop contain an interrupt label because it's confusing to read.
+                    let is_confusing = || {
+                        interrupt_label_indices.iter().any(|&interrupt_i| {
+                            dest_index <= interrupt_i && interrupt_i < src_index
+                        })
+                    };
+
+                    if can_transform && !is_confusing() {
                         // replace the goto with an EndOfBlock, preserving its time
                         let block_end = outer_stmts.0.last_mut().unwrap();
                         let block_end_span = block_end.span;
@@ -89,4 +97,13 @@ fn get_label_indices(stmts: &[Sp<ast::Stmt>]) -> HashMap<Ident, usize> {
             ast::StmtLabel::Label(ident) => Some((ident.value.clone(), index)),
             ast::StmtLabel::Difficulty { .. } => None,
         })).collect()
+}
+
+/// Get a list of instruction indices that are interrupt labels.
+fn get_interrupt_label_indices(stmts: &[Sp<ast::Stmt>]) -> Vec<usize> {
+    stmts.iter().enumerate()
+        .filter_map(|(index, stmt)| match stmt.body.value {
+            ast::StmtBody::InterruptLabel { .. } => Some(index),
+            _ => None,
+        }).collect()
 }
