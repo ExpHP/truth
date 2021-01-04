@@ -2,8 +2,9 @@ use std::io;
 use std::fmt;
 use bstr::{BString};
 use indexmap::IndexMap;
+use anyhow::Context;
 
-use crate::error::{CompileError, GatherErrorIteratorExt};
+use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
@@ -23,7 +24,7 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> ast::Script {
+    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
         decompile(&game_format(game), self, ty_ctx)
     }
 
@@ -184,7 +185,7 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> ast::Script {
+fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -196,7 +197,7 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> as
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, instrs);
+            let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, instrs)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -213,7 +214,7 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> as
         crate::ast::walk_mut_script(&mut decompile_loop::Visitor::new(), &mut out);
         crate::ast::walk_mut_script(&mut unused_labels::Visitor::new(), &mut out);
     }
-    out
+    Ok(out)
 }
 
 fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError> {
@@ -373,13 +374,12 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
 
         let scripts = script_ids_and_offsets.iter().map(|&(id, offset)| {
             let key = sp!(auto_script_name(next_script_index));
-            let mut f = &entry_bytes[offset..];
-            let mut instrs = vec![];
-
-            while let Some(instr) = instr_format.read_instr(&mut f)? {
-                instrs.push(instr);
-            }
             next_script_index += 1;
+
+            let instrs = {
+                instr::read_instrs(&mut &entry_bytes[offset..], instr_format)
+                    .with_context(|| format!("while reading {}", key))?
+            };
             Ok((key, Script { id, instrs }))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
@@ -477,12 +477,11 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
         Ok(sprite_offset)
     }).collect::<WriteResult<Vec<_>>>()?;
 
-    let script_ids_and_offsets = entry.scripts.iter().map(|(_, script)| {
+    let script_ids_and_offsets = entry.scripts.iter().map(|(name, script)| {
         let script_offset = f.pos()? - entry_pos;
-        for instr in &script.instrs {
-            instr_format.write_instr(f, instr)?;
-        }
-        instr_format.write_terminal_instr(f)?;
+        instr::write_instrs(f, instr_format, &script.instrs)
+            .with_context(|| format!("while writing script '{}'", name))?;
+
         Ok((script.id, script_offset))
     }).collect::<WriteResult<Vec<_>>>()?;
 
@@ -860,7 +859,7 @@ impl InstrFormat for InstrFormat07 {
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
         f.write_i16(instr.time as i16)?;
-        f.write_u16(instr.param_mask())?;
+        f.write_u16(instr.compute_param_mask()?)?;
         for x in &instr.args {
             f.write_u32(x.expect_raw().bits)?;
         }

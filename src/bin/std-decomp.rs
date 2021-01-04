@@ -34,13 +34,14 @@ fn run(
         let bytes = std::fs::read(&path).unwrap();
         let parsed = {
             ecl_parser::StdFile::read_from_bytes(game, &bytes)
+                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx))
                 .with_context(|| format!("in file: {}", path.as_ref().display()))
         };
         match parsed {
-            Ok(parsed) => parsed.decompile_to_ast(game, &ty_ctx),
+            Ok(x) => x,
             Err(e) => {
                 CompileError::from(e).emit_nospans();
-                return;
+                std::process::exit(1); // FIXME skips RAII
             },
         }
     };

@@ -18,6 +18,13 @@ pub struct CompileError {
     pub diagnostics: Vec<Diagnostic>
 }
 
+/// Error type used by parts of the codebase that don't have access to spans.
+///
+/// These parts of the codebase use `anyhow` to produce a single, fatal error message that may
+/// include a chain of context.  This is always ultimately converted into a [`CompileError`]
+/// shortly before being displayed to the user.
+pub type SimpleError = anyhow::Error;
+
 impl CompileError {
     pub fn new_empty() -> CompileError { CompileError { diagnostics: vec![] } }
     pub fn append(&mut self, mut other: CompileError) {
@@ -60,6 +67,8 @@ impl CompileError {
         drop(result);
     }
 }
+
+// -------------------------
 
 lazy_static::lazy_static! {
     static ref TERM_CONFIG: codespan_reporting::term::Config = {
@@ -209,6 +218,8 @@ fn test_collect_with_recovery() {
     assert_eq!(result.unwrap_err().error_count(), 5);
 }
 
+// -------------------------
+
 /// Implementation of [`codespan_reporting::files::Files`] where all methods panic.
 #[doc(hidden)]
 pub struct PanicFiles;
@@ -225,4 +236,30 @@ impl<'a> codespan_reporting::files::Files<'a> for PanicFiles {
     fn source(&'a self, _: FileId) -> CsResult<Self::Source> { unreachable!("span in emit_nospans!") }
     fn line_index(&'a self, _: FileId, _: usize) -> CsResult<usize> { unreachable!("span in emit_nospans!") }
     fn line_range(&'a self, _: FileId, _: usize) -> CsResult<std::ops::Range<usize>> { unreachable!("span in emit_nospans!") }
+}
+
+// -------------------------
+
+/// Utility that makes it easier to apply `anyhow::Context` to all errors in a region of code.
+///
+/// Basically, the most straightforward way to have many error paths apply the same context is to
+/// put them in an IIFE.  However, (a) IIFEs can be confusing to read, and (b) you'd typically be
+/// forced to explicitly annotate the return type due to the nested usage of `?`.
+///
+/// Basically,
+/// ```text
+/// group_anyhow(|| {
+///     ...
+/// }).with_context(|| { ... })
+/// ```
+/// is nicer than
+/// ```text
+/// (|| -> Result<_, anyhow::Error> {
+///     ...
+/// })().with_context(|| { ... })
+/// ```
+pub(crate) fn group_anyhow<T>(
+    func: impl FnOnce() -> Result<T, anyhow::Error>,
+) -> Result<T, anyhow::Error> {
+    func()
 }

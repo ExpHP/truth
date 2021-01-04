@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use anyhow::anyhow;
 use crate::game::Game;
-use crate::error::CompileError;
+use crate::error::{CompileError, SimpleError};
 
 pub fn cli<A: CliArg>(
     usage_args: &str,
@@ -33,7 +33,7 @@ fn print_help(program: &str, usage_args: &str, opts: &getopts::Options) {
     eprint!("{}", opts.usage(&format!("Usage: {} {}", program, usage_args)));
 }
 
-pub type ArgError = anyhow::Error;
+pub type ArgError = SimpleError;
 
 enum ParseError { Error(ArgError), PrintHelp(getopts::Options) }
 // factors out the parts where we want usage with errors

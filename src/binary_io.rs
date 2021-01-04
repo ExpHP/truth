@@ -6,8 +6,8 @@ pub use anyhow::bail;
 
 // Binary file IO uses anyhow instead of codespan_reporting because most span info is lost
 // in the lowered form.
-pub type ReadError = anyhow::Error;
-pub type WriteError = anyhow::Error;
+pub type ReadError = crate::error::SimpleError;
+pub type WriteError = crate::error::SimpleError;
 pub type ReadResult<T> = Result<T, ReadError>;
 pub type WriteResult<T = ()> = Result<T, WriteError>;
 

@@ -4,6 +4,7 @@ use lazy_static::lazy_static;
 use anyhow::{bail, Context};
 use crate::Game;
 use crate::ident::Ident;
+use crate::error::SimpleError;
 
 pub struct Eclmap {
     pub magic: Magic,
@@ -17,7 +18,7 @@ pub struct Eclmap {
 }
 
 impl Eclmap {
-    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>) -> Result<Self, anyhow::Error> {
+    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>) -> Result<Self, SimpleError> {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
         let path = path.as_ref().canonicalize().with_context(|| format!("while resolving {}", path.as_ref().display()))?;
         let text = std::fs::read_to_string(&path).with_context(|| format!("while reading {}", path.display()))?;
@@ -49,7 +50,7 @@ impl Eclmap {
             }).next()
     }
 
-    fn resolve_gamemap(base_dir: &std::path::Path, mut seqmap: SeqMap, game: Game) -> Result<SeqMap, anyhow::Error> {
+    fn resolve_gamemap(base_dir: &std::path::Path, mut seqmap: SeqMap, game: Game) -> Result<SeqMap, SimpleError> {
         let game_files = match seqmap.maps.remove("game_files") {
             Some(game_files) => game_files,
             None => bail!("no !game_files section in gamemap")
@@ -67,7 +68,7 @@ impl Eclmap {
         parse_seqmap(&text)
     }
 
-    fn from_seqmap(seqmap: SeqMap) -> Result<Eclmap, anyhow::Error> {
+    fn from_seqmap(seqmap: SeqMap) -> Result<Eclmap, SimpleError> {
         let SeqMap { magic, mut maps } = seqmap;
         let magic = match &magic[..] {
             "!eclmap" => Magic::Eclmap,
@@ -77,7 +78,7 @@ impl Eclmap {
         };
 
         let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(HashMap::new);
-        let parse_idents = |m:HashMap<i32, String>| -> Result<HashMap<i32, Ident>, anyhow::Error> {
+        let parse_idents = |m:HashMap<i32, String>| -> Result<HashMap<i32, Ident>, SimpleError> {
             m.into_iter().map(|(key, s)| {
                 let ident: Ident = s.parse()?;
                 if let Some(_) = ident.as_ins() {
@@ -120,7 +121,7 @@ struct SeqMap {
     maps: HashMap<String, HashMap<i32, String>>,
 }
 
-fn parse_seqmap(text: &str) -> Result<SeqMap, anyhow::Error> {
+fn parse_seqmap(text: &str) -> Result<SeqMap, SimpleError> {
     let mut maps = HashMap::new();
     let mut cur_section = None;
     let mut cur_map = None;

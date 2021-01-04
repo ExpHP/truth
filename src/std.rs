@@ -2,7 +2,7 @@ use std::io;
 use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
 
-use crate::error::{CompileError};
+use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
@@ -60,7 +60,7 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> ast::Script {
+    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
         decompile_std(&*game_format(game), self, ty_ctx)
     }
 
@@ -226,11 +226,11 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -> ast::Script {
+fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, script);
+    let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, script)?;
 
     let code = {
         use crate::passes::{unused_labels, decompile_loop};
@@ -244,7 +244,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) ->
         code
     };
 
-    ast::Script {
+    Ok(ast::Script {
         mapfiles: ty_ctx.mapfiles_to_ast(),
         items: vec! [
             sp!(ast::Item::Meta {
@@ -258,7 +258,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) ->
                 code,
             }),
         ],
-    }
+    })
 }
 
 fn unsupported(span: &crate::pos::Span) -> CompileError {
@@ -376,15 +376,8 @@ fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> ReadResult<StdFile> {
         vec
     };
 
-    let instr_format = format.instr_format();
-    let script = {
-        let mut f = &bytes[script_offset..];
-        let mut script = vec![];
-        while let Some(instr) = instr_format.read_instr(&mut f)? {
-            script.push(instr);
-        }
-        script
-    };
+    let script = instr::read_instrs(&mut &bytes[script_offset..], format.instr_format())?;
+
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
@@ -423,10 +416,7 @@ fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Wr
     let instr_format = format.instr_format();
 
     let script_offset = f.pos()? - start_pos;
-    for instr in &std.script {
-        instr_format.write_instr(f, instr)?;
-    }
-    instr_format.write_terminal_instr(f)?;
+    instr::write_instrs(f, instr_format, &std.script)?;
 
     let end_pos = f.pos()?;
     f.seek_to(instances_offset_pos)?;

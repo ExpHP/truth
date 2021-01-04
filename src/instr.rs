@@ -1,7 +1,8 @@
 use std::collections::{HashMap};
 
+use anyhow::{Context, bail, ensure};
 
-use crate::error::{GatherErrorIteratorExt, CompileError};
+use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, group_anyhow};
 use crate::pos::{Sp};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
@@ -103,6 +104,39 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
         message("feature not supported by format"),
         primary(span, "not supported by format"),
     )
+}
+
+// =============================================================================
+
+/// Reads the instructions of a complete script, attaching useful information on errors.
+pub fn read_instrs(
+    f: &mut dyn BinRead,
+    format: &dyn InstrFormat,
+) -> ReadResult<Vec<Instr>> {
+    let mut script = vec![];
+    let mut offset = 0;
+    for index in 0.. {
+        if let Some(instr) = format.read_instr(f).with_context(|| format!("in instruction {} (offset {:#x})", index, offset))? {
+            offset += format.instr_size(&instr);
+            script.push(instr);
+        } else {
+            break;  // no more instructions
+        }
+    }
+    Ok(script)
+}
+
+/// Writes the instructions of a complete script, attaching useful information on errors.
+pub fn write_instrs(
+    f: &mut dyn BinWrite,
+    format: &dyn InstrFormat,
+    instrs: &[Instr],
+) -> WriteResult {
+    for (index, instr) in instrs.iter().enumerate() {
+        format.write_instr(f, instr).with_context(|| format!("while writing instruction {}", index))?;
+    }
+    format.write_terminal_instr(f).with_context(|| format!("while writing the script end marker"))?;
+    Ok(())
 }
 
 // =============================================================================
@@ -332,7 +366,11 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg
     }
 }
 
-pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrFormat, script: &[Instr]) -> Vec<Sp<ast::Stmt>> {
+pub fn raise_instrs_to_sub_ast(
+    ty_ctx: &TypeSystem,
+    instr_format: &dyn InstrFormat,
+    script: &[Instr],
+) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
     let opcode_intrinsics: HashMap<_, _> = {
         instr_format.intrinsic_opcode_pairs().into_iter()
             .map(|(a, b)| (b, a)).collect()
@@ -344,12 +382,12 @@ pub fn raise_instrs_to_sub_ast(ty_ctx: &TypeSystem, instr_format: &dyn InstrForm
         let this_instr_label = sp!(ast::StmtLabel::Label(default_instr_label(offset)));
         offset += instr_format.instr_size(instr);
 
-        let body = raise_instr(instr_format, instr, ty_ctx, &opcode_intrinsics);
-        sp!(ast::Stmt {
+        let body = raise_instr(instr_format, instr, ty_ctx, &opcode_intrinsics)?;
+        Ok(sp!(ast::Stmt {
             time: instr.time,
             labels: vec![this_instr_label],
             body: sp!(body),
-        })
+        }))
     }).collect();
     code
 }
@@ -363,83 +401,90 @@ fn raise_instr(
     instr: &Instr,
     ty_ctx: &TypeSystem,
     opcode_intrinsics: &HashMap<u16, IntrinsicInstrKind>,
-) -> ast::StmtBody {
+) -> Result<ast::StmtBody, SimpleError> {
     let Instr { opcode, ref args, .. } = *instr;
     match opcode_intrinsics.get(&opcode).copied() {
-        Some(IntrinsicInstrKind::Jmp) => {
+        Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
             let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
 
             // This one is >= because it exists in early STD where there can be padding args.
-            assert!(args.len() >= nargs); // FIXME: proper error
-            assert!(args[nargs..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
+            ensure!(args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
+            ensure!(args[nargs..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
 
             let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
             let dest_time = match instr_format.jump_has_time_arg() {
                 true => Some(args[1].expect_immediate_int()),
                 false => None,
             };
-            return ast::StmtBody::Jump(ast::StmtGoto {
+            Ok(ast::StmtBody::Jump(ast::StmtGoto {
                 destination: default_instr_label(dest_offset),
                 time: dest_time,
-            });
-        },
+            }))
+        }).with_context(|| format!("while decompiling a 'goto' operation")),
 
-        Some(IntrinsicInstrKind::AssignOp(op, ty)) => {
-            assert_eq!(args.len(), 2); // FIXME: proper error
-            ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)),
+        Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
+            ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
+            Ok(ast::StmtBody::Assignment {
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)?),
                 op: sp!(op),
-                value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)),
-            }
-        },
-        Some(IntrinsicInstrKind::Binop(op, ty)) => {
-            assert_eq!(args.len(), 3); // FIXME: proper error
-            ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)),
+                value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?),
+            })
+        }).with_context(|| format!("while decompiling a '{}' operation", op)),
+
+        Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
+            ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
+            Ok(ast::StmtBody::Assignment {
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)?),
                 op: sp!(ast::AssignOpKind::Assign),
                 value: sp!(Expr::Binop(
-                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx))),
+                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?)),
                     sp!(op),
-                    Box::new(sp!(raise_arg(&args[2].expect_raw(), ty.default_encoding(), ty_ctx))),
+                    Box::new(sp!(raise_arg(&args[2].expect_raw(), ty.default_encoding(), ty_ctx)?)),
                 )),
-            }
-        },
-        Some(IntrinsicInstrKind::InterruptLabel) => {
+            })
+        }).with_context(|| format!("while decompiling a '{}' operation", op)),
+
+        Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
             // This one is >= because it exists in STD where there can be padding args.
-            assert!(args.len() >= 1); // FIXME: proper error
-            ast::StmtBody::InterruptLabel(sp!(args[0].expect_immediate_int()))
-        },
+            ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
+            ensure!(args[1..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
+
+            Ok(ast::StmtBody::InterruptLabel(sp!(args[0].expect_immediate_int())))
+        }).with_context(|| format!("while decompiling an interrupt label")),
+
         // raising of these not yet implemented
         Some(IntrinsicInstrKind::TransOp(_)) |
         Some(IntrinsicInstrKind::CountJmp) |
         Some(IntrinsicInstrKind::CondJmp(_, _)) |
-        None => {
+        None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {
                 ty_ctx.opcode_names.get(&(opcode as u32)).cloned()
                     .unwrap_or_else(|| Ident::new_ins(opcode as u32))
             };
 
-            ast::StmtBody::Expr(sp!(Expr::Call {
+            Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 args: match ty_ctx.ins_signature(&ins_ident) {
-                    Some(siggy) => raise_args(args, siggy, ty_ctx),
-                    None => raise_args(args, &Signature::auto(args.len()), ty_ctx),
+                    Some(siggy) => raise_args(args, siggy, ty_ctx)?,
+                    None => raise_args(args, &Signature::auto(args.len()), ty_ctx)?,
                 },
                 func: sp!(ins_ident),
-            }))
-        },
+            })))
+        }).with_context(|| format!("while decompiling ins_{}", opcode)),
     }
 
 }
 
-fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Vec<Sp<Expr>> {
+fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Result<Vec<Sp<Expr>>, SimpleError> {
     let encodings = siggy.arg_encodings();
 
-    // FIXME opcode would be nice
-    assert_eq!(args.len(), encodings.len(), "provided arg count does not match mapfile!"); // FIXME: return Error
-    let mut out = encodings.iter().zip(args).map(|(&enc, arg)| {
-        sp!(raise_arg(&arg.expect_raw(), enc, ty_ctx))
-    }).collect::<Vec<_>>();
+    if args.len() != encodings.len() {
+        bail!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
+    }
+    let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
+        let arg_ast = raise_arg(&arg.expect_raw(), enc, ty_ctx).with_context(|| format!("in argument {}", i + 1))?;
+        Ok(sp!(arg_ast))
+    }).collect::<Result<Vec<_>, SimpleError>>()?;
 
     // drop early STD padding args from the end as long as they're zero
     for (enc, arg) in encodings.iter().zip(args).rev() {
@@ -448,10 +493,10 @@ fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Vec<
             _ => break,
         };
     }
-    out
+    Ok(out)
 }
 
-fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &TypeSystem) -> Expr {
+fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &TypeSystem) -> Result<Expr, SimpleError> {
     if raw.is_var {
         let ty = match enc {
             ArgEncoding::Padding |
@@ -459,35 +504,39 @@ fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &TypeSystem) -> Expr {
             ArgEncoding::Dword => ScalarType::Int,
             ArgEncoding::Float => ScalarType::Float,
         };
-        Expr::Var(sp!(raise_arg_to_var(raw, ty, ty_ctx)))
+        Ok(Expr::Var(sp!(raise_arg_to_var(raw, ty, ty_ctx)?)))
     } else {
         raise_arg_to_literal(raw, enc)
     }
 }
 
-fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Expr {
-    assert!(!raw.is_var);  // FIXME return error
+fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
+    if raw.is_var {
+        bail!("expected an immediate, got a variable");
+    }
     match enc {
         ArgEncoding::Padding |
-        ArgEncoding::Dword => Expr::from(raw.bits as i32),
-        ArgEncoding::Color => Expr::LitInt { value: raw.bits as i32, hex: true },
-        ArgEncoding::Float => Expr::from(f32::from_bits(raw.bits)),
+        ArgEncoding::Dword => Ok(Expr::from(raw.bits as i32)),
+        ArgEncoding::Color => Ok(Expr::LitInt { value: raw.bits as i32, hex: true }),
+        ArgEncoding::Float => Ok(Expr::from(f32::from_bits(raw.bits))),
     }
 }
 
-fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &TypeSystem) -> ast::Var {
-    assert!(raw.is_var);  // FIXME return error
+fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &TypeSystem) -> Result<ast::Var, SimpleError> {
+    if !raw.is_var {
+        bail!("expected a variable, got an immediate");
+    }
     let id = match ty {
         ScalarType::Int => raw.bits as i32,
         ScalarType::Float => {
             let float_id = f32::from_bits(raw.bits);
             if float_id != f32::round(float_id) {
-                fast_warning!("non-integer float variable [{}] in binary file will be truncated!", float_id);
+                bail!("non-integer float variable [{}] in binary file!", float_id);
             }
             float_id as i32
         },
     };
-    ty_ctx.gvar_to_ast(id, ty)
+    Ok(ty_ctx.gvar_to_ast(id, ty))
 }
 
 // =============================================================================
@@ -695,7 +744,9 @@ pub fn read_dword_args_upto_size(
     size: usize,
     mut param_mask: u16,
 ) -> ReadResult<Vec<InstrArg>> {
-    assert_eq!(size % 4, 0);
+    if size % 4 != 0 {
+        bail!("size not divisible by 4: {}", size);
+    }
     let nargs = size/4;
 
     let out = (0..nargs).map(|_| {
@@ -715,9 +766,9 @@ pub fn read_dword_args_upto_size(
 }
 
 impl Instr {
-    pub fn param_mask(&self) -> u16 {
+    pub fn compute_param_mask(&self) -> Result<u16, SimpleError> {
         if self.args.len() > 16 {
-            panic!("Too many arguments in instruction!")
+            bail!("too many arguments in instruction!");
         }
         let mut mask = 0;
         for arg in self.args.iter().rev(){
@@ -729,6 +780,6 @@ impl Instr {
             mask *= 2;
             mask += bit;
         }
-        mask
+        Ok(mask)
     }
 }

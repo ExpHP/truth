@@ -32,15 +32,16 @@ fn run(
 
     let script = {
         let bytes = std::fs::read(&path).unwrap();
-        let anm = {
+        let anm_result = {
             ecl_parser::AnmFile::read_from_bytes(game, &bytes)
+                .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx))
                 .with_context(|| format!("in file: {}", path.as_ref().display()))
         };
-        match anm {
-            Ok(anm) => anm.decompile_to_ast(game, &ty_ctx),
+        match anm_result {
+            Ok(anm) => anm,
             Err(e) => {
                 CompileError::from(e).emit_nospans();
-                return;
+                std::process::exit(1); // FIXME skips RAII
             },
         }
     };
