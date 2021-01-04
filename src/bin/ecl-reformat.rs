@@ -20,6 +20,6 @@ fn run(path: impl AsRef<std::path::Path>) {
         Err(e) => panic!("{}", e),
     };
     let stdout = std::io::stdout();
-    let mut f = ecl_parser::fmt::Formatter::new(stdout.lock());
+    let mut f = ecl_parser::fmt::Formatter::new(std::io::BufWriter::new(stdout.lock()));
     f.fmt(&script).unwrap();
 }

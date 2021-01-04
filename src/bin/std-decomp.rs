@@ -47,6 +47,6 @@ fn run(
     };
 
     let stdout = std::io::stdout();
-    let mut f = ecl_parser::fmt::Formatter::new(stdout.lock()).with_max_columns(ncol);
+    let mut f = ecl_parser::fmt::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
     script.fmt(&mut f).unwrap();
 }

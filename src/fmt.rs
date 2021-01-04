@@ -417,7 +417,8 @@ impl Format for ast::Script {
         }
 
         out.fmt_separated(items, |out| {
-            // all items end with a newline, so this creates a blank line to separate them
+            // all items end with a newline, so this creates two blank lines to separate them
+            out.next_line()?;
             out.next_line()
         })
     }
