@@ -598,10 +598,16 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
+            ast::StmtBody::InterruptLabel(id) => {
+                out.next_line()?;
+                out.fmt_label(("interrupt[", id, "]:"))?;
+                out.suppress_blank_line();
+                Ok(())
+            },
             ast::StmtBody::NoInstruction => {
                 out.suppress_blank_line();
                 Ok(())
-            }
+            },
         }
     }
 }

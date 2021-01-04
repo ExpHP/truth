@@ -98,6 +98,7 @@ extern {
         "switch" => Token::Switch,
         "case" => Token::Case,
         "default" => Token::Default,
+        "interrupt" => Token::Interrupt,
         "async" => Token::Async,
         "global" => Token::Global,
         "false" => Token::False,
@@ -266,6 +267,7 @@ StmtBody: StmtBody = {
     "loop" <block:StmtOrBlock> => StmtBody::Loop { block },
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Sp<Expr>> ";" => StmtBody::Expr(e),
+    "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":" => StmtBody::InterruptLabel(arg),
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
     <ty:VarDeclKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
         StmtBody::Declaration { ty, vars }
@@ -475,6 +477,10 @@ ExprTerm: Expr = {
     <value:LitIntUnsigned> => Expr::LitInt { value, hex: false },
     <value:LitFloatUnsigned> => Expr::LitFloat { value },
     <x:LitString> => Expr::LitString(x),
+
+    // This syntax is reserved.
+    // The only reason we parse it right now is just to prove that adding it wouldn't make the grammar ambiguous.
+    <Var> "[" <Expr> "]" =>? Err(ParseError::User { error: "array indexing is not a thing, sorry" }),
 };
 
 ExprCallParts: (Sp<Ident>, Vec<Sp<Expr>>) = {

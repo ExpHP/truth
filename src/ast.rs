@@ -177,6 +177,11 @@ pub enum StmtBody {
         func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
     },
+    /// An interrupt label: `interrupt[2]:`.
+    ///
+    /// Because this compiles to an expression, we store it as a statement in the AST rather than
+    /// as a label.
+    InterruptLabel(Sp<i32>),
     /// A virtual instruction that completely disappears during compilation.
     ///
     /// This is a trivial statement that doesn't even compile to a `nop();`.
@@ -507,6 +512,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(arg);
                     }
                 },
+                StmtBody::InterruptLabel(_) => {},
                 StmtBody::NoInstruction => {},
             }
         }

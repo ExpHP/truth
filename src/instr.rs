@@ -54,9 +54,23 @@ impl InstrArg {
     }
 
     #[track_caller]
-    pub fn expect_var(&self) -> RawArg {
+    pub fn expect_immediate_int(&self) -> i32 {
         match *self {
-            InstrArg::Raw(x) => x,
+            InstrArg::Raw(x) => {
+                assert!(!x.is_var);
+                x.bits as i32
+            },
+            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
+        }
+    }
+
+    #[track_caller]
+    pub fn expect_immediate_float(&self) -> f32 {
+        match *self {
+            InstrArg::Raw(x) => {
+                assert!(!x.is_var);
+                f32::from_bits(x.bits)
+            },
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
         }
     }
@@ -118,7 +132,9 @@ pub fn lower_sub_ast_to_instrs(
                 ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span)),
             }
         }
-        
+
+        let get_opcode = |intrinsic, descr| lookup_opcode(&intrinsic_opcodes, intrinsic, &stmt.body, descr);
+
         match &stmt.body.value {
             ast::StmtBody::Jump(goto) => {
                 if goto.time.is_some() && !format.jump_has_time_arg() {
@@ -135,19 +151,21 @@ pub fn lower_sub_ast_to_instrs(
 
                 out.push(InstrOrLabel::Instr(Instr {
                     time: stmt.time,
-                    opcode: match intrinsic_opcodes.get(&IntrinsicInstrKind::Jmp) {
-                        Some(&opcode) => opcode,
-                        None => return Err(error!(
-                            message("feature not supported by format"),
-                            primary(stmt.body, "'goto' not supported in this game"),
-                        )),
-                    },
+                    opcode: get_opcode(IntrinsicInstrKind::Jmp, "'goto'")?,
                     args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
                 }));
             },
 
             ast::StmtBody::Assignment { var, op, value } => {
                 out.push(lower_assignment_stmt(stmt, var, op, value, &intrinsic_opcodes, ty_ctx)?);
+            },
+
+            ast::StmtBody::InterruptLabel(interrupt_id) => {
+                out.push(InstrOrLabel::Instr(Instr {
+                    time: stmt.time,
+                    opcode: get_opcode(IntrinsicInstrKind::InterruptLabel, "interrupt label")?,
+                    args: vec![InstrArg::Raw(interrupt_id.value.into())],
+                }));
             },
 
             ast::StmtBody::Expr(expr) => match &expr.value {
@@ -203,6 +221,21 @@ pub fn lower_sub_ast_to_instrs(
     }).collect())
 }
 
+fn lookup_opcode<T>(
+    intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
+    intrinsic: IntrinsicInstrKind,
+    span: &Sp<T>,
+    descr: &str,
+) -> Result<u16, CompileError> {
+    match intrinsic_opcodes.get(&intrinsic) {
+        Some(&opcode) => Ok(opcode),
+        None => Err(error!(
+            message("feature not supported by format"),
+            primary(span, "{} not supported in this game", descr),
+        )),
+    }
+}
+
 /// Looks at a statement of the form `a = <expr>;` and tries to produce an instruction from it.
 ///
 /// Only handles simple operands, e.g. `a = b + 3;` and not `a = (b + 1) + 3;`. Things like the latter are expected
@@ -217,15 +250,7 @@ fn lower_assignment_stmt(
 ) -> Result<InstrOrLabel, CompileError>{
     use IntrinsicInstrKind as IKind;
 
-    let get_opcode = |intrinsic, descr| -> Result<u16, CompileError> {
-        match intrinsic_opcodes.get(&intrinsic) {
-            Some(&opcode) => Ok(opcode),
-            None => Err(error!(
-                message("feature not supported by format"),
-                primary(stmt.body, "{} not supported in this game", descr),
-            )),
-        }
-    };
+    let get_opcode = |intrinsic, descr| lookup_opcode(intrinsic_opcodes, intrinsic, &stmt.body, descr);
 
     match (assign_op.value, &rhs.value) {
         (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
@@ -344,13 +369,13 @@ fn raise_instr(
         Some(IntrinsicInstrKind::Jmp) => {
             let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
 
-            // This one is >= because it exists in STD where there can be padding args.
+            // This one is >= because it exists in early STD where there can be padding args.
             assert!(args.len() >= nargs); // FIXME: proper error
             assert!(args[nargs..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
 
             let dest_offset = instr_format.decode_label(args[0].expect_raw().bits);
             let dest_time = match instr_format.jump_has_time_arg() {
-                true => Some(args[1].expect_raw().bits as i32),
+                true => Some(args[1].expect_immediate_int()),
                 false => None,
             };
             return ast::StmtBody::Jump(ast::StmtGoto {
@@ -379,11 +404,15 @@ fn raise_instr(
                 )),
             }
         },
+        Some(IntrinsicInstrKind::InterruptLabel) => {
+            // This one is >= because it exists in STD where there can be padding args.
+            assert!(args.len() >= 1); // FIXME: proper error
+            ast::StmtBody::InterruptLabel(sp!(args[0].expect_immediate_int()))
+        },
         // raising of these not yet implemented
         Some(IntrinsicInstrKind::TransOp(_)) |
         Some(IntrinsicInstrKind::CountJmp) |
         Some(IntrinsicInstrKind::CondJmp(_, _)) |
-        Some(IntrinsicInstrKind::InterruptLabel) |
         None => {
             // Default behavior for general instructions
             let ins_ident = {

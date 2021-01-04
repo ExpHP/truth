@@ -86,6 +86,7 @@ macro_rules! with_each_terminal {
             [0, b"switch", Switch]
             [0, b"case", Case]
             [0, b"default", Default]
+            [0, b"interrupt", Interrupt]
             [0, b"async", Async]
             [0, b"global", Global]
             [0, b"false", False]
