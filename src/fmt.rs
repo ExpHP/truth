@@ -555,8 +555,8 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
-            ast::StmtBody::CondJump { kind, cond, jump } => {
-                out.fmt((kind, " (", cond, ") ", jump, ";"))
+            ast::StmtBody::CondJump { keyword, cond, jump } => {
+                out.fmt((keyword, " (", cond, ") ", jump, ";"))
             },
             ast::StmtBody::Loop { block } => out.fmt(("loop ", block)),
             ast::StmtBody::CondChain(chain) => out.fmt(chain),
@@ -642,8 +642,17 @@ impl Format for ast::StmtCondChain {
 
 impl Format for ast::CondBlock {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::CondBlock { kind, cond, block } = self;
+        let ast::CondBlock { keyword: kind, cond, block } = self;
         out.fmt((kind, " (", cond, ") ", block))
+    }
+}
+
+impl Format for ast::Cond {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        match self {
+            ast::Cond::Decrement(var) => out.fmt((var, "--")),
+            ast::Cond::Expr(expr) => out.fmt(expr),
+        }
     }
 }
 
@@ -685,7 +694,6 @@ impl Format for ast::Expr {
                 out.fmt(func)?;
                 out.fmt_comma_separated("(", ")", args)
             },
-            ast::Expr::Decrement { var } => out.fmt((var, "--")),
             ast::Expr::Unop(op, x) => out.fmt(("(", op, x, ")")),
             ast::Expr::LitInt{ value, hex: false } => out.fmt(value),
             ast::Expr::LitInt{ value, hex: true } => out.fmt(format_args!("{:#x}", value)),

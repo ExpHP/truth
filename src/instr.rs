@@ -198,21 +198,20 @@ pub fn lower_sub_ast_to_instrs(
                     ));
                 }
 
-                let time_arg = match goto.time {
-                    Some(time) => InstrArg::Raw(time.into()),
-                    None => InstrArg::TimeOf(goto.destination.clone()),
-                };
+                let (label_arg, time_arg) = lower_goto_args(goto);
 
                 out.push(InstrOrLabel::Instr(Instr {
                     time: stmt.time,
                     opcode: get_opcode(IntrinsicInstrKind::Jmp, "'goto'")?,
-                    args: vec![InstrArg::Label(goto.destination.clone()), time_arg],
+                    args: vec![label_arg, time_arg],
                 }));
             },
+
 
             ast::StmtBody::Assignment { var, op, value } => {
                 out.push(lower_assignment_stmt(stmt, var, op, value, &intrinsic_opcodes, ty_ctx)?);
             },
+
 
             ast::StmtBody::InterruptLabel(interrupt_id) => {
                 out.push(InstrOrLabel::Instr(Instr {
@@ -221,6 +220,12 @@ pub fn lower_sub_ast_to_instrs(
                     args: vec![InstrArg::Raw(interrupt_id.value.into())],
                 }));
             },
+
+
+            ast::StmtBody::CondJump { keyword, cond, jump } => {
+                out.push(lower_cond_jump_stmt(stmt, keyword, cond, jump, &intrinsic_opcodes, ty_ctx)?);
+            },
+
 
             ast::StmtBody::Expr(expr) => match &expr.value {
                 ast::Expr::Call { func, args } => {
@@ -275,6 +280,15 @@ pub fn lower_sub_ast_to_instrs(
     }).collect())
 }
 
+fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
+    let label_arg = InstrArg::Label(goto.destination.clone());
+    let time_arg = match goto.time {
+        Some(time) => InstrArg::Raw(time.into()),
+        None => InstrArg::TimeOf(goto.destination.clone()),
+    };
+    (label_arg, time_arg)
+}
+
 fn lookup_opcode<T>(
     intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
     intrinsic: IntrinsicInstrKind,
@@ -290,10 +304,65 @@ fn lookup_opcode<T>(
     }
 }
 
-/// Looks at a statement of the form `a = <expr>;` and tries to produce an instruction from it.
+/// Looks at a statement of the form `if (<cond>) goto label @ time;` and tries to produce an instruction from it.
 ///
-/// Only handles simple operands, e.g. `a = b + 3;` and not `a = (b + 1) + 3;`. Things like the latter are expected
-/// to have already been converted into another form if the format supports them.
+/// Only handles conditions that map to instructions, e.g. `a != b` or `b--`, but not `a && b`.
+/// Things like the latter are expected to have already been converted into another form if the
+/// format supports them.
+fn lower_cond_jump_stmt(
+    stmt: &ast::Stmt,
+    keyword: &Sp<ast::CondKeyword>,
+    cond: &Sp<ast::Cond>,
+    goto: &ast::StmtGoto,
+    intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
+    ty_ctx: &TypeSystem,
+) -> Result<InstrOrLabel, CompileError>{
+    use IntrinsicInstrKind as IKind;
+
+    let get_opcode = |intrinsic, descr| lookup_opcode(intrinsic_opcodes, intrinsic, &stmt.body, descr);
+
+    let (arg_label, arg_time) = lower_goto_args(goto);
+
+    match (keyword.value, &cond.value) {
+        (ast::CondKeyword::Unless, _) => Err(error!(
+            message("feature not implemented"),
+            note("only 'if' has been implemented, not 'unless'"),
+        )),
+
+        (ast::CondKeyword::If, ast::Cond::Decrement(var)) => {
+            let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
+            if ty_var != ScalarType::Int {
+                return Err(error!(
+                    message("type error"),
+                    primary(cond, "expected an int, got {}", ty_var.descr()),
+                    secondary(keyword, "required by this"),
+                ));
+            }
+
+            Ok(InstrOrLabel::Instr(Instr {
+                time: stmt.time,
+                opcode: get_opcode(IKind::CountJmp, "decrement jump")?,
+                args: vec![arg_var, arg_label, arg_time],
+            }))
+        },
+
+        (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
+            &Expr::Binop(ref a, op, ref b) => {
+                let (arg_a, ty_a) = lower_simple_arg(a, ty_ctx)?;
+                let (arg_b, ty_b) = lower_simple_arg(b, ty_ctx)?;
+                let ty = ty_a.check_same(ty_b, op.span, (a.span, b.span))?;
+
+                Ok(InstrOrLabel::Instr(Instr {
+                    time: stmt.time,
+                    opcode: get_opcode(IKind::CondJmp(op.value, ty), "conditional jump")?,
+                    args: vec![arg_a, arg_b, arg_label, arg_time],
+                }))
+            },
+            _ => Err(unsupported(&expr.span)),
+        },
+    }
+}
+
 fn lower_assignment_stmt(
     stmt: &ast::Stmt,
     var: &Sp<ast::Var>,
@@ -442,6 +511,7 @@ fn raise_instr(
             }))
         }).with_context(|| format!("while decompiling a 'goto' operation")),
 
+
         Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
             Ok(ast::StmtBody::Assignment {
@@ -450,6 +520,7 @@ fn raise_instr(
                 value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?),
             })
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
+
 
         Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
@@ -464,6 +535,7 @@ fn raise_instr(
             })
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
+
         Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
             // This one is >= because it exists in STD where there can be padding args.
             ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
@@ -472,10 +544,46 @@ fn raise_instr(
             Ok(ast::StmtBody::InterruptLabel(sp!(args[0].expect_immediate_int())))
         }).with_context(|| format!("while decompiling an interrupt label")),
 
+
+        Some(IntrinsicInstrKind::CountJmp) => group_anyhow(|| {
+            ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
+            let var = raise_arg_to_var(&args[0].expect_raw(), ScalarType::Int, ty_ctx)?;
+            let dest_offset = instr_format.decode_label(args[1].expect_raw().bits);
+            let dest_time = Some(args[2].expect_immediate_int());
+
+            Ok(ast::StmtBody::CondJump {
+                keyword: sp!(ast::CondKeyword::If),
+                cond: sp!(ast::Cond::Decrement(sp!(var))),
+                jump: ast::StmtGoto {
+                    destination: default_instr_label(dest_offset),
+                    time: dest_time,
+                },
+            })
+        }).with_context(|| format!("while decompiling a decrement jump")),
+
+
+        Some(IntrinsicInstrKind::CondJmp(op, ty)) => group_anyhow(|| {
+            ensure!(args.len() == 4, "expected {} args, got {}", 4, args.len());
+            let a = raise_arg(&args[0].expect_raw(), ty.default_encoding(), ty_ctx)?;
+            let b = raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?;
+            let dest_offset = instr_format.decode_label(args[2].expect_raw().bits);
+            let dest_time = Some(args[3].expect_immediate_int());
+
+            Ok(ast::StmtBody::CondJump {
+                keyword: sp!(ast::CondKeyword::If),
+                cond: sp!(ast::Cond::Expr(sp!({
+                    ast::Expr::Binop(Box::new(sp!(a)), sp!(op), Box::new(sp!(b)))
+                }))),
+                jump: ast::StmtGoto {
+                    destination: default_instr_label(dest_offset),
+                    time: dest_time,
+                },
+            })
+        }).with_context(|| format!("while decompiling a conditional jump")),
+
+
         // raising of these not yet implemented
         Some(IntrinsicInstrKind::TransOp(_)) |
-        Some(IntrinsicInstrKind::CountJmp) |
-        Some(IntrinsicInstrKind::CondJmp(_, _)) |
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {
@@ -492,7 +600,6 @@ fn raise_instr(
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
     }
-
 }
 
 fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Result<Vec<Sp<Expr>>, SimpleError> {

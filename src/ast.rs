@@ -132,8 +132,8 @@ pub enum StmtLabel {
 pub enum StmtBody {
     Jump(StmtGoto),
     CondJump {
-        kind: CondKind,
-        cond: Sp<Expr>,
+        keyword: Sp<CondKeyword>,
+        cond: Sp<Cond>,
         jump: StmtGoto,
     },
     Return {
@@ -145,7 +145,7 @@ pub enum StmtBody {
     },
     While {
         is_do_while: bool,
-        cond: Sp<Expr>,
+        cond: Sp<Cond>,
         block: Block,
     },
     Times {
@@ -213,9 +213,15 @@ pub struct StmtCondChain {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
-    pub kind: CondKind,
-    pub cond: Sp<Expr>,
+    pub keyword: CondKeyword,
+    pub cond: Sp<Cond>,
     pub block: Block,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Cond {
+    Decrement(Sp<Var>),
+    Expr(Sp<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -226,7 +232,7 @@ pub enum CallAsyncKind {
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum CondKind {
+    pub enum CondKeyword {
         #[str = "if"] If,
         #[str = "unless"] Unless,
     }
@@ -268,9 +274,6 @@ pub enum Expr {
     Call {
         func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
-    },
-    Decrement {
-        var: Sp<Var>,
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
     LitInt {
@@ -469,30 +472,30 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 StmtBody::Loop { block } => v.visit_block(block),
-                StmtBody::CondJump { cond, kind: _, jump: _ } => {
-                    v.visit_expr(cond);
+                StmtBody::CondJump { cond, keyword: _, jump: _ } => {
+                    walk_cond(v, cond);
                 },
                 StmtBody::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
-                    for CondBlock { cond, block, kind: _ } in cond_blocks {
-                        v.visit_expr(cond);
-                        walk_block(v, block);
+                    for CondBlock { cond, block, keyword: _ } in cond_blocks {
+                        walk_cond(v, cond);
+                        v.visit_block(block);
                     }
                     if let Some(block) = else_block {
-                        walk_block(v, block);
+                        v.visit_block(block);
                     }
                 },
                 StmtBody::While { is_do_while: true, cond, block } => {
-                    v.visit_expr(cond);
-                    walk_block(v, block);
+                    walk_cond(v, cond);
+                    v.visit_block(block);
                 },
                 StmtBody::While { is_do_while: false, cond, block } => {
-                    walk_block(v, block);
-                    v.visit_expr(cond);
+                    v.visit_block(block);
+                    walk_cond(v, cond);
                 },
                 StmtBody::Times { count, block } => {
                     v.visit_expr(count);
-                    walk_block(v, block);
+                    v.visit_block(block);
                 },
                 StmtBody::Expr(e) => {
                     v.visit_expr(e);
@@ -517,6 +520,15 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
+        fn walk_cond<V>(v: &mut V, e: & $($mut)? Sp<Cond>)
+        where V: ?Sized + $Visit,
+        {
+            match & $($mut)? e.value {
+                Cond::Decrement(_) => {},
+                Cond::Expr(e) => walk_expr(v, e),
+            }
+        }
+
         pub fn walk_expr<V>(v: &mut V, e: & $($mut)? Sp<Expr>)
         where V: ?Sized + $Visit,
         {
@@ -535,7 +547,6 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(arg);
                     }
                 },
-                Expr::Decrement { var: _ } => {},
                 Expr::Unop(_op, x) => v.visit_expr(x),
                 Expr::LitInt { value: _, hex: _ } => {},
                 Expr::LitFloat { value: _ } => {},

@@ -181,6 +181,9 @@ pub enum ScalarType { Int, Float }
 /// This is a bit more nuanced compared to [`ScalarType`].  Arguments with the same type
 /// may have different encodings based on how they are either stored in the file, or on how they
 /// may be written in a source file.
+///
+/// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
+/// [`ScalarType`] tends to be more relevant for variables.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArgEncoding {
     /// Script argument encoded as a 4-byte integer.

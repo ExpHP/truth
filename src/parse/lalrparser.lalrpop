@@ -8,7 +8,7 @@ use crate::ast::{
     self,
     Script, MetaKeyword,
     Item, FuncKeyword, FuncReturnType, FileListKeyword, AssignOpKind,
-    Stmt, StmtBody, StmtGoto, StmtLabel, CondKind, CondBlock, Block,
+    Stmt, StmtBody, StmtGoto, StmtLabel, CondKeyword, CondBlock, Cond, Block,
     Expr, BinopKind, UnopKind, Var, VarDeclKeyword, VarReadType, LitString,
     DifficultyLabel,
 };
@@ -260,9 +260,9 @@ Stmt: Stmt = {
 StmtBody: StmtBody = {
     "return" <value:Sp<Expr>?> ";" => StmtBody::Return { value },
     <chain: CondChain> => StmtBody::CondChain(chain),
-    <kind:CondKeyword> "(" <cond:Sp<Expr>> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { kind, cond, jump },
-    "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Expr>> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
-    "while" "(" <cond:Sp<Expr>> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { keyword, cond, jump },
+    "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Cond>> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
+    "while" "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
     "times" "(" <count:Sp<Expr>> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
     "loop" <block:StmtOrBlock> => StmtBody::Loop { block },
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
@@ -340,7 +340,12 @@ CondChainWithoutElse: ast::StmtCondChain = {
 };
 
 CondBlock: CondBlock = {
-    <kind:CondKeyword> "(" <cond:Sp<Expr>> ")" <block:StmtOrBlock> => CondBlock { kind, cond, block },
+    <kind:CondKeyword> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock> => CondBlock { keyword:kind, cond, block },
+};
+
+Cond: Cond = {
+    <var:Sp<Var>> "--" => Cond::Decrement(var),
+    <expr:Sp<Expr>> => Cond::Expr(expr),
 };
 
 // block for an 'if', 'while', etc.
@@ -350,9 +355,9 @@ StmtOrBlock: Block = {
     Block,
 };
 
-CondKeyword: CondKind = {
-    "if" => CondKind::If,
-    "unless" => CondKind::Unless,
+CondKeyword: CondKeyword = {
+    "if" => CondKeyword::If,
+    "unless" => CondKeyword::Unless,
 };
 
 DifficultyLabel: DifficultyLabel = {
@@ -473,7 +478,6 @@ ExprTerm: Expr = {
         Expr::Call { func, args }
     },
     <v:Sp<Var>> => Expr::Var(v),
-    <var:Sp<Var>> "--" => Expr::Decrement { var },
     <value:LitIntUnsigned> => Expr::LitInt { value, hex: false },
     <value:LitFloatUnsigned> => Expr::LitFloat { value },
     <x:LitString> => Expr::LitString(x),
