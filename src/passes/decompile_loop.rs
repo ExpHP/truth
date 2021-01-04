@@ -33,7 +33,7 @@ impl VisitMut for Visitor {
         // Dumb strategy: We just greedily replace the first backwards jump we find.
         while let Some(last_stmt) = outer_stmts.0.last() {
             // Is this a goto?
-            if let ast::StmtBody::Jump(goto) = &last_stmt.body.value {
+            if let Some((goto, jmp_kind)) = JmpKind::from_jump(&last_stmt.body.value) {
                 // Does it jump to a label in the same block?
                 if let Some(&dest_index) = label_indices.get(&goto.destination.value) {
 
@@ -63,17 +63,11 @@ impl VisitMut for Visitor {
                         let inner_stmts: Vec<_> = outer_stmts.0.drain(dest_index..).collect();
                         let inner_span = inner_stmts[0].span.merge(block_end_span);
 
-                        reversed_out.push(Sp {
-                            span: inner_span,
-                            value: ast::Stmt {
-                                time: inner_stmts[0].time,
-                                labels: vec![],
-                                body: Sp {
-                                    span: inner_span,
-                                    value: ast::StmtBody::Loop { block: ast::Block(inner_stmts) },
-                                },
-                            },
-                        });
+                        reversed_out.push(sp!(inner_span => ast::Stmt {
+                            time: inner_stmts[0].time,
+                            labels: vec![],
+                            body: sp!(inner_span => jmp_kind.make_loop(ast::Block(inner_stmts))),
+                        }));
                         // suppress the default behavior of popping the next item
                         continue;
                     }
@@ -87,6 +81,36 @@ impl VisitMut for Visitor {
         outer_stmts.0 = reversed_out;
 
         ast::walk_mut_block(self, outer_stmts);
+    }
+}
+
+enum JmpKind {
+    Unconditional,
+    Conditional(Sp<ast::Cond>),
+}
+
+impl JmpKind {
+    fn from_jump(ast: &ast::StmtBody) -> Option<(&ast::StmtGoto, JmpKind)> {
+        match ast {
+            ast::StmtBody::Jump(goto) => Some((goto, JmpKind::Unconditional)),
+
+            ast::StmtBody::CondJump { keyword, cond, jump } => match keyword.value {
+                ast::CondKeyword::If => Some((jump, JmpKind::Conditional(cond.clone()))),
+            }
+
+            _ => None,
+        }
+    }
+
+    fn make_loop(&self, block: ast::Block) -> ast::StmtBody {
+        match self {
+            JmpKind::Unconditional => ast::StmtBody::Loop { block },
+            JmpKind::Conditional(cond) => ast::StmtBody::While {
+                is_do_while: true,
+                cond: cond.clone(),
+                block,
+            },
+        }
     }
 }
 

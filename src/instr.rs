@@ -324,11 +324,6 @@ fn lower_cond_jump_stmt(
     let (arg_label, arg_time) = lower_goto_args(goto);
 
     match (keyword.value, &cond.value) {
-        (ast::CondKeyword::Unless, _) => Err(error!(
-            message("feature not implemented"),
-            note("only 'if' has been implemented, not 'unless'"),
-        )),
-
         (ast::CondKeyword::If, ast::Cond::Decrement(var)) => {
             let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
             if ty_var != ScalarType::Int {

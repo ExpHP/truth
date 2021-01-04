@@ -234,7 +234,9 @@ string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CondKeyword {
         #[str = "if"] If,
-        #[str = "unless"] Unless,
+        // TODO: not currently implemented.  All places that would be affected explicitly match on
+        //       the CondKeyword so that we can't miss them if/when the feature is added.
+        // #[str = "unless"] Unless,
     }
 }
 
