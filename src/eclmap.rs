@@ -35,6 +35,10 @@ impl Eclmap {
         Self::from_seqmap(seqmap)
     }
 
+    pub fn parse(text: &str) -> Result<Self, SimpleError> {
+        Self::from_seqmap(parse_seqmap(text)?)
+    }
+
     /// Check the default map directories for a file whose name is `any.{extension}`
     /// and return it if it exists.
     ///

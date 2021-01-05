@@ -24,10 +24,9 @@ impl Visitor {
 impl VisitMut for Visitor {
     fn visit_func_body(&mut self, func_body: &mut ast::Block) {
         let used_labels = get_used_labels(func_body);
+
         self.used_labels_stack.push(used_labels);
-
-        ast::walk_mut_block(self, func_body);
-
+        self.visit_block(func_body);
         self.used_labels_stack.pop();
     }
 

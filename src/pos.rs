@@ -546,6 +546,10 @@ impl<T: ?Sized + HasSpan> HasSpan for &T {
     fn span(&self) -> Span { (**self).span() }
 }
 
+impl<T: ?Sized + HasSpan> HasSpan for &mut T {
+    fn span(&self) -> Span { (**self).span() }
+}
+
 impl<T: ?Sized + HasSpan> HasSpan for Box<T> {
     fn span(&self) -> Span { (**self).span() }
 }

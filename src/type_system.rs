@@ -3,7 +3,7 @@ use crate::CompileError;
 use crate::ident::Ident;
 use crate::eclmap::Eclmap;
 use crate::ast;
-use crate::pos::Span;
+use crate::pos::{Span, Sp};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TypeSystem {
@@ -174,6 +174,7 @@ impl Signature {
 
 /// Type of a value that exists at runtime in the script.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(enum_map::Enum)]
 pub enum ScalarType { Int, Float }
 
 /// Type of an argument to an instruction.
@@ -224,6 +225,49 @@ impl ScalarType {
                 secondary(cause, "same types required due to this"),
                 secondary(spans.0, "{}", self.descr()),
             ))
+        }
+    }
+}
+
+impl Sp<ast::BinopKind> {
+    pub fn result_type(&self, a: ScalarType, b: ScalarType, arg_spans: (Span, Span)) -> Result<ScalarType, CompileError> {
+        use ast::BinopKind as B;
+
+        // they ALL require matching types
+        let ty = a.check_same(b, self.span, arg_spans)?;
+        match self.value {
+            B::Add | B::Sub | B::Mul | B::Div | B::Rem | B::LogicOr | B::LogicAnd => Ok(ty),
+            B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => Ok(ScalarType::Int),
+            B::BitXor | B::BitAnd | B::BitOr => {
+                if ty == ScalarType::Int {
+                    Ok(ScalarType::Int)
+                } else {
+                    Err(error!(
+                        message("type error"),
+                        primary(arg_spans.0, "{}", a.descr()),
+                        secondary(self, "only defined on integers"),
+                    ))
+                }
+            },
+        }
+    }
+}
+
+impl Sp<ast::UnopKind> {
+    pub fn result_type(&self, ty: ScalarType, arg_span: Span) -> Result<ScalarType, CompileError> {
+        match self.value {
+            ast::UnopKind::Neg => Ok(ty),
+            ast::UnopKind::Not => {
+                if ty == ScalarType::Int {
+                    Ok(ScalarType::Int)
+                } else {
+                    Err(error!(
+                        message("type error"),
+                        primary(arg_span, "{}", ty.descr()),
+                        secondary(self, "only defined on integers"),
+                    ))
+                }
+            },
         }
     }
 }

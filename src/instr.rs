@@ -345,7 +345,7 @@ fn lower_cond_jump_stmt(
             &Expr::Binop(ref a, op, ref b) => {
                 let (arg_a, ty_a) = lower_simple_arg(a, ty_ctx)?;
                 let (arg_b, ty_b) = lower_simple_arg(b, ty_ctx)?;
-                let ty = ty_a.check_same(ty_b, op.span, (a.span, b.span))?;
+                let ty = op.result_type(ty_a, ty_b, (a.span, b.span))?;
 
                 Ok(InstrOrLabel::Instr(Instr {
                     time: stmt.time,
@@ -375,7 +375,7 @@ fn lower_assignment_stmt(
             let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
             let (arg_a, ty_a) = lower_simple_arg(a, ty_ctx)?;
             let (arg_b, ty_b) = lower_simple_arg(b, ty_ctx)?;
-            let ty_rhs = ty_a.check_same(ty_b, binop.span, (a.span, b.span))?;
+            let ty_rhs = binop.result_type(ty_a, ty_b, (a.span, b.span))?;
             let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
 
             Ok(InstrOrLabel::Instr(Instr {

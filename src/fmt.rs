@@ -780,9 +780,10 @@ mod tests {
     const QUOTED_UTF8: &[u8] = "\"こんにちは\"".as_bytes();
 
     // Parse and dump back out, with some max columns.
-    fn reformat_bytes<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, meta_text: &'a [u8]) -> Vec<u8> {
+    fn reformat_bytes<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, text: &'a [u8]) -> Vec<u8> {
         let mut f = Formatter::new(vec![]).with_max_columns(ncol);
-        let value = T::parse(meta_text).unwrap_or_else(|e| panic!("{}", e));
+        let mut files = crate::pos::Files::new();
+        let value = files.parse::<T>("<input>", text.as_bytes()).unwrap_or_else(|e| panic!("{}", e));
         f.fmt(&value).unwrap();
         f.into_inner().unwrap()
     }
