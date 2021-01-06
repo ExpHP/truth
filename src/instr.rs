@@ -434,7 +434,7 @@ fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<(InstrAr
 }
 
 fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
-    match (ty_ctx.gvar_id(var), ty_ctx.var_type(var)) {
+    match (ty_ctx.reg_id(var), ty_ctx.var_type(var)) {
         (Some(opcode), Some(ty)) => {
             let lowered = InstrArg::Raw(RawArg::from_global_var(opcode, ty));
             Ok((lowered, ty))
@@ -658,7 +658,7 @@ fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &TypeSystem) -> Result
             float_id as i32
         },
     };
-    Ok(ty_ctx.gvar_to_ast(id, ty))
+    Ok(ty_ctx.reg_to_ast(id, ty))
 }
 
 // =============================================================================

@@ -41,6 +41,8 @@ mod game;
 
 pub mod cli_helper;
 
+pub mod scope;
+
 mod binary_io;
 
 mod instr;
@@ -164,10 +166,10 @@ mod tests {
     fn var_parse() {
         use ast::{Var, VarReadType};
 
-        assert_eq!(Var::parse("[244]"), Ok(Var::Unnamed { ty: VarReadType::Int, number: 244 }));
-        assert_eq!(Var::parse("[-99998]"), Ok(Var::Unnamed { ty: VarReadType::Int, number: -99998 }));
-        assert_eq!(Var::parse("[244f]"), Ok(Var::Unnamed { ty: VarReadType::Float, number: 244 }));
-        assert_eq!(Var::parse("[-99998.0]"), Ok(Var::Unnamed { ty: VarReadType::Float, number: -99998 }));
+        assert_eq!(Var::parse("[244]"), Ok(Var::Register { ty: VarReadType::Int, number: 244 }));
+        assert_eq!(Var::parse("[-99998]"), Ok(Var::Register { ty: VarReadType::Int, number: -99998 }));
+        assert_eq!(Var::parse("[244f]"), Ok(Var::Register { ty: VarReadType::Float, number: 244 }));
+        assert_eq!(Var::parse("[-99998.0]"), Ok(Var::Register { ty: VarReadType::Float, number: -99998 }));
         assert!(Var::parse("[-99998.5]").is_err());
         assert!(Var::parse("[-99998e5]").is_err());
         // FIXME: don't panic

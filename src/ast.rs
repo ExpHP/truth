@@ -1,6 +1,7 @@
 use bstr::{BString};
 
 use crate::meta;
+use crate::scope::VarId;
 use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::error::CompileError;
@@ -164,8 +165,8 @@ pub enum StmtBody {
         value: Sp<Expr>,
     },
     Declaration {
-        ty: VarDeclKeyword,
-        vars: Vec<(Ident, Option<Sp<Expr>>)>,
+        keyword: VarDeclKeyword,
+        vars: Vec<(Sp<Var>, Option<Sp<Expr>>)>,
     },
     /// An explicit subroutine call. (ECL only)
     ///
@@ -291,14 +292,24 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Var {
+    /// A variable mentioned by name, possibly with a type sigil.
     Named {
-        ty: Option<VarReadType>,
+        ty_sigil: Option<VarReadType>,
         ident: Ident,
     },
-    Unnamed {
+    /// A local variable, uniquely resolved to an integer ID.
+    ///
+    /// This cannot be represented in source text.
+    /// It is created by performing [name resolution](crate::passes::resolve_vars).
+    Local {
+        ty_sigil: Option<VarReadType>,
+        var_id: VarId,
+    },
+    /// A read of a register, using brackets notation (e.g. `[10004]`).
+    Register {
         ty: VarReadType,
         number: i32,
-    }
+    },
 }
 
 string_enum! {
@@ -339,15 +350,6 @@ impl From<f32> for Expr {
 }
 
 // =============================================================================
-
-impl Var {
-    pub fn ty(&self) -> Option<VarReadType> {
-        match self {
-            &Var::Unnamed { ty, .. } => Some(ty),
-            &Var::Named { ty, .. } => ty,
-        }
-    }
-}
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -416,10 +418,12 @@ macro_rules! generate_visitor_stuff {
             fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
             fn visit_func_body(&mut self, e: & $($mut)? Block) { self.visit_block(e) }
+            fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
             fn visit_stmt_body(&mut self, e: & $($mut)? Sp<StmtBody>) { walk_stmt_body(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
+            fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
         }
 
         pub fn walk_script<V>(v: &mut V, x: & $($mut)? Script)
@@ -475,12 +479,12 @@ macro_rules! generate_visitor_stuff {
                 },
                 StmtBody::Loop { block } => v.visit_block(block),
                 StmtBody::CondJump { cond, keyword: _, jump: _ } => {
-                    walk_cond(v, cond);
+                    v.visit_cond(cond);
                 },
                 StmtBody::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
                     for CondBlock { cond, block, keyword: _ } in cond_blocks {
-                        walk_cond(v, cond);
+                        v.visit_cond(cond);
                         v.visit_block(block);
                     }
                     if let Some(block) = else_block {
@@ -488,12 +492,12 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 StmtBody::While { is_do_while: true, cond, block } => {
-                    walk_cond(v, cond);
+                    v.visit_cond(cond);
                     v.visit_block(block);
                 },
                 StmtBody::While { is_do_while: false, cond, block } => {
                     v.visit_block(block);
-                    walk_cond(v, cond);
+                    v.visit_cond(cond);
                 },
                 StmtBody::Times { count, block } => {
                     v.visit_expr(count);
@@ -502,11 +506,13 @@ macro_rules! generate_visitor_stuff {
                 StmtBody::Expr(e) => {
                     v.visit_expr(e);
                 },
-                StmtBody::Assignment { var: _, op: _, value } => {
+                StmtBody::Assignment { var, op: _, value } => {
+                    v.visit_var(var);
                     v.visit_expr(value);
                 },
-                StmtBody::Declaration { ty: _, vars } => {
-                    for (_ident, value) in vars {
+                StmtBody::Declaration { keyword: _, vars } => {
+                    for (var, value) in vars {
+                        v.visit_var(var);
                         if let Some(value) = value {
                             v.visit_expr(value);
                         }
@@ -526,8 +532,8 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? e.value {
-                Cond::Decrement(_) => {},
-                Cond::Expr(e) => walk_expr(v, e),
+                Cond::Decrement(var) => v.visit_var(var),
+                Cond::Expr(e) => v.visit_expr(e),
             }
         }
 
@@ -553,7 +559,17 @@ macro_rules! generate_visitor_stuff {
                 Expr::LitInt { value: _, hex: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
-                Expr::Var(_v) => {},
+                Expr::Var(var) => v.visit_var(var),
+            }
+        }
+
+        pub fn walk_var<V>(_v: &mut V, x: & $($mut)? Sp<Var>)
+        where V: ?Sized + $Visit,
+        {
+            match & $($mut)? x.value {
+                Var::Named { ty_sigil: _, ident: _ } => {},
+                Var::Local { ty_sigil: _, var_id: _ } => {},
+                Var::Register { ty: _, number: _ } => {},
             }
         }
     };

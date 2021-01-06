@@ -17,10 +17,10 @@ pub struct TypeSystem {
     opcode_signatures: HashMap<u32, Signature>,
     pub opcode_names: HashMap<u32, Ident>,
 
-    // Variables
-    gvar_default_types: HashMap<i32, ScalarType>,
-    pub gvar_map: HashMap<Ident, i32>,
-    pub gvar_names: HashMap<i32, Ident>,
+    // Registers
+    pub reg_default_types: HashMap<i32, ScalarType>,
+    pub reg_map: HashMap<Ident, i32>,
+    pub reg_names: HashMap<i32, Ident>,
 }
 
 impl TypeSystem {
@@ -49,36 +49,40 @@ impl TypeSystem {
     /// Get the type of a variable (int or float), if known.
     pub fn var_type(&self, var: &ast::Var) -> Option<ScalarType> {
         match *var {
-            ast::Var::Named { ty, ref ident } => {
-                if let Some(ty) = ty {
-                    return Some(ty.into()); // explicit type from user
+            ast::Var::Named { ty_sigil, ref ident } => {
+                if let Some(ty_sigil) = ty_sigil {
+                    return Some(ty_sigil.into()); // explicit type from user
                 }
-                self.gvar_default_types.get(self.gvar_map.get(ident)?).copied()
+                self.reg_default_types.get(self.reg_map.get(ident)?).copied()
             },
-            ast::Var::Unnamed { ty, .. } => Some(ty.into()),
+            ast::Var::Local { ty_sigil, var_id } => {
+                unimplemented!() // FIXME
+            },
+            ast::Var::Register { ty, .. } => Some(ty.into()),
         }
     }
 
-    /// Get the ID number of a variable, if it is a global.
-    pub fn gvar_id(&self, var: &ast::Var) -> Option<i32> {
+    /// Get the "opcode" of a variable, if it is a register.
+    pub fn reg_id(&self, var: &ast::Var) -> Option<i32> {
         match *var {
-            ast::Var::Named { ref ident, .. } => self.gvar_map.get(ident).copied(),
-            ast::Var::Unnamed { number, .. } => Some(number),
+            ast::Var::Named { ref ident, .. } => self.reg_map.get(ident).copied(),
+            ast::Var::Local { var_id, .. } => None,
+            ast::Var::Register { number, .. } => Some(number),
         }
     }
 
-    /// Generate an AST node with the ideal appearance for a global variable reference.
-    pub fn gvar_to_ast(&self, id: i32, ty: ScalarType) -> ast::Var {
-        match self.gvar_names.get(&id) {
+    /// Generate an AST node with the ideal appearance for a register.
+    pub fn reg_to_ast(&self, id: i32, ty: ScalarType) -> ast::Var {
+        match self.reg_names.get(&id) {
             Some(name) => {
                 // Suppress the type prefix if it matches the default
-                if self.gvar_default_types.get(&id) == Some(&ty) {
-                    ast::Var::Named { ident: name.clone(), ty: None }
+                if self.reg_default_types.get(&id) == Some(&ty) {
+                    ast::Var::Named { ident: name.clone(), ty_sigil: None }
                 } else {
-                    ast::Var::Named { ident: name.clone(), ty: Some(ty.into()) }
+                    ast::Var::Named { ident: name.clone(), ty_sigil: Some(ty.into()) }
                 }
             },
-            None => ast::Var::Unnamed { number: id, ty: ty.into() },
+            None => ast::Var::Register { number: id, ty: ty.into() },
         }
     }
 
@@ -96,8 +100,8 @@ impl TypeSystem {
             self.opcode_signatures.insert(opcode as u32, Signature { arg_string });
         }
         for (&id, name) in &eclmap.gvar_names {
-            self.gvar_names.insert(id, name.clone());
-            self.gvar_map.insert(name.clone(), id);
+            self.reg_names.insert(id, name.clone());
+            self.reg_map.insert(name.clone(), id);
         }
         for (&id, value) in &eclmap.gvar_types {
             let ty = match &value[..] {
@@ -111,7 +115,7 @@ impl TypeSystem {
                     continue;
                 },
             };
-            self.gvar_default_types.insert(id, ty);
+            self.reg_default_types.insert(id, ty);
         }
     }
 

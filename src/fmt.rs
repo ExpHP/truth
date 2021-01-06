@@ -573,7 +573,7 @@ impl Format for ast::StmtBody {
             ast::StmtBody::Assignment { var, op, value } => {
                 out.fmt((var, " ", op, " ", value, ";"))
             },
-            ast::StmtBody::Declaration { ty, vars } => {
+            ast::StmtBody::Declaration { keyword: ty, vars } => {
                 out.fmt((ty, " "))?;
 
                 let mut first = true;
@@ -707,12 +707,16 @@ impl Format for ast::Expr {
 impl Format for ast::Var {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::Var::Named { ty, ident } => match ty {
+            ast::Var::Named { ty_sigil, ident } => match ty_sigil {
                 None => out.fmt(ident),
                 Some(ast::VarReadType::Int) => out.fmt(("$", ident)),
                 Some(ast::VarReadType::Float) => out.fmt(("%", ident)),
             },
-            ast::Var::Unnamed { ty, number } => match ty {
+            &ast::Var::Local { ty_sigil, var_id } => {
+                let fake_var = ast::Var::Named { ty_sigil, ident: format!("__local_var#{}", var_id).parse().unwrap() };
+                out.fmt(&fake_var)
+            },
+            ast::Var::Register { ty, number } => match ty {
                 ast::VarReadType::Int => out.fmt(("[", number, "]")),
                 ast::VarReadType::Float => out.fmt(("[", *number as f32, "]")),
             },

@@ -6,17 +6,17 @@ use crate::pos::Sp;
 use crate::type_system::{TypeSystem, ScalarType};
 
 pub struct Visitor<'ts> {
-    general_use_gvars: EnumMap<ScalarType, Vec<i32>>,
-    unused_gvars_stack: Vec<EnumMap<ScalarType, Vec<i32>>>, // stack for nested function bodies
+    general_use_regs: EnumMap<ScalarType, Vec<i32>>,
+    unused_regs_stack: Vec<EnumMap<ScalarType, Vec<i32>>>, // stack for nested function bodies
     ty_ctx: &'ts TypeSystem,
     errors: CompileError,
 }
 
 impl<'ts> Visitor<'ts> {
-    pub fn new(general_use_gvars: EnumMap<ScalarType, Vec<i32>>, ty_ctx: &'ts TypeSystem) -> Self {
+    pub fn new(general_use_regs: EnumMap<ScalarType, Vec<i32>>, ty_ctx: &'ts TypeSystem) -> Self {
         Visitor {
-            general_use_gvars, ty_ctx,
-            unused_gvars_stack: vec![],
+            general_use_regs, ty_ctx,
+            unused_regs_stack: vec![],
             errors: CompileError::new_empty(),
         }
     }
@@ -28,16 +28,16 @@ impl<'ts> Visitor<'ts> {
 
 impl VisitMut for Visitor<'_> {
     fn visit_func_body(&mut self, func_body: &mut ast::Block) {
-        let used_gvars = get_used_gvars(func_body, self.ty_ctx);
+        let used_regs = get_used_regs(func_body, self.ty_ctx);
 
-        let mut unused_gvars = self.general_use_gvars.clone();
-        for vec in unused_gvars.values_mut() {
-            vec.retain(|id| !used_gvars.contains(id));
+        let mut unused_regs = self.general_use_regs.clone();
+        for vec in unused_regs.values_mut() {
+            vec.retain(|id| !used_regs.contains(id));
         }
 
-        self.unused_gvars_stack.push(unused_gvars);
+        self.unused_regs_stack.push(unused_regs);
         self.visit_block(func_body);
-        self.unused_gvars_stack.pop();
+        self.unused_regs_stack.pop();
     }
 
     fn visit_block(&mut self, x: &mut ast::Block) {
@@ -47,12 +47,12 @@ impl VisitMut for Visitor<'_> {
 
         for original_stmt in x.0.drain(..) {
             if let ast::StmtBody::Assignment { var, op, value } = &original_stmt.body.value {
-                let unused_gvars = self.unused_gvars_stack
+                let unused_regs = self.unused_regs_stack
                     .last().expect("must be visiting a function body!");
 
                 let mut original_labels = Some(original_stmt.labels.clone());
 
-                match compile_expr_assignment(unused_gvars, &original_stmt.body, var, op, value, self.ty_ctx) {
+                match compile_expr_assignment(unused_regs, &original_stmt.body, var, op, value, self.ty_ctx) {
                     Ok(stmts) => {
                         // we have StmtBodys, now make Stmts
                         new_stmts.extend(stmts.into_iter().map(|body| {
@@ -82,17 +82,17 @@ impl VisitMut for Visitor<'_> {
 // --------------------------------------------
 
 fn compile_expr_assignment(
-    unused_gvars: &EnumMap<ScalarType, Vec<i32>>,
+    unused_regs: &EnumMap<ScalarType, Vec<i32>>,
     assignment: &Sp<ast::StmtBody>,
     dest_var: &Sp<ast::Var>,
     assign_op: &Sp<ast::AssignOpKind>,
     expr: &Sp<ast::Expr>,
     ty_ctx: &TypeSystem,
 ) -> Result<Vec<Sp<ast::StmtBody>>, CompileError> {
-    let unused_gvar_indices = enum_map!(ty => (0..unused_gvars[ty].len()).rev().collect());
+    let unused_reg_indices = enum_map!(ty => (0..unused_regs[ty].len()).rev().collect());
 
     let mut mut_expr_copy = expr.clone();
-    let mut compiler = ExprCompiler { stmts: vec![], unused_gvars, unused_gvar_indices, ty_ctx };
+    let mut compiler = ExprCompiler { stmts: vec![], unused_regs, unused_reg_indices, ty_ctx };
 
     let temp_info = compiler.build_expr(&mut mut_expr_copy)?;
     match temp_info.info {
@@ -115,29 +115,29 @@ fn compile_expr_assignment(
 
 struct ExprCompiler<'a> {
     stmts: Vec<Sp<ast::StmtBody>>,
-    /// gvar IDs of variables not used by this function.
+    /// register IDs of variables not used by this function.
     /// (i.e. the complete set of variables currently usable as scratch)
-    unused_gvars: &'a EnumMap<ScalarType, Vec<i32>>,
-    /// Indices into `unused_gvars` of variables that we are not *currently* using as scratch.
-    unused_gvar_indices: EnumMap<ScalarType, Vec<usize>>,
+    unused_regs: &'a EnumMap<ScalarType, Vec<i32>>,
+    /// Indices into `unused_regs` of variables that we are not *currently* using as scratch.
+    unused_reg_indices: EnumMap<ScalarType, Vec<usize>>,
     ty_ctx: &'a TypeSystem,
 }
 
 impl ExprCompiler<'_> {
     fn scratch_var_by_index(&self, ty: ScalarType, index: usize) -> ast::Var {
-        let temp_var_id = self.unused_gvars[ty][index];
-        self.ty_ctx.gvar_to_ast(temp_var_id, ty)
+        let temp_var_id = self.unused_regs[ty][index];
+        self.ty_ctx.reg_to_ast(temp_var_id, ty)
     }
 
     fn build_expr(&mut self, expr: &mut Sp<ast::Expr>) -> Result<BuiltExpr, CompileError> {
         macro_rules! use_new_temporary {
             ($ty:expr) => {
-                self.unused_gvar_indices[$ty].pop().ok_or_else(|| error!(
+                self.unused_reg_indices[$ty].pop().ok_or_else(|| error!(
                     message("expression too complex to compile"),
                     primary(expr, "ran out of scratch vars here!"),
                     note(
                         "in this function, there are only {} unused vars of this type available for scratch use",
-                        self.unused_gvars[$ty].len(),
+                        self.unused_regs[$ty].len(),
                     ),
                 ))?
             };
@@ -172,17 +172,17 @@ impl ExprCompiler<'_> {
                         assert_ne!(t1_index, t2_index, "bug! (using same temp twice)");
 
                         // reuse the smaller index and put the bigger one back to be reused later.
-                        self.unused_gvar_indices[result_ty].push(usize::max(t1_index, t2_index));
+                        self.unused_reg_indices[result_ty].push(usize::max(t1_index, t2_index));
                         usize::min(t1_index, t2_index)
                     },
                 };
 
-                // Replace the expression with a gvar.
+                // Replace the expression with a register.
                 let temp_var = sp!(expr.span => self.scratch_var_by_index(result_ty, new_temp_index));
                 let new_expr = ast::Expr::Var(temp_var.clone());
                 let old_expr = std::mem::replace(&mut expr.value, new_expr);
 
-                // Emit a statement which assigns the original expression to the gvar.
+                // Emit a statement which assigns the original expression to the register.
                 self.stmts.push(sp!(expr.span => ast::StmtBody::Assignment {
                     var: temp_var,
                     op: sp!(expr.span => ast::AssignOpKind::Assign),
@@ -227,18 +227,18 @@ struct BuiltExpr {
     info: BuiltExprKind,
 }
 enum BuiltExprKind {
-    /// The expression was a literal or gvar, so we did nothing.
+    /// The expression was a literal or register, so we did nothing.
     Atom,
-    /// The expression was complex, so we emitted a statement which saves it to the gvar
-    /// at this index in `unused_gvars[ty]`.
+    /// The expression was complex, so we emitted a statement which saves it to the register
+    /// at this index in `unused_regs[ty]`.
     Temp(usize),
 }
 
 // --------------------------------------------
 
 // NOTE: Requires a TypeSystem so that it can resolve the names to their unique Ids so
-// that we can easily see that `[10007.0]` and `%F3` and `$F3` are all the same gvar.
-fn get_used_gvars(func_body: &ast::Block, ty_ctx: &TypeSystem) -> Vec<i32> {
+// that we can easily see that `[10007.0]` and `%F3` and `$F3` are all the same register.
+fn get_used_regs(func_body: &ast::Block, ty_ctx: &TypeSystem) -> Vec<i32> {
     struct UsedVisitor<'ts> {
         vars: Vec<i32>,
         ty_ctx: &'ts TypeSystem,
@@ -248,7 +248,7 @@ fn get_used_gvars(func_body: &ast::Block, ty_ctx: &TypeSystem) -> Vec<i32> {
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
             ast::walk_stmt(self, x);
             if let ast::StmtBody::Assignment { var, .. } = &x.body.value {
-                if let Some(id) = self.ty_ctx.gvar_id(var) {
+                if let Some(id) = self.ty_ctx.reg_id(var) {
                     self.vars.push(id);
                 }
             }
@@ -257,7 +257,7 @@ fn get_used_gvars(func_body: &ast::Block, ty_ctx: &TypeSystem) -> Vec<i32> {
         fn visit_expr(&mut self, x: &Sp<ast::Expr>) {
             ast::walk_expr(self, x);
             if let ast::Expr::Var(var) = &x.value {
-                if let Some(id) = self.ty_ctx.gvar_id(var) {
+                if let Some(id) = self.ty_ctx.reg_id(var) {
                     self.vars.push(id);
                 }
             }
@@ -285,7 +285,7 @@ mod tests {
         !gvar_types\n0 $\n1 $\n2 $\n3 $\n4 %\n5 %\n6 %\n7 %\n";
 
     fn compile_exprs(text: &str) -> String {
-        let general_use_gvars = enum_map!{
+        let general_use_regs = enum_map!{
             ScalarType::Int => vec![0, 1, 2, 3],
             ScalarType::Float => vec![4, 5, 6, 7],
         };
@@ -298,7 +298,7 @@ mod tests {
         let mut files = crate::pos::Files::new();
         let mut script = files.parse::<ast::Script>("<input>", text.as_bytes()).unwrap_or_else(|e| panic!("{}", e));
 
-        let mut visitor = Visitor::new(general_use_gvars, &ty_ctx);
+        let mut visitor = Visitor::new(general_use_regs, &ty_ctx);
         ast::walk_mut_script(&mut visitor, &mut script);
         visitor.finish().unwrap();
 
