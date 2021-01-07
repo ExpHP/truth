@@ -360,7 +360,7 @@ string_enum! {
     }
 }
 
-/// The hinted type of a variable at a usage site.
+/// The hinted type of a variable at a usage site, which can differ from its inherent type.
 ///
 /// E.g. a variable's type may be hinted with the use of `$` or `%` prefixes.
 /// (or it might not be hinted, meaning its type must be determined through other means)

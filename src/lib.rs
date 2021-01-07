@@ -174,8 +174,8 @@ mod tests {
         assert!(Var::parse("[-99998e5]").is_err());
         // FIXME: don't panic
         // assert!(parse("[12412151261243414]").is_err());
-        assert_eq!(Var::parse("lmao"), Ok(Var::Named { ty: None, ident: "lmao".parse().unwrap() }));
-        assert_eq!(Var::parse("$lmao"), Ok(Var::Named { ty: Some(VarReadType::Int), ident: "lmao".parse().unwrap() }));
-        assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty: Some(VarReadType::Float), ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("lmao"), Ok(Var::Named { ty_sigil: None, ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("$lmao"), Ok(Var::Named { ty_sigil: Some(VarReadType::Int), ident: "lmao".parse().unwrap() }));
+        assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty_sigil: Some(VarReadType::Float), ident: "lmao".parse().unwrap() }));
     }
 }

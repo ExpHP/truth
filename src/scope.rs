@@ -100,7 +100,8 @@ impl NameResolver {
         // travel from descendant back up to current position to gather tree edges in reverse
         let mut scope_iter = descendant;
         while self.current_scope != scope_iter {
-            if let ScopeId(Some(var_id)) = self.current_scope {
+            if let ScopeId(Some(var_id)) = scope_iter {
+                eprintln!("scope {}", scope_iter);
                 let name = variables.get_name(var_id);
                 vars_to_add.push((name, var_id));
                 scope_iter = variables.get_parent_scope(var_id);
@@ -108,6 +109,8 @@ impl NameResolver {
                 panic!("scope was not a descendant!");
             }
         }
+
+        self.current_scope = descendant;
 
         for (name, var_id) in vars_to_add.into_iter().rev() {
             self.active_vars.entry(name.clone()).or_default().push(var_id);

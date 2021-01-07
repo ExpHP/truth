@@ -2,7 +2,7 @@ use crate::ast::{self, Visit, VisitMut};
 use crate::error::CompileError;
 use crate::pos::Sp;
 use crate::scope::{ScopeId, VarId, Variables, NameResolver, EMPTY_SCOPE};
-use crate::type_system::{TypeSystem, ScalarType};
+use crate::type_system::{self, TypeSystem, ScalarType};
 
 pub struct Visitor<'ts> {
     resolver: NameResolver,
@@ -14,7 +14,9 @@ pub struct Visitor<'ts> {
 
 impl<'ts> Visitor<'ts> {
     pub fn new(ty_ctx: &'ts mut TypeSystem) -> Self {
-        let (variables, root_scope) = initial_variables(ty_ctx);
+        assert!(ty_ctx.variables.is_none()); // not designed for multiple usages on the same TypeSystem
+
+        let (variables, root_scope) = initial_variables(&ty_ctx.regs_and_instrs);
         let mut resolver = NameResolver::new();
         resolver.enter_descendant(root_scope, &variables);
         Visitor {
@@ -25,7 +27,10 @@ impl<'ts> Visitor<'ts> {
     }
 
     pub fn finish(self) -> Result<(), CompileError> {
-        self.errors.into_result(())
+        let Visitor { errors, ty_ctx, variables, .. } = self;
+        errors.into_result_with(|| {
+            ty_ctx.variables = Some(variables);
+        })
     }
 }
 
@@ -68,9 +73,6 @@ impl VisitMut for Visitor<'_> {
             }
             _ => ast::walk_mut_stmt_body(self, x),
         }
-
-        let original = self.scope_stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
-        self.resolver.return_to_ancestor(original, &self.variables);
     }
 
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
@@ -90,7 +92,7 @@ impl VisitMut for Visitor<'_> {
 
 /// Given a [`TypeSystem`] that only contains register aliases from mapfiles, create a [`Variables`]
 /// with these names and get the scope containing all of the variables.
-fn initial_variables(initial_ty_ctx: &TypeSystem) -> (Variables, ScopeId) {
+fn initial_variables(initial_ty_ctx: &type_system::RegsAndInstrs) -> (Variables, ScopeId) {
     let mut variables = Variables::new();
     let mut scope = EMPTY_SCOPE;
     for (alias, &raw_id) in &initial_ty_ctx.reg_map {
@@ -103,50 +105,79 @@ fn initial_variables(initial_ty_ctx: &TypeSystem) -> (Variables, ScopeId) {
 
 // --------------------------------------------
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::fmt::Formatter;
+/// Visitor for "unresolving" local variables and recovering their original names.
+pub struct Unvisitor<'ts> {
+    variables: &'ts Variables,
+    append_ids: bool,
+}
 
-    const SIMPLE_MAPFILE: &'static str = "\
-        !anmmap\n\
-        !gvar_names\n0 A\n1 B\n2 C\n3 D\n4 X\n5 Y\n6 Z\n7 W\n\
-        !gvar_types\n0 $\n1 $\n2 $\n3 $\n4 %\n5 %\n6 %\n7 %\n";
-
-    fn compile_exprs(text: &str) -> String {
-        let general_use_gvars = enum_map!{
-            ScalarType::Int => vec![0, 1, 2, 3],
-            ScalarType::Float => vec![4, 5, 6, 7],
-        };
-
-        let eclmap = crate::eclmap::Eclmap::parse(SIMPLE_MAPFILE).unwrap();
-        let mut ty_ctx = crate::type_system::TypeSystem::new();
-        ty_ctx.extend_from_eclmap("DUMMY.anmmap".as_ref(), &eclmap);
-
-        let mut f = Formatter::new(vec![]).with_max_columns(99999);
-        let mut files = crate::pos::Files::new();
-        let mut script = files.parse::<ast::Script>("<input>", text.as_bytes()).unwrap_or_else(|e| panic!("{}", e));
-
-        let mut visitor = Visitor::new(general_use_gvars, &ty_ctx);
-        ast::walk_mut_script(&mut visitor, &mut script);
-        visitor.finish().unwrap();
-
-        f.fmt(&script).unwrap();
-        String::from_utf8(f.into_inner().unwrap()).unwrap()
-    }
-
-    #[test]
-    fn lol() {
-        assert_snapshot!("halp", compile_exprs(r#"void main() { A = (B + 2) * (B + 3) * (B + 4); }"#).trim());
-    }
-
-    #[test]
-    fn lol2() {
-        assert_snapshot!("bleh", compile_exprs(r#"void main() { A = 3 * (B + 2); }"#).trim());
-    }
-
-    #[test]
-    fn lol3() {
-        assert_snapshot!("blue", compile_exprs(r#"void main() { A = (B + 2) * 3; }"#).trim());
+impl<'ts> Unvisitor<'ts> {
+    pub fn new(ty_ctx: &'ts TypeSystem, append_ids: bool) -> Self {
+        let variables = ty_ctx.variables.as_ref().expect("unresolving vars without having resolved them?!");
+        Unvisitor { variables, append_ids }
     }
 }
+
+impl VisitMut for Unvisitor<'_> {
+    fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
+        if let ast::Var::Local { ty_sigil, var_id } = var.value {
+            let ident = self.variables.get_name(var_id);
+            let ident = match self.append_ids {
+                true => format!("{}_{}", ident, var_id),
+                false => format!("{}", ident),
+            }.parse().unwrap();
+
+            var.value = ast::Var::Named { ident, ty_sigil };
+        }
+    }
+}
+
+// --------------------------------------------
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::fmt::Formatter;
+//
+//     const SIMPLE_MAPFILE: &'static str = "\
+//         !anmmap\n\
+//         !gvar_names\n0 A\n1 B\n2 C\n3 D\n4 X\n5 Y\n6 Z\n7 W\n\
+//         !gvar_types\n0 $\n1 $\n2 $\n3 $\n4 %\n5 %\n6 %\n7 %\n";
+//
+//     fn mess_with(text: &str) -> String {
+//         let eclmap = crate::eclmap::Eclmap::parse(SIMPLE_MAPFILE).unwrap();
+//         let mut ty_ctx = crate::type_system::TypeSystem::new();
+//         ty_ctx.extend_from_eclmap("DUMMY.anmmap".as_ref(), &eclmap);
+//
+//         let mut f = Formatter::new(vec![]).with_max_columns(99999);
+//         let mut files = crate::pos::Files::new();
+//         let mut script = files.parse::<ast::Script>("<input>", text.as_bytes()).unwrap_or_else(|e| panic!("{}", e));
+//
+//         let mut visitor = Visitor::new(&mut ty_ctx);
+//         ast::walk_mut_script(&mut visitor, &mut script);
+//         visitor.finish().unwrap();
+//
+//         let mut visitor = Unvisitor::new(&ty_ctx, true);
+//         ast::walk_mut_script(&mut visitor, &mut script);
+//
+//         f.fmt(&script).unwrap();
+//         String::from_utf8(f.into_inner().unwrap()).unwrap()
+//     }
+//
+//     #[test]
+//     fn lol() {
+//         assert_snapshot!("halp", mess_with(r#"
+// void main() {
+//     int x = 3 + 2;
+//     int y = x;
+//     int x = 3*A;
+//     if (true) {
+//         int x = 2;
+//         x;
+//     }
+//     x;
+// }
+// "#).trim());
+//     }
+//
+// }

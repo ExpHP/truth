@@ -6,7 +6,7 @@ use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
-use crate::type_system::{TypeSystem};
+use crate::type_system::{TypeSystem, RegsAndInstrs};
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 use crate::instr::{self, Instr, InstrFormat};
@@ -61,11 +61,11 @@ impl ToMeta for Std06Bgm {
 
 impl StdFile {
     pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
-        decompile_std(&*game_format(game), self, ty_ctx)
+        decompile_std(&*game_format(game), self, &ty_ctx.regs_and_instrs)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
-        compile_std(&*game_format(game), script, ty_ctx)
+        compile_std(&*game_format(game), script, &ty_ctx.regs_and_instrs)
     }
 
     pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
@@ -226,7 +226,7 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
+fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
@@ -271,7 +271,7 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 fn compile_std(
     format: &dyn FileFormat,
     script: &ast::Script,
-    ty_ctx: &TypeSystem,
+    ty_ctx: &RegsAndInstrs,
 ) -> Result<StdFile, CompileError> {
     use ast::Item;
 

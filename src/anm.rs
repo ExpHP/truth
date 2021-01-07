@@ -8,7 +8,7 @@ use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
-use crate::type_system::{TypeSystem};
+use crate::type_system::{TypeSystem, RegsAndInstrs};
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 use crate::instr::{self, Instr, InstrFormat, IntrinsicInstrKind};
@@ -25,11 +25,11 @@ pub struct AnmFile {
 
 impl AnmFile {
     pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
-        decompile(&game_format(game), self, ty_ctx)
+        decompile(&game_format(game), self, &ty_ctx.regs_and_instrs)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
-        compile(&game_format(game), ast, ty_ctx)
+        compile(&game_format(game), ast, &ty_ctx.regs_and_instrs)
     }
 
     pub fn merge(&mut self, other: &Self) -> Result<(), CompileError> {
@@ -185,7 +185,7 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
+fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -234,7 +234,7 @@ fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError
     Ok(())
 }
 
-fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<AnmFile, CompileError> {
+fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &RegsAndInstrs) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
     let ast = {

@@ -3,10 +3,11 @@ use std::collections::{HashMap};
 use anyhow::{Context, bail, ensure};
 
 use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, group_anyhow};
-use crate::pos::{Sp};
+use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
-use crate::type_system::{TypeSystem, Signature, ArgEncoding, ScalarType};
+use crate::scope::VarId;
+use crate::type_system::{RegsAndInstrs, Signature, ArgEncoding, ScalarType};
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +79,7 @@ impl InstrArg {
 }
 
 impl RawArg {
-    pub fn from_global_var(number: i32, ty: ScalarType) -> RawArg {
+    pub fn from_reg(number: i32, ty: ScalarType) -> RawArg {
         let bits = match ty {
             ScalarType::Int => number as u32,
             ScalarType::Float => (number as f32).to_bits(),
@@ -164,9 +165,9 @@ pub fn write_instrs(
 pub fn lower_sub_ast_to_instrs(
     format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
-    ty_ctx: &TypeSystem,
+    ty_ctx: &RegsAndInstrs,
 ) -> Result<Vec<Instr>, CompileError> {
-    let intrinsic_opcodes: HashMap<_, _> = format.intrinsic_opcode_pairs().into_iter().collect();
+    let intrinsic_instrs = format.intrinsic_instrs();
 
     let mut th06_anm_end_span = None;
     let mut out = vec![];
@@ -187,7 +188,7 @@ pub fn lower_sub_ast_to_instrs(
             }
         }
 
-        let get_opcode = |intrinsic, descr| lookup_opcode(&intrinsic_opcodes, intrinsic, &stmt.body, descr);
+        let get_opcode = |intrinsic, descr| intrinsic_instrs.get_opcode(intrinsic, stmt.body.span, descr);
 
         match &stmt.body.value {
             ast::StmtBody::Jump(goto) => {
@@ -209,7 +210,7 @@ pub fn lower_sub_ast_to_instrs(
 
 
             ast::StmtBody::Assignment { var, op, value } => {
-                out.push(lower_assignment_stmt(stmt, var, op, value, &intrinsic_opcodes, ty_ctx)?);
+                out.push(lower_assignment_stmt(stmt, var, op, value, &intrinsic_instrs, ty_ctx)?);
             },
 
 
@@ -223,7 +224,7 @@ pub fn lower_sub_ast_to_instrs(
 
 
             ast::StmtBody::CondJump { keyword, cond, jump } => {
-                out.push(lower_cond_jump_stmt(stmt, keyword, cond, jump, &intrinsic_opcodes, ty_ctx)?);
+                out.push(lower_cond_jump_stmt(stmt, keyword, cond, jump, &intrinsic_instrs, ty_ctx)?);
             },
 
 
@@ -280,6 +281,32 @@ pub fn lower_sub_ast_to_instrs(
     }).collect())
 }
 
+pub struct IntrinsicInstrs {
+    intrinsic_opcodes: HashMap<IntrinsicInstrKind, u16>,
+    opcode_intrinsics: HashMap<u16, IntrinsicInstrKind>,
+}
+impl IntrinsicInstrs {
+    pub fn from_pairs(pairs: impl IntoIterator<Item=(IntrinsicInstrKind, u16)>) -> Self {
+        let intrinsic_opcodes: HashMap<_, _> = pairs.into_iter().collect();
+        let opcode_intrinsics = intrinsic_opcodes.iter().map(|(&k, &v)| (v, k)).collect();
+        IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes }
+    }
+
+    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
+        match self.intrinsic_opcodes.get(&intrinsic) {
+            Some(&opcode) => Ok(opcode),
+            None => Err(error!(
+                message("feature not supported by format"),
+                primary(span, "{} not supported in this game", descr),
+            )),
+        }
+    }
+
+    pub fn get_intrinsic(&self, opcode: u16) -> Option<IntrinsicInstrKind> {
+        self.opcode_intrinsics.get(&opcode).copied()
+    }
+}
+
 fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
     let label_arg = InstrArg::Label(goto.destination.clone());
     let time_arg = match goto.time {
@@ -287,21 +314,6 @@ fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
         None => InstrArg::TimeOf(goto.destination.clone()),
     };
     (label_arg, time_arg)
-}
-
-fn lookup_opcode<T>(
-    intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
-    intrinsic: IntrinsicInstrKind,
-    span: &Sp<T>,
-    descr: &str,
-) -> Result<u16, CompileError> {
-    match intrinsic_opcodes.get(&intrinsic) {
-        Some(&opcode) => Ok(opcode),
-        None => Err(error!(
-            message("feature not supported by format"),
-            primary(span, "{} not supported in this game", descr),
-        )),
-    }
 }
 
 /// Looks at a statement of the form `if (<cond>) goto label @ time;` and tries to produce an instruction from it.
@@ -314,12 +326,12 @@ fn lower_cond_jump_stmt(
     keyword: &Sp<ast::CondKeyword>,
     cond: &Sp<ast::Cond>,
     goto: &ast::StmtGoto,
-    intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
-    ty_ctx: &TypeSystem,
+    intrinsic_instrs: &IntrinsicInstrs,
+    ty_ctx: &RegsAndInstrs,
 ) -> Result<InstrOrLabel, CompileError>{
     use IntrinsicInstrKind as IKind;
 
-    let get_opcode = |intrinsic, descr| lookup_opcode(intrinsic_opcodes, intrinsic, &stmt.body, descr);
+    let get_opcode = |intrinsic, descr| intrinsic_instrs.get_opcode(intrinsic, stmt.body.span, descr);
 
     let (arg_label, arg_time) = lower_goto_args(goto);
 
@@ -363,12 +375,12 @@ fn lower_assignment_stmt(
     var: &Sp<ast::Var>,
     assign_op: &Sp<ast::AssignOpKind>,
     rhs: &Sp<ast::Expr>,
-    intrinsic_opcodes: &HashMap<IntrinsicInstrKind, u16>,
-    ty_ctx: &TypeSystem,
+    intrinsic_instrs: &IntrinsicInstrs,
+    ty_ctx: &RegsAndInstrs,
 ) -> Result<InstrOrLabel, CompileError>{
     use IntrinsicInstrKind as IKind;
 
-    let get_opcode = |intrinsic, descr| lookup_opcode(intrinsic_opcodes, intrinsic, &stmt.body, descr);
+    let get_opcode = |intrinsic, descr| intrinsic_instrs.get_opcode(intrinsic, stmt.body.span, descr);
 
     match (assign_op.value, &rhs.value) {
         (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
@@ -403,7 +415,7 @@ fn lower_args(
     func: &Sp<Ident>,
     args: &[Sp<Expr>],
     encodings: &[ArgEncoding],
-    ty_ctx: &TypeSystem,
+    ty_ctx: &RegsAndInstrs,
 ) -> Result<Vec<InstrArg>, CompileError> {
     encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| {
         let (lowered, value_type) = lower_simple_arg(arg, ty_ctx)?;
@@ -424,7 +436,7 @@ fn lower_args(
     }).collect_with_recovery()
 }
 
-fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
+fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &RegsAndInstrs) -> Result<(InstrArg, ScalarType), CompileError> {
     match arg.value {
         ast::Expr::LitInt { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Int)),
         ast::Expr::LitFloat { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Float)),
@@ -433,10 +445,10 @@ fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<(InstrAr
     }
 }
 
-fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
+fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &RegsAndInstrs) -> Result<(InstrArg, ScalarType), CompileError> {
     match (ty_ctx.reg_id(var), ty_ctx.var_type(var)) {
         (Some(opcode), Some(ty)) => {
-            let lowered = InstrArg::Raw(RawArg::from_global_var(opcode, ty));
+            let lowered = InstrArg::Raw(RawArg::from_reg(opcode, ty));
             Ok((lowered, ty))
         },
         (None, _) => return Err(error!(
@@ -451,14 +463,11 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg
 }
 
 pub fn raise_instrs_to_sub_ast(
-    ty_ctx: &TypeSystem,
+    ty_ctx: &RegsAndInstrs,
     instr_format: &dyn InstrFormat,
     script: &[Instr],
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
-    let opcode_intrinsics: HashMap<_, _> = {
-        instr_format.intrinsic_opcode_pairs().into_iter()
-            .map(|(a, b)| (b, a)).collect()
-    };
+    let intrinsic_instrs = instr_format.intrinsic_instrs();
 
     // For now we give every instruction a label and strip the unused ones later.
     let mut offset = 0;
@@ -466,7 +475,7 @@ pub fn raise_instrs_to_sub_ast(
         let this_instr_label = sp!(ast::StmtLabel::Label(default_instr_label(offset)));
         offset += instr_format.instr_size(instr);
 
-        let body = raise_instr(instr_format, instr, ty_ctx, &opcode_intrinsics)?;
+        let body = raise_instr(instr_format, instr, ty_ctx, &intrinsic_instrs)?;
         Ok(sp!(ast::Stmt {
             time: instr.time,
             labels: vec![this_instr_label],
@@ -483,11 +492,11 @@ fn default_instr_label(offset: usize) -> Sp<Ident> {
 fn raise_instr(
     instr_format: &dyn InstrFormat,
     instr: &Instr,
-    ty_ctx: &TypeSystem,
-    opcode_intrinsics: &HashMap<u16, IntrinsicInstrKind>,
+    ty_ctx: &RegsAndInstrs,
+    intrinsic_instrs: &IntrinsicInstrs,
 ) -> Result<ast::StmtBody, SimpleError> {
     let Instr { opcode, ref args, .. } = *instr;
-    match opcode_intrinsics.get(&opcode).copied() {
+    match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
             let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
 
@@ -597,7 +606,7 @@ fn raise_instr(
     }
 }
 
-fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Result<Vec<Sp<Expr>>, SimpleError> {
+fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &RegsAndInstrs) -> Result<Vec<Sp<Expr>>, SimpleError> {
     let encodings = siggy.arg_encodings();
 
     if args.len() != encodings.len() {
@@ -618,7 +627,7 @@ fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &TypeSystem) -> Resu
     Ok(out)
 }
 
-fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &TypeSystem) -> Result<Expr, SimpleError> {
+fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &RegsAndInstrs) -> Result<Expr, SimpleError> {
     if raw.is_var {
         let ty = match enc {
             ArgEncoding::Padding |
@@ -644,7 +653,7 @@ fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleEr
     }
 }
 
-fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &TypeSystem) -> Result<ast::Var, SimpleError> {
+fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &RegsAndInstrs) -> Result<ast::Var, SimpleError> {
     if !raw.is_var {
         bail!("expected a variable, got an immediate");
     }
@@ -706,7 +715,7 @@ fn gather_label_info(
     Ok(out)
 }
 
-/// Eliminates all `InstrOrLabel::Label`s by replacing them with their dword values.
+/// Eliminates all `InstrArg::Label`s by replacing them with their dword values.
 fn encode_labels(
     format: &dyn InstrFormat,
     initial_offset: usize,
@@ -734,7 +743,7 @@ fn encode_labels(
                     _ => {},
                 }
             },
-            InstrOrLabel::Label(_) => {},
+            _ => {},
         }
         Ok(())
     }).collect_with_recovery()
@@ -823,6 +832,10 @@ pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u1
 pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction.
     fn instr_size(&self, instr: &Instr) -> usize;
+
+    fn intrinsic_instrs(&self) -> IntrinsicInstrs {
+        IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
+    }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
 

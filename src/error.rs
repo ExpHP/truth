@@ -37,6 +37,12 @@ impl CompileError {
             _ => Err(self),
         }
     }
+    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, CompileError> {
+        match self.diagnostics.len() {
+            0 => Ok(value()),
+            _ => Err(self),
+        }
+    }
     pub fn error_count(&self) -> usize { self.diagnostics.len() }
 
     /// Drain all errors from this object and write them to the standard error stream.

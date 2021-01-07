@@ -3,10 +3,19 @@ use crate::CompileError;
 use crate::ident::Ident;
 use crate::eclmap::Eclmap;
 use crate::ast;
+use crate::scope::Variables;
 use crate::pos::{Span, Sp};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TypeSystem {
+    pub regs_and_instrs: RegsAndInstrs,
+    pub variables: Option<Variables>,
+}
+
+// FIXME: This is a total fustercluck
+/// Information about raw instructions and registers, usually derived from a mapfile.
+#[derive(Debug, Clone, Default)]
+pub struct RegsAndInstrs {
     /// List of all loaded mapfiles
     mapfiles: Vec<std::path::PathBuf>,
 
@@ -25,6 +34,52 @@ pub struct TypeSystem {
 
 impl TypeSystem {
     pub fn new() -> Self { Self::default() }
+
+    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
+    /// into the file.
+    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
+        assert!(self.variables.is_none(), "(bug!) attempted to load ECLmap after resolving names, \
+            but the resolver assumed it had all globals during initialization!");
+
+        self.regs_and_instrs.extend_from_eclmap(path, eclmap);
+    }
+}
+
+impl RegsAndInstrs {
+    pub fn new() -> Self { Self::default() }
+
+    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
+    /// into the file.
+    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
+        self.mapfiles.push(path.to_owned());
+
+        for (&opcode, name) in &eclmap.ins_names {
+            self.opcode_names.insert(opcode as u32, name.clone());
+            self.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u32));
+        }
+        for (&opcode, value) in &eclmap.ins_signatures {
+            let arg_string = value.to_string();
+            self.opcode_signatures.insert(opcode as u32, Signature { arg_string });
+        }
+        for (&id, name) in &eclmap.gvar_names {
+            self.reg_names.insert(id, name.clone());
+            self.reg_map.insert(name.clone(), id);
+        }
+        for (&id, value) in &eclmap.gvar_types {
+            let ty = match &value[..] {
+                "%" => ScalarType::Float,
+                "$" => ScalarType::Int,
+                _ => {
+                    fast_warning!(
+                        "In mapfile: Ignoring invalid variable type '{}' for gvar {}",
+                        value, id,
+                    );
+                    continue;
+                },
+            };
+            self.reg_default_types.insert(id, ty);
+        }
+    }
 
     /// Get the signature of a function as a single instruction, if known.
     pub fn ins_signature(&self, name: &Ident) -> Option<&Signature> {
@@ -66,7 +121,7 @@ impl TypeSystem {
     pub fn reg_id(&self, var: &ast::Var) -> Option<i32> {
         match *var {
             ast::Var::Named { ref ident, .. } => self.reg_map.get(ident).copied(),
-            ast::Var::Local { var_id, .. } => None,
+            ast::Var::Local { var_id: _, .. } => None,
             ast::Var::Register { number, .. } => Some(number),
         }
     }
@@ -83,39 +138,6 @@ impl TypeSystem {
                 }
             },
             None => ast::Var::Register { number: id, ty: ty.into() },
-        }
-    }
-
-    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
-    /// into the file.
-    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
-        self.mapfiles.push(path.to_owned());
-
-        for (&opcode, name) in &eclmap.ins_names {
-            self.opcode_names.insert(opcode as u32, name.clone());
-            self.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u32));
-        }
-        for (&opcode, value) in &eclmap.ins_signatures {
-            let arg_string = value.to_string();
-            self.opcode_signatures.insert(opcode as u32, Signature { arg_string });
-        }
-        for (&id, name) in &eclmap.gvar_names {
-            self.reg_names.insert(id, name.clone());
-            self.reg_map.insert(name.clone(), id);
-        }
-        for (&id, value) in &eclmap.gvar_types {
-            let ty = match &value[..] {
-                "%" => ScalarType::Float,
-                "$" => ScalarType::Int,
-                _ => {
-                    fast_warning!(
-                        "In mapfile: Ignoring invalid variable type '{}' for gvar {}",
-                        value, id,
-                    );
-                    continue;
-                },
-            };
-            self.reg_default_types.insert(id, ty);
         }
     }
 
