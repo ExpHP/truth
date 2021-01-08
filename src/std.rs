@@ -1,16 +1,17 @@
 use std::io;
+
 use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
 
-use crate::error::{CompileError, SimpleError};
-use crate::pos::{Sp};
 use crate::ast;
-use crate::ident::Ident;
-use crate::type_system::{TypeSystem, RegsAndInstrs};
-use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
+use crate::binary_io::{bail, BinRead, BinWrite, ReadResult, WriteResult};
+use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
-use crate::instr::{self, Instr, InstrFormat};
-use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult, bail};
+use crate::ident::Ident;
+use crate::llir::{self, Instr, InstrFormat};
+use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
+use crate::pos::Sp;
+use crate::type_system::{RegsAndInstrs, TypeSystem};
 
 // =============================================================================
 
@@ -230,7 +231,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs)
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, script)?;
+    let code = llir::raise_instrs_to_sub_ast(ty_ctx, instr_format, script)?;
 
     let code = {
         use crate::passes::{unused_labels, decompile_loop};
@@ -344,7 +345,7 @@ fn compile_std(
     };
 
     let mut out = StdFile::init_from_meta(format, meta)?;
-    out.script = crate::instr::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ty_ctx)?;
+    out.script = crate::llir::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ty_ctx)?;
     Ok(out)
 }
 
@@ -378,7 +379,7 @@ fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> ReadResult<StdFile> {
         vec
     };
 
-    let script = instr::read_instrs(&mut &bytes[script_offset..], format.instr_format(), 0, None)?;
+    let script = llir::read_instrs(&mut &bytes[script_offset..], format.instr_format(), 0, None)?;
 
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
@@ -418,7 +419,7 @@ fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Wr
     let instr_format = format.instr_format();
 
     let script_offset = f.pos()? - start_pos;
-    instr::write_instrs(f, instr_format, &std.script)?;
+    llir::write_instrs(f, instr_format, &std.script)?;
 
     let end_pos = f.pos()?;
     f.seek_to(instances_offset_pos)?;
@@ -713,15 +714,15 @@ impl InstrFormat for InstrFormat06 {
         }
         assert_eq!(argsize, 12);
 
-        let args = instr::read_dword_args_upto_size(f, 12, 0)?;
+        let args = llir::read_dword_args_upto_size(f, 12, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(instr::IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         if Game::Th07 <= self.game && self.game <= Game::Th09 {
             vec![
-                (instr::IntrinsicInstrKind::Jmp, 4),
-                (instr::IntrinsicInstrKind::InterruptLabel, 31),
+                (llir::IntrinsicInstrKind::Jmp, 4),
+                (llir::IntrinsicInstrKind::InterruptLabel, 31),
             ]
         } else {
             vec![]  // lul
@@ -768,16 +769,16 @@ impl InstrFormat for InstrFormat10 {
             return Ok(None)
         }
 
-        let args = instr::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, 0)?;
+        let args = llir::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(instr::IntrinsicInstrKind, u16)> {
-        let mut out = vec![(instr::IntrinsicInstrKind::Jmp, 1)];
+    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
+        let mut out = vec![(llir::IntrinsicInstrKind::Jmp, 1)];
 
         // TH095 and TH10 are missing this
         if Game::Th11 <= self.game {
-            out.push((instr::IntrinsicInstrKind::InterruptLabel, 16));
+            out.push((llir::IntrinsicInstrKind::InterruptLabel, 16));
         }
         out
     }

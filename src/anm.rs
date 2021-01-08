@@ -1,21 +1,21 @@
-use std::io;
 use std::fmt;
+use std::io;
 use std::num::NonZeroUsize;
 
-use bstr::{BString};
-use indexmap::IndexMap;
 use anyhow::Context;
+use bstr::BString;
 use enum_map::EnumMap;
+use indexmap::IndexMap;
 
-use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
-use crate::pos::{Sp};
 use crate::ast;
-use crate::ident::Ident;
-use crate::type_system::{TypeSystem, RegsAndInstrs, ScalarType};
-use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
+use crate::binary_io::{bail, BinRead, BinWrite, ReadResult, WriteResult};
+use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::game::Game;
-use crate::instr::{self, Instr, InstrFormat, IntrinsicInstrKind};
-use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult, bail};
+use crate::ident::Ident;
+use crate::llir::{self, Instr, InstrFormat, IntrinsicInstrKind};
+use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
+use crate::pos::Sp;
+use crate::type_system::{RegsAndInstrs, ScalarType, TypeSystem};
 
 // =============================================================================
 
@@ -199,7 +199,7 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs) ->
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = instr::raise_instrs_to_sub_ast(ty_ctx, instr_format, instrs)?;
+            let code = llir::raise_instrs_to_sub_ast(ty_ctx, instr_format, instrs)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -297,7 +297,7 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
 
             match entry.scripts.entry(name.clone()) {
                 indexmap::map::Entry::Vacant(e) => {
-                    let instrs = instr::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
+                    let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
                     e.insert(Script { id, instrs });
                 },
                 indexmap::map::Entry::Occupied(e) => {
@@ -390,7 +390,7 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
             let end_offset = all_offsets.iter().copied().filter(|&x| x > offset).min();
 
             let instrs = {
-                instr::read_instrs(&mut &entry_bytes[offset..], instr_format, offset, end_offset)
+                llir::read_instrs(&mut &entry_bytes[offset..], instr_format, offset, end_offset)
                     .with_context(|| format!("while reading {}", key))?
             };
             Ok((key, Script { id, instrs }))
@@ -492,7 +492,7 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
 
     let script_ids_and_offsets = entry.scripts.iter().map(|(name, script)| {
         let script_offset = f.pos()? - entry_pos;
-        instr::write_instrs(f, instr_format, &script.instrs)
+        llir::write_instrs(f, instr_format, &script.instrs)
             .with_context(|| format!("while writing script '{}'", name))?;
 
         Ok((script.id, script_offset))
@@ -768,7 +768,7 @@ impl InstrFormat for InstrFormat06 {
             return Ok(None);
         }
 
-        let args = instr::read_dword_args_upto_size(f, argsize, 0)?;
+        let args = llir::read_dword_args_upto_size(f, argsize, 0)?;
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }
 
@@ -800,7 +800,7 @@ impl InstrFormat for InstrFormat06 {
 impl InstrFormat for InstrFormat07 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         use IntrinsicInstrKind as I;
-        use instr::TransOpKind as Tr;
+        use llir::TransOpKind as Tr;
 
         match self.version {
             Version::V0 => unreachable!(),
@@ -815,9 +815,9 @@ impl InstrFormat for InstrFormat07 {
                     (I::TransOp(Tr::Acos), 64),
                     (I::TransOp(Tr::Atan), 65),
                 ];
-                instr::register_assign_ops(&mut out, 37);
-                instr::register_binary_ops(&mut out, 49);
-                instr::register_cond_jumps(&mut out, 67);
+                llir::register_assign_ops(&mut out, 37);
+                llir::register_binary_ops(&mut out, 49);
+                llir::register_cond_jumps(&mut out, 67);
                 out
             },
             Version::V4 | Version::V7 => {
@@ -831,9 +831,9 @@ impl InstrFormat for InstrFormat07 {
                     (I::TransOp(Tr::Acos), 45),
                     (I::TransOp(Tr::Atan), 46),
                 ];
-                instr::register_assign_ops(&mut out, 6);
-                instr::register_binary_ops(&mut out, 18);
-                instr::register_cond_jumps(&mut out, 28);
+                llir::register_assign_ops(&mut out, 6);
+                llir::register_binary_ops(&mut out, 18);
+                llir::register_cond_jumps(&mut out, 28);
                 out
             },
             Version::V8 => {
@@ -847,9 +847,9 @@ impl InstrFormat for InstrFormat07 {
                     (I::TransOp(Tr::Acos), 127),
                     (I::TransOp(Tr::Atan), 128),
                 ];
-                instr::register_assign_ops(&mut out, 100);
-                instr::register_binary_ops(&mut out, 112);
-                instr::register_cond_jumps(&mut out, 202);
+                llir::register_assign_ops(&mut out, 100);
+                llir::register_binary_ops(&mut out, 112);
+                llir::register_cond_jumps(&mut out, 202);
                 out
             },
         }
@@ -874,7 +874,7 @@ impl InstrFormat for InstrFormat07 {
 
         let time = f.read_i16()? as i32;
         let param_mask = f.read_u16()?;
-        let args = instr::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, param_mask)?;
+        let args = llir::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, param_mask)?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
         Ok(Some(Instr { time, opcode: opcode as u16, args }))
     }

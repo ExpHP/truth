@@ -45,7 +45,7 @@ pub mod scope;
 
 mod binary_io;
 
-mod instr;
+mod llir;
 
 #[cfg(test)]
 mod tests {
