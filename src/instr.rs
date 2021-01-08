@@ -1023,34 +1023,52 @@ fn assign_registers(
         vec.retain(|id| !used_regs.contains(id));
         vec.reverse();  // since we'll be popping from these lists
     }
-    let scratch_reg_counts = enum_map::enum_map!(ty => unused_regs[ty].len());
 
-    let mut var_regs = HashMap::<VarId, i32>::new();
+    let mut var_regs = HashMap::<VarId, (i32, ScalarType, Span)>::new();
 
     for stmt in code {
         match stmt {
-            LowLevelStmt::RegAlloc { var: var_id, cause } => {
+            LowLevelStmt::RegAlloc { var: var_id, ref cause } => {
                 let ty = ty_ctx.variables().get_type(*var_id).expect("(bug!) this should have been type-checked!");
-                let reg = unused_regs[ty].pop().ok_or_else(|| error!(
-                    message("expression too complex to compile"),
-                    primary(cause, "ran out of scratch vars here!"),
-                    note(
-                        "in this function, there are only {} unused vars of this type available for scratch use",
-                        scratch_reg_counts[ty],
-                    ),
-                ))?;
-                assert!(var_regs.insert(*var_id, reg).is_none());
+
+                let reg = unused_regs[ty].pop().ok_or_else(|| {
+                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.regs_and_instrs.reg_to_ast(reg, ty));
+
+                    let mut error = crate::error::Diagnostic::error();
+                    error.message(format!("expression too complex to compile"));
+                    error.primary(cause, format!("no more registers of this type!"));
+                    for &(scratch_reg, scratch_ty, scratch_span) in var_regs.values() {
+                        if scratch_ty == ty {
+                            error.secondary(scratch_span, format!("{} holds this", stringify_reg(scratch_reg)));
+                        }
+                    }
+                    let regs_of_ty = format.general_use_regs()[ty].clone();
+                    let unavailable_strs = regs_of_ty.iter().copied()
+                        .filter(|id| used_regs.contains(id))
+                        .map(stringify_reg)
+                        .collect::<Vec<_>>();
+                    if !unavailable_strs.is_empty() {
+                        error.note(format!(
+                            "the following registers are unavailable due to explicit use: {}",
+                            unavailable_strs.join(", "),
+                        ));
+                    }
+
+                    error
+                })?;
+
+                assert!(var_regs.insert(*var_id, (reg, ty, *cause)).is_none());
             },
             LowLevelStmt::RegFree { var: var_id } => {
                 let ty = ty_ctx.variables().get_type(*var_id).expect("(bug!) this should have been type-checked!");
-                let reg = var_regs.remove(&var_id).expect("(bug!) RegFree without RegAlloc!");
+                let (reg, _, _) = var_regs.remove(&var_id).expect("(bug!) RegFree without RegAlloc!");
                 unused_regs[ty].push(reg);
             },
             LowLevelStmt::Instr(instr) => {
                 for arg in &mut instr.args {
                     if let InstrArg::Local(var_id) = *arg {
                         let ty = ty_ctx.variables().get_type(var_id).expect("(bug!) this should have been type-checked!");
-                        *arg = InstrArg::Raw(RawArg::from_reg(var_regs[&var_id], ty));
+                        *arg = InstrArg::Raw(RawArg::from_reg(var_regs[&var_id].0, ty));
                     }
                 }
             },

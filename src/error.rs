@@ -1,8 +1,8 @@
-use crate::pos::{FileId};
+use crate::pos::{FileId, HasSpan};
 
 use codespan_reporting as cs;
-pub type Diagnostic = cs::diagnostic::Diagnostic<FileId>;
-pub type Label = cs::diagnostic::Label<FileId>;
+type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
+type CsLabel = cs::diagnostic::Label<FileId>;
 
 /// An error type that is intended to be pretty-printed through [`codespan_reporting`].
 ///
@@ -14,8 +14,53 @@ pub type Label = cs::diagnostic::Label<FileId>;
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
-    #[doc(hidden)]
-    pub diagnostics: Vec<Diagnostic>
+    diagnostics: Vec<Diagnostic>
+}
+
+/// A single error in a [`CompileError`].  You can still add more labels to it.
+///
+/// It converts into [`CompileError`] using [`From`], so a `?` should suffice.
+#[derive(Debug)]
+pub struct Diagnostic {
+    imp: CsDiagnostic,
+}
+
+impl Diagnostic {
+    pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error() } }
+    pub fn warning() -> Self { Diagnostic { imp: CsDiagnostic::warning() } }
+
+    pub fn code(&mut self, code: String) -> &mut Self {
+        self.imp.code = Some(code);
+        self
+    }
+
+    pub fn message(&mut self, message: String) -> &mut Self {
+        self.imp.message = message;
+        self
+    }
+
+    /// Add a label of type 'primary'.
+    pub fn primary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
+        let span = span.span();
+        self.imp.labels.push(CsLabel::primary(span.file_id, span).with_message(message));
+        self
+    }
+
+    /// Add a label of type 'secondary'.
+    pub fn secondary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
+        let span = span.span();
+        self.imp.labels.push(CsLabel::secondary(span.file_id, span).with_message(message));
+        self
+    }
+
+    pub fn note(&mut self, message: String) -> &mut Self {
+        self.imp.notes.push(message);
+        self
+    }
+}
+
+impl From<Diagnostic> for CompileError {
+    fn from(d: Diagnostic) -> Self { CompileError { diagnostics: vec![d] } }
 }
 
 /// Error type used by parts of the codebase that don't have access to spans.
@@ -54,7 +99,7 @@ impl CompileError {
 
         let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
         for e in self.diagnostics.drain(..) {
-            term::emit(&mut writer.lock(), &*TERM_CONFIG, files, &e).unwrap();
+            term::emit(&mut writer.lock(), &*TERM_CONFIG, files, &e.imp).unwrap();
         }
         Ok(())
     }
@@ -98,25 +143,13 @@ macro_rules! _diagnostic {
         $(, note( $($note_msg:tt)+ ) )*
         $(,)?
     ) => {{
-        #[allow(unused)]
-        use $crate::error::{CompileError, Diagnostic, Label};
-        #[allow(unused)]
-        use $crate::pos::HasSpan;
-
-        CompileError { diagnostics: vec![
-            Diagnostic::$severity()
-                $( .with_code($code) )?
-                .with_message(format!( $($message)+ ))
-                .with_labels(vec![
-                    $( match HasSpan::span(&$primary_span) {
-                        span => Label::primary(span.file_id, span).with_message(format!( $($primary_msg)+ ))
-                    } ,)*
-                    $( match HasSpan::span(&$secondary_span) {
-                        span => Label::secondary(span.file_id, span).with_message(format!( $($secondary_msg)+ ))
-                    } ,)*
-                ])
-                .with_notes(vec![ $(format!( $($note_msg)+ ))* ]),
-        ]}
+        let mut d = $crate::error::Diagnostic::$severity();
+        d.message(format!( $($message)+ ));
+        $( d.code($code); )?
+        $( d.primary(&$primary_span, format!( $($primary_msg)+ )); )*
+        $( d.secondary(&$secondary_span, format!( $($secondary_msg)+ )); )*
+        $( d.note(format!( $($note_msg)+ )); )*
+        $crate::error::CompileError::from(d)
     }};
     ( // shorthand for message only
         @ $severity:ident,
@@ -127,13 +160,19 @@ macro_rules! _diagnostic {
     }};
 }
 
-/// Generates a `CompileError` of severity `error`.
+/// Generates a [`CompileError`] of severity `error`.
+///
+/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
+/// try the [`Diagnostic`] builder API instead.
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
 }
 
-/// Generates a `CompileError` of severity `warning`.
+/// Generates a [`CompileError`] of severity `warning`.
+///
+/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
+/// try the [`Diagnostic`] builder API instead.
 #[macro_export]
 macro_rules! warning {
     ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
@@ -153,13 +192,13 @@ impl<'a> From<crate::parse::Error<'a>> for CompileError {
         //       make spans from the positions on the error type.
         //       This feature will be easier to add when we add error recovery to the parser,
         //       as we can get the FileId from the parser state then.
-        error!(message("{}", e))
+        error!(message("{}", e)).into()
     }
 }
 
 impl From<anyhow::Error> for CompileError {
     fn from(e: anyhow::Error) -> CompileError {
-        error!(message("{:#}", e))
+        error!(message("{:#}", e)).into()
     }
 }
 
@@ -183,9 +222,10 @@ pub trait GatherErrorIteratorExt {
     fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, CompileError>;
 }
 
-impl<Ts, T> GatherErrorIteratorExt for Ts
+impl<Ts, T, E> GatherErrorIteratorExt for Ts
 where
-    Ts: Iterator<Item=Result<T, CompileError>>
+    Ts: Iterator<Item=Result<T, E>>,
+    E: Into<CompileError>,
 {
     type OkItem = T;
 
@@ -193,7 +233,7 @@ where
         let mut errors = CompileError::new_empty();
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),
-            Err(e) => { errors.append(e); None }
+            Err(e) => { errors.append(e.into()); None }
         }).collect();
 
         errors.into_result(out)
