@@ -64,8 +64,8 @@ impl StdFile {
         decompile_std(&*game_format(game), self, &ty_ctx.regs_and_instrs)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
-        compile_std(&*game_format(game), script, &ty_ctx.regs_and_instrs)
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
+        compile_std(&*game_format(game), script, ty_ctx)
     }
 
     pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
@@ -271,7 +271,7 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 fn compile_std(
     format: &dyn FileFormat,
     script: &ast::Script,
-    ty_ctx: &RegsAndInstrs,
+    ty_ctx: &mut TypeSystem,
 ) -> Result<StdFile, CompileError> {
     use ast::Item;
 
@@ -283,6 +283,8 @@ fn compile_std(
         let mut visitor = crate::passes::const_simplify::Visitor::new();
         crate::ast::walk_mut_script(&mut visitor, &mut script);
         visitor.finish()?;
+
+        ty_ctx.resolve_names(&mut script)?;
 
         let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
         crate::ast::walk_mut_script(&mut visitor, &mut script);

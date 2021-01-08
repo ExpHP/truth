@@ -1,5 +1,6 @@
 use std::collections::{HashMap};
 
+use enum_map::EnumMap;
 use anyhow::{Context, bail, ensure};
 
 use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, group_anyhow};
@@ -7,13 +8,19 @@ use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::scope::VarId;
-use crate::type_system::{RegsAndInstrs, Signature, ArgEncoding, ScalarType};
+use crate::type_system::{RegsAndInstrs, TypeSystem, Signature, ArgEncoding, ScalarType};
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum InstrOrLabel {
-    Label(Sp<Ident>),
+pub enum LowLevelStmt {
+    /// Represents a single instruction in the compiled file.
     Instr(Instr),
+    /// An intrinsic that represents a label that can be jumped to.
+    Label(Sp<Ident>),
+    /// An intrinsic that begins the scope of a register-allocated local.
+    RegAlloc { var: VarId, cause: Span },
+    /// An intrinsic that ends the scope of a register-allocated local.
+    RegFree { var: VarId },
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instr {
@@ -23,7 +30,10 @@ pub struct Instr {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstrArg {
+    /// A fully encoded argument (an immediate or a register).
     Raw(RawArg),
+    /// A register-allocated local.
+    Local(VarId),
     /// A label that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
@@ -163,122 +173,37 @@ pub fn write_instrs(
 // =============================================================================
 
 pub fn lower_sub_ast_to_instrs(
-    format: &dyn InstrFormat,
+    instr_format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
-    ty_ctx: &RegsAndInstrs,
+    ty_ctx: &mut TypeSystem,
 ) -> Result<Vec<Instr>, CompileError> {
-    let intrinsic_instrs = format.intrinsic_instrs();
+    let mut lowerer = Lowerer {
+        out: vec![],
+        intrinsic_instrs: instr_format.intrinsic_instrs(),
+        ty_ctx,
+        instr_format,
+    };
+    lowerer.lower_sub_ast(code)?;
+    let mut out = lowerer.out;
 
-    let mut th06_anm_end_span = None;
-    let mut out = vec![];
-    code.iter().map(|stmt| {
-        if let Some(end) = th06_anm_end_span {
-            if !matches!(&stmt.body.value, ast::StmtBody::NoInstruction) { return Err(error!(
-                message("statement after end of script"),
-                primary(&stmt.body, "forbidden statement"),
-                secondary(&end, "marks the end of the script"),
-                note("In EoSD ANM, every script must have a single exit point (opcode 0 or 15), as the final instruction."),
-            ))}
-        }
-
-        for label in &stmt.labels {
-            match &label.value {
-                ast::StmtLabel::Label(ident) => out.push(InstrOrLabel::Label(ident.clone())),
-                ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span)),
-            }
-        }
-
-        let get_opcode = |intrinsic, descr| intrinsic_instrs.get_opcode(intrinsic, stmt.body.span, descr);
-
-        match &stmt.body.value {
-            ast::StmtBody::Jump(goto) => {
-                if goto.time.is_some() && !format.jump_has_time_arg() {
-                    return Err(error!(
-                        message("feature not supported by format"),
-                        primary(stmt.body, "'goto @ time' not supported in this game"),
-                    ));
-                }
-
-                let (label_arg, time_arg) = lower_goto_args(goto);
-
-                out.push(InstrOrLabel::Instr(Instr {
-                    time: stmt.time,
-                    opcode: get_opcode(IntrinsicInstrKind::Jmp, "'goto'")?,
-                    args: vec![label_arg, time_arg],
-                }));
-            },
-
-
-            ast::StmtBody::Assignment { var, op, value } => {
-                out.push(lower_assignment_stmt(stmt, var, op, value, &intrinsic_instrs, ty_ctx)?);
-            },
-
-
-            ast::StmtBody::InterruptLabel(interrupt_id) => {
-                out.push(InstrOrLabel::Instr(Instr {
-                    time: stmt.time,
-                    opcode: get_opcode(IntrinsicInstrKind::InterruptLabel, "interrupt label")?,
-                    args: vec![InstrArg::Raw(interrupt_id.value.into())],
-                }));
-            },
-
-
-            ast::StmtBody::CondJump { keyword, cond, jump } => {
-                out.push(lower_cond_jump_stmt(stmt, keyword, cond, jump, &intrinsic_instrs, ty_ctx)?);
-            },
-
-
-            ast::StmtBody::Expr(expr) => match &expr.value {
-                ast::Expr::Call { func, args } => {
-                    let opcode = match ty_ctx.resolve_func_aliases(func).as_ins() {
-                        Some(opcode) => opcode,
-                        None => return Err(error!(
-                            message("cannot find instruction '{}'", func),
-                            primary(func, "not an instruction"),
-                        )),
-                    };
-                    let siggy = match ty_ctx.ins_signature(func) {
-                        Some(siggy) => siggy,
-                        None => return Err(error!(
-                            message("signature of '{}' is not known", func),
-                            primary(func, "don't know how to compile this instruction"),
-                        )),
-                    };
-                    let encodings = siggy.arg_encodings();
-                    if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
-                        return Err(error!(
-                            message("wrong number of arguments to '{}'", func),
-                            primary(func, "expects {} arguments, got {}", encodings.len(), args.len()),
-                        ));
-                    }
-
-                    let instr = Instr {
-                        time: stmt.time,
-                        opcode: opcode as _,
-                        args: lower_args(func, args, &encodings, ty_ctx)?,
-                    };
-                    if format.is_th06_anm_terminating_instr(&instr) {
-                        th06_anm_end_span = Some(func);
-                    }
-
-                    out.push(InstrOrLabel::Instr(instr));
-                },
-                _ => return Err(unsupported(&expr.span)),
-            }, // match expr
-
-            ast::StmtBody::NoInstruction => {}
-
-            _ => return Err(unsupported(&stmt.body.span)),
-        }
-        Ok(())
-    }).collect_with_recovery()?;
-    // And fix the labels
-    encode_labels(format, 0, &mut out)?;
+    // And now postprocess
+    encode_labels(&mut out, instr_format, 0)?;
+    assign_registers(&mut out, instr_format, ty_ctx)?;
 
     Ok(out.into_iter().filter_map(|x| match x {
-        InstrOrLabel::Instr(instr) => Some(instr),
-        InstrOrLabel::Label(_) => None,
+        LowLevelStmt::Instr(instr) => Some(instr),
+        LowLevelStmt::Label(_) => None,
+        LowLevelStmt::RegAlloc { .. } => None,
+        LowLevelStmt::RegFree { .. } => None,
     }).collect())
+}
+
+/// Helper responsible for converting an AST into [`LowLevelStmt`]s.
+struct Lowerer<'ts> {
+    out: Vec<LowLevelStmt>,
+    intrinsic_instrs: IntrinsicInstrs,
+    instr_format: &'ts dyn InstrFormat,
+    ty_ctx: &'ts mut TypeSystem,
 }
 
 pub struct IntrinsicInstrs {
@@ -307,6 +232,466 @@ impl IntrinsicInstrs {
     }
 }
 
+impl Lowerer<'_> {
+    pub fn lower_sub_ast(
+        &mut self,
+        code: &[Sp<ast::Stmt>],
+    ) -> Result<(), CompileError> {
+        let mut th06_anm_end_span = None;
+        code.iter().map(|stmt| {
+            if let Some(end) = th06_anm_end_span {
+                if !matches!(&stmt.body.value, ast::StmtBody::NoInstruction) { return Err(error!(
+                    message("statement after end of script"),
+                    primary(&stmt.body, "forbidden statement"),
+                    secondary(&end, "marks the end of the script"),
+                    note("In EoSD ANM, every script must have a single exit point (opcode 0 or 15), as the final instruction."),
+                ))}
+            }
+
+            for label in &stmt.labels {
+                match &label.value {
+                    ast::StmtLabel::Label(ident) => self.out.push(LowLevelStmt::Label(ident.clone())),
+                    ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span)),
+                }
+            }
+
+            match &stmt.body.value {
+                ast::StmtBody::Jump(goto) => {
+                    if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
+                        return Err(error!(
+                            message("feature not supported by format"),
+                            primary(stmt.body, "'goto @ time' not supported in this game"),
+                        ));
+                    }
+
+                    let (label_arg, time_arg) = lower_goto_args(goto);
+
+                    self.out.push(LowLevelStmt::Instr(Instr {
+                        time: stmt.time,
+                        opcode: self.get_opcode(IKind::Jmp, stmt.body.span, "'goto'")?,
+                        args: vec![label_arg, time_arg],
+                    }));
+                },
+
+
+                ast::StmtBody::Assignment { var, op, value } => {
+                    self.assign_op(stmt.body.span, stmt.time, var, op, value)?;
+                },
+
+
+                ast::StmtBody::InterruptLabel(interrupt_id) => {
+                    self.out.push(LowLevelStmt::Instr(Instr {
+                        time: stmt.time,
+                        opcode: self.get_opcode(IKind::InterruptLabel, stmt.body.span, "interrupt label")?,
+                        args: vec![InstrArg::Raw(interrupt_id.value.into())],
+                    }));
+                },
+
+
+                ast::StmtBody::CondJump { keyword, cond, jump } => {
+                    self.cond_jump(stmt.body.span, stmt.time, keyword, cond, jump)?;
+                },
+
+
+                ast::StmtBody::Expr(expr) => match &expr.value {
+                    ast::Expr::Call { func, args } => {
+                        let opcode = self.func_stmt(stmt, func, args)?;
+                        if self.instr_format.is_th06_anm_terminating_instr(opcode) {
+                            th06_anm_end_span = Some(func);
+                        }
+                    },
+                    _ => return Err(unsupported(&stmt.body.span)),
+                }, // match expr
+
+                ast::StmtBody::NoInstruction => {}
+
+                _ => return Err(unsupported(&stmt.body.span)),
+            }
+            Ok(())
+        }).collect_with_recovery()
+    }
+
+    /// Lowers `func(<ARG1>, <ARG2>, <...>);`
+    fn func_stmt<'a>(
+        &mut self,
+        stmt: &Sp<ast::Stmt>,
+        func: &Sp<Ident>,
+        args: &[Sp<Expr>],
+    ) -> Result<u16, CompileError> {
+        // all function statements currently refer to single instructions
+        let opcode = match self.ty_ctx.regs_and_instrs.resolve_func_aliases(func).as_ins() {
+            Some(opcode) => opcode,
+            None => return Err(error!(
+                message("unknown instruction '{}'", func),
+                primary(func, "not an instruction"),
+            )),
+        };
+
+        self.instruction(stmt, opcode as _, func, args)
+    }
+
+    /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
+    fn instruction(
+        &mut self,
+        stmt: &Sp<ast::Stmt>,
+        opcode: u16,
+        name: &Sp<Ident>,
+        args: &[Sp<Expr>],
+    ) -> Result<u16, CompileError> {
+        let siggy = match self.ty_ctx.regs_and_instrs.ins_signature(opcode) {
+            Some(siggy) => siggy,
+            None => return Err(error!(
+                message("signature of '{}' not known", name),
+                primary(name, "don't know how to compile this instruction"),
+            )),
+        };
+        let encodings = siggy.arg_encodings();
+        if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
+            return Err(error!(
+                message("wrong number of arguments to '{}'", name),
+                primary(name, "expects {} arguments, got {}", encodings.len(), args.len()),
+            ));
+        }
+
+        let mut temp_var_ids = vec![];
+        let low_level_args = encodings.iter().zip(args).enumerate().map(|(arg_index, (enc, expr))| {
+            let (lowered, actual_ty) = match try_lower_simple_arg(expr, self.ty_ctx)? {
+                ExprClass::Simple(arg, arg_ty) => (arg, arg_ty),
+                ExprClass::Complex(_) => {
+                    // Save this expression to a temporary
+                    let arg_ty = self.ty_ctx.compute_type_shallow(expr)?;
+                    let (var_id, _) = self.define_temporary(stmt.time, arg_ty, expr)?;
+                    let arg = InstrArg::Local(var_id);
+
+                    temp_var_ids.push(var_id); // so we can free the register later
+
+                    (arg, arg_ty)
+                },
+            };
+
+            let expected_ty = match enc {
+                ArgEncoding::Padding |
+                ArgEncoding::Color |
+                ArgEncoding::Dword => ScalarType::Int,
+                ArgEncoding::Float => ScalarType::Float,
+            };
+            if actual_ty != expected_ty {
+                return Err(error!(
+                    message("argument {} to '{}' has wrong type", arg_index+1, name),
+                    primary(expr, "wrong type"),
+                    secondary(name, "expects {}", expected_ty.descr()),
+                ));
+            }
+            Ok(lowered)
+        }).collect_with_recovery()?;
+
+        self.out.push(LowLevelStmt::Instr(Instr {
+            time: stmt.time,
+            opcode: opcode as _,
+            args: low_level_args,
+        }));
+
+        for var_id in temp_var_ids.into_iter().rev() {
+            self.undefine_temporary(var_id)?;
+        }
+
+        Ok(opcode)
+    }
+
+    /// Lowers `a = <B>;`  or  `a *= <B>;`
+    fn assign_op(
+        &mut self,
+        span: Span,
+        time: i32,
+        var: &Sp<ast::Var>,
+        assign_op: &Sp<ast::AssignOpKind>,
+        rhs: &Sp<ast::Expr>,
+    ) -> Result<(), CompileError> {
+        match (assign_op.value, &rhs.value) {
+            // a = <expr> + <expr>
+            (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
+                self.assign_direct_binop(span, time, var, assign_op, rhs.span, a, binop, b)?;
+            },
+
+            // a += <expr>
+            (_, _) => {
+                let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+                match try_lower_simple_arg(rhs, self.ty_ctx)? {
+                    ExprClass::Simple(arg_rhs, ty_rhs) => {
+                        let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
+                        self.out.push(LowLevelStmt::Instr(Instr {
+                            time,
+                            opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty), span, "update assignment with this operation")?,
+                            args: vec![arg_var, arg_rhs],
+                        }));
+                    },
+                    // split out to: `tmp = <expr>;  a += tmp;`
+                    ExprClass::Complex(_) => {
+                        let (tmp_var_id, tmp_var_expr) = self.define_temporary(time, ty_var, rhs)?;
+                        self.assign_op(span, time, var, assign_op, &tmp_var_expr)?;
+                        self.undefine_temporary(tmp_var_id)?;
+                    },
+                }
+            },
+        }
+        Ok(())
+    }
+
+    /// Lowers `a = <B> * <C>;`
+    fn assign_direct_binop(
+        &mut self,
+        span: Span,
+        time: i32,
+        var: &Sp<ast::Var>,
+        eq_sign: &Sp<ast::AssignOpKind>,
+        rhs_span: Span,
+        a: &Sp<Expr>,
+        binop: &Sp<ast::BinopKind>,
+        b: &Sp<Expr>,
+    ) -> Result<(), CompileError> {
+        // So right here, we have something like `a = <B> * <C>`. If <B> and <C> are both simple arguments (literals or
+        // variables), we can emit this as one instruction. Otherwise, we need to break it up.  In the general case this
+        // would mean producing
+        //
+        //     int tmp;
+        //     tmp = <B>;      // recursive call
+        //     a = tmp * <C>;  // recursive call
+        //
+        // but sometimes it's possible to do this without a temporary by reusing the destination variable `a`, such as:
+        //
+        //     a = <B>;        // recursive call
+        //     a = tmp * <C>;  // recursive call
+
+        let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+        let classified_args = [try_lower_simple_arg(a, self.ty_ctx)?, try_lower_simple_arg(b, self.ty_ctx)?];
+
+        // Preserve execution order by always splitting out the first large subexpression.
+        let split_out_index = (0..2).filter(|&i| classified_args[i].as_complex().is_some()).next();
+        match split_out_index {
+            Some(split_out_index) => {
+                let other_index = 1 - split_out_index;
+
+                // If the other expression does not use our destination variable, we can reuse it.
+                let mut temp_var_id = None;
+                let mut split_out_var = var.clone();
+                let split_out_expr = [&a, &b][split_out_index];
+                let split_out_span = split_out_expr.span;
+                let split_out_op = sp!(split_out_span => ast::AssignOpKind::Assign);
+                if expr_uses_var([&a, &b][other_index], var) {
+                    // It's used, so we need a temporary.
+
+                    let subexpr_ty = self.ty_ctx.compute_type_shallow(split_out_expr)?;
+                    let (var_id, tmp_var, _) = self.allocate_temporary(split_out_span, subexpr_ty);
+
+                    temp_var_id = Some(var_id);
+                    split_out_var = tmp_var;
+                };
+
+                // first statement
+                self.assign_op(split_out_span, time, &split_out_var, &split_out_op, split_out_expr)?;
+
+                // second statement:  reconstruct the outer expression, replacing the part we split out
+                let mut parts: [&Sp<ast::Expr>; 2] = [a, b];
+                let split_out_var_as_expr = sp!(split_out_var.span => ast::Expr::Var(split_out_var));
+                parts[split_out_index] = &split_out_var_as_expr;
+                self.assign_direct_binop(span, time, var, eq_sign, rhs_span, parts[0], binop, parts[1])?;
+
+                if let Some(var_id) = temp_var_id {
+                    self.undefine_temporary(var_id)?;
+                }
+            },
+
+            // if they're both simple, that's our base case, and we emit a single instruction
+            None => {
+                let (arg_a, ty_a) = classified_args[0].as_simple().unwrap();
+                let (arg_b, ty_b) = classified_args[1].as_simple().unwrap();
+                let ty_rhs = binop.result_type(ty_a, ty_b, (a.span, b.span))?;
+                let ty = ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
+                self.out.push(LowLevelStmt::Instr(Instr {
+                    time,
+                    opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "assignment of this binary operation")?,
+                    args: vec![arg_var, arg_a.clone(), arg_b.clone()],
+                }));
+            },
+        }
+        Ok(())
+    }
+
+    /// Lowers `if (<cond>) goto label @ time;`
+    fn cond_jump(
+        &mut self,
+        stmt_span: Span,
+        stmt_time: i32,
+        keyword: &Sp<ast::CondKeyword>,
+        cond: &Sp<ast::Cond>,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), CompileError>{
+        let (arg_label, arg_time) = lower_goto_args(goto);
+
+        match (keyword.value, &cond.value) {
+            (ast::CondKeyword::If, ast::Cond::Decrement(var)) => {
+                let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+                if ty_var != ScalarType::Int {
+                    return Err(error!(
+                        message("type error"),
+                        primary(cond, "expected an int, got {}", ty_var.descr()),
+                        secondary(keyword, "required by this"),
+                    ));
+                }
+
+                self.out.push(LowLevelStmt::Instr(Instr {
+                    time: stmt_time,
+                    opcode: self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?,
+                    args: vec![arg_var, arg_label, arg_time],
+                }));
+                Ok(())
+            },
+
+            (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
+                Expr::Binop(a, binop, b) => self.cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
+
+                _ => Err(unsupported(&expr.span)),
+            },
+        }
+    }
+
+    /// Lowers `if (<A> != <B>) goto label @ time;` and similar
+    fn cond_jump_binop(
+        &mut self,
+        stmt_span: Span,
+        stmt_time: i32,
+        keyword: &Sp<ast::CondKeyword>,
+        a: &Sp<Expr>,
+        binop: &Sp<ast::BinopKind>,
+        b: &Sp<Expr>,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), CompileError>{
+        match (try_lower_simple_arg(a, self.ty_ctx)?, try_lower_simple_arg(b, self.ty_ctx)?) {
+            // `if (<A> != <B>) ...`
+            // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
+            (ExprClass::Complex(_), _) => {
+                let ty_tmp = self.ty_ctx.compute_type_shallow(a)?;
+
+                let (var_id, var_expr) = self.define_temporary(stmt_time, ty_tmp, a)?;
+                self.cond_jump_binop(stmt_span, stmt_time, keyword, &var_expr, binop, b, goto)?;
+                self.undefine_temporary(var_id)?;
+            },
+
+            // `if (a != <B>) ...`
+            // split out to: `tmp = <B>;  if (a != tmp) ...`;
+            (ExprClass::Simple(_, ty_tmp), ExprClass::Complex(_)) => {
+                let (var_id, var_expr) = self.define_temporary(stmt_time, ty_tmp, b)?;
+                self.cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, &var_expr, goto)?;
+                self.undefine_temporary(var_id)?;
+            },
+
+            // `if (a != b) ...`
+            (ExprClass::Simple(arg_a, ty_a), ExprClass::Simple(arg_b, ty_b)) => {
+                let ty_arg = binop.result_type(ty_a, ty_b, (a.span, b.span))?;
+                let (arg_label, arg_time) = lower_goto_args(goto);
+                self.out.push(LowLevelStmt::Instr(Instr {
+                    time: stmt_time,
+                    opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
+                    args: vec![arg_a, arg_b, arg_label, arg_time],
+                }));
+            },
+        }
+        Ok(())
+    }
+
+    /// Declares a new register-allocated temporary and initializes it with an expression.
+    ///
+    /// When done emitting instructions that use the temporary, one should call [`Self::undefine_temporary`].
+    fn define_temporary(
+        &mut self,
+        time: i32,
+        ty: ScalarType,
+        expr: &Sp<Expr>,
+    ) -> Result<(VarId, Sp<Expr>), CompileError> {
+        let (var_id, var, var_as_expr) = self.allocate_temporary(expr.span, ty);
+
+        let eq_sign = sp!(expr.span => ast::AssignOpKind::Assign);
+        self.assign_op(expr.span, time, &var, &eq_sign, expr)?;
+
+        Ok((var_id, var_as_expr))
+    }
+
+    /// Emits an intrinsic that cleans up a register-allocated temporary.
+    fn undefine_temporary(&mut self, var_id: VarId) -> Result<(), CompileError> {
+        self.out.push(LowLevelStmt::RegFree { var: var_id });
+        Ok(())
+    }
+
+    /// Grabs a new unique [`VarId`] and constructs an [`ast::Var`] as well as an [`ast::Expr`] for using the
+    /// variable in an expression.  Emits an intrinsic to allocate a register to it.
+    ///
+    /// Call [`Self::undefine_temporary`] afterwards to clean up.
+    fn allocate_temporary(
+        &mut self,
+        span: Span,
+        ty: ScalarType,
+    ) -> (VarId, Sp<ast::Var>, Sp<ast::Expr>) {
+        let var_id = self.ty_ctx.variables_mut().declare_temporary(Some(ty));
+        let var = sp!(span => ast::Var::Local { var_id, ty_sigil: None });
+        let var_as_expr = sp!(span => ast::Expr::Var(var.clone()));
+
+        self.out.push(LowLevelStmt::RegAlloc { var: var_id, cause: span });
+
+        (var_id, var, var_as_expr)
+    }
+
+    fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
+        self.intrinsic_instrs.get_opcode(kind, span, descr)
+    }
+}
+
+enum ExprClass<'a> {
+    Simple(InstrArg, ScalarType),
+    Complex(&'a Sp<Expr>),
+}
+
+impl ExprClass<'_> {
+    fn as_complex(&self) -> Option<&Sp<Expr>> {
+        match self { ExprClass::Complex(x) => Some(x), _ => None }
+    }
+    fn as_simple(&self) -> Option<(&InstrArg, ScalarType)> {
+        match self { &ExprClass::Simple(ref a, ty) => Some((a, ty)), _ => None }
+    }
+}
+
+fn try_lower_simple_arg<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<ExprClass<'a>, CompileError> {
+    match arg.value {
+        ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(InstrArg::Raw(value.into()), ScalarType::Int)),
+        ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(InstrArg::Raw(value.into()), ScalarType::Float)),
+        ast::Expr::Var(ref var) => {
+            let (out, ty) = lower_var_to_arg(var, ty_ctx)?;
+            Ok(ExprClass::Simple(out, ty))
+        },
+        _ => Ok(ExprClass::Complex(arg)),
+    }
+}
+
+fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
+    let ty = ty_ctx.var_type(var).ok_or(error!(
+        message("variable requires a type prefix"),
+        primary(var, "needs a '$' or '%' prefix"),
+    ))?;
+
+    match ty_ctx.regs_and_instrs.reg_id(var) {
+        Some(opcode) => {
+            let lowered = InstrArg::Raw(RawArg::from_reg(opcode, ty));
+            Ok((lowered, ty))
+        },
+        None => match var.value {
+            ast::Var::Local { var_id, .. } => Ok((InstrArg::Local(var_id), ty)),
+            _ => Err(error!(
+                message("unrecognized variable"),
+                primary(var, "not a known global or local variable"),
+            ))
+        },
+    }
+}
+
 fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
     let label_arg = InstrArg::Label(goto.destination.clone());
     let time_arg = match goto.time {
@@ -314,152 +699,6 @@ fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
         None => InstrArg::TimeOf(goto.destination.clone()),
     };
     (label_arg, time_arg)
-}
-
-/// Looks at a statement of the form `if (<cond>) goto label @ time;` and tries to produce an instruction from it.
-///
-/// Only handles conditions that map to instructions, e.g. `a != b` or `b--`, but not `a && b`.
-/// Things like the latter are expected to have already been converted into another form if the
-/// format supports them.
-fn lower_cond_jump_stmt(
-    stmt: &ast::Stmt,
-    keyword: &Sp<ast::CondKeyword>,
-    cond: &Sp<ast::Cond>,
-    goto: &ast::StmtGoto,
-    intrinsic_instrs: &IntrinsicInstrs,
-    ty_ctx: &RegsAndInstrs,
-) -> Result<InstrOrLabel, CompileError>{
-    use IntrinsicInstrKind as IKind;
-
-    let get_opcode = |intrinsic, descr| intrinsic_instrs.get_opcode(intrinsic, stmt.body.span, descr);
-
-    let (arg_label, arg_time) = lower_goto_args(goto);
-
-    match (keyword.value, &cond.value) {
-        (ast::CondKeyword::If, ast::Cond::Decrement(var)) => {
-            let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
-            if ty_var != ScalarType::Int {
-                return Err(error!(
-                    message("type error"),
-                    primary(cond, "expected an int, got {}", ty_var.descr()),
-                    secondary(keyword, "required by this"),
-                ));
-            }
-
-            Ok(InstrOrLabel::Instr(Instr {
-                time: stmt.time,
-                opcode: get_opcode(IKind::CountJmp, "decrement jump")?,
-                args: vec![arg_var, arg_label, arg_time],
-            }))
-        },
-
-        (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
-            &Expr::Binop(ref a, op, ref b) => {
-                let (arg_a, ty_a) = lower_simple_arg(a, ty_ctx)?;
-                let (arg_b, ty_b) = lower_simple_arg(b, ty_ctx)?;
-                let ty = op.result_type(ty_a, ty_b, (a.span, b.span))?;
-
-                Ok(InstrOrLabel::Instr(Instr {
-                    time: stmt.time,
-                    opcode: get_opcode(IKind::CondJmp(op.value, ty), "conditional jump")?,
-                    args: vec![arg_a, arg_b, arg_label, arg_time],
-                }))
-            },
-            _ => Err(unsupported(&expr.span)),
-        },
-    }
-}
-
-fn lower_assignment_stmt(
-    stmt: &ast::Stmt,
-    var: &Sp<ast::Var>,
-    assign_op: &Sp<ast::AssignOpKind>,
-    rhs: &Sp<ast::Expr>,
-    intrinsic_instrs: &IntrinsicInstrs,
-    ty_ctx: &RegsAndInstrs,
-) -> Result<InstrOrLabel, CompileError>{
-    use IntrinsicInstrKind as IKind;
-
-    let get_opcode = |intrinsic, descr| intrinsic_instrs.get_opcode(intrinsic, stmt.body.span, descr);
-
-    match (assign_op.value, &rhs.value) {
-        (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
-            let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
-            let (arg_a, ty_a) = lower_simple_arg(a, ty_ctx)?;
-            let (arg_b, ty_b) = lower_simple_arg(b, ty_ctx)?;
-            let ty_rhs = binop.result_type(ty_a, ty_b, (a.span, b.span))?;
-            let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
-
-            Ok(InstrOrLabel::Instr(Instr {
-                time: stmt.time,
-                opcode: get_opcode(IKind::Binop(binop.value, ty), "assignment of this binary operation")?,
-                args: vec![arg_var, arg_a, arg_b],
-            }))
-        },
-
-        (_, _) => {
-            let (arg_var, ty_var) = lower_var_to_arg(var, ty_ctx)?;
-            let (arg_rhs, ty_rhs) = lower_simple_arg(rhs, ty_ctx)?;
-            let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
-
-            Ok(InstrOrLabel::Instr(Instr {
-                time: stmt.time,
-                opcode: get_opcode(IKind::AssignOp(ast::AssignOpKind::Assign, ty), "simple variable assignment")?,
-                args: vec![arg_var, arg_rhs],
-            }))
-        },
-    }
-}
-
-fn lower_args(
-    func: &Sp<Ident>,
-    args: &[Sp<Expr>],
-    encodings: &[ArgEncoding],
-    ty_ctx: &RegsAndInstrs,
-) -> Result<Vec<InstrArg>, CompileError> {
-    encodings.iter().zip(args).enumerate().map(|(index, (enc, arg))| {
-        let (lowered, value_type) = lower_simple_arg(arg, ty_ctx)?;
-        let (expected_type, expected_str) = match enc {
-            ArgEncoding::Padding |
-            ArgEncoding::Color |
-            ArgEncoding::Dword => (ScalarType::Int, "an int"),
-            ArgEncoding::Float => (ScalarType::Float, "a float"),
-        };
-        if value_type != expected_type {
-            return Err(error!(
-                message("argument {} to '{}' has wrong type", index+1, func),
-                primary(arg, "wrong type"),
-                secondary(func, "expects {} in arg {}", expected_str, index+1),
-            ));
-        }
-        Ok(lowered)
-    }).collect_with_recovery()
-}
-
-fn lower_simple_arg(arg: &Sp<ast::Expr>, ty_ctx: &RegsAndInstrs) -> Result<(InstrArg, ScalarType), CompileError> {
-    match arg.value {
-        ast::Expr::LitInt { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Int)),
-        ast::Expr::LitFloat { value, .. } => Ok((InstrArg::Raw(value.into()), ScalarType::Float)),
-        ast::Expr::Var(ref var) => lower_var_to_arg(var, ty_ctx),
-        _ => Err(unsupported(&arg.span)),
-    }
-}
-
-fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &RegsAndInstrs) -> Result<(InstrArg, ScalarType), CompileError> {
-    match (ty_ctx.reg_id(var), ty_ctx.var_type(var)) {
-        (Some(opcode), Some(ty)) => {
-            let lowered = InstrArg::Raw(RawArg::from_reg(opcode, ty));
-            Ok((lowered, ty))
-        },
-        (None, _) => return Err(error!(
-            message("unrecognized global variable"),
-            primary(var, "not a known global"),
-        )),
-        (Some(_), None) => return Err(error!(
-            message("variable requires a type prefix"),
-            primary(var, "needs a '$' or '%' prefix"),
-        )),
-    }
 }
 
 pub fn raise_instrs_to_sub_ast(
@@ -497,7 +736,7 @@ fn raise_instr(
 ) -> Result<ast::StmtBody, SimpleError> {
     let Instr { opcode, ref args, .. } = *instr;
     match intrinsic_instrs.get_intrinsic(opcode) {
-        Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
+        Some(IKind::Jmp) => group_anyhow(|| {
             let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
 
             // This one is >= because it exists in early STD where there can be padding args.
@@ -516,7 +755,7 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a 'goto' operation")),
 
 
-        Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
+        Some(IKind::AssignOp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
             Ok(ast::StmtBody::Assignment {
                 var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)?),
@@ -526,7 +765,7 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
 
-        Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
+        Some(IKind::Binop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
             Ok(ast::StmtBody::Assignment {
                 var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)?),
@@ -540,7 +779,7 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
 
-        Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
+        Some(IKind::InterruptLabel) => group_anyhow(|| {
             // This one is >= because it exists in STD where there can be padding args.
             ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
             ensure!(args[1..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
@@ -549,7 +788,7 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling an interrupt label")),
 
 
-        Some(IntrinsicInstrKind::CountJmp) => group_anyhow(|| {
+        Some(IKind::CountJmp) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
             let var = raise_arg_to_var(&args[0].expect_raw(), ScalarType::Int, ty_ctx)?;
             let dest_offset = instr_format.decode_label(args[1].expect_raw().bits);
@@ -566,7 +805,7 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a decrement jump")),
 
 
-        Some(IntrinsicInstrKind::CondJmp(op, ty)) => group_anyhow(|| {
+        Some(IKind::CondJmp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 4, "expected {} args, got {}", 4, args.len());
             let a = raise_arg(&args[0].expect_raw(), ty.default_encoding(), ty_ctx)?;
             let b = raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?;
@@ -587,7 +826,7 @@ fn raise_instr(
 
 
         // raising of these not yet implemented
-        Some(IntrinsicInstrKind::TransOp(_)) |
+        Some(IKind::TransOp(_)) |
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {
@@ -596,7 +835,7 @@ fn raise_instr(
             };
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
-                args: match ty_ctx.ins_signature(&ins_ident) {
+                args: match ty_ctx.ins_signature(opcode) {
                     Some(siggy) => raise_args(args, siggy, ty_ctx)?,
                     None => raise_args(args, &Signature::auto(args.len()), ty_ctx)?,
                 },
@@ -670,6 +909,27 @@ fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &RegsAndInstrs) -> Res
     Ok(ty_ctx.reg_to_ast(id, ty))
 }
 
+fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
+    use ast::Visit;
+
+    struct Visitor<'a> {
+        var: &'a ast::Var,
+        found: bool,
+    };
+
+    impl Visit for Visitor<'_> {
+        fn visit_var(&mut self, var: &Sp<ast::Var>) {
+            if self.var.eq_upto_ty(var) {
+                self.found = true;
+            }
+        }
+    }
+
+    let mut v = Visitor { var, found: false };
+    v.visit_expr(ast);
+    v.found
+}
+
 // =============================================================================
 
 struct RawLabelInfo {
@@ -679,7 +939,7 @@ struct RawLabelInfo {
 fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: usize,
-    code: &[InstrOrLabel]
+    code: &[LowLevelStmt]
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
 
@@ -689,8 +949,8 @@ fn gather_label_info(
     code.iter().map(|thing| {
         match thing {
             // can't insert labels until we see the time of the instructions they are labeling
-            InstrOrLabel::Label(ident) => pending_labels.push(ident),
-            InstrOrLabel::Instr(instr) => {
+            LowLevelStmt::Label(ident) => pending_labels.push(ident),
+            LowLevelStmt::Instr(instr) => {
                 for label in pending_labels.drain(..) {
                     match out.entry(label.clone()) {
                         Entry::Vacant(e) => {
@@ -708,6 +968,7 @@ fn gather_label_info(
                 }
                 offset += format.instr_size(instr);
             },
+            _ => {},
         }
         Ok(())
     }).collect_with_recovery()?;
@@ -717,15 +978,15 @@ fn gather_label_info(
 
 /// Eliminates all `InstrArg::Label`s by replacing them with their dword values.
 fn encode_labels(
+    code: &mut [LowLevelStmt],
     format: &dyn InstrFormat,
     initial_offset: usize,
-    code: &mut [InstrOrLabel],
 ) -> Result<(), CompileError> {
     let label_info = gather_label_info(format, initial_offset, code)?;
 
     code.iter_mut().map(|thing| {
         match thing {
-            InstrOrLabel::Instr(instr) => for arg in &mut instr.args {
+            LowLevelStmt::Instr(instr) => for arg in &mut instr.args {
                 match *arg {
                     | InstrArg::Label(ref label)
                     | InstrArg::TimeOf(ref label)
@@ -749,8 +1010,69 @@ fn encode_labels(
     }).collect_with_recovery()
 }
 
+/// Eliminates all `InstrArg::Label`s by replacing them with their dword values.
+fn assign_registers(
+    code: &mut [LowLevelStmt],
+    format: &dyn InstrFormat,
+    ty_ctx: &TypeSystem,
+) -> Result<(), CompileError> {
+    let used_regs = get_used_regs(code);
+
+    let mut unused_regs = format.general_use_regs();
+    for vec in unused_regs.values_mut() {
+        vec.retain(|id| !used_regs.contains(id));
+        vec.reverse();  // since we'll be popping from these lists
+    }
+    let scratch_reg_counts = enum_map::enum_map!(ty => unused_regs[ty].len());
+
+    let mut var_regs = HashMap::<VarId, i32>::new();
+
+    for stmt in code {
+        match stmt {
+            LowLevelStmt::RegAlloc { var: var_id, cause } => {
+                let ty = ty_ctx.variables().get_type(*var_id).expect("(bug!) this should have been type-checked!");
+                let reg = unused_regs[ty].pop().ok_or_else(|| error!(
+                    message("expression too complex to compile"),
+                    primary(cause, "ran out of scratch vars here!"),
+                    note(
+                        "in this function, there are only {} unused vars of this type available for scratch use",
+                        scratch_reg_counts[ty],
+                    ),
+                ))?;
+                assert!(var_regs.insert(*var_id, reg).is_none());
+            },
+            LowLevelStmt::RegFree { var: var_id } => {
+                let ty = ty_ctx.variables().get_type(*var_id).expect("(bug!) this should have been type-checked!");
+                let reg = var_regs.remove(&var_id).expect("(bug!) RegFree without RegAlloc!");
+                unused_regs[ty].push(reg);
+            },
+            LowLevelStmt::Instr(instr) => {
+                for arg in &mut instr.args {
+                    if let InstrArg::Local(var_id) = *arg {
+                        let ty = ty_ctx.variables().get_type(var_id).expect("(bug!) this should have been type-checked!");
+                        *arg = InstrArg::Raw(RawArg::from_reg(var_regs[&var_id], ty));
+                    }
+                }
+            },
+            LowLevelStmt::Label(_) => {},
+        }
+    }
+
+    Ok(())
+}
+
+fn get_used_regs(stmts: &[LowLevelStmt]) -> Vec<i32> {
+    stmts.iter()
+        .filter_map(|stmt| match stmt { LowLevelStmt::Instr(instr) => Some(instr), _ => None })
+        .flat_map(|instr| instr.args.iter().filter_map(|arg| match arg {
+            &InstrArg::Raw(RawArg { is_var: true, bits }) => Some(bits as i32),
+            _ => None,
+        })).collect()
+}
+
 // =============================================================================
 
+use IntrinsicInstrKind as IKind;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntrinsicInstrKind {
     /// Like `goto label @ t;` (and `goto label;`)
@@ -854,13 +1176,18 @@ pub trait InstrFormat {
     // ---------------------------------------------------
     // Special purpose functions only overridden by a few formats
 
+    /// List of registers available for scratch use in formats without a stack.
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<i32>> {
+        enum_map::enum_map!(_ => vec![])
+    }
+
     /// Indicates that [`IntrinsicInstrKind::Jmp`] takes two arguments, where the second is time.
     ///
     /// TH06 ANM has no time arg. (it always sets the script clock to the destination's time)
     fn jump_has_time_arg(&self) -> bool { true }
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
-    fn is_th06_anm_terminating_instr(&self, _instr: &Instr) -> bool { false }
+    fn is_th06_anm_terminating_instr(&self, _opcode: u16) -> bool { false }
 
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the
@@ -911,6 +1238,7 @@ impl Instr {
                 InstrArg::Raw(RawArg { is_var, .. }) => is_var as u16,
                 InstrArg::TimeOf(_) |
                 InstrArg::Label(_) => 0,
+                InstrArg::Local(_) => 1,
             };
             mask *= 2;
             mask += bit;

@@ -36,6 +36,8 @@ struct Scope {
     ident: Ident,
     /// Type of the variable defined in this scope, if fixed.
     ty: Option<ScalarType>,
+    /// If the variable is a register alias (i.e. from a mapfile), the register it references.
+    reg: Option<i32>,
     /// Scope where the rest of the visible variables are defined.
     parent: ScopeId,
 }
@@ -48,10 +50,12 @@ impl Variables {
         let dummy_scope = Scope {
             ident: "!!_DUMMY_IDENT_!!".parse().unwrap(),
             ty: None,
+            reg: None,
             parent: EMPTY_SCOPE,
         };
         Variables { scopes: vec![dummy_scope] }
     }
+
     pub fn get_name(&self, id: VarId) -> &Ident { &self.scopes[id.0.get()].ident }
     pub fn get_type(&self, id: VarId) -> Option<ScalarType> { self.scopes[id.0.get()].ty }
     pub fn get_parent_scope(&self, id: VarId) -> ScopeId { self.scopes[id.0.get()].parent }
@@ -59,10 +63,33 @@ impl Variables {
     #[inline(always)]
     pub fn get_scope(&self, id: VarId) -> ScopeId { ScopeId(Some(id)) }
 
+    /// Indicate that a variable is an alias of a register that came from a mapfile.
+    ///
+    /// Name resolution will not produce this `VarId`, preferring to produce a direct register access instead.
+    pub fn set_mapped_register(&mut self, id: VarId, reg: i32) { self.scopes[id.0.get()].reg = Some(reg); }
+
+    /// Get the register mapped to this variable, if it is a register alias from a mapfile.
+    ///
+    /// IMPORTANT:  In some formats like ANM and old ECL, local variables are also stored in registers, but that
+    /// is unrelated to this and this function will return `None` for them.
+    pub fn get_mapped_register(&self, id: VarId) -> Option<i32> { self.scopes[id.0.get()].reg }
+
+    /// Declare a new variable with a unique `VarId`.
+    pub fn declare_temporary(&mut self, ty: Option<ScalarType>) -> VarId {
+        // This function is only used by code outside this module, after name resolution has already been performed.
+        // Hence, scope is no longer important for any purpose, and we can use anything.
+        self.declare(EMPTY_SCOPE, "_tmp".parse().unwrap(), ty)
+    }
+
+    // TODO: We could move the contents of `passes::resolve_vars` into this module module and then mark as private
+    //       everything involving ScopeId (including this method) since scopes only matter during name resolution.
     /// Declares a variable.  This will create a new scope, which will be a child of the given scope.
+    ///
+    /// NOTE: If name resolution has already been performed, then the `parent` and `ident` args are fairly
+    /// meaningless, and you may consider calling [`Self::declare_temporary`] instead.
     pub fn declare(&mut self, parent: ScopeId, ident: Ident, ty: Option<ScalarType>) -> VarId {
         let id = VarId(NonZeroUsize::new(self.scopes.len()).unwrap());
-        self.scopes.push(Scope { ident, ty, parent });
+        self.scopes.push(Scope { ident, ty, parent, reg: None });
         id
     }
 }
@@ -77,6 +104,15 @@ pub(crate) struct NameResolver {
     active_vars: HashMap<Ident, Vec<VarId>>,
 }
 
+pub enum Resolved {
+    /// Local variable.
+    Var(VarId),
+    // FIXME I really feel like this shouldn't need the VarId field, but currently it's the
+    //       only way to get the type without RegsAndInstrs
+    /// Gloabal variable that maps to a register.
+    Reg(VarId, i32),
+}
+
 impl NameResolver {
     /// Create a new [`NameResolver`] sitting in the empty scope.
     pub fn new() -> Self {
@@ -87,8 +123,13 @@ impl NameResolver {
     pub fn current_scope(&self) -> ScopeId { self.current_scope }
 
     /// Resolve an identifier at the current scope.
-    pub fn resolve(&self, ident: &Ident) -> Option<VarId> {
-        self.active_vars.get(ident).and_then(|vec| vec.last().copied())
+    pub fn resolve(&self, ident: &Ident, variables: &Variables) -> Option<Resolved> {
+        self.active_vars.get(ident)
+            .and_then(|vec| vec.last().copied())  // the one that isn't shadowed
+            .map(|var_id| match variables.get_mapped_register(var_id) {
+                None => Resolved::Var(var_id),
+                Some(reg) => Resolved::Reg(var_id, reg),
+            })
     }
 
     /// Travel from the current scope into one that is lower down the tree.
@@ -101,7 +142,6 @@ impl NameResolver {
         let mut scope_iter = descendant;
         while self.current_scope != scope_iter {
             if let ScopeId(Some(var_id)) = scope_iter {
-                eprintln!("scope {}", scope_iter);
                 let name = variables.get_name(var_id);
                 vars_to_add.push((name, var_id));
                 scope_iter = variables.get_parent_scope(var_id);

@@ -1,40 +1,35 @@
-use crate::ast::{self, Visit, VisitMut};
+use crate::ast::{self, VisitMut};
 use crate::error::CompileError;
 use crate::pos::Sp;
-use crate::scope::{ScopeId, VarId, Variables, NameResolver, EMPTY_SCOPE};
-use crate::type_system::{self, TypeSystem, ScalarType};
+use crate::scope::{ScopeId, Variables, NameResolver, Resolved, EMPTY_SCOPE};
+use crate::type_system::{RegsAndInstrs, ScalarType};
 
-pub struct Visitor<'ts> {
+/// Visitor for name resolution. Please don't use this directly, but instead call [`TypeSystem::resolve_names`].
+pub struct Visitor {
     resolver: NameResolver,
     scope_stack: Vec<ScopeId>,
-    ty_ctx: &'ts mut TypeSystem,
     variables: Variables,
     errors: CompileError,
 }
 
-impl<'ts> Visitor<'ts> {
-    pub fn new(ty_ctx: &'ts mut TypeSystem) -> Self {
-        assert!(ty_ctx.variables.is_none()); // not designed for multiple usages on the same TypeSystem
-
-        let (variables, root_scope) = initial_variables(&ty_ctx.regs_and_instrs);
+impl Visitor {
+    pub fn new(ty_ctx: &RegsAndInstrs) -> Self {
+        let (variables, root_scope) = initial_variables(&ty_ctx);
         let mut resolver = NameResolver::new();
         resolver.enter_descendant(root_scope, &variables);
         Visitor {
-            resolver, variables, ty_ctx,
+            resolver, variables,
             scope_stack: vec![],
             errors: CompileError::new_empty(),
         }
     }
 
-    pub fn finish(self) -> Result<(), CompileError> {
-        let Visitor { errors, ty_ctx, variables, .. } = self;
-        errors.into_result_with(|| {
-            ty_ctx.variables = Some(variables);
-        })
+    pub fn finish(self) -> Result<Variables, CompileError> {
+        self.errors.into_result(self.variables)
     }
 }
 
-impl VisitMut for Visitor<'_> {
+impl VisitMut for Visitor {
     fn visit_block(&mut self, x: &mut ast::Block) {
         self.scope_stack.push(self.resolver.current_scope());
 
@@ -77,9 +72,16 @@ impl VisitMut for Visitor<'_> {
 
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
         if let ast::Var::Named { ty_sigil, ref ident } = var.value {
-            match self.resolver.resolve(ident) {
-                Some(var_id) => {
-                    var.value = ast::Var::Local { ty_sigil, var_id };
+            match self.resolver.resolve(ident, &self.variables) {
+                Some(Resolved::Var(var_id)) => var.value = ast::Var::Local { ty_sigil, var_id },
+                Some(Resolved::Reg(var_id, reg)) => match ty_sigil.or_else(|| self.variables.get_type(var_id).map(Into::into)) {
+                    Some(ty) => {
+                        var.value = ast::Var::Register { ty, number: reg };
+                    },
+                    None => self.errors.append(error!(
+                        message("cannot determine type of variable read"),
+                        primary(var, "type sigil required ('$' or '%')"),
+                    )),
                 },
                 None => self.errors.append(error!(
                     message("no such variable {}", ident),
@@ -90,14 +92,15 @@ impl VisitMut for Visitor<'_> {
     }
 }
 
-/// Given a [`TypeSystem`] that only contains register aliases from mapfiles, create a [`Variables`]
-/// with these names and get the scope containing all of the variables.
-fn initial_variables(initial_ty_ctx: &type_system::RegsAndInstrs) -> (Variables, ScopeId) {
+/// Create a [`Variables`] that only contains global aliases for registers, and get the scope
+/// that contains all of these aliases.  (effectively, the scope for toplevel code)
+fn initial_variables(ty_ctx: &RegsAndInstrs) -> (Variables, ScopeId) {
     let mut variables = Variables::new();
     let mut scope = EMPTY_SCOPE;
-    for (alias, &raw_id) in &initial_ty_ctx.reg_map {
-        let ty = initial_ty_ctx.reg_default_types.get(&raw_id).copied();
+    for (alias, &reg) in &ty_ctx.reg_map {
+        let ty = ty_ctx.reg_default_types.get(&reg).copied();
         let new_var_id = variables.declare(scope, alias.clone(), ty);
+        variables.set_mapped_register(new_var_id, reg);
         scope = variables.get_scope(new_var_id);
     }
     (variables, scope)
@@ -106,14 +109,15 @@ fn initial_variables(initial_ty_ctx: &type_system::RegsAndInstrs) -> (Variables,
 // --------------------------------------------
 
 /// Visitor for "unresolving" local variables and recovering their original names.
+///
+/// Please don't call this directly; use [`TypeSystem::unresolve_names`] instead.
 pub struct Unvisitor<'ts> {
     variables: &'ts Variables,
     append_ids: bool,
 }
 
 impl<'ts> Unvisitor<'ts> {
-    pub fn new(ty_ctx: &'ts TypeSystem, append_ids: bool) -> Self {
-        let variables = ty_ctx.variables.as_ref().expect("unresolving vars without having resolved them?!");
+    pub fn new(variables: &'ts Variables, append_ids: bool) -> Self {
         Unvisitor { variables, append_ids }
     }
 }

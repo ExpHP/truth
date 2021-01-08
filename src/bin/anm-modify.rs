@@ -64,7 +64,7 @@ fn _run(
             .with_context(|| format!("in file: {}", anm_path.display()))?
     };
 
-    let compiled_ast = ecl_parser::AnmFile::compile_from_ast(game, &ast, &ty_ctx)?;
+    let compiled_ast = ecl_parser::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
     anm_file.merge(&compiled_ast)?;
 
     let mut buf = std::io::Cursor::new(vec![]);

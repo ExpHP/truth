@@ -1,19 +1,21 @@
 use std::io;
 use std::fmt;
+use std::num::NonZeroUsize;
+
 use bstr::{BString};
 use indexmap::IndexMap;
 use anyhow::Context;
+use enum_map::EnumMap;
 
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::pos::{Sp};
 use crate::ast;
 use crate::ident::Ident;
-use crate::type_system::{TypeSystem, RegsAndInstrs};
+use crate::type_system::{TypeSystem, RegsAndInstrs, ScalarType};
 use crate::meta::{self, ToMeta, FromMeta, Meta, FromMetaError};
 use crate::game::Game;
 use crate::instr::{self, Instr, InstrFormat, IntrinsicInstrKind};
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult, bail};
-use std::num::NonZeroUsize;
 
 // =============================================================================
 
@@ -28,8 +30,8 @@ impl AnmFile {
         decompile(&game_format(game), self, &ty_ctx.regs_and_instrs)
     }
 
-    pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &TypeSystem) -> Result<Self, CompileError> {
-        compile(&game_format(game), ast, &ty_ctx.regs_and_instrs)
+    pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
+        compile(&game_format(game), ast, ty_ctx)
     }
 
     pub fn merge(&mut self, other: &Self) -> Result<(), CompileError> {
@@ -234,7 +236,7 @@ fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError
     Ok(())
 }
 
-fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &RegsAndInstrs) -> Result<AnmFile, CompileError> {
+fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
     let ast = {
@@ -245,6 +247,8 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &RegsAndInstrs) -> Re
         let mut visitor = crate::passes::const_simplify::Visitor::new();
         crate::ast::walk_mut_script(&mut visitor, &mut ast);
         visitor.finish()?;
+
+        ty_ctx.resolve_names(&mut ast)?;
 
         let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
         crate::ast::walk_mut_script(&mut visitor, &mut ast);
@@ -780,10 +784,10 @@ impl InstrFormat for InstrFormat06 {
 
     fn jump_has_time_arg(&self) -> bool { false }
 
-    fn is_th06_anm_terminating_instr(&self, instr: &Instr) -> bool {
+    fn is_th06_anm_terminating_instr(&self, opcode: u16) -> bool {
         // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
         // Basically, the first `delete` or `static` marks the end of the script.
-        instr.opcode == 0 || instr.opcode == 15
+        opcode == 0 || opcode == 15
     }
 
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
@@ -847,6 +851,16 @@ impl InstrFormat for InstrFormat07 {
                 instr::register_binary_ops(&mut out, 112);
                 instr::register_cond_jumps(&mut out, 202);
                 out
+            },
+        }
+    }
+
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<i32>> {
+        match self.version {
+            Version::V0 => unreachable!(),
+            Version::V2 | Version::V3 | Version::V4 | Version::V7 | Version::V8 => enum_map::enum_map!{
+                ScalarType::Int => vec![10000, 10001, 10002, 10003, 10008, 10009],
+                ScalarType::Float => vec![10004, 10005, 10006, 10007],
             },
         }
     }

@@ -52,7 +52,7 @@ fn _run(
             )),
         }
     }
-    let std = ecl_parser::StdFile::compile_from_ast(game, &script, &ty_ctx)?;
+    let std = ecl_parser::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
 
     let mut out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
     std.write_to_stream(&mut out, game).unwrap();

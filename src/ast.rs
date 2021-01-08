@@ -312,6 +312,17 @@ pub enum Var {
     },
 }
 
+impl Var {
+    pub fn eq_upto_ty(&self, other: &Var) -> bool {
+        match (self, other) {
+            (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a == b,
+            (Var::Local { var_id: a, .. }, Var::Local { var_id: b, .. }) => a == b,
+            (Var::Register { number: a, .. }, Var::Register { number: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
+
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum BinopKind {
