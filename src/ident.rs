@@ -21,7 +21,7 @@ pub struct Ident<S=String> {
 }
 
 impl Ident {
-    pub fn new_ins(opcode: u32) -> Self {
+    pub fn new_ins(opcode: u16) -> Self {
         Ident { ident: format!("ins_{}", opcode) }
     }
 }

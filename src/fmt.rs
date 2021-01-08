@@ -716,7 +716,7 @@ impl Format for ast::Var {
                 let fake_var = ast::Var::Named { ty_sigil, ident: format!("__local_var#{}", var_id).parse().unwrap() };
                 out.fmt(&fake_var)
             },
-            ast::Var::Register { ty, number } => match ty {
+            ast::Var::Register { ty, reg: number } => match ty {
                 ast::VarReadType::Int => out.fmt(("[", number, "]")),
                 ast::VarReadType::Float => out.fmt(("[", *number as f32, "]")),
             },

@@ -76,7 +76,7 @@ impl VisitMut for Visitor {
                 Some(Resolved::Var(var_id)) => var.value = ast::Var::Local { ty_sigil, var_id },
                 Some(Resolved::Reg(var_id, reg)) => match ty_sigil.or_else(|| self.variables.get_type(var_id).map(Into::into)) {
                     Some(ty) => {
-                        var.value = ast::Var::Register { ty, number: reg };
+                        var.value = ast::Var::Register { ty, reg };
                     },
                     None => self.errors.append(error!(
                         message("cannot determine type of variable read"),

@@ -562,17 +562,17 @@ Var: Var = {
     "$" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Int), ident },
     "%" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(Var::Register { ty: VarReadType::Int, number: i32::wrapping_mul(x, sign) })
+        Ok(Var::Register { ty: VarReadType::Int, reg: i32::wrapping_mul(x, sign) })
     },
     "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
             return Err(ParseError::User { error: "variable ID overflow" })
         }
-        let number = i32::wrapping_mul(x as i32, sign);
-        if number as f32 != x * sign as f32 {
+        let reg = i32::wrapping_mul(x as i32, sign);
+        if reg as f32 != x * sign as f32 {
             return Err(ParseError::User { error: "non-integer variable ID" })
         }
-        Ok(Var::Register { ty: VarReadType::Float, number })
+        Ok(Var::Register { ty: VarReadType::Float, reg })
     },
 };
 

@@ -308,7 +308,7 @@ pub enum Var {
     /// A read of a register, using brackets notation (e.g. `[10004]`).
     Register {
         ty: VarReadType,
-        number: i32,
+        reg: i32,
     },
 }
 
@@ -317,7 +317,7 @@ impl Var {
         match (self, other) {
             (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a == b,
             (Var::Local { var_id: a, .. }, Var::Local { var_id: b, .. }) => a == b,
-            (Var::Register { number: a, .. }, Var::Register { number: b, .. }) => a == b,
+            (Var::Register { reg: a, .. }, Var::Register { reg: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -580,7 +580,7 @@ macro_rules! generate_visitor_stuff {
             match & $($mut)? x.value {
                 Var::Named { ty_sigil: _, ident: _ } => {},
                 Var::Local { ty_sigil: _, var_id: _ } => {},
-                Var::Register { ty: _, number: _ } => {},
+                Var::Register { ty: _, reg: _ } => {},
             }
         }
     };

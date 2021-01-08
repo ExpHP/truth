@@ -32,8 +32,8 @@ pub struct RegsAndInstrs {
     func_aliases: HashMap<Ident, Ident>,
 
     // Instructions
-    opcode_signatures: HashMap<u32, Signature>,
-    pub opcode_names: HashMap<u32, Ident>,
+    opcode_signatures: HashMap<u16, Signature>,
+    pub opcode_names: HashMap<u16, Ident>,
 
     // Registers
     pub reg_default_types: HashMap<i32, ScalarType>,
@@ -152,12 +152,12 @@ impl RegsAndInstrs {
         self.mapfiles.push(path.to_owned());
 
         for (&opcode, name) in &eclmap.ins_names {
-            self.opcode_names.insert(opcode as u32, name.clone());
-            self.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u32));
+            self.opcode_names.insert(opcode as u16, name.clone());
+            self.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u16));
         }
         for (&opcode, value) in &eclmap.ins_signatures {
             let arg_string = value.to_string();
-            self.opcode_signatures.insert(opcode as u32, Signature { arg_string });
+            self.opcode_signatures.insert(opcode as u16, Signature { arg_string });
         }
         for (&id, name) in &eclmap.gvar_names {
             self.reg_names.insert(id, name.clone());
@@ -200,22 +200,22 @@ impl RegsAndInstrs {
         match *var {
             ast::Var::Named { ref ident, .. } => self.reg_map.get(ident).copied(),
             ast::Var::Local { var_id: _, .. } => None,
-            ast::Var::Register { number, .. } => Some(number),
+            ast::Var::Register { reg: number, .. } => Some(number),
         }
     }
 
     /// Generate an AST node with the ideal appearance for a register.
-    pub fn reg_to_ast(&self, id: i32, ty: ScalarType) -> ast::Var {
-        match self.reg_names.get(&id) {
+    pub fn reg_to_ast(&self, reg: i32, ty: ScalarType) -> ast::Var {
+        match self.reg_names.get(&reg) {
             Some(name) => {
                 // Suppress the type prefix if it matches the default
-                if self.reg_default_types.get(&id) == Some(&ty) {
+                if self.reg_default_types.get(&reg) == Some(&ty) {
                     ast::Var::Named { ident: name.clone(), ty_sigil: None }
                 } else {
                     ast::Var::Named { ident: name.clone(), ty_sigil: Some(ty.into()) }
                 }
             },
-            None => ast::Var::Register { number: id, ty: ty.into() },
+            None => ast::Var::Register { reg, ty: ty.into() },
         }
     }
 

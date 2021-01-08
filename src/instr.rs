@@ -830,8 +830,8 @@ fn raise_instr(
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {
-                ty_ctx.opcode_names.get(&(opcode as u32)).cloned()
-                    .unwrap_or_else(|| Ident::new_ins(opcode as u32))
+                ty_ctx.opcode_names.get(&opcode).cloned()
+                    .unwrap_or_else(|| Ident::new_ins(opcode))
             };
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
