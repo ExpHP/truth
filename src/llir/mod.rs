@@ -8,7 +8,7 @@ use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{CompileError, SimpleError};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
-use crate::scope::VarId;
+use crate::var::{LocalId};
 use crate::type_system::ScalarType;
 
 pub use lower::lower_sub_ast_to_instrs;
@@ -28,7 +28,7 @@ pub enum InstrArg {
     /// A fully encoded argument (an immediate or a register).
     Raw(RawArg),
     /// A register-allocated local.
-    Local(VarId),
+    Local(LocalId),
     /// A label that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with

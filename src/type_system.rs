@@ -3,7 +3,7 @@ use crate::{CompileError, Expr};
 use crate::ident::Ident;
 use crate::eclmap::Eclmap;
 use crate::ast;
-use crate::scope::Variables;
+use crate::var::{Variables, VarId};
 use crate::pos::{Span, Sp};
 
 // FIXME: The overall design of this is messy and kind of dumb.
@@ -19,7 +19,7 @@ use crate::pos::{Span, Sp};
 #[derive(Debug, Clone, Default)]
 pub struct TypeSystem {
     pub regs_and_instrs: RegsAndInstrs,
-    variables: Option<Variables>,
+    pub variables: Variables,
 }
 
 /// Information about raw instructions and registers, usually derived from a mapfile.
@@ -44,75 +44,133 @@ pub struct RegsAndInstrs {
 impl TypeSystem {
     pub fn new() -> Self { Self::default() }
 
+    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
+    /// into the file.
+    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
+        self.regs_and_instrs.mapfiles.push(path.to_owned());
+
+        for (&opcode, name) in &eclmap.ins_names {
+            self.regs_and_instrs.opcode_names.insert(opcode as u16, name.clone());
+            self.regs_and_instrs.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u16));
+        }
+        for (&opcode, value) in &eclmap.ins_signatures {
+            let arg_string = value.to_string();
+            self.regs_and_instrs.opcode_signatures.insert(opcode as u16, Signature { arg_string });
+        }
+        for (&reg, name) in &eclmap.gvar_names {
+            self.regs_and_instrs.reg_names.insert(reg, name.clone());
+            self.regs_and_instrs.reg_map.insert(name.clone(), reg);
+            self.variables.declare_global_register_alias(name.clone(), reg);
+        }
+        for (&id, value) in &eclmap.gvar_types {
+            let ty = match &value[..] {
+                "%" => ScalarType::Float,
+                "$" => ScalarType::Int,
+                _ => {
+                    fast_warning!(
+                        "In mapfile: Ignoring invalid variable type '{}' for gvar {}",
+                        value, id,
+                    );
+                    continue;
+                },
+            };
+            self.regs_and_instrs.reg_default_types.insert(id, ty);
+        }
+    }
+
     /// Resolve names in a script parsed from text, replacing all variables with unique [`VarId`]s.
     ///
     /// After calling this, information containing the names and declared types of all variables
-    /// will be stored on this type, available through the [`Self::variables`] method.
+    /// will be stored on the [`Variables`] type.
     pub fn resolve_names(&mut self, ast: &mut ast::Script) -> Result<(), CompileError> {
-        use crate::passes::resolve_vars;
-
-        let mut v = resolve_vars::Visitor::new(&self.regs_and_instrs);
+        let mut v = crate::var::ResolveVarsVisitor::new(&mut self.variables);
         ast::walk_mut_script(&mut v, ast);
-        self.variables = Some(v.finish()?);
-        Ok(())
+        v.finish()
     }
 
     /// Convert [`VarId`]s in the AST back into their original identifiers.
     ///
     /// This may produce unusual output for temporaries, and is intended for testing and debugging purposes only.
     pub fn unresolve_names(&self, ast: &mut ast::Script, append_ids: bool) -> Result<(), CompileError> {
-        use crate::passes::resolve_vars;
-
-        let mut v = resolve_vars::Unvisitor::new(self.variables(), append_ids);
+        let mut v = unresolve_names::Visitor::new(self, append_ids);
         ast::walk_mut_script(&mut v, ast);
-        Ok(())
+        v.finish()
     }
 
-    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
-    /// into the file.
-    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
-        assert!(self.variables.is_none(), "(bug!) attempted to load ECLmap after resolving names, \
-            but the resolver assumed it had all globals during initialization!");
-
-        self.regs_and_instrs.extend_from_eclmap(path, eclmap);
-    }
-
-    /// Get access to the [`Variables`] instance.
+    /// Get the effective type of a variable at a place where it is referenced.
     ///
-    /// This will panic if name resolution has not been performed.
-    #[track_caller]
-    pub fn variables(&self) -> &Variables {
-        self.variables.as_ref().expect("(bug!) tried to access variables without performing name resolution!")
+    /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be
+    /// cast as a float using `%I0`.
+    pub fn var_read_type_from_ast(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
+        match var.value {
+            ast::Var::Named { .. } => panic!("this method requires name resolution! (got: {:?})", var),
+
+            ast::Var::Resolved { ty_sigil, var_id } => {
+                if let Some(ty_sigil) = ty_sigil {
+                    return Ok(ty_sigil.into()); // explicit type from user
+                }
+                self.var_default_type(var_id).ok_or({
+                    let mut err = crate::error::Diagnostic::error();
+                    err.message(format!("variable requires a type prefix"));
+                    err.primary(var, format!("needs a '$' or '%' prefix"));
+                    match var_id {
+                        VarId::Local(_) => err.note(format!("consider adding an explicit type to its declaration")),
+                        VarId::Reg(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
+                    };
+                    err.into()
+                })
+            },
+        }
     }
 
-    /// Get mutable access to the [`Variables`] instance.
+    /// Get the innate type of a variable.  This comes into play when a variable is referenced by name
+    /// without a type sigil.
+    pub fn var_name(&self, var_id: VarId) -> Option<&Ident> {
+        match var_id {
+            VarId::Local(local) => Some(self.variables.get_name(local)),
+            VarId::Reg(reg) => self.regs_and_instrs.reg_names.get(&reg),
+        }
+    }
+
+    /// Get the innate type of a variable.  This comes into play when a variable is referenced by name
+    /// without a type sigil.
+    pub fn var_default_type(&self, var_id: VarId) -> Option<ScalarType> {
+        // NOTE: one might think, "hey, can't we just track LocalIds for regs so that we don't
+        //       have two different places that track default types of things?"
+        //
+        //       ...no, we cannot.  If a register has a type in the mapfile but no name, then
+        //       Variables won't know about it.
+        match var_id {
+            VarId::Local(local) => self.variables.get_type(local),
+            VarId::Reg(reg) => self.regs_and_instrs.reg_default_types.get(&reg).copied(),
+        }
+    }
+
+    /// Generate an AST node with the ideal appearance for a variable.
     ///
-    /// This will panic if name resolution has not been performed.
-    #[track_caller]
-    pub fn variables_mut(&mut self) -> &mut Variables {
-        self.variables.as_mut().expect("(bug!) tried to access variables without performing name resolution!")
-    }
+    /// If `append_local_ids` is `true`, local variables will get their id numbers appended,
+    /// making them distinct.  This is only for testing purposes.
+    pub fn var_to_ast(&self, var_id: VarId, read_ty: ScalarType, append_local_ids: bool) -> ast::Var {
+        let name = self.var_name(var_id);
+        let name = match (name, var_id) {
+            // For registers with no alias, best we can do is emit `[10004]` syntax.
+            (None, VarId::Reg(_)) => return ast::Var::Resolved { var_id, ty_sigil: Some(read_ty.into()) },
 
-    /// Get the type of a variable (int or float), if known.
-    pub fn var_type(&self, var: &ast::Var) -> Option<ScalarType> {
-        match *var {
-            ast::Var::Register { ty, .. } => Some(ty.into()),
+            (Some(name), VarId::Reg(_)) => name.clone(),
+            (Some(name), VarId::Local(local_id)) => match append_local_ids {
+                true => format!("{}_{}", name, local_id),
+                false => format!("{}", name),
+            }.parse().unwrap(),
 
-            ast::Var::Named { ty_sigil, ref ident } => {
-                // NOTE: no need to consider locals here because resolution gets rid of Named...
-                if let Some(ty_sigil) = ty_sigil {
-                    return Some(ty_sigil.into()); // explicit type from user
-                }
-                let number = self.regs_and_instrs.reg_map.get(ident)?;
-                self.regs_and_instrs.reg_default_types.get(number).copied()
-            },
+            // NOTE: I don't think this should ever show because locals always have names...
+            (None, VarId::Local(local_id)) => format!("__localvar_{}", local_id).parse().unwrap(),
+        };
 
-            ast::Var::Local { ty_sigil, var_id } => {
-                if let Some(ty_sigil) = ty_sigil {
-                    return Some(ty_sigil.into()); // explicit type from user
-                }
-                self.variables().get_type(var_id)
-            },
+        // Suppress the type prefix if it matches the default
+        if self.var_default_type(var_id) == Some(read_ty) {
+            ast::Var::Named { ident: name.clone(), ty_sigil: None }
+        } else {
+            ast::Var::Named { ident: name.clone(), ty_sigil: Some(read_ty.into()) }
         }
     }
 
@@ -135,49 +193,48 @@ impl TypeSystem {
                 message("string used in expression"),
                 primary(expr, "string in expression"),
             )),
-            Expr::Var(var) => self.var_type(var).ok_or_else(|| error!(
-                message("cannot determine type of variable read"),
-                primary(var, "type sigil required ('$' or '%')"),
-            )),
+            Expr::Var(var) => self.var_read_type_from_ast(var),
         }
     }
 }
 
-impl RegsAndInstrs {
-    pub fn new() -> Self { Self::default() }
+// --------------------------------------------
 
-    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
-    /// into the file.
-    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
-        self.mapfiles.push(path.to_owned());
+mod unresolve_names {
+    use super::*;
 
-        for (&opcode, name) in &eclmap.ins_names {
-            self.opcode_names.insert(opcode as u16, name.clone());
-            self.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u16));
+    /// Visitor for "unresolving" local variables and recovering their original names.
+    pub struct Visitor<'ts> {
+        ty_ctx: &'ts TypeSystem,
+        append_ids: bool,
+        errors: CompileError,
+    }
+
+    impl<'ts> Visitor<'ts> {
+        pub fn new(ty_ctx: &'ts TypeSystem, append_ids: bool) -> Self {
+            Visitor { ty_ctx, append_ids, errors: CompileError::new_empty() }
         }
-        for (&opcode, value) in &eclmap.ins_signatures {
-            let arg_string = value.to_string();
-            self.opcode_signatures.insert(opcode as u16, Signature { arg_string });
-        }
-        for (&id, name) in &eclmap.gvar_names {
-            self.reg_names.insert(id, name.clone());
-            self.reg_map.insert(name.clone(), id);
-        }
-        for (&id, value) in &eclmap.gvar_types {
-            let ty = match &value[..] {
-                "%" => ScalarType::Float,
-                "$" => ScalarType::Int,
-                _ => {
-                    fast_warning!(
-                        "In mapfile: Ignoring invalid variable type '{}' for gvar {}",
-                        value, id,
-                    );
-                    continue;
-                },
-            };
-            self.reg_default_types.insert(id, ty);
+        pub fn finish(self) -> Result<(), CompileError> { self.errors.into_result(()) }
+    }
+
+    impl ast::VisitMut for Visitor<'_> {
+        fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
+            if let ast::Var::Resolved { ty_sigil: _, var_id } = var.value {
+                // FIXME this seems weird because we ought to just be able to reuse ty_sigil in the output,
+                //       but 'var_read_type_from_ast' seems to require a definite type.
+                match self.ty_ctx.var_read_type_from_ast(var) {
+                    Ok(ty) => var.value = self.ty_ctx.var_to_ast(var_id, ty, self.append_ids),
+                    Err(e) => self.errors.append(e),
+                }
+            }
         }
     }
+}
+
+// --------------------------------------------
+
+impl RegsAndInstrs {
+    pub fn new() -> Self { Self::default() }
 
     /// Get the signature of an instruction, if known.
     pub fn ins_signature(&self, opcode: u16) -> Option<&Signature> {
@@ -195,15 +252,6 @@ impl RegsAndInstrs {
         }
     }
 
-    /// Get the "opcode" of a variable, if it is a register.
-    pub fn reg_id(&self, var: &ast::Var) -> Option<i32> {
-        match *var {
-            ast::Var::Named { ref ident, .. } => self.reg_map.get(ident).copied(),
-            ast::Var::Local { var_id: _, .. } => None,
-            ast::Var::Register { reg: number, .. } => Some(number),
-        }
-    }
-
     /// Generate an AST node with the ideal appearance for a register.
     pub fn reg_to_ast(&self, reg: i32, ty: ScalarType) -> ast::Var {
         match self.reg_names.get(&reg) {
@@ -215,7 +263,7 @@ impl RegsAndInstrs {
                     ast::Var::Named { ident: name.clone(), ty_sigil: Some(ty.into()) }
                 }
             },
-            None => ast::Var::Register { reg, ty: ty.into() },
+            None => ast::Var::Resolved { var_id: VarId::Reg(reg), ty_sigil: Some(ty.into()) },
         }
     }
 

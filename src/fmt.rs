@@ -47,6 +47,8 @@ impl From<io::Error> for Error {
 //==============================================================================
 
 pub use formatter::{Formatter, SuppressParens};
+use crate::var::VarId;
+
 mod formatter {
     use super::*;
 
@@ -750,19 +752,23 @@ impl Format for ast::Expr {
 
 impl Format for ast::Var {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match self {
-            ast::Var::Named { ty_sigil, ident } => match ty_sigil {
+        match *self {
+            ast::Var::Named { ty_sigil, ref ident } => match ty_sigil {
                 None => out.fmt(ident),
                 Some(ast::VarReadType::Int) => out.fmt(("$", ident)),
                 Some(ast::VarReadType::Float) => out.fmt(("%", ident)),
             },
-            &ast::Var::Local { ty_sigil, var_id } => {
-                let fake_var = ast::Var::Named { ty_sigil, ident: format!("__local_var#{}", var_id).parse().unwrap() };
+            ast::Var::Resolved { var_id: VarId::Local(local_id), ty_sigil } => {
+                let fake_var = ast::Var::Named { ty_sigil, ident: format!("__localvar_{}", local_id).parse().unwrap() };
                 out.fmt(&fake_var)
             },
-            ast::Var::Register { ty, reg: number } => match ty {
-                ast::VarReadType::Int => out.fmt(("[", number, "]")),
-                ast::VarReadType::Float => out.fmt(("[", *number as f32, "]")),
+            ast::Var::Resolved { var_id: VarId::Reg(reg), ty_sigil } => match ty_sigil {
+                Some(ast::VarReadType::Int) => out.fmt(("[", reg, "]")),
+                Some(ast::VarReadType::Float) => out.fmt(("[", reg as f32, "]")),
+                // The only way this is possible is if a register alias was resolved to a register, and not unresolved
+                // before printing.  Since `Format` is also used for debugging we don't want to panic, just print
+                // something illegal.
+                None => out.fmt(("[?_", reg, "_?]")),  // register access with unknown type
             },
         }
     }

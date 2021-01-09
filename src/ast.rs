@@ -1,7 +1,7 @@
 use bstr::{BString};
 
 use crate::meta;
-use crate::scope::VarId;
+use crate::var::VarId;
 use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::error::CompileError;
@@ -309,22 +309,20 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Var {
     /// A variable mentioned by name, possibly with a type sigil.
+    ///
+    /// There should be none of these left in the AST after name resolution.
     Named {
         ty_sigil: Option<VarReadType>,
         ident: Ident,
     },
-    /// A local variable, uniquely resolved to an integer ID.
+    /// A resolved variable.
     ///
-    /// This cannot be represented in source text.
-    /// It is created by performing [name resolution](crate::passes::resolve_vars).
-    Local {
+    /// It can be created by performing [name resolution](crate::passes::resolve_vars).
+    /// Additionally, variable accesses written in raw notation (e.g. `[10004.0]`)
+    /// parse directly to this form.
+    Resolved {
         ty_sigil: Option<VarReadType>,
         var_id: VarId,
-    },
-    /// A read of a register, using brackets notation (e.g. `[10004]`).
-    Register {
-        ty: VarReadType,
-        reg: i32,
     },
 }
 
@@ -332,8 +330,7 @@ impl Var {
     pub fn eq_upto_ty(&self, other: &Var) -> bool {
         match (self, other) {
             (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a == b,
-            (Var::Local { var_id: a, .. }, Var::Local { var_id: b, .. }) => a == b,
-            (Var::Register { reg: a, .. }, Var::Register { reg: b, .. }) => a == b,
+            (Var::Resolved { var_id: a, .. }, Var::Resolved { var_id: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -596,8 +593,7 @@ macro_rules! generate_visitor_stuff {
         {
             match & $($mut)? x.value {
                 Var::Named { ty_sigil: _, ident: _ } => {},
-                Var::Local { ty_sigil: _, var_id: _ } => {},
-                Var::Register { ty: _, reg: _ } => {},
+                Var::Resolved { ty_sigil: _, var_id: _ } => {},
             }
         }
     };

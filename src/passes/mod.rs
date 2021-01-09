@@ -5,7 +5,6 @@ pub mod const_simplify;
 pub mod unused_labels;
 pub mod compile_loop;
 pub mod decompile_loop;
-pub mod resolve_vars;
 
 pub enum DecompileKind { Simple, Fancy }
 
@@ -17,7 +16,7 @@ pub fn postprocess_decompiled(script: &mut ast::Script, decompile_kind: Decompil
 }
 
 pub fn postprocess_decompiled_fancy(script: &mut ast::Script) -> Result<(), CompileError> {
-    if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() != Some("1") {
+    if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() == Some("1") {
         return postprocess_decompiled_simple(script);
     }
 

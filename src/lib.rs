@@ -43,7 +43,7 @@ mod game;
 
 pub mod cli_helper;
 
-pub mod scope;
+pub mod var;
 
 mod binary_io;
 
@@ -169,11 +169,12 @@ mod tests {
     #[test]
     fn var_parse() {
         use ast::{Var, VarReadType};
+        use crate::var::VarId;
 
-        assert_eq!(Var::parse("[244]"), Ok(Var::Register { ty: VarReadType::Int, reg: 244 }));
-        assert_eq!(Var::parse("[-99998]"), Ok(Var::Register { ty: VarReadType::Int, reg: -99998 }));
-        assert_eq!(Var::parse("[244f]"), Ok(Var::Register { ty: VarReadType::Float, reg: 244 }));
-        assert_eq!(Var::parse("[-99998.0]"), Ok(Var::Register { ty: VarReadType::Float, reg: -99998 }));
+        assert_eq!(Var::parse("[244]"), Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(244) }));
+        assert_eq!(Var::parse("[-99998]"), Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(-99998) }));
+        assert_eq!(Var::parse("[244f]"), Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(244) }));
+        assert_eq!(Var::parse("[-99998.0]"), Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(-99998) }));
         assert!(Var::parse("[-99998.5]").is_err());
         assert!(Var::parse("[-99998e5]").is_err());
         // FIXME: don't panic

@@ -1,7 +1,7 @@
 use crate::ast;
 use crate::pos::Sp;
 use crate::ident::Ident;
-use crate::scope::VarId;
+use crate::var::VarId;
 use std::collections::HashMap;
 
 macro_rules! opt_match {
@@ -25,7 +25,7 @@ pub struct AstVm {
     /// Log of all opaque instructions that have executed.
     /// (anything using special syntax like operators, assignments and control flow are NOT logged)
     pub call_log: Vec<LoggedCall>,
-    var_values: HashMap<AnyVarId, Value>,
+    var_values: HashMap<VarId, Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,15 +50,6 @@ enum RunResult {
 // FIXME use in const eval
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value { Int(i32), Float(f32) }
-
-// FIXME: make this the new VarId type and rename VarId to LocalId.
-//        Put it on the AST to reduce ast::Var to two variants.
-//        ...Also integrate it into TypeSystem.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AnyVarId {
-    Local(VarId),
-    Reg(i32),
-}
 
 impl AstVm {
     /// Run the statements until it hits the end or a `return`.  Returns the `return`ed value.
@@ -257,11 +248,10 @@ impl AstVm {
         }
     }
 
-    fn _var_key(&mut self, var: &ast::Var) -> AnyVarId {
-        match var {
-            ast::Var::Named { ident, .. } => panic!("AST VM requires name resolution (found {})", ident),
-            &ast::Var::Register { reg, .. } => AnyVarId::Reg(reg),
-            &ast::Var::Local { var_id, .. } => AnyVarId::Local(var_id),
+    fn _var_key(&mut self, var: &ast::Var) -> VarId {
+        match *var {
+            ast::Var::Named { ref ident, .. } => panic!("AST VM requires name resolution (found {})", ident),
+            ast::Var::Resolved { var_id, .. } => var_id,
         }
     }
 

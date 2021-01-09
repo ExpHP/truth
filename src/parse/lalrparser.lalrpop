@@ -12,6 +12,7 @@ use crate::ast::{
     Expr, BinopKind, UnopKind, Var, VarDeclKeyword, VarReadType, LitString,
     DifficultyLabel,
 };
+use crate::var::VarId;
 use super::lalrparser_util::{parse_ascii, u32_from_ascii_radix, push};
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
@@ -562,7 +563,7 @@ Var: Var = {
     "$" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Int), ident },
     "%" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(Var::Register { ty: VarReadType::Int, reg: i32::wrapping_mul(x, sign) })
+        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign)) })
     },
     "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
@@ -572,7 +573,7 @@ Var: Var = {
         if reg as f32 != x * sign as f32 {
             return Err(ParseError::User { error: "non-integer variable ID" })
         }
-        Ok(Var::Register { ty: VarReadType::Float, reg })
+        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(reg) })
     },
 };
 
