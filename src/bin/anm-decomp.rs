@@ -34,7 +34,7 @@ fn run(
         let bytes = std::fs::read(&path).unwrap();
         let anm_result = {
             ecl_parser::AnmFile::read_from_bytes(game, &bytes)
-                .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx))
+                .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, ecl_parser::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.as_ref().display()))
         };
         match anm_result {

@@ -29,8 +29,10 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
+pub use type_system::TypeSystem;
 pub mod type_system;
 
+pub use passes::DecompileKind;
 pub mod passes;
 
 pub use ident::{Ident, ParseIdentError};
@@ -46,6 +48,8 @@ pub mod scope;
 mod binary_io;
 
 mod llir;
+
+pub mod vm;
 
 #[cfg(test)]
 mod tests {

@@ -16,6 +16,7 @@ use crate::llir::{self, Instr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::type_system::{RegsAndInstrs, ScalarType, TypeSystem};
+use crate::passes::DecompileKind;
 
 // =============================================================================
 
@@ -26,8 +27,8 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
-        decompile(&game_format(game), self, &ty_ctx.regs_and_instrs)
+    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+        decompile(&game_format(game), self, &ty_ctx.regs_and_instrs, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
@@ -187,7 +188,7 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs) -> Result<ast::Script, SimpleError> {
+fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -208,14 +209,8 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs) ->
             }));
         }
     }
-
-    use crate::passes::{unused_labels, decompile_loop};
-
     let mut out = ast::Script { items, mapfiles: ty_ctx.mapfiles_to_ast() };
-    if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() != Some("1") {
-        crate::ast::walk_mut_script(&mut decompile_loop::Visitor::new(), &mut out);
-        crate::ast::walk_mut_script(&mut unused_labels::Visitor::new(), &mut out);
-    }
+    crate::passes::postprocess_decompiled(&mut out, decompile_kind)?;
     Ok(out)
 }
 
@@ -240,18 +235,21 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
     let instr_format = format.instr_format();
 
     let ast = {
+        use ast::VisitMut;
+
         let gensym_ctx = crate::ident::GensymContext::new();
 
         let mut ast = ast.clone();
 
         let mut visitor = crate::passes::const_simplify::Visitor::new();
-        crate::ast::walk_mut_script(&mut visitor, &mut ast);
+        visitor.visit_script(&mut ast);
         visitor.finish()?;
 
         ty_ctx.resolve_names(&mut ast)?;
 
         let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
-        crate::ast::walk_mut_script(&mut visitor, &mut ast);
+        visitor.visit_script(&mut ast);
+        visitor.finish()?;
 
         ast
     };

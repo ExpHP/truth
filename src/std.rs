@@ -12,6 +12,7 @@ use crate::llir::{self, Instr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::type_system::{RegsAndInstrs, TypeSystem};
+use crate::passes::DecompileKind;
 
 // =============================================================================
 
@@ -61,8 +62,8 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem) -> Result<ast::Script, SimpleError> {
-        decompile_std(&*game_format(game), self, &ty_ctx.regs_and_instrs)
+    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+        decompile_std(&*game_format(game), self, &ty_ctx.regs_and_instrs, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
@@ -227,25 +228,13 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs) -> Result<ast::Script, SimpleError> {
+fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
     let code = llir::raise_instrs_to_sub_ast(ty_ctx, instr_format, script)?;
 
-    let code = {
-        use crate::passes::{unused_labels, decompile_loop};
-        use crate::ast::VisitMut;
-
-        let mut code = ast::Block(code);
-        if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() != Some("1") {
-            decompile_loop::Visitor::new().visit_func_body(&mut code);
-            unused_labels::Visitor::new().visit_func_body(&mut code);
-        }
-        code
-    };
-
-    Ok(ast::Script {
+    let mut script = ast::Script {
         mapfiles: ty_ctx.mapfiles_to_ast(),
         items: vec! [
             sp!(ast::Item::Meta {
@@ -256,10 +245,12 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs)
             sp!(ast::Item::AnmScript {
                 number: None,
                 name: sp!("main".parse().unwrap()),
-                code,
+                code: ast::Block(code),
             }),
         ],
-    })
+    };
+    crate::passes::postprocess_decompiled(&mut script, decompile_kind)?;
+    Ok(script)
 }
 
 fn unsupported(span: &crate::pos::Span) -> CompileError {

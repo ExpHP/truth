@@ -5,6 +5,7 @@
 //! It currently does this directly to the AST.  Which doesn't seem like a
 //! viable strategy long-term, but we'll see where things go...
 
+use crate::error::CompileError;
 use crate::ast::{self, VisitMut};
 use crate::pos::Sp;
 use crate::ident;
@@ -20,6 +21,8 @@ impl<'a> Visitor<'a> {
     pub fn new(gensym_ctx: &'a ident::GensymContext) -> Self {
         Visitor { gensym_ctx }
     }
+
+    pub fn finish(self) -> Result<(), CompileError> { Ok(()) }
 }
 
 impl VisitMut for Visitor<'_> {

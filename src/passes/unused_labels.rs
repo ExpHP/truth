@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::Ident;
+use crate::error::CompileError;
 use crate::ast::{self, Visit, VisitMut};
 use crate::pos::Sp;
 
@@ -15,10 +16,10 @@ pub struct Visitor {
 
 impl Visitor {
     pub fn new() -> Self {
-        Visitor {
-            used_labels_stack: vec![],
-        }
+        Visitor { used_labels_stack: vec![] }
     }
+
+    pub fn finish(self) -> Result<(), CompileError> { Ok(()) }
 }
 
 impl VisitMut for Visitor {

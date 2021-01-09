@@ -11,7 +11,7 @@ use crate::type_system::ScalarType;
 /// This is the preferred over [`Ident`]s as it accounts for scope. (i.e. two variables with the
 /// same name can have different [`VarId`]s).   To obtain these from a parsed script, see
 /// [`crate::passes::resolve_vars`] which replaces all [`Ident`]-based variables with [`VarId`]s.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VarId(NonZeroUsize);
 
 /// Identifies a scope in which a set of names are visible.

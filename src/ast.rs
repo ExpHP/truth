@@ -259,6 +259,22 @@ string_enum! {
     }
 }
 
+impl AssignOpKind {
+    pub fn corresponding_binop(self) -> Option<BinopKind> {
+        match self {
+            AssignOpKind::Assign => None,
+            AssignOpKind::Add => Some(BinopKind::Add),
+            AssignOpKind::Sub => Some(BinopKind::Sub),
+            AssignOpKind::Mul => Some(BinopKind::Mul),
+            AssignOpKind::Div => Some(BinopKind::Div),
+            AssignOpKind::Rem => Some(BinopKind::Rem),
+            AssignOpKind::BitOr => Some(BinopKind::BitOr),
+            AssignOpKind::BitXor => Some(BinopKind::BitXor),
+            AssignOpKind::BitAnd => Some(BinopKind::BitAnd),
+        }
+    }
+}
+
 /// A braced series of statements, typically written at an increased
 /// indentation level.
 #[derive(Debug, Clone, PartialEq)]
@@ -426,6 +442,7 @@ macro_rules! generate_visitor_stuff {
     ($Visit: ident $(,$mut: tt)?) => {
         /// Recursive AST traversal trait.
         pub trait $Visit {
+            fn visit_script(&mut self, e: & $($mut)? Script) { walk_script(self, e) }
             fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
             fn visit_func_body(&mut self, e: & $($mut)? Block) { self.visit_block(e) }

@@ -34,7 +34,7 @@ fn run(
         let bytes = std::fs::read(&path).unwrap();
         let parsed = {
             ecl_parser::StdFile::read_from_bytes(game, &bytes)
-                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx))
+                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, ecl_parser::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.as_ref().display()))
         };
         match parsed {

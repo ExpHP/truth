@@ -35,14 +35,14 @@ use crate::error::{CompileError};
 use crate::pos::Sp;
 
 impl UnopKind {
-    fn const_eval_int(&self, x: i32) -> i32 {
+    pub fn const_eval_int(&self, x: i32) -> i32 {
         match self {
             UnopKind::Neg => i32::wrapping_neg(x),
             UnopKind::Not => (x != 0) as i32,
         }
     }
 
-    fn const_eval_float(&self, x: f32) -> Option<f32> {
+    pub fn const_eval_float(&self, x: f32) -> Option<f32> {
         match self {
             UnopKind::Neg => Some(-x),
             UnopKind::Not => None,
@@ -51,7 +51,7 @@ impl UnopKind {
 }
 
 impl BinopKind {
-    fn const_eval_int(&self, a: i32, b: i32) -> i32 {
+    pub fn const_eval_int(&self, a: i32, b: i32) -> i32 {
         match self {
             BinopKind::Add => i32::wrapping_add(a, b),
             BinopKind::Sub => i32::wrapping_sub(a, b),
@@ -72,7 +72,7 @@ impl BinopKind {
         }
     }
 
-    fn const_eval_float(&self, a: f32, b: f32) -> Option<Expr> {
+    pub fn const_eval_float(&self, a: f32, b: f32) -> Option<Expr> {
         match self {
             BinopKind::Add => Some(Expr::from(a + b)),
             BinopKind::Sub => Some(Expr::from(a - b)),

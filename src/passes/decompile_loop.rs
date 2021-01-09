@@ -6,6 +6,7 @@
 //! viable strategy long-term, but we'll see where things go...
 
 use std::collections::HashMap;
+use crate::error::SimpleError;
 use crate::ast::{self, VisitMut};
 use crate::ident::Ident;
 use crate::pos::Sp;
@@ -21,6 +22,8 @@ impl Visitor {
     pub fn new() -> Self {
         Visitor { _priv: () }
     }
+
+    pub fn finish(self) -> Result<(), SimpleError> { Ok(()) }
 }
 
 impl VisitMut for Visitor {
