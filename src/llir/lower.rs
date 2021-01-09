@@ -167,23 +167,22 @@ impl Lowerer<'_> {
         name: &Sp<Ident>,
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
-        let siggy = match self.ty_ctx.regs_and_instrs.ins_signature(opcode) {
-            Some(siggy) => siggy,
-            None => return Err(error!(
-                message("signature of '{}' not known", name),
-                primary(name, "don't know how to compile this instruction"),
-            )),
+        // If a signature is in the mapfile, validate the args.
+        let encodings = match self.ty_ctx.regs_and_instrs.ins_signature(opcode) {
+            Some(siggy) => {
+                if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
+                    return Err(error!(
+                        message("wrong number of arguments to '{}'", name),
+                        primary(name, "expects {} to {} arguments, got {}", siggy.min_args(), siggy.max_args(), args.len()),
+                    ));
+                }
+                Some(siggy.arg_encodings())
+            },
+            None => None,
         };
-        let encodings = siggy.arg_encodings();
-        if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
-            return Err(error!(
-                message("wrong number of arguments to '{}'", name),
-                primary(name, "expects {} arguments, got {}", encodings.len(), args.len()),
-            ));
-        }
 
         let mut temp_var_ids = vec![];
-        let low_level_args = encodings.iter().zip(args).enumerate().map(|(arg_index, (enc, expr))| {
+        let low_level_args = args.iter().enumerate().map(|(arg_index, expr)| {
             let (lowered, actual_ty) = match try_lower_simple_arg(expr, self.ty_ctx)? {
                 ExprClass::Simple(arg, arg_ty) => (arg, arg_ty),
                 ExprClass::Complex(_) => {
@@ -198,11 +197,15 @@ impl Lowerer<'_> {
                 },
             };
 
-            let expected_ty = match enc {
-                ArgEncoding::Padding |
-                ArgEncoding::Color |
-                ArgEncoding::Dword => ScalarType::Int,
-                ArgEncoding::Float => ScalarType::Float,
+            let expected_ty = match encodings.as_ref() {
+                Some(encodings) => match encodings[arg_index] {
+                    ArgEncoding::Padding |
+                    ArgEncoding::Color |
+                    ArgEncoding::Dword => ScalarType::Int,
+                    ArgEncoding::Float => ScalarType::Float,
+                },
+                // signature not in mapfile.  Just let it be whatever.
+                None => actual_ty,
             };
             if actual_ty != expected_ty {
                 return Err(error!(
