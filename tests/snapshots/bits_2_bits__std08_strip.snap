@@ -38,6 +38,7 @@ meta {
     instances: [object0 {pos: [-192.0, 6600.0, 0.0]}],
 }
 
+
 script main {
     posKeyframe(0.0, 0.0, 0.0);
 }

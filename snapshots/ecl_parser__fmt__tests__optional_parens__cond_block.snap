@@ -1,0 +1,7 @@
+---
+source: src/fmt.rs
+expression: "f(9999, r#\"if (a == 3) { nop(); }\"#).trim()"
+---
+if (a == 3) {
+    nop();
+}

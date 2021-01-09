@@ -46,7 +46,7 @@ impl From<io::Error> for Error {
 
 //==============================================================================
 
-pub use formatter::{Formatter};
+pub use formatter::{Formatter, SuppressParens};
 mod formatter {
     use super::*;
 
@@ -63,6 +63,7 @@ mod formatter {
         indent: usize,
         is_label: bool,
         inline_depth: u32,
+        disable_parens: bool,
         suppress_blank_line: bool,
         /// Contains state that is not directly managed by Formatter itself, but rather
         /// by various [`Format`] impls.
@@ -87,6 +88,7 @@ mod formatter {
                 is_label: false,
                 inline_depth: 0,
                 pending_data: false,
+                disable_parens: false,
                 suppress_blank_line: false,
                 // The initial level here is used when writing a Stmt as toplevel.
                 // When parsing items, we mostly use a second level that gets pushed/popped with functions.
@@ -231,27 +233,58 @@ mod formatter {
             Ok(())
         }
 
+        /// Outputs parentheses around something, unless immediately preceded by a call to
+        /// [`Self::suppress_optional_parens`].
+        ///
+        /// This is a simple solution to clean up the output of decompiled code without having to
+        /// pay attention to precedence rules, by simply always writing parentheses around
+        /// expressions unless they are e.g. the RHS of an assignment, or in some location that
+        /// already has parentheses.
+        pub fn fmt_optional_parens<T: Format>(&mut self, x: T) -> Result {
+            let do_parens = !self.disable_parens;
+            self.disable_parens = false;
+
+            if do_parens { self.fmt("(")?; }
+            self.fmt(x)?;
+            if do_parens { self.fmt(")")?; }
+
+            Ok(())
+        }
+
         // ---------------------
 
         /// Appends a string to the current (not yet written) line.
         pub(super) fn append_to_line(&mut self, bytes: &[u8]) -> Result {
             // Catch accidental use of "\n" in output strings where next_line() should be used.
             assert!(!bytes.contains(&b'\n'), "Tried to append newline to line. This is a bug!");
-            self.pending_data = true;
             self.line_buffer.extend_from_slice(bytes);
+            self.write_occurred();
             Ok(())
         }
 
         /// Append to the current (not yet written) line using [`std::fmt::Display`].
         pub(super) fn append_display_to_line(&mut self, x: impl std::fmt::Display) -> Result {
-            self.pending_data = true;
             write!(&mut self.line_buffer, "{}", x)?;
+            self.write_occurred();
             Ok(())
+        }
+
+        fn write_occurred(&mut self) {
+            self.pending_data = true;
+            self.disable_parens = false;
         }
 
         /// Prevent the next call to `next_line` from taking effect if it will produce a blank line.
         pub(super) fn suppress_blank_line(&mut self) {
             self.suppress_blank_line = true;
+        }
+
+        /// Disables the parentheses in an [`Self::fmt_optional_parens`] call that occurs
+        /// immediately after this function.
+        ///
+        /// Any other intervening writes between the two will re-enable the parentheses.
+        pub fn suppress_optional_parens(&mut self) {
+            self.disable_parens = true;
         }
 
         /// If we're in inline mode, backtrack to the outermost [`Formatter::try_inline`].
@@ -305,6 +338,17 @@ mod formatter {
             self.indent = new_indent as usize;
             self.line_buffer.resize(self.indent, b' ');
             Ok(())
+        }
+    }
+
+    /// Convenience wrapper for [`Formatter::suppress_optional_parens`] so that it can be used
+    /// without splitting up a [`Formatter::fmt`] call.
+    pub struct SuppressParens<T>(pub T);
+
+    impl<T: Format> Format for SuppressParens<T> {
+        fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+            out.suppress_optional_parens();
+            out.fmt(&self.0)
         }
     }
 }
@@ -556,22 +600,22 @@ impl Format for ast::StmtBody {
                 out.fmt(";")
             },
             ast::StmtBody::CondJump { keyword, cond, jump } => {
-                out.fmt((keyword, " (", cond, ") ", jump, ";"))
+                out.fmt((keyword, " (", SuppressParens(cond), ") ", jump, ";"))
             },
             ast::StmtBody::Loop { block } => out.fmt(("loop ", block)),
             ast::StmtBody::CondChain(chain) => out.fmt(chain),
             ast::StmtBody::While { is_do_while: true, cond, block } => {
-                out.fmt(("do ", block, " while (", cond, ");"))
+                out.fmt(("do ", block, " while (", SuppressParens(cond), ");"))
             },
             ast::StmtBody::While { is_do_while: false, cond, block } => {
-                out.fmt(("while (", cond, ") ", block))
+                out.fmt(("while (", SuppressParens(cond), ") ", block))
             },
             ast::StmtBody::Times { count, block } => {
-                out.fmt(("times(", count, ") ", block))
+                out.fmt(("times(", SuppressParens(count), ") ", block))
             },
             ast::StmtBody::Expr(e) => out.fmt((e, ";")),
             ast::StmtBody::Assignment { var, op, value } => {
-                out.fmt((var, " ", op, " ", value, ";"))
+                out.fmt((var, " ", op, " ", SuppressParens(value), ";"))
             },
             ast::StmtBody::Declaration { keyword: ty, vars } => {
                 out.fmt((ty, " "))?;
@@ -643,7 +687,7 @@ impl Format for ast::StmtCondChain {
 impl Format for ast::CondBlock {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let ast::CondBlock { keyword: kind, cond, block } = self;
-        out.fmt((kind, " (", cond, ") ", block))
+        out.fmt((kind, " (", SuppressParens(cond), ") ", block))
     }
 }
 
@@ -687,14 +731,14 @@ impl Format for ast::Expr {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
             ast::Expr::Ternary { cond, left, right } => {
-                out.fmt(("(", cond, " ? ", left, " : ", right, ")"))
+                out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
-            ast::Expr::Binop(a, op, b) => out.fmt(("(", a, " ", op, " ", b, ")")),
+            ast::Expr::Binop(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
             ast::Expr::Call { func, args } => {
                 out.fmt(func)?;
                 out.fmt_comma_separated("(", ")", args)
             },
-            ast::Expr::Unop(op, x) => out.fmt(("(", op, x, ")")),
+            ast::Expr::Unop(op, x) => out.fmt_optional_parens((op, x)),
             ast::Expr::LitInt{ value, hex: false } => out.fmt(value),
             ast::Expr::LitInt{ value, hex: true } => out.fmt(format_args!("{:#x}", value)),
             ast::Expr::LitFloat { value } => out.fmt(value),
@@ -868,6 +912,18 @@ mod tests {
         prefix_snapshot_names!{"goto", {
             assert_snapshot!("no_time", f(9999, r#"  goto  lol  ;"#).trim());
             assert_snapshot!("with_time", f(9999, r#"  goto  lol@  123;"#).trim());
+        }}
+    }
+
+    #[test]
+    fn optional_parens() {
+        let f = reformat::<ast::Stmt>;
+        prefix_snapshot_names!{"optional_parens", {
+            assert_snapshot!("without", f(9999, r#"x = a + 3;"#).trim());
+            assert_snapshot!("with", f(9999, r#"x = (a + 3) * 4;"#).trim());
+            assert_snapshot!("cond_jump", f(9999, r#"if (a == 3) goto end;"#).trim());
+            assert_snapshot!("cond_block", f(9999, r#"if (a == 3) { nop(); }"#).trim());
+            assert_snapshot!("while", f(9999, r#"while (a == 3) { nop(); }"#).trim());
         }}
     }
 

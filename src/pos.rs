@@ -21,11 +21,11 @@ pub type Files = NonUtf8Files;
 /// ```
 /// # let my_span = ecl_parser::pos::DUMMY_SPAN;
 /// # fn do_something() -> Expr { ecl_parser::Expr::LitFloat { value: 2.0 } };
-/// # fn do_something_else() -> Sp<Stmt> { ecl_parser::Expr::LitFloat { value: 2.0 } };
-/// use ecl_parser::{sp, Sp, Expr, Stmt};
+/// # fn do_something_else() -> Sp<Expr> { sp!(do_something()) };
+/// use ecl_parser::{sp, Sp, Expr};
 ///
 /// let expr: Expr = do_something();
-/// let something_else: Sp<Stmt> = do_something_else();
+/// let something_else: Sp<Expr> = do_something_else();
 ///
 /// // creating a value with the span of something else
 /// let spanned: Sp<Expr> = sp!(something_else.span => expr.clone());
@@ -60,7 +60,7 @@ macro_rules! sp {
 /// // extracting both the value and the span
 /// let sp_pat!(span => value_2) = &expr;  // span has type &Span
 ///
-/// assert_eq!(span, expr.span);
+/// assert_eq!(span, &expr.span);
 /// assert_eq!(value_1, value_2);
 ///
 /// // example use for matching a nested `Sp`

@@ -17,6 +17,7 @@ meta {
     instances: [],
 }
 
+
 script main {
     up(0.0, 1.0, -1.0);
 +10: // 10

@@ -1,0 +1,7 @@
+---
+source: src/fmt.rs
+expression: "f(9999, r#\"while (a == 3) { nop(); }\"#).trim()"
+---
+while (a == 3) {
+    nop();
+}

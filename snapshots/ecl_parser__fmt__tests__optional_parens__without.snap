@@ -1,0 +1,5 @@
+---
+source: src/fmt.rs
+expression: "f(9999, r#\"x = a + 3;\"#).trim()"
+---
+x = a + 3;

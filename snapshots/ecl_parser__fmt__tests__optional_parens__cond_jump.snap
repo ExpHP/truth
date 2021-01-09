@@ -1,0 +1,5 @@
+---
+source: src/fmt.rs
+expression: "f(9999, r#\"if (a == 3) goto end;\"#).trim()"
+---
+if (a == 3) goto end;
