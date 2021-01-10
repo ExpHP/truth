@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use crate::ast;
 use crate::pos::Sp;
 use crate::ident::Ident;
 use crate::var::VarId;
-use std::collections::HashMap;
+use crate::passes::const_simplify::ScalarValue;
 
 macro_rules! opt_match {
     ($x:expr, $pat:pat => $expr:expr) => {
@@ -25,14 +26,14 @@ pub struct AstVm {
     /// Log of all opaque instructions that have executed.
     /// (anything using special syntax like operators, assignments and control flow are NOT logged)
     pub call_log: Vec<LoggedCall>,
-    var_values: HashMap<VarId, Value>,
+    var_values: HashMap<VarId, ScalarValue>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LoggedCall {
     pub time: i32,
     pub name: Ident,
-    pub args: Vec<Value>,
+    pub args: Vec<ScalarValue>,
 }
 
 #[must_use]
@@ -40,20 +41,16 @@ enum RunResult {
     /// Nothing is out of the ordinary.
     Nominal,
     /// A `return` was encountered.
-    Return(Option<Value>),
+    Return(Option<ScalarValue>),
     /// A nested run call is jumping to an outer label.
     ///
     /// (for technical reasons, you can't jump to an inner label)
     IsJumping(ast::StmtGoto),
 }
 
-// FIXME use in const eval
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Value { Int(i32), Float(f32) }
-
 impl AstVm {
     /// Run the statements until it hits the end or a `return`.  Returns the `return`ed value.
-    pub fn run(&mut self, stmts: &[Sp<ast::Stmt>]) -> Option<Value> {
+    pub fn run(&mut self, stmts: &[Sp<ast::Stmt>]) -> Option<ScalarValue> {
         match self._run(stmts) {
             RunResult::Nominal => None,
             RunResult::Return(value) => value,
@@ -149,8 +146,8 @@ impl AstVm {
 
                 ast::StmtBody::Times { count, block } => {
                     match self.eval(count) {
-                        Value::Float(x) => panic!("float count {}", x),
-                        Value::Int(count) => {
+                        ScalarValue::Float(x) => panic!("float count {}", x),
+                        ScalarValue::Int(count) => {
                             for _ in 0..count {
                                 handle_block!(&block.0);
                             }
@@ -176,7 +173,10 @@ impl AstVm {
                         },
                         _ => {
                             let binop = op.corresponding_binop().expect("only Assign has no binop");
-                            let value = apply_binop(binop, self.read_var(var), self.eval(value));
+                            let value = sp!(op.span => binop).const_eval(
+                                sp!(var.span => self.read_var(var)),
+                                sp!(value.span => self.eval(value)),
+                            ).unwrap();
                             self.set_var(var, value);
                         },
                     }
@@ -203,26 +203,26 @@ impl AstVm {
         RunResult::Nominal
     }
 
-    pub fn eval(&mut self, expr: &ast::Expr) -> Value {
+    pub fn eval(&mut self, expr: &ast::Expr) -> ScalarValue {
         match expr {
             ast::Expr::Ternary { cond, left, right } => {
                 match self.eval(cond) {
-                    Value::Float(x) => panic!("type error: {:?}", x),
-                    Value::Int(0) => self.eval(right),
-                    Value::Int(_) => self.eval(left),
+                    ScalarValue::Float(x) => panic!("type error: {:?}", x),
+                    ScalarValue::Int(0) => self.eval(right),
+                    ScalarValue::Int(_) => self.eval(left),
                 }
             },
-            ast::Expr::Binop(a, op, b) => apply_binop(op.value, self.eval(a), self.eval(b)),
+            ast::Expr::Binop(a, op, b) => op.const_eval(sp!(a.span => self.eval(a)), sp!(b.span => self.eval(b))).unwrap(),
             ast::Expr::Call { .. } => unimplemented!("func calls in VM exprs"),
-            ast::Expr::Unop(op, x) => apply_unop(op.value, self.eval(x)),
-            ast::Expr::LitInt { value, .. } => Value::Int(*value),
-            ast::Expr::LitFloat { value, .. } => Value::Float(*value),
+            ast::Expr::Unop(op, x) => op.const_eval(sp!(x.span => self.eval(x))).unwrap(),
+            ast::Expr::LitInt { value, .. } => ScalarValue::Int(*value),
+            ast::Expr::LitFloat { value, .. } => ScalarValue::Float(*value),
             ast::Expr::LitString(s) => panic!("unexpected string value: {:?}", s),
             ast::Expr::Var(var) => self.read_var(var),
         }
     }
 
-    pub fn log_instruction(&mut self, name: &Ident, args: &[Value]) {
+    pub fn log_instruction(&mut self, name: &Ident, args: &[ScalarValue]) {
         self.call_log.push(LoggedCall {
             name: name.clone(),
             args: args.to_vec(),
@@ -233,17 +233,17 @@ impl AstVm {
     pub fn eval_cond(&mut self, cond: &ast::Cond) -> bool {
         match cond {
             ast::Cond::Decrement(var) => match self.read_var(var) {
-                Value::Float(x) => panic!("type error: {:?}", x),
+                ScalarValue::Float(x) => panic!("type error: {:?}", x),
                 // REMINDER: unlike in C, `if (x--)` in ECL does not decrement past 0.
-                Value::Int(0) => false,
-                Value::Int(value) => {
-                    self.set_var(var, Value::Int(value - 1));
+                ScalarValue::Int(0) => false,
+                ScalarValue::Int(value) => {
+                    self.set_var(var, ScalarValue::Int(value - 1));
                     true
                 },
             },
             ast::Cond::Expr(expr) => match self.eval(expr) {
-                Value::Float(x) => panic!("type error: {:?}", x),
-                Value::Int(value) => value != 0,
+                ScalarValue::Float(x) => panic!("type error: {:?}", x),
+                ScalarValue::Int(value) => value != 0,
             }
         }
     }
@@ -255,12 +255,12 @@ impl AstVm {
         }
     }
 
-    pub fn set_var(&mut self, var: &ast::Var, value: Value) {
+    pub fn set_var(&mut self, var: &ast::Var, value: ScalarValue) {
         let key = self._var_key(var);
         self.var_values.insert(key, value);
     }
 
-    pub fn read_var(&mut self, var: &ast::Var) -> Value {
+    pub fn read_var(&mut self, var: &ast::Var) -> ScalarValue {
         let key = self._var_key(var);
         self.var_values.get(&key).cloned().unwrap_or_else(|| panic!("read of uninitialized var: {:?}", var))
     }
@@ -274,20 +274,5 @@ impl AstVm {
             }
         }
         return None;
-    }
-}
-
-fn apply_binop(op: ast::BinopKind, a: Value, b: Value) -> Value {
-    match (a, b) {
-        (Value::Int(a), Value::Int(b)) => Value::Int(op.const_eval_int(a, b)),
-        (Value::Float(_), Value::Float(_)) => unimplemented!("FIXME: needs const eval to use Value"),
-        _ => panic!("mismatched types to {}: {:?}, {:?}", op, a, b),
-    }
-}
-
-fn apply_unop(op: ast::UnopKind, a: Value) -> Value {
-    match a {
-        Value::Int(a) => Value::Int(op.const_eval_int(a)),
-        Value::Float(_) => unimplemented!("FIXME: needs const eval to use Value"),
     }
 }

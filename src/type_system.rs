@@ -379,6 +379,17 @@ impl ScalarType {
             ))
         }
     }
+
+    fn require_int(self, cause: Span, value_span: Span) -> Result<(), CompileError> {
+        match self {
+            ScalarType::Int => Ok(()),
+            _ => Err(error!(
+                message("type error"),
+                primary(value_span, "{}", self.descr()),
+                secondary(cause, "only defined on integers"),
+            )),
+        }
+    }
 }
 
 impl Sp<ast::BinopKind> {
@@ -393,6 +404,12 @@ impl Sp<ast::BinopKind> {
         }
     }
 
+    /// Perform type-checking.
+    pub fn type_check(&self, a: ScalarType, b: ScalarType, arg_spans: (Span, Span)) -> Result<(), CompileError> {
+        self.result_type(a, b, arg_spans).map(|_| ())
+    }
+
+    /// Get the output type, performing type-checking.
     pub fn result_type(&self, a: ScalarType, b: ScalarType, arg_spans: (Span, Span)) -> Result<ScalarType, CompileError> {
         use ast::BinopKind as B;
 
@@ -402,21 +419,15 @@ impl Sp<ast::BinopKind> {
             B::Add | B::Sub | B::Mul | B::Div | B::Rem | B::LogicOr | B::LogicAnd => Ok(ty),
             B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => Ok(ScalarType::Int),
             B::BitXor | B::BitAnd | B::BitOr => {
-                if ty == ScalarType::Int {
-                    Ok(ScalarType::Int)
-                } else {
-                    Err(error!(
-                        message("type error"),
-                        primary(arg_spans.0, "{}", a.descr()),
-                        secondary(self, "only defined on integers"),
-                    ))
-                }
+                ty.require_int(self.span, arg_spans.0)?;
+                Ok(ScalarType::Int)
             },
         }
     }
 }
 
 impl Sp<ast::UnopKind> {
+    /// Figure out the output type without full type-checking.
     pub fn result_type_shallow(&self, arg_ty: ScalarType) -> ScalarType {
         match self.value {
             ast::UnopKind::Neg => arg_ty,
@@ -424,19 +435,18 @@ impl Sp<ast::UnopKind> {
         }
     }
 
+    /// Perform type-checking.
+    pub fn type_check(&self, ty: ScalarType, arg_span: Span) -> Result<(), CompileError> {
+        self.result_type(ty, arg_span).map(|_| ())
+    }
+
+    /// Get the output type, performing type-checking.
     pub fn result_type(&self, ty: ScalarType, arg_span: Span) -> Result<ScalarType, CompileError> {
         match self.value {
             ast::UnopKind::Neg => Ok(ty),
             ast::UnopKind::Not => {
-                if ty == ScalarType::Int {
-                    Ok(ScalarType::Int)
-                } else {
-                    Err(error!(
-                        message("type error"),
-                        primary(arg_span, "{}", ty.descr()),
-                        secondary(self, "only defined on integers"),
-                    ))
-                }
+                ty.require_int(self.span, arg_span)?;
+                Ok(ScalarType::Int)
             },
         }
     }

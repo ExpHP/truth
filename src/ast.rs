@@ -317,7 +317,7 @@ pub enum Var {
     },
     /// A resolved variable.
     ///
-    /// It can be created by performing [name resolution](crate::passes::resolve_vars).
+    /// It can be created by performing [name resolution](crate::type_system::TypeSystem::resolve_names).
     /// Additionally, variable accesses written in raw notation (e.g. `[10004.0]`)
     /// parse directly to this form.
     Resolved {

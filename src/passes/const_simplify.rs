@@ -34,6 +34,16 @@ use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
 use crate::error::{CompileError};
 use crate::pos::Sp;
 
+impl Sp<UnopKind> {
+    pub fn const_eval(&self, b: Sp<ScalarValue>) -> Result<ScalarValue, CompileError> {
+        self.type_check(b.ty(), b.span)?;
+        match b.value {
+            ScalarValue::Int(b) => Ok(ScalarValue::Int(self.const_eval_int(b))),
+            ScalarValue::Float(b) => Ok(ScalarValue::Float(self.const_eval_float(b).expect("(bug!) type_check should fail..."))),
+        }
+    }
+}
+
 impl UnopKind {
     pub fn const_eval_int(&self, x: i32) -> i32 {
         match self {
@@ -46,6 +56,17 @@ impl UnopKind {
         match self {
             UnopKind::Neg => Some(-x),
             UnopKind::Not => None,
+        }
+    }
+}
+
+impl Sp<BinopKind> {
+    pub fn const_eval(&self, a: Sp<ScalarValue>, b: Sp<ScalarValue>) -> Result<ScalarValue, CompileError> {
+        self.type_check(a.ty(), b.ty(), (a.span, b.span))?;
+        match (a.value, b.value) {
+            (ScalarValue::Int(a), ScalarValue::Int(b)) => Ok(ScalarValue::Int(self.const_eval_int(a, b))),
+            (ScalarValue::Float(a), ScalarValue::Float(b)) => Ok(self.const_eval_float(a, b).expect("(bug!) type_check should fail...")),
+            _ => unreachable!("(bug!) type_check should fail..."),
         }
     }
 }
@@ -72,19 +93,19 @@ impl BinopKind {
         }
     }
 
-    pub fn const_eval_float(&self, a: f32, b: f32) -> Option<Expr> {
+    pub fn const_eval_float(&self, a: f32, b: f32) -> Option<ScalarValue> {
         match self {
-            BinopKind::Add => Some(Expr::from(a + b)),
-            BinopKind::Sub => Some(Expr::from(a - b)),
-            BinopKind::Mul => Some(Expr::from(a * b)),
-            BinopKind::Div => Some(Expr::from(a / b)),
-            BinopKind::Rem => Some(Expr::from(a % b)),
-            BinopKind::Eq => Some(Expr::from((a == b) as i32)),
-            BinopKind::Ne => Some(Expr::from((a != b) as i32)),
-            BinopKind::Lt => Some(Expr::from((a < b) as i32)),
-            BinopKind::Le => Some(Expr::from((a <= b) as i32)),
-            BinopKind::Gt => Some(Expr::from((a > b) as i32)),
-            BinopKind::Ge => Some(Expr::from((a >= b) as i32)),
+            BinopKind::Add => Some(ScalarValue::Float(a + b)),
+            BinopKind::Sub => Some(ScalarValue::Float(a - b)),
+            BinopKind::Mul => Some(ScalarValue::Float(a * b)),
+            BinopKind::Div => Some(ScalarValue::Float(a / b)),
+            BinopKind::Rem => Some(ScalarValue::Float(a % b)),
+            BinopKind::Eq => Some(ScalarValue::Int((a == b) as i32)),
+            BinopKind::Ne => Some(ScalarValue::Int((a != b) as i32)),
+            BinopKind::Lt => Some(ScalarValue::Int((a < b) as i32)),
+            BinopKind::Le => Some(ScalarValue::Int((a <= b) as i32)),
+            BinopKind::Gt => Some(ScalarValue::Int((a > b) as i32)),
+            BinopKind::Ge => Some(ScalarValue::Int((a >= b) as i32)),
             BinopKind::LogicOr => None,
             BinopKind::LogicAnd => None,
             BinopKind::BitXor => None,
@@ -111,24 +132,29 @@ impl Visitor {
     }
 }
 
-#[derive(Copy, Clone)]
-enum ConstType { Int(i32), Float(f32) }
+#[derive(Debug, Copy, Clone)]
+pub enum ScalarValue { Int(i32), Float(f32) }
 impl Expr {
-    fn as_const(&self) -> Option<ConstType> {
+    fn as_const(&self) -> Option<ScalarValue> {
         match *self {
-            Expr::LitInt { value, .. } => Some(ConstType::Int(value)),
-            Expr::LitFloat { value, .. } => Some(ConstType::Float(value)),
+            Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
+            Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
             _ => None,
         }
     }
 }
-impl ConstType {
-    fn type_str(&self) -> &'static str {
-        match self {
-            ConstType::Int(_) => "integer",
-            ConstType::Float(_) => "float",
-        }
-    }
+impl From<ScalarValue> for Expr {
+    fn from(value: ScalarValue) -> Self { match value {
+        ScalarValue::Int(value) => Expr::from(value),
+        ScalarValue::Float(value) => Expr::from(value),
+    }}
+}
+
+impl ScalarValue {
+    pub fn ty(&self) -> crate::type_system::ScalarType { match self {
+        ScalarValue::Int(_) => crate::type_system::ScalarType::Int,
+        ScalarValue::Float(_) => crate::type_system::ScalarType::Float,
+    }}
 }
 
 impl VisitMut for Visitor {
@@ -140,70 +166,38 @@ impl VisitMut for Visitor {
         match &e.value {
             Expr::Unop(op, b) => {
                 let b_const = match b.as_const() {
-                    Some(b) => b,
+                    Some(b_value) => sp!(b.span => b_value),
                     _ => return, // can't simplify if subexpr is not const
                 };
 
-                match b_const {
-                    ConstType::Int(b) => {
-                        let new_value = op.const_eval_int(b);
-                        *e = sp!(e.span => new_value.into());
-                    },
-                    ConstType::Float(b) => {
-                        let new_value = match op.const_eval_float(b) {
-                            Some(x) => x,
-                            None => {
-                                self.errors.append(error!(
-                                    message("type error"),
-                                    primary(op, "operation requires an integer argument")
-                                ));
-                                return;
-                            },
-                        };
-
-                        *e = sp!(e.span => new_value.into());
-                    },
+                match op.const_eval(b_const) {
+                    Ok(new_value) => *e = sp!(e.span => new_value.into()),
+                    Err(e) => {
+                        self.errors.append(e);
+                        return;
+                    }
                 }
             },
 
             Expr::Binop(a, op, b) => {
                 let (a_const, b_const) = match (a.as_const(), b.as_const()) {
-                    (Some(a), Some(b)) => (a, b),
+                    (Some(a_value), Some(b_value)) => (sp!(a.span => a_value), sp!(b.span => b_value)),
                     _ => return, // can't simplify if any subexpr is not const
                 };
 
-                match (a_const, b_const) {
-                    (ConstType::Int(a), ConstType::Int(b)) => {
-                        let new_value = op.const_eval_int(a, b);
-                        *e = sp!(e.span => new_value.into());
-                    },
-                    (ConstType::Float(a), ConstType::Float(b)) => {
-                        let new_value = match op.const_eval_float(a, b) {
-                            Some(x) => x,
-                            None => {
-                                self.errors.append(error!(
-                                    message("type error"),
-                                    primary(op, "operation requires integer arguments")
-                                ));
-                                return;
-                            },
-                        };
-
-                        *e = sp!(e.span => new_value.into());
-                    },
-                    _ => self.errors.append(error!(
-                        message("type error"),
-                        primary(op, "operation requires operands of matching type"),
-                        secondary(a, "{}", a_const.type_str()),
-                        secondary(b, "{}", b_const.type_str()),
-                    )),
+                match op.const_eval(a_const, b_const) {
+                    Ok(new_value) => *e = sp!(e.span => new_value.into()),
+                    Err(e) => {
+                        self.errors.append(e);
+                        return;
+                    }
                 }
             },
 
             Expr::Ternary { cond, left, right } => match cond.as_const() {
                 // FIXME it should be possible to move somehow instead of cloning here...
-                Some(ConstType::Int(0)) => e.value = (***right).clone(),
-                Some(ConstType::Int(_)) => e.value = (***left).clone(),
+                Some(ScalarValue::Int(0)) => e.value = (***right).clone(),
+                Some(ScalarValue::Int(_)) => e.value = (***left).clone(),
                 Some(_) => {
                     self.errors.append(error!(
                         message("type error"),

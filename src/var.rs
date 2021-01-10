@@ -6,11 +6,11 @@ use crate::type_system::ScalarType;
 
 /// Uniquely identifies a variable (which may be a local or a register).
 ///
-/// You can get information about the variable from [`TypeSystem`].
+/// You can get information about the variable from [`TypeSystem`](crate::type_system::TypeSystem).
 ///
 /// This is the preferred over [`Ident`]s as it accounts for scope. (i.e. two variables with the
 /// same name can have different [`VarId`]s).   To obtain these from a parsed script, see
-/// [`TypeSystem::resolve_vars`](crate::type_system::TypeSystem::resolve_vars)
+/// [`TypeSystem::resolve_names`](crate::type_system::TypeSystem::resolve_names)
 /// which replaces all [`Ident`]-based variables with [`VarId`]s.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarId {
@@ -224,7 +224,7 @@ mod resolve_vars {
     use crate::pos::Sp;
     use crate::error::CompileError;
 
-    /// Visitor for name resolution. Please don't use this directly, but instead call [`TypeSystem::resolve_names`].
+    /// Visitor for name resolution. Please don't use this directly, but instead call [`crate::type_system::TypeSystem::resolve_names`].
     pub struct Visitor<'ts> {
         resolver: NameResolver,
         scope_stack: Vec<ScopeId>,
