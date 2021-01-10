@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::{CompileError, Expr};
+use crate::error::CompileError;
 use crate::ident::Ident;
 use crate::eclmap::Eclmap;
 use crate::ast;
@@ -85,6 +85,12 @@ impl TypeSystem {
     pub fn resolve_names(&mut self, ast: &mut ast::Script) -> Result<(), CompileError> {
         let mut v = crate::var::ResolveVarsVisitor::new(&mut self.variables);
         ast::walk_mut_script(&mut v, ast);
+        v.finish()
+    }
+
+    pub fn resolve_names_block(&mut self, ast: &mut ast::Block) -> Result<(), CompileError> {
+        let mut v = crate::var::ResolveVarsVisitor::new(&mut self.variables);
+        <_ as ast::VisitMut>::visit_block(&mut v, ast);
         v.finish()
     }
 
@@ -179,21 +185,21 @@ impl TypeSystem {
     /// This will not fully typecheck everything.
     pub fn compute_type_shallow(&self, expr: &Sp<ast::Expr>) -> Result<ScalarType, CompileError> {
         match &expr.value {
-            Expr::Ternary { left, .. } => self.compute_type_shallow(left),
-            Expr::Binop(a, op, _) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
-            Expr::Call { func, .. } => Err(error!(
+            ast::Expr::Ternary { left, .. } => self.compute_type_shallow(left),
+            ast::Expr::Binop(a, op, _) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
+            ast::Expr::Call { func, .. } => Err(error!(
                 message("function used in expression"),
                 primary(func, "function call in expression"),
                 note("currently, the only kind of function implemented is raw instructions"),
             )),
-            Expr::Unop(op, a) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
-            Expr::LitInt { .. } => Ok(ScalarType::Int),
-            Expr::LitFloat { .. } => Ok(ScalarType::Float),
-            Expr::LitString(_) => Err(error!(
+            ast::Expr::Unop(op, a) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
+            ast::Expr::LitInt { .. } => Ok(ScalarType::Int),
+            ast::Expr::LitFloat { .. } => Ok(ScalarType::Float),
+            ast::Expr::LitString(_) => Err(error!(
                 message("string used in expression"),
                 primary(expr, "string in expression"),
             )),
-            Expr::Var(var) => self.var_read_type_from_ast(var),
+            ast::Expr::Var(var) => self.var_read_type_from_ast(var),
         }
     }
 }
@@ -364,6 +370,14 @@ impl ScalarType {
         match self {
             ScalarType::Int => "an integer",
             ScalarType::Float => "a float",
+        }
+    }
+
+    /// `$` or `%`.
+    pub fn sigil(self) -> &'static str {
+        match self {
+            ScalarType::Int => "$",
+            ScalarType::Float => "%",
         }
     }
 

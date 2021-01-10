@@ -8,9 +8,9 @@ use crate::llir::{Instr, InstrArg, InstrFormat, IntrinsicInstrKind, IntrinsicIns
 use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
 
 pub fn raise_instrs_to_sub_ast(
-    ty_ctx: &RegsAndInstrs,
     instr_format: &dyn InstrFormat,
     script: &[Instr],
+    ty_ctx: &RegsAndInstrs,
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
     let intrinsic_instrs = instr_format.intrinsic_instrs();
 

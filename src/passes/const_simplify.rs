@@ -30,6 +30,7 @@
 //! assert_eq!(expr, expected);
 //! ```
 
+use crate::value::ScalarValue;
 use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
 use crate::error::{CompileError};
 use crate::pos::Sp;
@@ -130,31 +131,6 @@ impl Visitor {
     pub fn finish(self) -> Result<(), CompileError> {
         self.errors.into_result(())
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum ScalarValue { Int(i32), Float(f32) }
-impl Expr {
-    fn as_const(&self) -> Option<ScalarValue> {
-        match *self {
-            Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
-            Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
-            _ => None,
-        }
-    }
-}
-impl From<ScalarValue> for Expr {
-    fn from(value: ScalarValue) -> Self { match value {
-        ScalarValue::Int(value) => Expr::from(value),
-        ScalarValue::Float(value) => Expr::from(value),
-    }}
-}
-
-impl ScalarValue {
-    pub fn ty(&self) -> crate::type_system::ScalarType { match self {
-        ScalarValue::Int(_) => crate::type_system::ScalarType::Int,
-        ScalarValue::Float(_) => crate::type_system::ScalarType::Float,
-    }}
 }
 
 impl VisitMut for Visitor {

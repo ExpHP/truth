@@ -280,6 +280,16 @@ impl AssignOpKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block(pub Vec<Sp<Stmt>>);
 
+impl Block {
+    pub fn start_time(&self) -> i32 {
+        self.0.get(0).expect("(bug?) unexpected empty block!").time
+    }
+
+    pub fn end_time(&self) -> i32 {
+        self.0.last().expect("(bug?) unexpected empty block!").time
+    }
+}
+
 // =============================================================================
 
 #[derive(Debug, Clone, PartialEq)]

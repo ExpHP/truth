@@ -1,4 +1,5 @@
 use std::sync::atomic;
+use std::fmt;
 
 use thiserror::Error;
 use lazy_static::lazy_static;
@@ -15,9 +16,9 @@ use crate::pos::Sp;
 /// There are no other restrictions.  Notably, identifiers constructed for internal use are
 /// permitted to clash with keywords and/or use characters that would not normally be valid
 /// in a user-supplied identifier.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Ident<S=String> {
-    ident: S,
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Ident {
+    ident: String,
 }
 
 impl Ident {
@@ -26,9 +27,9 @@ impl Ident {
     }
 }
 
-impl<S: AsRef<str>> Ident<S> {
+impl Ident {
     pub fn as_ins(&self) -> Option<u32> {
-        if let Some(remainder) = self.ident.as_ref().strip_prefix("ins_") {
+        if let Some(remainder) = self.ident.strip_prefix("ins_") {
             Some(remainder.parse().expect("invalid instr ident, this is a bug!"))
         } else {
             None
@@ -113,9 +114,15 @@ impl std::borrow::Borrow<str> for Sp<Ident> {
     fn borrow(&self) -> &str { &self.ident }
 }
 
+impl fmt::Debug for Ident {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt::Debug::fmt(&self.ident, f)
+    }
+}
+
 impl std::fmt::Display for Ident {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", &self.ident[..])
+        fmt::Display::fmt(&self.ident, f)
     }
 }
 

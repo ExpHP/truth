@@ -272,14 +272,14 @@ pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u1
 }
 
 pub trait InstrFormat {
-    /// Get the number of bytes in the binary encoding of an instruction.
-    fn instr_size(&self, instr: &Instr) -> usize;
-
     fn intrinsic_instrs(&self) -> IntrinsicInstrs {
         IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
+
+    /// Get the number of bytes in the binary encoding of an instruction.
+    fn instr_size(&self, instr: &Instr) -> usize;
 
     /// Read a single script instruction from an input stream.
     ///
@@ -364,5 +364,30 @@ impl Instr {
             mask += bit;
         }
         Ok(mask)
+    }
+}
+
+/// An implementation of InstrFormat for testing the raising and lowering phases of compilation.
+#[derive(Debug, Clone, Default)]
+pub struct TestFormat {
+    pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
+    pub general_use_int_regs: Vec<i32>,
+    pub general_use_float_regs: Vec<i32>,
+}
+impl InstrFormat for TestFormat {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
+        self.intrinsic_opcode_pairs.clone()
+    }
+
+    fn instr_size(&self, _: &Instr) -> usize { 4 }
+    fn read_instr(&self, _: &mut dyn BinRead) -> ReadResult<Option<Instr>> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_instr(&self, _: &mut dyn BinWrite, _: &Instr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
+
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<i32>> {
+        enum_map::enum_map!{
+            ScalarType::Int => self.general_use_int_regs.clone(),
+            ScalarType::Float => self.general_use_float_regs.clone(),
+        }
     }
 }

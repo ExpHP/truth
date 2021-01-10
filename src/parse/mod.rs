@@ -59,6 +59,7 @@ impl State {
 pub enum AnythingValue {
     Script(ast::Script),
     Item(ast::Item),
+    Block(ast::Block),
     Stmt(ast::Stmt),
     Expr(ast::Expr),
     Var(ast::Var),
@@ -72,6 +73,7 @@ pub enum AnythingValue {
 pub enum AnythingTag {
     Script,
     Item,
+    Block,
     Stmt,
     Expr,
     Var,
@@ -106,6 +108,7 @@ macro_rules! impl_parse {
 
 impl_parse!(ast::Script, Script);
 impl_parse!(ast::Item, Item);
+impl_parse!(ast::Block, Block);
 impl_parse!(ast::Stmt, Stmt);
 impl_parse!(ast::Expr, Expr);
 impl_parse!(ast::Var, Var);

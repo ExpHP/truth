@@ -462,11 +462,11 @@ pub struct Sp<T: ?Sized> {
 
 impl<T: fmt::Debug> fmt::Debug for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Sp")
-            // format as a range instead of Span's derived Debug
-            .field(&(self.span.start().0..self.span.end().0))
-            .field(&self.value)
-            .finish()
+        // emit a compressed notation to make dbg! slightly less of an abomination
+        write!(f, "sp!({:?} => ", &(self.span.start().0..self.span.end().0))?;
+        // delegate for the main body so it is affected by {:#?}
+        fmt::Debug::fmt(&self.value, f)?;
+        write!(f, ")")
     }
 }
 

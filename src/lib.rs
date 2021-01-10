@@ -29,7 +29,7 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
-pub use type_system::TypeSystem;
+pub use type_system::{TypeSystem, ScalarType};
 pub mod type_system;
 
 pub use passes::DecompileKind;
@@ -45,11 +45,42 @@ pub mod cli_helper;
 
 pub mod var;
 
-mod binary_io;
+pub mod binary_io;
 
-mod llir;
+pub mod llir;
 
 pub mod vm;
+
+pub use value::ScalarValue;
+mod value {
+    use crate::ast;
+
+    #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+    pub enum ScalarValue { Int(i32), Float(f32) }
+
+    impl ast::Expr {
+        pub fn as_const(&self) -> Option<ScalarValue> {
+            match *self {
+                ast::Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
+                ast::Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
+                _ => None,
+            }
+        }
+    }
+    impl From<ScalarValue> for ast::Expr {
+        fn from(value: ScalarValue) -> Self { match value {
+            ScalarValue::Int(value) => ast::Expr::from(value),
+            ScalarValue::Float(value) => ast::Expr::from(value),
+        }}
+    }
+
+    impl ScalarValue {
+        pub fn ty(&self) -> crate::type_system::ScalarType { match self {
+            ScalarValue::Int(_) => crate::type_system::ScalarType::Int,
+            ScalarValue::Float(_) => crate::type_system::ScalarType::Float,
+        }}
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -146,6 +177,18 @@ mod tests {
         1:  a();  // t=1 as labeled
         2:        // "super no-op" at end here is t=2
         }"#, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn block_outer_time_label() {
+        // this checks the madness that is StmtLabelsWithTime
+        time_label_test(
+            r#"void main() {
+                +10: loop { +2: a(); +3: }
+            }"#,
+            // if you get [0, 15, 15] then something in the parser is #[inline] when it shouldn't be
+            vec![0, 10, 15],
+        );
     }
 
     #[test]

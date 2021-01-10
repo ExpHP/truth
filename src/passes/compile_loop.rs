@@ -33,8 +33,8 @@ impl VisitMut for Visitor<'_> {
         let mut new_stmts = Vec::with_capacity(outer_stmts.0.len());
         for outer_stmt in outer_stmts.0.drain(..) {
             match JmpKind::from_loop(outer_stmt) {
-                Ok((mut inner_block, jmp_kind, outer_time)) => {
-                    let end_time = inner_block.0.last().map(|s| s.time).unwrap_or(outer_time);
+                Ok((mut inner_block, jmp_kind)) => {
+                    let end_time = inner_block.end_time();
                     let label_ident = self.gensym_ctx.gensym("@loop#");
                     inner_block.0.push(sp!(ast::Stmt {
                         labels: vec![],
@@ -62,12 +62,12 @@ enum JmpKind {
 }
 
 impl JmpKind {
-    fn from_loop(ast: Sp<ast::Stmt>) -> Result<(ast::Block, JmpKind, i32), Sp<ast::Stmt>> {
+    fn from_loop(ast: Sp<ast::Stmt>) -> Result<(ast::Block, JmpKind), Sp<ast::Stmt>> {
         match ast.value.body.value {
-            ast::StmtBody::Loop { block } => Ok((block, JmpKind::Unconditional, ast.value.time)),
+            ast::StmtBody::Loop { block } => Ok((block, JmpKind::Unconditional)),
 
             ast::StmtBody::While { is_do_while: true, cond, block } => {
-                Ok((block, JmpKind::Conditional(cond.clone()), ast.value.time))
+                Ok((block, JmpKind::Conditional(cond.clone())))
             }
 
             _ => Err(ast),

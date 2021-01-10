@@ -109,6 +109,7 @@ extern {
         // Virtual tokens for parsable nonterminals
         Dispatch_Script => Token::VirtualDispatch(crate::parse::AnythingTag::Script),
         Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
+        Dispatch_Block => Token::VirtualDispatch(crate::parse::AnythingTag::Block),
         Dispatch_Stmt => Token::VirtualDispatch(crate::parse::AnythingTag::Stmt),
         Dispatch_Expr => Token::VirtualDispatch(crate::parse::AnythingTag::Expr),
         Dispatch_Var => Token::VirtualDispatch(crate::parse::AnythingTag::Var),
@@ -135,8 +136,9 @@ pub(crate) Anything: Sp<crate::parse::AnythingValue> = Sp<AnythingInner>;
 AnythingInner: crate::parse::AnythingValue = {
     Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
     Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
-    Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(x),
+    Dispatch_Block <x:Block> => crate::parse::AnythingValue::Block(x),
     Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
+    Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(x),
     Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
     Dispatch_LitString <x:LitString> => crate::parse::AnythingValue::LitString(x),
     Dispatch_Meta <x:Meta> => crate::parse::AnythingValue::Meta(x),
@@ -281,14 +283,19 @@ StmtTimeLabel: () = {
     <t:LitIntSigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") = t; },
 };
 
-#[inline]
-StmtLabelsWithTime: (Vec<Sp<StmtLabel>>, i32) = <StmtLabels> <_TimeGetInline>;
-
-StmtLabels: Vec<Sp<StmtLabel>> = {
-    => vec![],
-    <out:StmtLabels> StmtTimeLabel => out, // side-effects of StmtTimeLabel handle this
-    <out:StmtLabels> <label:Sp<StmtLabel>> => push(out, label),
+/// Read all statement labels and then get the time at the end of them.
+///
+/// This exists because it is obscenely difficult to make unambiguous while getting the time read correctly.
+/// (though in retrospect, it does kind of make sense that the parser would have to speculatively check the
+///  time after every label it parses)
+StmtLabelsWithTime: (Vec<Sp<StmtLabel>>, i32) = {
+    <time: _TimeGetInline> => (vec![], time),
+    <out:StmtLabels> StmtTimeLabel <time: _TimeGetInline> => (out, time),
+    <out:StmtLabels> <label:Sp<StmtLabel>> <time: _TimeGetInline> => (push(out, label), time),
 };
+
+#[inline]
+StmtLabels: Vec<Sp<StmtLabel>> = <out:StmtLabelsWithTime> => out.0;
 
 StmtLabel: StmtLabel = {
     <name:Sp<Ident>> ":" => StmtLabel::Label(name),

@@ -200,7 +200,7 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs, de
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = llir::raise_instrs_to_sub_ast(ty_ctx, instr_format, instrs)?;
+            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),

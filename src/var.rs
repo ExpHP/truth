@@ -100,8 +100,10 @@ impl Variables {
     /// for them.
     fn get_mapped_register(&self, id: LocalId) -> Option<i32> { self.scopes[id.0.get()].reg }
 
-    /// Declare a new local variable with a unique `VarId`.
+    /// Declare a new local variable with a unique [`LocalId`].
     pub fn declare_temporary(&mut self, ty: Option<ScalarType>) -> LocalId {
+        self.has_declared_locals = true;
+
         // This function is only used by code outside this module, after name resolution has already been performed.
         // Hence, scope is no longer important for any purpose, and we can use anything.
         self.declare(EMPTY_SCOPE, "_tmp".parse().unwrap(), ty)
@@ -109,7 +111,6 @@ impl Variables {
 
     /// Declares a variable.  This will create a new scope, which will be a child of the given scope.
     fn declare(&mut self, parent: ScopeId, ident: Ident, ty: Option<ScalarType>) -> LocalId {
-        self.has_declared_locals = true;
 
         let id = LocalId(NonZeroUsize::new(self.scopes.len()).unwrap());
         self.scopes.push(Scope { ident, ty, parent, reg: None });
