@@ -47,7 +47,7 @@ fn _run(
         ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
     }
 
-    let ast = files.read_file::<ecl_parser::Script>(&script_path)?;
+    let ast = files.read_file::<ecl_parser::ast::Script>(&script_path)?;
     for path_literal in &ast.mapfiles {
         let path = path_literal.as_path()?;
         match ecl_parser::Eclmap::load(&path, Some(game)) {

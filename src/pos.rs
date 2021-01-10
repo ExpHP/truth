@@ -7,6 +7,8 @@ use std::borrow::Cow;
 use std::num::NonZeroU32;
 use std::path::Path;
 
+use crate::parse::Parse;
+
 pub type FileId = Option<NonZeroU32>;
 use codespan_reporting::{files as cs_files};
 pub use codespan::{ByteIndex as BytePos, ByteOffset, RawIndex, RawOffset};
@@ -22,7 +24,7 @@ pub type Files = NonUtf8Files;
 /// # let my_span = ecl_parser::pos::DUMMY_SPAN;
 /// # fn do_something() -> Expr { ecl_parser::Expr::LitFloat { value: 2.0 } };
 /// # fn do_something_else() -> Sp<Expr> { sp!(do_something()) };
-/// use ecl_parser::{sp, Sp, Expr};
+/// use ecl_parser::{sp, Sp, ast::Expr};
 ///
 /// let expr: Expr = do_something();
 /// let something_else: Sp<Expr> = do_something_else();
@@ -50,7 +52,7 @@ macro_rules! sp {
 /// ```
 /// # let my_span = ecl_parser::pos::DUMMY_SPAN;
 /// # fn do_something() -> Sp<Expr> { ecl_parser::sp!(ecl_parser::Expr::LitFloat { value: 2.0 }) };
-/// use ecl_parser::{sp_pat, Sp, Expr, Stmt, BinopKind};
+/// use ecl_parser::{sp_pat, Sp, ast::Expr, ast::BinopKind};
 ///
 /// let expr: Sp<Expr> = do_something();
 ///
@@ -112,7 +114,7 @@ impl NonUtf8Files {
     pub fn read_file<T>(&mut self, path: &Path)
         -> Result<Sp<T>, crate::CompileError>
     where
-        T: for<'a> crate::Parse<'a>,
+        T: for<'a> Parse<'a>,
     {
         use anyhow::Context;
 
@@ -128,7 +130,7 @@ impl NonUtf8Files {
     pub fn parse<'input, T>(&mut self, filename: &str, source: &'input [u8])
         -> crate::parse::Result<'input, Sp<T>>
     where
-        T: crate::Parse<'input>,
+        T: Parse<'input>,
     {
         let file_id = self.add(filename, source.as_ref());
         let mut state = crate::parse::State::new(file_id);

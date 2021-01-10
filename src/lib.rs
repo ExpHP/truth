@@ -11,12 +11,11 @@ pub use pos::{Files, Span, Sp};
 #[macro_use]
 pub mod pos;
 
-pub use ast::*;
-mod ast;
-pub use fmt::Format;
+pub use ast::{Visit, VisitMut};
+pub mod ast;
+pub use fmt::{Format, Formatter};
 pub mod fmt;
 
-pub use parse::Parse;
 pub mod parse;
 
 pub use anm::AnmFile;
@@ -24,6 +23,7 @@ pub mod anm;
 pub use self::std::StdFile;
 pub mod std;
 
+// FIXME make this part of `ast`
 pub mod meta;
 
 pub use eclmap::Eclmap;
@@ -43,9 +43,10 @@ mod game;
 
 pub mod cli_helper;
 
-pub mod var;
+pub use var::{VarId, LocalId, Variables};
+mod var;
 
-pub mod binary_io;
+mod binary_io;
 
 pub mod llir;
 
@@ -84,7 +85,9 @@ mod value {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast, Parse, CompileError};
+    use crate::ast;
+    use crate::parse::Parse;
+    use crate::error::CompileError;
 
     fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
         use crate::ast::VisitMut;

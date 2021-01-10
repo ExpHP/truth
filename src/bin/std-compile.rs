@@ -41,7 +41,7 @@ fn _run(
         ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
     }
 
-    let script = files.read_file::<ecl_parser::Script>(&path)?;
+    let script = files.read_file::<ecl_parser::ast::Script>(&path)?;
 
     for path_literal in &script.mapfiles {
         let path = path_literal.as_path()?;

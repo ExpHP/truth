@@ -1,5 +1,4 @@
 use ecl_parser;
-use ecl_parser::Parse;
 
 fn main() {
     use ecl_parser::{cli_helper as cli, args, args_pat};
@@ -13,13 +12,15 @@ fn main() {
 
 
 fn run(path: impl AsRef<std::path::Path>) {
-    let text = std::fs::read(path).unwrap();
-
-    let script = match ecl_parser::Script::parse(&text) {
+    let mut files = ecl_parser::Files::new();
+    let script = match files.read_file::<ecl_parser::ast::Script>(path.as_ref()) {
         Ok(x) => x,
-        Err(e) => panic!("{}", e),
+        Err(mut e) => {
+            let _ = e.emit(&files);
+            std::process::exit(1);
+        },
     };
     let stdout = std::io::stdout();
-    let mut f = ecl_parser::fmt::Formatter::new(std::io::BufWriter::new(stdout.lock()));
+    let mut f = ecl_parser::Formatter::new(std::io::BufWriter::new(stdout.lock()));
     f.fmt(&script).unwrap();
 }

@@ -6,8 +6,11 @@ use crate::meta::{self, Meta};
 use crate::ident::Ident;
 use crate::pos::Sp;
 
-// We can't impl Display because that's UTF-8 based.
+// NOTE: We can't impl Display because that's UTF-8 based.
 /// Trait for displaying Touhou script code.
+///
+/// Typically you do not need to import this if you want to display stuff; instead,
+/// construct a [`Formatter`] and use the [`Formatter::fmt`] inherent method.
 pub trait Format {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result;
 }
@@ -54,7 +57,9 @@ mod formatter {
 
     const INDENT: isize = 4;
 
-    /// Type that is primarily responsible for managing indentation and optional block formatting.
+    /// Type that manages the formatting and display of AST nodes.
+    ///
+    /// It contains and manages state related to indentation and block formatting.
     pub struct Formatter<W: io::Write> {
         // This is an Option only so that `into_inner` can remove it.
         writer: Option<W>,
@@ -113,7 +118,7 @@ mod formatter {
         ///
         /// **Important:** If the last line has not yet been written by calling
         /// [`Formatter::next_line`], it will attempt to write this data now.
-        /// This can fail.
+        /// This can fail, hence the `Result`.
         pub fn into_inner(mut self) -> Result<W> {
             self._flush_incomplete_line()?;
             Ok(self.writer.take().unwrap())

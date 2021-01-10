@@ -17,7 +17,7 @@ macro_rules! opt_match {
 /// Because it runs on a nested datastructure, it has no concept of a persistent instruction
 /// pointer and cannot be paused or resumed.  It will always run the code until it falls off
 /// past the last statement or hits a return.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AstVm {
     /// Current script time in the VM.
     ///
