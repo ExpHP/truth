@@ -212,6 +212,13 @@ pub struct StmtCondChain {
     pub else_block: Option<Block>,
 }
 
+impl StmtCondChain {
+    pub fn end_time(&self) -> i32 {
+        self.else_block.as_ref().map(|b| b.end_time())
+            .unwrap_or_else(|| self.cond_blocks.last().unwrap().block.end_time())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
     pub keyword: CondKeyword,

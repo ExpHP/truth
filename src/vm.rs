@@ -20,8 +20,13 @@ macro_rules! opt_match {
 #[derive(Debug, Clone)]
 pub struct AstVm {
     /// Current script time in the VM.
+    ///
+    /// This increases as the VM waits for instructions, and gets set to specific values
+    /// during jumps.
     pub time: i32,
     /// Total amount of time the VM has been running.
+    ///
+    /// Unlike `time`, this monotonically increases.
     pub real_time: i32,
     /// Log of all opaque instructions that have executed.
     /// (anything using special syntax like operators, assignments and control flow are NOT logged)
@@ -31,7 +36,7 @@ pub struct AstVm {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoggedCall {
-    pub time: i32,
+    pub real_time: i32,
     pub name: Ident,
     pub args: Vec<ScalarValue>,
 }
@@ -120,11 +125,14 @@ impl AstVm {
                     return RunResult::Return(value.as_ref().map(|x| self.eval(x)));
                 },
 
-                ast::StmtBody::CondChain(ast::StmtCondChain { cond_blocks, else_block }) => {
+                ast::StmtBody::CondChain(chain) => {
+                    let ast::StmtCondChain { cond_blocks, else_block } = chain;
+
                     let mut branch_taken = false;
                     for ast::CondBlock { keyword, cond, block } in cond_blocks {
                         if self.eval_cond(cond) == (keyword == &ast::CondKeyword::If) {
                             branch_taken = true;
+                            self.time = block.start_time();
                             handle_block!(&block.0);
                             break;
                         }
@@ -132,9 +140,11 @@ impl AstVm {
 
                     if !branch_taken {
                         if let Some(else_block) = else_block {
+                            self.time = else_block.start_time();
                             handle_block!(&else_block.0);
                         }
                     }
+                    self.time = chain.end_time();
                 },
 
                 ast::StmtBody::Loop { block } => {
@@ -164,6 +174,9 @@ impl AstVm {
                 ast::StmtBody::Times { count, block } => {
                     match self.eval(count) {
                         ScalarValue::Float(x) => panic!("float count {}", x),
+                        ScalarValue::Int(0) => {
+                            self.time = block.end_time();
+                        },
                         ScalarValue::Int(count) => {
                             for i in 0..count {
                                 handle_block!(&block.0);
@@ -171,7 +184,7 @@ impl AstVm {
                                     self.time = block.start_time();
                                 }
                             }
-                        }
+                        },
                     }
                 },
 
@@ -246,7 +259,7 @@ impl AstVm {
         self.call_log.push(LoggedCall {
             name: name.clone(),
             args: args.to_vec(),
-            time: self.real_time,
+            real_time: self.real_time,
         })
     }
 
@@ -360,8 +373,8 @@ mod tests {
         vm.run(&ast.0);
 
         assert_eq!(vm.call_log, vec![
-            LoggedCall { time: 0, name: "ins_345".parse().unwrap(), args: vec![Int(0), Int(6)] },
-            LoggedCall { time: 10, name: "foo".parse().unwrap(), args: vec![Int(3), Float(8.0)] },
+            LoggedCall { real_time: 0, name: "ins_345".parse().unwrap(), args: vec![Int(0), Int(6)] },
+            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(3), Float(8.0)] },
         ]);
     }
 
@@ -404,10 +417,10 @@ mod tests {
             vm.run(&ast.0);
 
             assert_eq!(vm.call_log, vec![
-                LoggedCall { time: 2, name: "lmao".parse().unwrap(), args: vec![] },
-                LoggedCall { time: 7, name: "lmao".parse().unwrap(), args: vec![] },
-                LoggedCall { time: 12, name: "lmao".parse().unwrap(), args: vec![] },
-                LoggedCall { time: 19, name: "end".parse().unwrap(), args: vec![] },
+                LoggedCall { real_time: 2, name: "lmao".parse().unwrap(), args: vec![] },
+                LoggedCall { real_time: 7, name: "lmao".parse().unwrap(), args: vec![] },
+                LoggedCall { real_time: 12, name: "lmao".parse().unwrap(), args: vec![] },
+                LoggedCall { real_time: 19, name: "end".parse().unwrap(), args: vec![] },
             ]);
         }
 
@@ -446,12 +459,77 @@ mod tests {
         let mut vm = AstVm::new();
         vm.run(&ast.0);
         assert_eq!(vm.call_log, vec![
-            LoggedCall { time: 0, name: "a".parse().unwrap(), args: vec![] },
-            LoggedCall { time: 0, name: "b".parse().unwrap(), args: vec![] },
-            LoggedCall { time: 0, name: "b".parse().unwrap(), args: vec![] },
-            LoggedCall { time: 15, name: "c".parse().unwrap(), args: vec![] },
-            LoggedCall { time: 15, name: "d".parse().unwrap(), args: vec![] },
+            LoggedCall { real_time: 0, name: "a".parse().unwrap(), args: vec![] },
+            LoggedCall { real_time: 0, name: "b".parse().unwrap(), args: vec![] },
+            LoggedCall { real_time: 0, name: "b".parse().unwrap(), args: vec![] },
+            LoggedCall { real_time: 15, name: "c".parse().unwrap(), args: vec![] },
+            LoggedCall { real_time: 15, name: "d".parse().unwrap(), args: vec![] },
         ]);
     }
 
+    #[test]
+    fn times() {
+        let ast = TestSpec {
+            globals: vec![("X", 100)],
+            source: r#"{
+                times(X) {
+                    a();
+                +10:
+                }
+                +5:
+            }"#,
+        }.prepare();
+
+        for count in (0..3).rev() {
+            let mut vm = AstVm::new();
+            vm.set_var(VarId::Reg(100), Int(count));
+            vm.run(&ast.0);
+
+            assert_eq!(vm.call_log.len(), count as usize);
+            assert_eq!(vm.real_time, count * 10 + 5);
+            assert_eq!(vm.time, 15);
+        }
+    }
+
+    #[test]
+    fn cond_chain() {
+        macro_rules! gen_spec {
+            ($last_clause:literal) => {
+                TestSpec {
+                    globals: vec![("X", 100)],
+                    source: concat!(r#"{
+                        if (X == 1) {
+                            a(1);
+                        10:
+                        } else if (X == 2) {
+                            a(2);
+                        20:
+                        } "#, $last_clause, r#" {
+                            a(3);
+                        30:
+                        }
+                        b();
+                    }"#),
+                }
+            };
+        }
+        let with_else = gen_spec!("else").prepare();
+        let without_else = gen_spec!("else if (X == 3)").prepare();
+
+        // both of these should have the same results for X in [1, 2, 3]
+        for ast in vec![&with_else, &without_else] {
+            for x in vec![1, 2, 3] {
+                let mut vm = AstVm::new();
+                vm.set_var(VarId::Reg(100), Int(x));
+                vm.run(&ast.0);
+
+                assert_eq!(vm.call_log, vec![
+                    LoggedCall { real_time: 0, name: "a".parse().unwrap(), args: vec![Int(x)] },
+                    LoggedCall { real_time: 10, name: "b".parse().unwrap(), args: vec![] },
+                ]);
+                assert_eq!(vm.time, 30);
+                assert_eq!(vm.real_time, 10);
+            }
+        }
+    }
 }
