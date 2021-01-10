@@ -228,9 +228,14 @@ mod resolve_vars {
     /// Visitor for name resolution. Please don't use this directly, but instead call [`crate::type_system::TypeSystem::resolve_names`].
     pub struct Visitor<'ts> {
         resolver: NameResolver,
-        scope_stack: Vec<ScopeId>,
+        stack: Vec<BlockState>,
         variables: &'ts mut Variables,
         errors: CompileError,
+    }
+
+    pub struct BlockState {
+        outer_scope: ScopeId,
+        locals_declared_at_this_level: Vec<LocalId>,
     }
 
     impl<'ts> Visitor<'ts> {
@@ -239,7 +244,7 @@ mod resolve_vars {
             resolver.enter_descendant(variables.root_scope, variables);
             Visitor {
                 resolver, variables,
-                scope_stack: vec![],
+                stack: vec![],
                 errors: CompileError::new_empty(),
             }
         }
@@ -251,24 +256,37 @@ mod resolve_vars {
 
     impl VisitMut for Visitor<'_> {
         fn visit_block(&mut self, x: &mut ast::Block) {
-            self.scope_stack.push(self.resolver.current_scope());
+            self.stack.push(BlockState {
+                outer_scope: self.resolver.current_scope(),
+                locals_declared_at_this_level: vec![],
+            });
 
             ast::walk_mut_block(self, x);
 
-            let original = self.scope_stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
-            self.resolver.return_to_ancestor(original, &self.variables);
+            let popped = self.stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
+
+            for local_id in popped.locals_declared_at_this_level {
+                let span = x.last_stmt().span.end_span();
+                x.0.push(sp!(span => ast::Stmt {
+                    time: x.end_time(), labels: vec![],
+                    body: sp!(span => ast::StmtBody::ScopeEnd(local_id)),
+                }))
+            }
+
+            self.resolver.return_to_ancestor(popped.outer_scope, &self.variables);
         }
 
         fn visit_stmt_body(&mut self, x: &mut Sp<ast::StmtBody>) {
             match &mut x.value {
                 ast::StmtBody::Declaration { keyword, vars } => {
-                    let ty = match keyword {
+                    let ty = match keyword.value {
                         ast::VarDeclKeyword::Int => Some(ScalarType::Int),
                         ast::VarDeclKeyword::Float => Some(ScalarType::Float),
                         ast::VarDeclKeyword::Var => None,
                     };
 
-                    for (var, init_value) in vars {
+                    for pair in vars {
+                        let (var, init_value) = &mut pair.value;
                         if let ast::Var::Named { ty_sigil, ident } = &var.value {
                             assert!(ty_sigil.is_none());
 
@@ -280,6 +298,9 @@ mod resolve_vars {
                             // now declare the variable and enter its scope so that it can be used in future expressions
                             let local_id = self.variables.declare(self.resolver.current_scope(), ident.clone(), ty);
                             self.resolver.enter_descendant(self.variables.get_scope(local_id), &self.variables);
+
+                            self.stack.last_mut().expect("(bug?) empty stack?")
+                                .locals_declared_at_this_level.push(local_id);
 
                             // swap out the AST node
                             let var_id = VarId::Local(local_id);
@@ -326,5 +347,130 @@ impl fmt::Debug for LocalId {
 impl fmt::Debug for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pos::Files;
+    use crate::error::CompileError;
+    use crate::eclmap::Eclmap;
+    use crate::type_system::TypeSystem;
+    use crate::ast;
+
+    const ECLMAP: &'static str = r#"!eclmap
+!gvar_names
+100 A
+101 X
+!gvar_types
+100 $
+101 %
+"#;
+
+    fn resolve(text: &str) -> Result<(TypeSystem, ast::Block), (Files, CompileError)> {
+        let mut files = Files::new();
+        let mut ty_ctx = TypeSystem::new();
+        ty_ctx.extend_from_eclmap("<mapfile>".as_ref(), &Eclmap::parse(ECLMAP).unwrap());
+
+        let mut parsed_block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
+        match ty_ctx.resolve_names_block(&mut parsed_block) {
+            Ok(()) => Ok((ty_ctx, parsed_block)),
+            Err(e) => Err((files, e)),
+        }
+    }
+
+    fn resolve_reformat(text: &str) -> String {
+        let (mut ty_ctx, mut parsed_block) = resolve(text).unwrap();
+        ty_ctx.unresolve_names_block(&mut parsed_block, true).unwrap();
+        crate::fmt::stringify(&parsed_block)
+    }
+
+    fn resolve_expect_err(text: &str) -> String {
+        let (files, err) = resolve(text).unwrap_err();
+        err.to_string(&files).unwrap()
+    }
+
+    macro_rules! snapshot_test {
+        ($name:ident = $source:literal) => {
+            #[test]
+            fn $name() { assert_snapshot!(resolve_reformat($source).trim()); }
+        };
+        ([expect_fail] $name:ident = $source:literal) => {
+            #[test]
+            fn $name() { assert_snapshot!(resolve_expect_err($source).trim()); }
+        };
+    }
+
+    snapshot_test!(basic_local = r#"{
+        int a = 3;
+        int b = a + a;
+    }"#);
+
+    snapshot_test!(shadow_local = r#"{
+        int a = 3;
+        if (true) {
+            int a = 4;
+            int b = a * a;
+        }
+        int c = a * a;
+        if (true) {
+            int a = 4;
+            int b = a * a;
+        }
+    }"#);
+
+    snapshot_test!([expect_fail] err_adjacent_scope = r#"{
+        if (true) {
+            int a = 4;
+            int b = a * 3;
+        }
+        if (true) {
+            int b = a * 3;
+        }
+    }"#);
+
+    snapshot_test!([expect_fail] err_after_scope_end = r#"{
+        if (true) {
+            int a = 4;
+            int b = a * 3;
+        }
+        int b = a;
+    }"#);
+
+    snapshot_test!(basic_global = r#"{
+        ins_21(A, X);
+    }"#);
+
+    snapshot_test!(shadow_global = r#"{
+        ins_21(A, X);
+        if (true) {
+            float A = 4.0;
+            float b = A;
+        }
+        ins_21(A, X);
+    }"#);
+
+    #[test]
+    fn basic_global_was_really_resolved() {
+        // since globals may not look different after resolving and unresolving,
+        // we need to do a little extra sleuthing to make sure the visitor did its job.
+        let (_ty_ctx, block) = resolve(r#"{
+        ins_21(A, X);
+    }"#).unwrap();
+        let expr = block.0.iter().find_map(|stmt| match &stmt.body.value {
+            ast::StmtBody::Expr(e) => Some(e),
+            _ => None,
+        }).unwrap();
+
+        match &expr.value {
+            ast::Expr::Call { args, .. } => {
+                assert!(
+                    matches!(args[0].value, ast::Expr::Var(sp_pat!(ast::Var::Resolved { var_id: VarId::Reg(100), .. }))),
+                    "{:?}", args[0],
+                );
+            },
+            _ => panic!(),
+        }
     }
 }

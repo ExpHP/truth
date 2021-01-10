@@ -272,7 +272,7 @@ StmtBody: StmtBody = {
     <e:Sp<Expr>> ";" => StmtBody::Expr(e),
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":" => StmtBody::InterruptLabel(arg),
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
-    <keyword:VarDeclKeyword> <vars:SeparatedStrict<StmtDeclarationListItem, ",">> ";" => {
+    <keyword:Sp<VarDeclKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";" => {
         StmtBody::Declaration { keyword, vars }
     },
     StmtSpecialCall,

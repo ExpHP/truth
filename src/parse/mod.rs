@@ -97,7 +97,8 @@ macro_rules! impl_parse {
     ($AstType:ty, $TagName:ident) => {
         impl<'input> Parse<'input> for $AstType {
             fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>> {
-                Ok(call_anything_parser(AnythingTag::$TagName, state, lexer)?.map(|x| match x {
+                let sp = call_anything_parser(AnythingTag::$TagName, state, lexer)?;
+                Ok(sp!(sp.span => match sp.value {
                     AnythingValue::$TagName(x) => x,
                     _ => unreachable!(),
                 }))

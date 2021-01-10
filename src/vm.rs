@@ -216,7 +216,8 @@ impl AstVm {
                 },
 
                 ast::StmtBody::Declaration { vars, .. } => {
-                    for (var, expr) in vars.iter() {
+                    for pair in vars.iter() {
+                        let (var, expr) = &pair.value;
                         if let Some(expr) = expr {
                             let value = self.eval(expr);
                             self.set_var_by_ast(var, value);
@@ -227,6 +228,8 @@ impl AstVm {
                 ast::StmtBody::CallSub { .. } => unimplemented!("CallSub for AST VM"),
 
                 ast::StmtBody::InterruptLabel(_) => {},
+
+                ast::StmtBody::ScopeEnd(_) => {},
 
                 ast::StmtBody::NoInstruction => {},
             }

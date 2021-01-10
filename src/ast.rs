@@ -1,7 +1,7 @@
 use bstr::{BString};
 
 use crate::meta;
-use crate::var::VarId;
+use crate::var::{VarId, LocalId};
 use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::error::CompileError;
@@ -165,9 +165,10 @@ pub enum StmtBody {
         value: Sp<Expr>,
     },
     Declaration {
-        keyword: VarDeclKeyword,
-        vars: Vec<(Sp<Var>, Option<Sp<Expr>>)>,
+        keyword: Sp<VarDeclKeyword>,
+        vars: Vec<Sp<(Sp<Var>, Option<Sp<Expr>>)>>,
     },
+
     /// An explicit subroutine call. (ECL only)
     ///
     /// Will always have at least one of either the `@` or `async`.
@@ -178,11 +179,20 @@ pub enum StmtBody {
         func: Sp<Ident>,
         args: Vec<Sp<Expr>>,
     },
+
     /// An interrupt label: `interrupt[2]:`.
     ///
-    /// Because this compiles to an expression, we store it as a statement in the AST rather than
+    /// Because this compiles to an instruction, we store it as a statement in the AST rather than
     /// as a label.
     InterruptLabel(Sp<i32>),
+
+    /// A virtual instruction that marks the end of a variable's lexical scope.
+    ///
+    /// Blocks are eliminated during early compilation passes, leaving behind these as the only
+    /// remaining way of identifying the end of a variable's scope.  They are used during lowering
+    /// to determine when to release resources (like registers) held by locals.
+    ScopeEnd(LocalId),
+
     /// A virtual instruction that completely disappears during compilation.
     ///
     /// This is a trivial statement that doesn't even compile to a `nop();`.
@@ -195,6 +205,26 @@ pub enum StmtBody {
     /// Note that these may also appear in the middle of a block in the AST if a transformation
     /// pass has e.g. inlined the contents of one block into another.
     NoInstruction,
+}
+
+
+impl StmtBody {
+    pub fn descr(&self) -> &'static str { match self {
+        StmtBody::Jump { .. } => "goto",
+        StmtBody::CondJump { .. } => "conditional goto",
+        StmtBody::Return { .. } => "return statment",
+        StmtBody::CondChain { .. } => "conditional chain",
+        StmtBody::Loop { .. } => "loop",
+        StmtBody::While { .. } => "while(..)",
+        StmtBody::Times { .. } => "times(..)",
+        StmtBody::Expr { .. } => "expression statement",
+        StmtBody::Assignment { .. } => "assignment",
+        StmtBody::Declaration { .. } => "var declaration",
+        StmtBody::CallSub { .. } => "sub call",
+        StmtBody::InterruptLabel { .. } => "interrupt label",
+        StmtBody::ScopeEnd { .. } => "<ScopeEnd>",
+        StmtBody::NoInstruction { .. } => "<NoInstruction>",
+    }}
 }
 
 /// The body of a `goto` statement, without the `;`.
@@ -282,18 +312,26 @@ impl AssignOpKind {
     }
 }
 
-/// A braced series of statements, typically written at an increased
-/// indentation level.
+/// A braced series of statements, typically written at an increased indentation level.
+///
+/// Every Block always has at least two [`Stmt`]s, as on creation it is bookended by dummy
+/// statements to ensure it has a well-defined start and end time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block(pub Vec<Sp<Stmt>>);
 
 impl Block {
-    pub fn start_time(&self) -> i32 {
-        self.0.get(0).expect("(bug?) unexpected empty block!").time
+    /// Effective time label before the first statement in the loop body.
+    pub fn start_time(&self) -> i32 { self.first_stmt().time }
+
+    /// Effective time label after the final statement in the loop body.
+    pub fn end_time(&self) -> i32 { self.last_stmt().time }
+
+    pub fn first_stmt(&self) -> &Sp<Stmt> {
+        self.0.get(0).expect("(bug?) unexpected empty block!")
     }
 
-    pub fn end_time(&self) -> i32 {
-        self.0.last().expect("(bug?) unexpected empty block!").time
+    pub fn last_stmt(&self) -> &Sp<Stmt> {
+        self.0.last().expect("(bug?) unexpected empty block!")
     }
 }
 
@@ -321,6 +359,19 @@ pub enum Expr {
     LitFloat { value: f32 },
     LitString(LitString),
     Var(Sp<Var>),
+}
+
+impl Expr {
+    pub fn descr(&self) -> &'static str { match self {
+        Expr::Ternary { .. } => "ternary",
+        Expr::Binop { .. } => "binary operator",
+        Expr::Call { .. } => "call expression",
+        Expr::Unop { .. } => "unary operator",
+        Expr::LitInt { .. } => "literal integer",
+        Expr::LitFloat { .. } => "literal float",
+        Expr::LitString { .. } => "literal string",
+        Expr::Var { .. } => "var expression",
+    }}
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -553,7 +604,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(value);
                 },
                 StmtBody::Declaration { keyword: _, vars } => {
-                    for (var, value) in vars {
+                    for sp_pat![(var, value)] in vars {
                         v.visit_var(var);
                         if let Some(value) = value {
                             v.visit_expr(value);
@@ -566,6 +617,7 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 StmtBody::InterruptLabel(_) => {},
+                StmtBody::ScopeEnd(_) => {},
                 StmtBody::NoInstruction => {},
             }
         }

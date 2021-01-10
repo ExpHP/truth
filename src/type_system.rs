@@ -103,6 +103,12 @@ impl TypeSystem {
         v.finish()
     }
 
+    pub fn unresolve_names_block(&mut self, ast: &mut ast::Block, append_ids: bool) -> Result<(), CompileError> {
+        let mut v = unresolve_names::Visitor::new(self, append_ids);
+        <_ as ast::VisitMut>::visit_block(&mut v, ast);
+        v.finish()
+    }
+
     /// Get the effective type of a variable at a place where it is referenced.
     ///
     /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be

@@ -1,0 +1,9 @@
+---
+source: src/var.rs
+expression: "resolve_expect_err(r#\"{\n        if (true) {\n            int a = 4;\n            int b = a * 3;\n        }\n        int b = a;\n    }\"#).trim()"
+---
+error: no such variable a
+  ┌─ <input>:6:17
+  │
+6 │         int b = a;
+  │                 ^ not found in this scope

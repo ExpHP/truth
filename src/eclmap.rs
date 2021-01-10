@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::{BTreeMap};
 use regex::Regex;
 use lazy_static::lazy_static;
 use anyhow::{bail, Context};
@@ -8,13 +8,13 @@ use crate::error::SimpleError;
 
 pub struct Eclmap {
     pub magic: Magic,
-    pub ins_names: HashMap<i32, Ident>,
-    pub ins_signatures: HashMap<i32, String>,
-    pub ins_rets: HashMap<i32, String>,
-    pub gvar_names: HashMap<i32, Ident>,
-    pub gvar_types: HashMap<i32, String>,
-    pub timeline_ins_names: HashMap<i32, Ident>,
-    pub timeline_ins_signatures: HashMap<i32, String>,
+    pub ins_names: BTreeMap<i32, Ident>,
+    pub ins_signatures: BTreeMap<i32, String>,
+    pub ins_rets: BTreeMap<i32, String>,
+    pub gvar_names: BTreeMap<i32, Ident>,
+    pub gvar_types: BTreeMap<i32, String>,
+    pub timeline_ins_names: BTreeMap<i32, Ident>,
+    pub timeline_ins_signatures: BTreeMap<i32, String>,
 }
 
 impl Eclmap {
@@ -81,8 +81,8 @@ impl Eclmap {
             _ => bail!("{:?}: bad magic", magic),
         };
 
-        let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(HashMap::new);
-        let parse_idents = |m:HashMap<i32, String>| -> Result<HashMap<i32, Ident>, SimpleError> {
+        let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(BTreeMap::new);
+        let parse_idents = |m:BTreeMap<i32, String>| -> Result<BTreeMap<i32, Ident>, SimpleError> {
             m.into_iter().map(|(key, s)| {
                 let ident: Ident = s.parse()?;
                 if let Some(_) = ident.as_ins() {
@@ -122,11 +122,11 @@ pub enum Magic {
 
 struct SeqMap {
     magic: String,
-    maps: HashMap<String, HashMap<i32, String>>,
+    maps: BTreeMap<String, BTreeMap<i32, String>>,
 }
 
 fn parse_seqmap(text: &str) -> Result<SeqMap, SimpleError> {
-    let mut maps = HashMap::new();
+    let mut maps = BTreeMap::new();
     let mut cur_section = None;
     let mut cur_map = None;
     let mut lines = text.lines();
@@ -154,7 +154,7 @@ fn parse_seqmap(text: &str) -> Result<SeqMap, SimpleError> {
                 None => panic!("parse error"), // FIXME return Error
             };
             cur_section = Some(name.clone());
-            cur_map = Some(maps.entry(name).or_insert_with(HashMap::new));
+            cur_map = Some(maps.entry(name).or_insert_with(BTreeMap::new));
         } else {
             match SEQMAP_ITEM_RE.captures(line) {
                 None => panic!("parse error"), // FIXME return Error

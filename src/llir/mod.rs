@@ -105,10 +105,10 @@ impl From<f32> for RawArg {
     fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_var: false } }
 }
 
-fn unsupported(span: &crate::pos::Span) -> CompileError {
+fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
     error!(
         message("feature not supported by format"),
-        primary(span, "not supported by format"),
+        primary(span, "{} not supported by format", what),
     )
 }
 

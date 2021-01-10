@@ -628,13 +628,14 @@ impl Format for ast::StmtBody {
                 out.fmt((ty, " "))?;
 
                 let mut first = true;
-                for (ident, expr) in vars {
+                for pair in vars {
+                    let (var, expr) = &pair.value;
                     if !first {
                         out.fmt(",")?;
                     }
                     first = false;
 
-                    out.fmt(ident)?;
+                    out.fmt(var)?;
                     if let Some(expr) = expr {
                         out.fmt((" = ", expr))?;
                     }
@@ -656,6 +657,7 @@ impl Format for ast::StmtBody {
                 out.suppress_blank_line();
                 Ok(())
             },
+            ast::StmtBody::ScopeEnd(_) |
             ast::StmtBody::NoInstruction => {
                 out.suppress_blank_line();
                 Ok(())

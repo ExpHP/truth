@@ -1,0 +1,12 @@
+---
+source: src/var.rs
+expression: "resolve_reformat(r#\"{\n        ins_21(A, X);\n        if (true) {\n            float A = 4.0;\n            float b = A;\n        }\n        ins_21(A, X);\n    }\"#).trim()"
+---
+{
+    ins_21(A, X);
+    if (1) {
+        float A_3 = 4.0;
+        float b_4 = A_3;
+    }
+    ins_21(A, X);
+}

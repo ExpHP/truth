@@ -80,17 +80,14 @@ impl Lowerer<'_> {
             for label in &stmt.labels {
                 match &label.value {
                     ast::StmtLabel::Label(ident) => self.out.push(LowLevelStmt::Label(ident.clone())),
-                    ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span)),
+                    ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span, "difficulty label")),
                 }
             }
 
             match &stmt.body.value {
                 ast::StmtBody::Jump(goto) => {
                     if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
-                        return Err(error!(
-                            message("feature not supported by format"),
-                            primary(stmt.body, "'goto @ time' not supported in this game"),
-                        ));
+                        return Err(unsupported(&stmt.body.span, "goto @ time"));
                     }
 
                     let (label_arg, time_arg) = lower_goto_args(goto);
@@ -122,6 +119,11 @@ impl Lowerer<'_> {
                 },
 
 
+                ast::StmtBody::Declaration { keyword, vars } => {
+                    self.var_declaration(stmt.body.span, stmt.time, keyword, vars)?;
+                },
+
+
                 ast::StmtBody::Expr(expr) => match &expr.value {
                     ast::Expr::Call { func, args } => {
                         let opcode = self.func_stmt(stmt, func, args)?;
@@ -129,12 +131,14 @@ impl Lowerer<'_> {
                             th06_anm_end_span = Some(func);
                         }
                     },
-                    _ => return Err(unsupported(&stmt.body.span)),
+                    _ => return Err(unsupported(&stmt.body.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
                 }, // match expr
+
+                &ast::StmtBody::ScopeEnd(local_id) => self.out.push(LowLevelStmt::RegFree { local_id }),
 
                 ast::StmtBody::NoInstruction => {}
 
-                _ => return Err(unsupported(&stmt.body.span)),
+                _ => return Err(unsupported(&stmt.body.span, stmt.body.descr())),
             }
             Ok(())
         }).collect_with_recovery()
@@ -228,6 +232,35 @@ impl Lowerer<'_> {
         }
 
         Ok(opcode)
+    }
+
+    /// Lowers `if (<cond>) goto label @ time;`
+    fn var_declaration(
+        &mut self,
+        _stmt_span: Span,
+        stmt_time: i32,
+        _keyword: &Sp<ast::VarDeclKeyword>,
+        vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
+    ) -> Result<(), CompileError>{
+        for pair in vars {
+            let (var, expr) = &pair.value;
+            let var_id = match var.value {
+                ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
+                ast::Var::Resolved { var_id, .. } => var_id,
+            };
+            let local_id = match var_id {
+                VarId::Local(local_id) => local_id,
+                VarId::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
+            };
+
+            self.out.push(LowLevelStmt::RegAlloc { local_id, cause: var.span });
+
+            if let Some(expr) = expr {
+                let assign_op = sp!(pair.span => ast::AssignOpKind::Assign);
+                self.assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
+            }
+        }
+        Ok(())
     }
 
     /// Lowers `a = <B>;`  or  `a *= <B>;`
@@ -382,7 +415,7 @@ impl Lowerer<'_> {
             (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
                 Expr::Binop(a, binop, b) => self.cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
 
-                _ => Err(unsupported(&expr.span)),
+                _ => Err(unsupported(&expr.span, &format!("{} in condition", expr.descr()))),
             },
         }
     }

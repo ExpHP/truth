@@ -350,6 +350,13 @@ impl Span {
     pub fn end(self) -> BytePos {
         self.end
     }
+
+    pub fn start_span(self) -> Span {
+        Span { file_id: self.file_id, start: self.start, end: self.start }
+    }
+    pub fn end_span(self) -> Span {
+        Span { file_id: self.file_id, start: self.end, end: self.end }
+    }
 }
 
 impl Default for Span {
@@ -511,15 +518,6 @@ where
 {
     fn as_ref(&self) -> &U {
         self.value.as_ref()
-    }
-}
-
-impl<T> Sp<T> {
-    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Sp<U> {
-        Sp {
-            span: self.span,
-            value: f(self.value),
-        }
     }
 }
 

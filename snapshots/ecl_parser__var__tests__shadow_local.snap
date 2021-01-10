@@ -1,0 +1,16 @@
+---
+source: src/var.rs
+expression: "resolve_reformat(r#\"{\n        int a = 3;\n        if (true) {\n            int a = 4;\n            int b = a * a;\n        }\n        int c = a * a;\n        if (true) {\n            int a = 4;\n            int b = a * a;\n        }\n    }\"#).trim()"
+---
+{
+    int a_3 = 3;
+    if (1) {
+        int a_4 = 4;
+        int b_5 = (a_4 * a_4);
+    }
+    int c_6 = (a_3 * a_3);
+    if (1) {
+        int a_7 = 4;
+        int b_8 = (a_7 * a_7);
+    }
+}
