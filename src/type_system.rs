@@ -401,6 +401,17 @@ impl ScalarType {
             )),
         }
     }
+
+    fn require_float(self, cause: Span, value_span: Span) -> Result<(), CompileError> {
+        match self {
+            ScalarType::Float => Ok(()),
+            _ => Err(error!(
+                message("type error"),
+                primary(value_span, "{}", self.descr()),
+                secondary(cause, "only defined on floats"),
+            )),
+        }
+    }
 }
 
 impl Sp<ast::BinopKind> {
@@ -443,22 +454,30 @@ impl Sp<ast::UnopKind> {
         match self.value {
             ast::UnopKind::Neg => arg_ty,
             ast::UnopKind::Not => ScalarType::Int,
+            ast::UnopKind::Sin |
+            ast::UnopKind::Cos |
+            ast::UnopKind::Sqrt => ScalarType::Float,
+            ast::UnopKind::CastI => ScalarType::Int,
+            ast::UnopKind::CastF => ScalarType::Float,
         }
     }
 
     /// Perform type-checking.
     pub fn type_check(&self, ty: ScalarType, arg_span: Span) -> Result<(), CompileError> {
-        self.result_type(ty, arg_span).map(|_| ())
+        match self.value {
+            ast::UnopKind::Neg => Ok(()),
+            ast::UnopKind::CastF |
+            ast::UnopKind::Not => ty.require_int(self.span, arg_span),
+            ast::UnopKind::CastI |
+            ast::UnopKind::Sin |
+            ast::UnopKind::Cos |
+            ast::UnopKind::Sqrt => ty.require_float(self.span, arg_span),
+        }
     }
 
     /// Get the output type, performing type-checking.
     pub fn result_type(&self, ty: ScalarType, arg_span: Span) -> Result<ScalarType, CompileError> {
-        match self.value {
-            ast::UnopKind::Neg => Ok(ty),
-            ast::UnopKind::Not => {
-                ty.require_int(self.span, arg_span)?;
-                Ok(ScalarType::Int)
-            },
-        }
+        self.type_check(ty, arg_span)?;
+        Ok(self.result_type_shallow(ty))
     }
 }

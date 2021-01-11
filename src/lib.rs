@@ -54,6 +54,7 @@ pub mod vm;
 
 pub use value::ScalarValue;
 mod value {
+    use std::fmt;
     use crate::ast;
     use crate::type_system::ScalarType;
 
@@ -105,6 +106,15 @@ mod value {
             match self {
                 ScalarValue::Int(x) => x as f32,
                 ScalarValue::Float(x) => x,
+            }
+        }
+    }
+
+    impl fmt::Display for ScalarValue {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match self {
+                ScalarValue::Float(x) => write!(f, "{:?}", x),
+                ScalarValue::Int(x) => write!(f, "{}", x),
             }
         }
     }

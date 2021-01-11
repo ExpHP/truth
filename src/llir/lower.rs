@@ -278,6 +278,13 @@ impl Lowerer<'_> {
                 self.assign_direct_binop(span, time, var, assign_op, rhs.span, a, binop, b)?;
             },
 
+            // a = -<expr>;
+            // a = sin(<expr>);
+            // a = _S(<expr>);
+            (ast::AssignOpKind::Assign, Expr::Unop(unop, b)) => {
+                self.assign_direct_unop(span, time, var, assign_op, rhs.span, unop, b)?;
+            },
+
             // a = <any other expr>;
             // a += <expr>;
             (_, _) => {
@@ -383,9 +390,88 @@ impl Lowerer<'_> {
                 let ty = ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
                 self.out.push(LowLevelStmt::Instr(Instr {
                     time,
-                    opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "assignment of this binary operation")?,
+                    opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "this binary operation")?,
                     args: vec![arg_var, arg_a.clone(), arg_b.clone()],
                 }));
+            },
+        }
+        Ok(())
+    }
+
+    /// Lowers `a = <B> * <C>;`
+    fn assign_direct_unop(
+        &mut self,
+        span: Span,
+        time: i32,
+        var: &Sp<ast::Var>,
+        eq_sign: &Sp<ast::AssignOpKind>,
+        rhs_span: Span,
+        unop: &Sp<ast::UnopKind>,
+        b: &Sp<Expr>,
+    ) -> Result<(), CompileError> {
+        // Unary operations can always reuse their destination register.
+        //
+        // ....well.... *almost*.  Casts can't, because that would imply you wrote two different types to the
+        // same register (and the games only allow each register to be written as a single type)
+
+        let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+        let ty_b = self.ty_ctx.compute_type_shallow(b)?;
+        let ty_rhs = unop.result_type(ty_b, b.span)?;
+        ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
+
+        if ty_b != ty_rhs {
+            // It's a cast.
+            //
+            // In this case, we don't even care whether b is simple; `try_lower_simple_arg` already treats casts
+            // of variables as simple (meaning we wouldn't be here!), and we want to treat literals here the same
+            // as complex expressions.
+            assert!(unop.value == ast::UnopKind::CastI || unop.value == ast::UnopKind::CastF, "{:?}", unop);
+
+            // Compute b into a temporary.
+            let (tmp_local_id, tmp_as_expr) = self.define_temporary(time, ty_b, b)?;
+            self.assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &tmp_as_expr)?;
+            self.undefine_temporary(tmp_local_id)?;
+            return Ok(());
+        }
+
+        // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
+        if unop.value == ast::UnopKind::Neg {
+            let zero = sp!(unop.span => match ty_b {
+                ScalarType::Int => ast::Expr::from(0),
+                ScalarType::Float => ast::Expr::from(0.0),
+            });
+            let minus = sp!(unop.span => ast::BinopKind::Sub);
+            self.assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
+            return Ok(());
+        }
+
+        // Not a cast. No temporary is needed.
+        match try_lower_simple_arg(b, self.ty_ctx)? {
+            ExprClass::Simple(arg_b, _ty_b_again) => {
+                assert_eq!(ty_b, _ty_b_again);
+                match unop.value {
+                    ast::UnopKind::CastI |
+                    ast::UnopKind::CastF |
+                    ast::UnopKind::Neg => unreachable!(),
+
+                    ast::UnopKind::Not => return Err(unsupported(&span, "logical not operator")),
+
+                    ast::UnopKind::Sin |
+                    ast::UnopKind::Cos |
+                    ast::UnopKind::Sqrt => self.out.push(LowLevelStmt::Instr(Instr {
+                        time,
+                        opcode: self.get_opcode(IKind::Unop(unop.value, ty_b), span, "this unary operation")?,
+                        args: vec![arg_var, arg_b.clone()],
+                    })),
+                }
+            },
+            ExprClass::Complex(_) => {
+                // compile to:   a = <B>;
+                //               a = sin(a);
+                let inner_eq_sign = sp!(rhs_span => ast::AssignOpKind::Assign);
+                let var_as_expr = sp!(var.span => ast::Expr::Var(var.clone()));
+                self.assign_op(span, time, var, &inner_eq_sign, b)?;
+                self.assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &var_as_expr)?;
             },
         }
         Ok(())
@@ -540,6 +626,48 @@ fn try_lower_simple_arg<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Resu
         ast::Expr::Var(ref var) => {
             let (out, ty) = lower_var_to_arg(var, ty_ctx)?;
             Ok(ExprClass::Simple(out, ty))
+        },
+
+        // Casts of variables are also considered 'simple'; basically, during expression compilation we
+        // treat _f(x) identical to %x.  Why?  Well, consider the instruction call
+        //
+        //             foo(_f($I + 3));
+        //
+        // Ideally, we would want this to compile to using only a single integer scratch register
+        // (for `$I + 3`) and not to waste an unnecessary float register:
+        //
+        //             int tmp = $I + 3;
+        //             foo(%tmp);
+        //
+        // There are similar considerations for other places where `_f` and `_S` can appear nested inside
+        // a complex expression.  The only way to handle all of these cases properly is to pervasively
+        // treat `_f(x)` as a simple, "atomic" value.
+        ast::Expr::Unop(unop, ref b) => match &b.value {
+
+            // Notice we only do this for casts of variables, and not for literals, because the functionality
+            // for casting in the games is implemented specifically at variable read sites.
+            // (that said, the const folding pass should have already done it to any literals!)
+            ast::Expr::Var(var_orig) => {
+                let ty_cast = match unop.value {
+                    ast::UnopKind::CastI => ScalarType::Int,
+                    ast::UnopKind::CastF => ScalarType::Float,
+                    _ => return Ok(ExprClass::Complex(arg)),
+                };
+                let (_arg_orig, ty_orig) = lower_var_to_arg(var_orig, ty_ctx)?;
+                unop.type_check(ty_orig, var_orig.span)?;
+
+                // arg_orig is no good because, if it's a register, then the ID was already encoded as the wrong type.
+                // To flip it let's just call the function again with the right type.
+                let var_cast = sp!(var_orig.span => match var_orig.value {
+                    ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
+                    ast::Var::Resolved { var_id, .. } => ast::Var::Resolved { var_id, ty_sigil: Some(ty_cast.into()) },
+                });
+                let (arg_cast, _) = lower_var_to_arg(&var_cast, ty_ctx)?;
+
+                Ok(ExprClass::Simple(arg_cast, ty_cast))
+            },
+
+            _ => Ok(ExprClass::Complex(arg)),
         },
         _ => Ok(ExprClass::Complex(arg)),
     }

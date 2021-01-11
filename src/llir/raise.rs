@@ -86,6 +86,19 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
 
+        Some(IntrinsicInstrKind::Unop(op, ty)) => group_anyhow(|| {
+            ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
+            Ok(ast::StmtBody::Assignment {
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty)?),
+                op: sp!(ast::AssignOpKind::Assign),
+                value: sp!(Expr::Unop(
+                    sp!(op),
+                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding())?)),
+                )),
+            })
+        }).with_context(|| format!("while decompiling a '{}' operation", op)),
+
+
         Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
             // This one is >= because it exists in STD where there can be padding args.
             ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
@@ -132,8 +145,6 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a conditional jump")),
 
 
-        // raising of these not yet implemented
-        Some(IntrinsicInstrKind::TransOp(_)) |
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {

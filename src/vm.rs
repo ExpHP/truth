@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
 use crate::ident::Ident;
@@ -41,6 +42,46 @@ pub struct LoggedCall {
     pub real_time: i32,
     pub name: Ident,
     pub args: Vec<ScalarValue>,
+}
+
+impl fmt::Display for AstVm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "-----------------------------------------")?;
+        writeln!(f, " Time {:>7}    RealTime {:>7}", self.time, self.real_time)?;
+        writeln!(f, "-----------------------------------------")?;
+        if !self.call_log.is_empty() {
+            writeln!(f, "   CALL LOG")?;
+            for call in &self.call_log {
+                let arg_strs = call.args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+                writeln!(f, "  {:>5}: {}({})", call.real_time, call.name, arg_strs.join(", "))?;
+            }
+        }
+
+        let mut locals = vec![];
+        let mut regs = vec![];
+        for (&var_id, &value) in &self.var_values {
+            match var_id {
+                VarId::Reg(reg) => regs.push((reg, value)),
+                VarId::Local(local) => locals.push((local, value)),
+            }
+        }
+        locals.sort_by_key(|&(id, _)| id);
+        regs.sort_by_key(|&(id, _)| id);
+
+        if !regs.is_empty() {
+            writeln!(f, "  REGISTERS")?;
+            for (reg, value) in regs {
+                writeln!(f, "  {:>5}  {}", reg, value)?;
+            }
+        }
+        if !locals.is_empty() {
+            writeln!(f, "  LOCALS")?;
+            for (local_id, value) in locals {
+                writeln!(f, "  {:>5}  {}", local_id, value)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[must_use]
@@ -581,5 +622,47 @@ mod tests {
         }.prepare();
         let mut vm = AstVm::new().with_max_iterations(1000);
         vm.run(&ast.0);
+    }
+
+    #[test]
+    fn math_funcs() {
+        let ast = TestSpec {
+            globals: vec![("X", 30), ("SIN", 31), ("COS", 32), ("SQRT", 33)],
+            source: r#"{
+                SIN = sin(X);
+                COS = cos(X);
+                SQRT = sqrt(X + 3.0);
+            }"#,
+        }.prepare();
+        let x = 5.2405;
+
+        let mut vm = AstVm::new();
+        vm.set_reg(30, Float(x));
+        vm.run(&ast.0);
+
+        assert_eq!(vm.get_reg(31).unwrap(), Float(x.sin()));
+        assert_eq!(vm.get_reg(32).unwrap(), Float(x.cos()));
+        assert_eq!(vm.get_reg(33).unwrap(), Float((x + 3.0).sqrt()));
+    }
+
+    #[test]
+    fn cast() {
+        let ast = TestSpec {
+            globals: vec![("I", 30), ("F", 31), ("F_TO_I", 32), ("I_TO_F", 33)],
+            source: r#"{
+                F_TO_I = _S(F * 7.0) - 2;
+                I_TO_F = _f(I + 3) + 0.5;
+            }"#,
+        }.prepare();
+        let f = 5.2405;
+        let i = 12;
+
+        let mut vm = AstVm::new();
+        vm.set_reg(30, Int(i));
+        vm.set_reg(31, Float(f));
+        vm.run(&ast.0);
+
+        assert_eq!(vm.get_reg(32).unwrap(), Int((f * 7.0) as i32 - 2));
+        assert_eq!(vm.get_reg(33).unwrap(), Float((i + 3) as f32 + 0.5));
     }
 }

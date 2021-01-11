@@ -39,6 +39,8 @@ fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
     llir::register_cond_jumps(&mut format.intrinsic_opcode_pairs, 300);
     format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, 5));
     format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, 6));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), 7));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Cos, Ty::Float), 8));
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();
@@ -77,10 +79,10 @@ const SIMPLE_FOUR_VAR_SPEC: &'static [Var] = &[
     Var { reg: REG_B, ty: Some(Ty::Int), name: Some("B"), scratch: true, in_mapfile: true },
     Var { reg: REG_C, ty: Some(Ty::Int), name: Some("C"), scratch: true, in_mapfile: true },
     Var { reg: REG_D, ty: Some(Ty::Int), name: Some("D"), scratch: true, in_mapfile: true },
-    Var { reg: REG_X, ty: Some(Ty::Float), name: Some("W"), scratch: true, in_mapfile: true },
-    Var { reg: REG_Y, ty: Some(Ty::Float), name: Some("X"), scratch: true, in_mapfile: true },
-    Var { reg: REG_Z, ty: Some(Ty::Float), name: Some("Y"), scratch: true, in_mapfile: true },
-    Var { reg: REG_W, ty: Some(Ty::Float), name: Some("Z"), scratch: true, in_mapfile: true },
+    Var { reg: REG_X, ty: Some(Ty::Float), name: Some("X"), scratch: true, in_mapfile: true },
+    Var { reg: REG_Y, ty: Some(Ty::Float), name: Some("Y"), scratch: true, in_mapfile: true },
+    Var { reg: REG_Z, ty: Some(Ty::Float), name: Some("Z"), scratch: true, in_mapfile: true },
+    Var { reg: REG_W, ty: Some(Ty::Float), name: Some("W"), scratch: true, in_mapfile: true },
     Var { reg: REG_COUNT, ty: Some(Ty::Int), name: Some("COUNT"), scratch: false, in_mapfile: true },
 ];
 
@@ -263,11 +265,11 @@ fn cast() {
         }"#);
 
         let x = old_vm.get_reg(REG_X).unwrap().read_as_float() as i32 * 3 + 4;
-        assert_eq!(old_vm.get_reg(REG_A), Some(ScalarValue::Int(x)));
+        assert_eq!(old_vm.get_reg(REG_A), Some(ScalarValue::Int(x)), "{}", old_vm);
 
-        assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A));
-        assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X));
-        assert_eq!(old_vm.get_reg(REG_W), new_vm.get_reg(REG_W));
+        assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A), "{}\n{}", old_vm, new_vm);
+        assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X), "{}\n{}", old_vm, new_vm);
+        assert_eq!(old_vm.get_reg(REG_W), new_vm.get_reg(REG_W), "{}\n{}", old_vm, new_vm);
     }
 }
 
@@ -335,6 +337,7 @@ mod no_scratch {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 A = B + C;
                 A = A * A;
+                A = $X + $Y;
             }"#);
         }
     }
@@ -345,6 +348,7 @@ mod no_scratch {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 A *= A;
                 A += B;
+                A *= $Y;
             }"#);
         }
     }
@@ -354,6 +358,7 @@ mod no_scratch {
         for _ in 0..5 {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 if (A == B) goto hi;
+                if (A == $X) goto hi;
                 if (A == 2) goto hi;
                 ins_40();
             hi:
@@ -398,12 +403,29 @@ mod no_scratch {
     #[test]
     fn out_reg_reuse() {
         for _ in 0..5 {
-            // this entire expression can be computed by repeatedly modifying A
+            // these entire expressions can be computed by repeatedly modifying A or X
             // (and this can be done without even rearranging execution order in any manner)
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
-                A = B + B * (B * (C + A + C + C) + B);
+                A = B + B * -(B * (C + -A + C + C) + B);
+                X = Y + cos(Y * (Y * sin(Z + -X + Z + Z) + Y));
             }"#);
         }
+    }
+}
+
+#[test]
+fn careful_cast_temporaries() {
+    // A cast may create a temporary of its argument's type, but it should never create a temporary
+    // of its output type. (because whatever's using it can simply read the temporary as that type)
+    for _ in 0..10 {
+        let vars = SIMPLE_FOUR_VAR_SPEC;
+        // None of these should create an integer temporary
+        let (old_vm, new_vm) = run_randomized_test(vars, r#"{
+            ins_606(_S(%X + 4.0));
+            A = A + _S(%X + 4.0);
+        }"#);
+
+        check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
     }
 }
 
@@ -431,4 +453,9 @@ fn binop_optimization_correctness() {
             check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
         }
     }
+}
+
+#[test]
+fn unop_optimization_correctness() {
+    unimplemented!()
 }

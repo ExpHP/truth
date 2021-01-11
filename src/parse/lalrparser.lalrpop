@@ -106,6 +106,11 @@ extern {
         "true" => Token::True,
         "pragma" => Token::Pragma,
         "mapfile" => Token::Mapfile,
+        "sin" => Token::Sin,
+        "cos" => Token::Cos,
+        "sqrt" => Token::Sqrt,
+        "_S" => Token::CastI,
+        "_f" => Token::CastF,
         // Virtual tokens for parsable nonterminals
         Dispatch_Script => Token::VirtualDispatch(crate::parse::AnythingTag::Script),
         Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
@@ -478,9 +483,18 @@ OpAssign: AssignOpKind = {
     "!" => UnopKind::Not,
 };
 
+FuncUnopKeyword: UnopKind = {
+	"sin" => UnopKind::Sin,
+	"cos" => UnopKind::Cos,
+	"sqrt" => UnopKind::Sqrt,
+	"_S" => UnopKind::CastI,
+	"_f" => UnopKind::CastF,
+};
+
 // Expressions that don't contain a toplevel operator
 ExprTerm: Expr = {
     "(" <e:Expr> ")" => e,
+    <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")" => Expr::Unop(op, e),
     <call_parts:ExprCallParts> => {
         let (func, args) = call_parts;
         Expr::Call { func, args }

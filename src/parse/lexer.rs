@@ -93,6 +93,11 @@ macro_rules! with_each_terminal {
             [0, b"true", True]
             [0, b"pragma", Pragma]
             [0, b"mapfile", Mapfile]
+            [0, b"sin", Sin]
+            [0, b"cos", Cos]
+            [0, b"sqrt", Sqrt]
+            [0, b"_S", CastI]
+            [0, b"_f", CastF]
         ]
         regex=[
             [0, r##""([^\\"]|\\.)*""##, LitString]

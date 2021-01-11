@@ -431,6 +431,11 @@ string_enum! {
     pub enum UnopKind {
         #[str = "!"] Not,
         #[str = "-"] Neg,
+        #[str = "sin"] Sin,
+        #[str = "cos"] Cos,
+        #[str = "sqrt"] Sqrt,
+        #[str = "_S"] CastI,
+        #[str = "_f"] CastF,
     }
 }
 

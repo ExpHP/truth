@@ -13,20 +13,20 @@
 //!
 //! # Example
 //! ```
-//! use ecl_parser::{Parse, VisitMut, Expr, pos::{Files, Sp}};
+//! use ecl_parser::{Parse, VisitMut, ast, pos::{Files, Sp}};
 //! use ecl_parser::passes::const_simplify;
 //!
 //! let mut files = Files::new();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4";
-//! let mut expr: Sp<Expr> = files.parse("<input>", text).unwrap();
+//! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
 //! let mut visitor = const_simplify::Visitor::new();
 //! visitor.visit_expr(&mut expr);
 //! visitor.finish().expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * x";
-//! let expected: Sp<Expr> = files.parse("<input>", text_simplified).unwrap();
+//! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```
 
@@ -39,24 +39,34 @@ impl Sp<UnopKind> {
     pub fn const_eval(&self, b: Sp<ScalarValue>) -> Result<ScalarValue, CompileError> {
         self.type_check(b.ty(), b.span)?;
         match b.value {
-            ScalarValue::Int(b) => Ok(ScalarValue::Int(self.const_eval_int(b))),
-            ScalarValue::Float(b) => Ok(ScalarValue::Float(self.const_eval_float(b).expect("(bug!) type_check should fail..."))),
+            ScalarValue::Int(b) => Ok(self.const_eval_int(b).expect("(bug!) type_check should fail...")),
+            ScalarValue::Float(b) => Ok(self.const_eval_float(b).expect("(bug!) type_check should fail...")),
         }
     }
 }
 
 impl UnopKind {
-    pub fn const_eval_int(&self, x: i32) -> i32 {
+    pub fn const_eval_int(&self, x: i32) -> Option<ScalarValue> {
         match self {
-            UnopKind::Neg => i32::wrapping_neg(x),
-            UnopKind::Not => (x != 0) as i32,
+            UnopKind::Neg => Some(ScalarValue::Int(i32::wrapping_neg(x))),
+            UnopKind::Not => Some(ScalarValue::Int((x != 0) as i32)),
+            UnopKind::Sin |
+            UnopKind::Cos |
+            UnopKind::Sqrt => None,
+            UnopKind::CastI => None,
+            UnopKind::CastF => Some(ScalarValue::Float(x as f32)),
         }
     }
 
-    pub fn const_eval_float(&self, x: f32) -> Option<f32> {
+    pub fn const_eval_float(&self, x: f32) -> Option<ScalarValue> {
         match self {
-            UnopKind::Neg => Some(-x),
+            UnopKind::Neg => Some(ScalarValue::Float(-x)),
             UnopKind::Not => None,
+            UnopKind::Sin => Some(ScalarValue::Float(x.sin())),
+            UnopKind::Cos => Some(ScalarValue::Float(x.cos())),
+            UnopKind::Sqrt => Some(ScalarValue::Float(x.sqrt())),
+            UnopKind::CastI => Some(ScalarValue::Int(x as i32)),
+            UnopKind::CastF => None,
         }
     }
 }

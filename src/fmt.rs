@@ -747,7 +747,15 @@ impl Format for ast::Expr {
                 out.fmt(func)?;
                 out.fmt_comma_separated("(", ")", args)
             },
-            ast::Expr::Unop(op, x) => out.fmt_optional_parens((op, x)),
+            ast::Expr::Unop(op, x) => match op.value {
+                ast::UnopKind::Neg |
+                ast::UnopKind::Not => out.fmt_optional_parens((op, x)),
+                ast::UnopKind::CastI |
+                ast::UnopKind::CastF |
+                ast::UnopKind::Sin |
+                ast::UnopKind::Cos |
+                ast::UnopKind::Sqrt => out.fmt((op, "(", SuppressParens(x), ")")),
+            },
             ast::Expr::LitInt{ value, hex: false } => out.fmt(value),
             ast::Expr::LitInt{ value, hex: true } => out.fmt(format_args!("{:#x}", value)),
             ast::Expr::LitFloat { value } => out.fmt(value),

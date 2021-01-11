@@ -185,10 +185,13 @@ pub enum IntrinsicInstrKind {
     ///
     /// Args: `a, b, c`.
     Binop(ast::BinopKind, ScalarType),
-    /// Like `a = sin(b);`
+    /// Like `a = sin(b);` (or `a = -a;`, but it seems no formats actually have this?)
+    ///
+    /// This is not used for casts like `a = _S(b);`.  Casts have no explicit representation in
+    /// a compiled script; they're just a fundamental part of how the engine reads variables.
     ///
     /// Args: `a, b`.
-    TransOp(TransOpKind),
+    Unop(ast::UnopKind, ScalarType),
     /// Like `if (x--) goto label @ t`.
     ///
     /// Args: `x, label, t`.
@@ -198,10 +201,6 @@ pub enum IntrinsicInstrKind {
     /// Args: `a, b, label, t`
     CondJmp(ast::BinopKind, ScalarType),
 }
-
-/// Transcendental functions available in at least one game.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TransOpKind { Sin, Cos, Tan, Acos, Atan }
 
 pub struct IntrinsicInstrs {
     intrinsic_opcodes: HashMap<IntrinsicInstrKind, u16>,

@@ -798,7 +798,7 @@ impl InstrFormat for InstrFormat06 {
 impl InstrFormat for InstrFormat07 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         use IntrinsicInstrKind as I;
-        use llir::TransOpKind as Tr;
+        use ast::UnopKind as Un;
 
         match self.version {
             Version::V0 => unreachable!(),
@@ -807,11 +807,11 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
                     (I::InterruptLabel, 21),
-                    (I::TransOp(Tr::Sin), 61),
-                    (I::TransOp(Tr::Cos), 62),
-                    (I::TransOp(Tr::Tan), 63),
-                    (I::TransOp(Tr::Acos), 64),
-                    (I::TransOp(Tr::Atan), 65),
+                    (I::Unop(Un::Sin, ScalarType::Float), 61),
+                    (I::Unop(Un::Cos, ScalarType::Float), 62),
+                    // (I::Unop(Un::Tan, ScalarType::Float), 63),
+                    // (I::Unop(Un::Acos, ScalarType::Float), 64),
+                    // (I::Unop(Un::Atan, ScalarType::Float), 65),
                 ];
                 llir::register_assign_ops(&mut out, 37);
                 llir::register_binary_ops(&mut out, 49);
@@ -823,11 +823,11 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
                     (I::InterruptLabel, 64),
-                    (I::TransOp(Tr::Sin), 42),
-                    (I::TransOp(Tr::Cos), 43),
-                    (I::TransOp(Tr::Tan), 44),
-                    (I::TransOp(Tr::Acos), 45),
-                    (I::TransOp(Tr::Atan), 46),
+                    (I::Unop(Un::Sin, ScalarType::Float), 42),
+                    (I::Unop(Un::Cos, ScalarType::Float), 43),
+                    // (I::Unop(Un::Tan, ScalarType::Float), 44),
+                    // (I::Unop(Un::Acos, ScalarType::Float), 45),
+                    // (I::Unop(Un::Atan, ScalarType::Float), 46),
                 ];
                 llir::register_assign_ops(&mut out, 6);
                 llir::register_binary_ops(&mut out, 18);
@@ -839,11 +839,11 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 200),
                     (I::CountJmp, 201),
                     (I::InterruptLabel, 5),
-                    (I::TransOp(Tr::Sin), 124),
-                    (I::TransOp(Tr::Cos), 125),
-                    (I::TransOp(Tr::Tan), 126),
-                    (I::TransOp(Tr::Acos), 127),
-                    (I::TransOp(Tr::Atan), 128),
+                    (I::Unop(Un::Sin, ScalarType::Float), 124),
+                    (I::Unop(Un::Cos, ScalarType::Float), 125),
+                    // (I::Unop(Un::Tan, ScalarType::Float), 126),
+                    // (I::Unop(Un::Acos, ScalarType::Float), 127),
+                    // (I::Unop(Un::Atan, ScalarType::Float), 128),
                 ];
                 llir::register_assign_ops(&mut out, 100);
                 llir::register_binary_ops(&mut out, 112);
