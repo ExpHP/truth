@@ -16,8 +16,8 @@ pub trait Format {
 }
 
 /// Lossily write a value to string, for `eprintln` debugging.
-#[allow(unused)]
-pub(crate) fn stringify<T: Format>(value: &T) -> String {
+#[doc(hidden)]
+pub fn stringify<T: Format>(value: &T) -> String {
     let mut f = Formatter::new(vec![]).with_max_columns(1000);
     f.fmt(value).expect("failed to write to vec!?");
     String::from_utf8_lossy(&f.into_inner().unwrap()).into_owned()

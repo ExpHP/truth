@@ -96,7 +96,13 @@ impl TypeSystem {
 
     /// Convert [`VarId`]s in the AST back into their original identifiers.
     ///
-    /// This may produce unusual output for temporaries, and is intended for testing and debugging purposes only.
+    /// When used on decompiled code from a binary file, this will typically just replace raw register
+    /// access with their mapfile aliases (e.g. from `[10004]` to `I3`).
+    ///
+    /// It can also be used on partially-compiled source code, though *this particular usage is only supported
+    /// strictly for testing and debugging purposes.*  In this case, setting `append_ids` to `true` will rename
+    /// local variables from `x` to e.g. `x_3` by appending their [`LocalId`], enabling them to be differentiated
+    /// by scope.  Note that compiler-generated temporaries may render as something unusual.
     pub fn unresolve_names(&self, ast: &mut ast::Script, append_ids: bool) -> Result<(), CompileError> {
         let mut v = unresolve_names::Visitor::new(self, append_ids);
         ast::walk_mut_script(&mut v, ast);
@@ -261,21 +267,6 @@ impl RegsAndInstrs {
                 continue;
             }
             return name;
-        }
-    }
-
-    /// Generate an AST node with the ideal appearance for a register.
-    pub fn reg_to_ast(&self, reg: i32, ty: ScalarType) -> ast::Var {
-        match self.reg_names.get(&reg) {
-            Some(name) => {
-                // Suppress the type prefix if it matches the default
-                if self.reg_default_types.get(&reg) == Some(&ty) {
-                    ast::Var::Named { ident: name.clone(), ty_sigil: None }
-                } else {
-                    ast::Var::Named { ident: name.clone(), ty_sigil: Some(ty.into()) }
-                }
-            },
-            None => ast::Var::Resolved { var_id: VarId::Reg(reg), ty_sigil: Some(ty.into()) },
         }
     }
 

@@ -15,7 +15,7 @@ use crate::ident::Ident;
 use crate::llir::{self, Instr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
-use crate::type_system::{RegsAndInstrs, ScalarType, TypeSystem};
+use crate::type_system::{ScalarType, TypeSystem};
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -28,7 +28,7 @@ pub struct AnmFile {
 
 impl AnmFile {
     pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
-        decompile(&game_format(game), self, &ty_ctx.regs_and_instrs, decompile_kind)
+        decompile(&game_format(game), self, ty_ctx, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
@@ -188,7 +188,7 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -200,7 +200,7 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs, de
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
+            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, &ty_ctx.regs_and_instrs)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -209,8 +209,8 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &RegsAndInstrs, de
             }));
         }
     }
-    let mut out = ast::Script { items, mapfiles: ty_ctx.mapfiles_to_ast() };
-    crate::passes::postprocess_decompiled(&mut out, decompile_kind)?;
+    let mut out = ast::Script { items, mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast() };
+    crate::passes::postprocess_decompiled(&mut out, ty_ctx, decompile_kind)?;
     Ok(out)
 }
 

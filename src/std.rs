@@ -11,7 +11,7 @@ use crate::ident::Ident;
 use crate::llir::{self, Instr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
-use crate::type_system::{RegsAndInstrs, TypeSystem};
+use crate::type_system::TypeSystem;
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -63,7 +63,7 @@ impl ToMeta for Std06Bgm {
 
 impl StdFile {
     pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
-        decompile_std(&*game_format(game), self, &ty_ctx.regs_and_instrs, decompile_kind)
+        decompile_std(&*game_format(game), self, ty_ctx, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
@@ -228,14 +228,14 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = llir::raise_instrs_to_sub_ast(instr_format, script, ty_ctx)?;
+    let code = llir::raise_instrs_to_sub_ast(instr_format, script, &ty_ctx.regs_and_instrs)?;
 
     let mut script = ast::Script {
-        mapfiles: ty_ctx.mapfiles_to_ast(),
+        mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast(),
         items: vec! [
             sp!(ast::Item::Meta {
                 keyword: sp!(ast::MetaKeyword::Meta),
@@ -249,7 +249,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &RegsAndInstrs,
             }),
         ],
     };
-    crate::passes::postprocess_decompiled(&mut script, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut script, ty_ctx, decompile_kind)?;
     Ok(script)
 }
 

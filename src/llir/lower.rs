@@ -278,11 +278,18 @@ impl Lowerer<'_> {
                 self.assign_direct_binop(span, time, var, assign_op, rhs.span, a, binop, b)?;
             },
 
-            // a += <expr>
+            // a = <any other expr>;
+            // a += <expr>;
             (_, _) => {
                 let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-                match try_lower_simple_arg(rhs, self.ty_ctx)? {
-                    ExprClass::Simple(arg_rhs, ty_rhs) => {
+                match (assign_op.value, try_lower_simple_arg(rhs, self.ty_ctx)?) {
+                    // a = <big expr>
+                    // if none of the other branches handled it yet, we can't do it
+                    (ast::AssignOpKind::Assign, ExprClass::Complex(_)) => return Err(unsupported(&rhs.span, "this expression")),
+
+                    // a = <atom>;
+                    // a += <atom>;
+                    (_, ExprClass::Simple(arg_rhs, ty_rhs)) => {
                         let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
                         self.out.push(LowLevelStmt::Instr(Instr {
                             time,
@@ -290,8 +297,10 @@ impl Lowerer<'_> {
                             args: vec![arg_var, arg_rhs],
                         }));
                     },
+
+                    // a += <expr>;
                     // split out to: `tmp = <expr>;  a += tmp;`
-                    ExprClass::Complex(_) => {
+                    (_, ExprClass::Complex(_)) => {
                         let (tmp_local_id, tmp_var_expr) = self.define_temporary(time, ty_var, rhs)?;
                         self.assign_op(span, time, var, assign_op, &tmp_var_expr)?;
                         self.undefine_temporary(tmp_local_id)?;
@@ -679,10 +688,10 @@ fn assign_registers(
                 let ty = ty_ctx.variables.get_type(*local_id).expect("(bug!) this should have been type-checked!");
 
                 let reg = unused_regs[ty].pop().ok_or_else(|| {
-                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.regs_and_instrs.reg_to_ast(reg, ty));
+                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.var_to_ast(VarId::Reg(reg), ty, false));
 
                     let mut error = crate::error::Diagnostic::error();
-                    error.message(format!("expression too complex to compile"));
+                    error.message(format!("script too complex to compile"));
                     error.primary(cause, format!("no more registers of this type!"));
                     for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
                         if scratch_ty == ty {

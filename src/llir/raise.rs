@@ -5,6 +5,7 @@ use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{Instr, InstrArg, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
+use crate::var::VarId;
 use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
 
 pub fn raise_instrs_to_sub_ast(
@@ -64,9 +65,9 @@ fn raise_instr(
         Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
             Ok(ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)?),
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty)?),
                 op: sp!(op),
-                value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?),
+                value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding())?),
             })
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
@@ -74,12 +75,12 @@ fn raise_instr(
         Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
             Ok(ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty, ty_ctx)?),
+                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty)?),
                 op: sp!(ast::AssignOpKind::Assign),
                 value: sp!(Expr::Binop(
-                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?)),
+                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding())?)),
                     sp!(op),
-                    Box::new(sp!(raise_arg(&args[2].expect_raw(), ty.default_encoding(), ty_ctx)?)),
+                    Box::new(sp!(raise_arg(&args[2].expect_raw(), ty.default_encoding())?)),
                 )),
             })
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
@@ -96,7 +97,7 @@ fn raise_instr(
 
         Some(IntrinsicInstrKind::CountJmp) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_var(&args[0].expect_raw(), ScalarType::Int, ty_ctx)?;
+            let var = raise_arg_to_var(&args[0].expect_raw(), ScalarType::Int)?;
             let dest_offset = instr_format.decode_label(args[1].expect_raw().bits);
             let dest_time = Some(args[2].expect_immediate_int());
 
@@ -113,8 +114,8 @@ fn raise_instr(
 
         Some(IntrinsicInstrKind::CondJmp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let a = raise_arg(&args[0].expect_raw(), ty.default_encoding(), ty_ctx)?;
-            let b = raise_arg(&args[1].expect_raw(), ty.default_encoding(), ty_ctx)?;
+            let a = raise_arg(&args[0].expect_raw(), ty.default_encoding())?;
+            let b = raise_arg(&args[1].expect_raw(), ty.default_encoding())?;
             let dest_offset = instr_format.decode_label(args[2].expect_raw().bits);
             let dest_time = Some(args[3].expect_immediate_int());
 
@@ -142,8 +143,8 @@ fn raise_instr(
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 args: match ty_ctx.ins_signature(opcode) {
-                    Some(siggy) => raise_args(args, siggy, ty_ctx)?,
-                    None => raise_args(args, &Signature::auto(args.len()), ty_ctx)?,
+                    Some(siggy) => raise_args(args, siggy)?,
+                    None => raise_args(args, &Signature::auto(args.len()))?,
                 },
                 func: sp!(ins_ident),
             })))
@@ -151,14 +152,14 @@ fn raise_instr(
     }
 }
 
-fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &RegsAndInstrs) -> Result<Vec<Sp<Expr>>, SimpleError> {
+fn raise_args(args: &[InstrArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, SimpleError> {
     let encodings = siggy.arg_encodings();
 
     if args.len() != encodings.len() {
         bail!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
     }
     let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
-        let arg_ast = raise_arg(&arg.expect_raw(), enc, ty_ctx).with_context(|| format!("in argument {}", i + 1))?;
+        let arg_ast = raise_arg(&arg.expect_raw(), enc).with_context(|| format!("in argument {}", i + 1))?;
         Ok(sp!(arg_ast))
     }).collect::<Result<Vec<_>, SimpleError>>()?;
 
@@ -172,7 +173,7 @@ fn raise_args(args: &[InstrArg], siggy: &Signature, ty_ctx: &RegsAndInstrs) -> R
     Ok(out)
 }
 
-fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &RegsAndInstrs) -> Result<Expr, SimpleError> {
+fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
     if raw.is_var {
         let ty = match enc {
             ArgEncoding::Padding |
@@ -180,7 +181,7 @@ fn raise_arg(raw: &RawArg, enc: ArgEncoding, ty_ctx: &RegsAndInstrs) -> Result<E
             ArgEncoding::Dword => ScalarType::Int,
             ArgEncoding::Float => ScalarType::Float,
         };
-        Ok(Expr::Var(sp!(raise_arg_to_var(raw, ty, ty_ctx)?)))
+        Ok(Expr::Var(sp!(raise_arg_to_var(raw, ty)?)))
     } else {
         raise_arg_to_literal(raw, enc)
     }
@@ -198,19 +199,22 @@ fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleEr
     }
 }
 
-fn raise_arg_to_var(raw: &RawArg, ty: ScalarType, ty_ctx: &RegsAndInstrs) -> Result<ast::Var, SimpleError> {
+fn raise_arg_to_var(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
     if !raw.is_var {
         bail!("expected a variable, got an immediate");
     }
-    let id = match ty {
+    let reg = match ty {
         ScalarType::Int => raw.bits as i32,
         ScalarType::Float => {
-            let float_id = f32::from_bits(raw.bits);
-            if float_id != f32::round(float_id) {
-                bail!("non-integer float variable [{}] in binary file!", float_id);
+            let float_reg = f32::from_bits(raw.bits);
+            if float_reg != f32::round(float_reg) {
+                bail!("non-integer float variable [{}] in binary file!", float_reg);
             }
-            float_id as i32
+            float_reg as i32
         },
     };
-    Ok(ty_ctx.reg_to_ast(id, ty))
+    Ok(ast::Var::Resolved {
+        var_id: VarId::Reg(reg),
+        ty_sigil: Some(ty.into()),
+    })
 }

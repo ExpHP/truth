@@ -31,6 +31,8 @@ pub struct AstVm {
     /// Log of all opaque instructions that have executed.
     /// (anything using special syntax like operators, assignments and control flow are NOT logged)
     pub call_log: Vec<LoggedCall>,
+    iterations: u32,
+    max_iterations: Option<u32>,
     var_values: HashMap<VarId, ScalarValue>,
 }
 
@@ -60,7 +62,14 @@ impl AstVm {
             real_time: 0,
             call_log: vec![],
             var_values: Default::default(),
+            iterations: 0,
+            max_iterations: None,
         }
+    }
+
+    pub fn with_max_iterations(mut self, n: u32) -> Self {
+        self.max_iterations = Some(n);
+        self
     }
 
     /// Run the statements until it hits the end or a `return`.  Returns the `return`ed value.
@@ -80,6 +89,12 @@ impl AstVm {
         let mut stmt_index = 0;
 
         'stmt: while stmt_index < stmts.len() {
+            if let Some(max_iterations) = self.max_iterations {
+                if self.iterations >= max_iterations {
+                    panic!("iteration limit exceeded!");
+                }
+            }
+            self.iterations += 1;
 
             macro_rules! handle_goto {
                 ($goto:expr) => { match $goto {
@@ -284,24 +299,27 @@ impl AstVm {
         }
     }
 
-    fn _var_key(&self, var: &ast::Var) -> VarId {
+    fn _var_data(&self, var: &ast::Var) -> (VarId, Option<ast::VarReadType>) {
         match *var {
             ast::Var::Named { ref ident, .. } => panic!("AST VM requires name resolution (found {})", ident),
-            ast::Var::Resolved { var_id, .. } => var_id,
+            ast::Var::Resolved { var_id, ty_sigil } => (var_id, ty_sigil),
         }
     }
 
     pub fn set_var(&mut self, var_id: VarId, value: ScalarValue) { self.var_values.insert(var_id, value); }
     pub fn get_var(&self, var_id: VarId) -> Option<ScalarValue> { self.var_values.get(&var_id).cloned() }
+    pub fn set_reg(&mut self, reg: i32, value: ScalarValue) { self.set_var(VarId::Reg(reg), value); }
+    pub fn get_reg(&self, reg: i32) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
 
     fn set_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue) {
-        let key = self._var_key(var);
+        let (key, _) = self._var_data(var);
         self.var_values.insert(key, value);
     }
 
     fn read_var_by_ast(&self, var: &ast::Var) -> ScalarValue {
-        let var_id = self._var_key(var);
+        let (var_id, ty_sigil) = self._var_data(var);
         self.get_var(var_id).unwrap_or_else(|| panic!("read of uninitialized var: {:?}", var))
+            .apply_sigil(ty_sigil)
     }
 
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto) -> Option<usize> {
@@ -534,5 +552,34 @@ mod tests {
                 assert_eq!(vm.real_time, 10);
             }
         }
+    }
+
+    #[test]
+    fn type_cast() {
+        let ast = TestSpec {
+            globals: vec![("X", 30), ("Y", 31)],
+            source: r#"{
+                Y = 6.78;
+                X = $Y * 2;
+            }"#,
+        }.prepare();
+
+        let mut vm = AstVm::new();
+        vm.run(&ast.0);
+        assert_eq!(vm.get_reg(31).unwrap(), Float(6.78));
+        assert_eq!(vm.get_reg(30).unwrap(), Int(12));
+    }
+
+    #[test]
+    #[should_panic(expected = "iteration limit")]
+    fn iteration_limit() {
+        let ast = TestSpec {
+            globals: vec![],
+            source: r#"{
+                loop {}
+            }"#,
+        }.prepare();
+        let mut vm = AstVm::new().with_max_iterations(1000);
+        vm.run(&ast.0);
     }
 }
