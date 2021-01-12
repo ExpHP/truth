@@ -27,8 +27,8 @@ pub struct Instr {
 pub enum InstrArg {
     /// A fully encoded argument (an immediate or a register).
     Raw(RawArg),
-    /// A register-allocated local.
-    Local(LocalId),
+    /// A reference to a register-allocated local.
+    Local { local_id: LocalId, read_ty: ScalarType },
     /// A label that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
@@ -355,9 +355,9 @@ impl Instr {
         for arg in self.args.iter().rev(){
             let bit = match *arg {
                 InstrArg::Raw(RawArg { is_var, .. }) => is_var as u16,
-                InstrArg::TimeOf(_) |
-                InstrArg::Label(_) => 0,
-                InstrArg::Local(_) => 1,
+                InstrArg::TimeOf { .. } |
+                InstrArg::Label { .. } => 0,
+                InstrArg::Local { .. } => 1,
             };
             mask *= 2;
             mask += bit;

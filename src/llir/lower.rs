@@ -47,7 +47,7 @@ pub fn lower_sub_ast_to_instrs(
 
     Ok(out.into_iter().filter_map(|x| match x {
         LowLevelStmt::Instr(instr) => Some(instr),
-        LowLevelStmt::Label(_) => None,
+        LowLevelStmt::Label { .. } => None,
         LowLevelStmt::RegAlloc { .. } => None,
         LowLevelStmt::RegFree { .. } => None,
     }).collect())
@@ -195,10 +195,11 @@ impl Lowerer<'_> {
                 ExprClass::NeedsTemp(data) => {
                     // Save this expression to a temporary
                     let (local_id, _) = self.define_temporary(stmt.time, &data)?;
+                    let lowered = InstrArg::Local { local_id, read_ty: data.read_ty };
 
                     temp_local_ids.push(local_id); // so we can free the register later
 
-                    (InstrArg::Local(local_id), data.read_ty)
+                    (lowered, data.read_ty)
                 },
             };
 
@@ -687,13 +688,13 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
 }
 
 fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
-    let ty = ty_ctx.var_read_type_from_ast(var)?;
+    let read_ty = ty_ctx.var_read_type_from_ast(var)?;
     let arg = match var.value {
         ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => InstrArg::Raw(RawArg::from_reg(reg, ty)),
-        ast::Var::Resolved { var_id: VarId::Local(local_id), .. } => InstrArg::Local(local_id),
+        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => InstrArg::Raw(RawArg::from_reg(reg, read_ty)),
+        ast::Var::Resolved { var_id: VarId::Local(local_id), .. } => InstrArg::Local { local_id, read_ty },
     };
-    Ok((arg, ty))
+    Ok((arg, read_ty))
 }
 
 fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
@@ -857,15 +858,14 @@ fn assign_registers(
                 assert!(local_regs.insert(*local_id, (reg, ty, *cause)).is_none());
             },
             LowLevelStmt::RegFree { local_id } => {
-                let ty = ty_ctx.variables.get_type(*local_id).expect("(bug!) this should have been type-checked!");
+                let inherent_ty = ty_ctx.variables.get_type(*local_id).expect("(bug!) this should have been type-checked!");
                 let (reg, _, _) = local_regs.remove(&local_id).expect("(bug!) RegFree without RegAlloc!");
-                unused_regs[ty].push(reg);
+                unused_regs[inherent_ty].push(reg);
             },
             LowLevelStmt::Instr(instr) => {
                 for arg in &mut instr.args {
-                    if let InstrArg::Local(local_id) = *arg {
-                        let ty = ty_ctx.variables.get_type(local_id).expect("(bug!) this should have been type-checked!");
-                        *arg = InstrArg::Raw(RawArg::from_reg(local_regs[&local_id].0, ty));
+                    if let InstrArg::Local { local_id, read_ty } = *arg {
+                        *arg = InstrArg::Raw(RawArg::from_reg(local_regs[&local_id].0, read_ty));
                     }
                 }
             },
