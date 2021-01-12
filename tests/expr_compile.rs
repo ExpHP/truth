@@ -414,6 +414,20 @@ mod no_scratch {
 }
 
 #[test]
+fn cast_assignment() {
+    for _ in 0..10 {
+        // this hits a tiny special little code path that most casts don't hit, where it is
+        // immediately assigned to a variable.
+        let vars = SIMPLE_FOUR_VAR_SPEC;
+        let (old_vm, new_vm) = run_randomized_test(vars, r#"{
+            X = _f(A + 4);
+        }"#);
+
+        check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
+    }
+}
+
+#[test]
 fn careful_cast_temporaries() {
     // A cast may create a temporary of its argument's type, but it should never create a temporary
     // of its output type. (because whatever's using it can simply read the temporary as that type)
@@ -421,7 +435,7 @@ fn careful_cast_temporaries() {
         let vars = SIMPLE_FOUR_VAR_SPEC;
         // None of these should create an integer temporary
         let (old_vm, new_vm) = run_randomized_test(vars, r#"{
-            ins_606(_S(%X + 4.0));
+            // ins_606(_S(%X + 4.0));
             A = A + _S(%X + 4.0);
         }"#);
 

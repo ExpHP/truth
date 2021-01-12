@@ -402,6 +402,13 @@ impl Var {
             _ => false,
         }
     }
+
+    pub fn set_ty_sigil(&mut self, ty_sigil: Option<VarReadType>) {
+        match self {
+            Var::Named { ty_sigil: ptr, .. } => *ptr = ty_sigil,
+            Var::Resolved { ty_sigil: ptr, .. } => *ptr = ty_sigil,
+        }
+    }
 }
 
 string_enum! {
@@ -436,6 +443,12 @@ string_enum! {
         #[str = "sqrt"] Sqrt,
         #[str = "_S"] CastI,
         #[str = "_f"] CastF,
+    }
+}
+
+impl UnopKind {
+    pub fn is_cast(&self) -> bool {
+        matches!(self, UnopKind::CastI | UnopKind::CastF)
     }
 }
 

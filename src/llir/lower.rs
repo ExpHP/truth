@@ -101,7 +101,7 @@ impl Lowerer<'_> {
 
 
                 ast::StmtBody::Assignment { var, op, value } => {
-                    self.assign_op(stmt.body.span, stmt.time, var, op, value)?;
+                    self.lower_assign_op(stmt.body.span, stmt.time, var, op, value)?;
                 },
 
 
@@ -115,18 +115,18 @@ impl Lowerer<'_> {
 
 
                 ast::StmtBody::CondJump { keyword, cond, jump } => {
-                    self.cond_jump(stmt.body.span, stmt.time, keyword, cond, jump)?;
+                    self.lower_cond_jump(stmt.body.span, stmt.time, keyword, cond, jump)?;
                 },
 
 
                 ast::StmtBody::Declaration { keyword, vars } => {
-                    self.var_declaration(stmt.body.span, stmt.time, keyword, vars)?;
+                    self.lower_var_declaration(stmt.body.span, stmt.time, keyword, vars)?;
                 },
 
 
                 ast::StmtBody::Expr(expr) => match &expr.value {
                     ast::Expr::Call { func, args } => {
-                        let opcode = self.func_stmt(stmt, func, args)?;
+                        let opcode = self.lower_func_stmt(stmt, func, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(func);
                         }
@@ -144,8 +144,11 @@ impl Lowerer<'_> {
         }).collect_with_recovery()
     }
 
+    // ------------------
+    // Methods for lowering specific types of statement bodies.
+
     /// Lowers `func(<ARG1>, <ARG2>, <...>);`
-    fn func_stmt<'a>(
+    fn lower_func_stmt<'a>(
         &mut self,
         stmt: &Sp<ast::Stmt>,
         func: &Sp<Ident>,
@@ -160,11 +163,11 @@ impl Lowerer<'_> {
             )),
         };
 
-        self.instruction(stmt, opcode as _, func, args)
+        self.lower_instruction(stmt, opcode as _, func, args)
     }
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
-    fn instruction(
+    fn lower_instruction(
         &mut self,
         stmt: &Sp<ast::Stmt>,
         opcode: u16,
@@ -187,17 +190,15 @@ impl Lowerer<'_> {
 
         let mut temp_local_ids = vec![];
         let low_level_args = args.iter().enumerate().map(|(arg_index, expr)| {
-            let (lowered, actual_ty) = match try_lower_simple_arg(expr, self.ty_ctx)? {
-                ExprClass::Simple(arg, arg_ty) => (arg, arg_ty),
-                ExprClass::Complex(_) => {
+            let (lowered, actual_ty) = match classify_expr(expr, self.ty_ctx)? {
+                ExprClass::Simple(data) => (data.lowered, data.ty),
+                ExprClass::NeedsTemp(data) => {
                     // Save this expression to a temporary
-                    let arg_ty = self.ty_ctx.compute_type_shallow(expr)?;
-                    let (local_id, _) = self.define_temporary(stmt.time, arg_ty, expr)?;
-                    let arg = InstrArg::Local(local_id);
+                    let (local_id, _) = self.define_temporary(stmt.time, &data)?;
 
                     temp_local_ids.push(local_id); // so we can free the register later
 
-                    (arg, arg_ty)
+                    (InstrArg::Local(local_id), data.read_ty)
                 },
             };
 
@@ -213,9 +214,10 @@ impl Lowerer<'_> {
             };
             if actual_ty != expected_ty {
                 return Err(error!(
-                    message("argument {} to '{}' has wrong type", arg_index+1, name),
-                    primary(expr, "wrong type"),
+                    message("type error"),
+                    primary(expr, "wrong type for argument {}", arg_index+1),
                     secondary(name, "expects {}", expected_ty.descr()),
+                    // TODO: note ECL file or pragma that gives signature?
                 ));
             }
             Ok(lowered)
@@ -235,7 +237,7 @@ impl Lowerer<'_> {
     }
 
     /// Lowers `if (<cond>) goto label @ time;`
-    fn var_declaration(
+    fn lower_var_declaration(
         &mut self,
         _stmt_span: Span,
         stmt_time: i32,
@@ -257,14 +259,14 @@ impl Lowerer<'_> {
 
             if let Some(expr) = expr {
                 let assign_op = sp!(pair.span => ast::AssignOpKind::Assign);
-                self.assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
+                self.lower_assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
             }
         }
         Ok(())
     }
 
     /// Lowers `a = <B>;`  or  `a *= <B>;`
-    fn assign_op(
+    fn lower_assign_op(
         &mut self,
         span: Span,
         time: i32,
@@ -272,54 +274,70 @@ impl Lowerer<'_> {
         assign_op: &Sp<ast::AssignOpKind>,
         rhs: &Sp<ast::Expr>,
     ) -> Result<(), CompileError> {
-        match (assign_op.value, &rhs.value) {
-            // a = <expr> + <expr>
+        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+
+        let data_rhs = match classify_expr(rhs, self.ty_ctx)? {
+            // a = <atom>;
+            // a += <atom>;
+            ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
+                let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
+                self.out.push(LowLevelStmt::Instr(Instr {
+                    time,
+                    opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty), span, "update assignment with this operation")?,
+                    args: vec![lowered_var, lowered_rhs],
+                }));
+                return Ok(());
+            },
+            ExprClass::NeedsTemp(data) => data,
+        };
+
+        // a = _f(<expr>);
+        // a *= _f(<expr>);
+        if data_rhs.read_ty != data_rhs.tmp_ty {
+            // Regardless of what the expression contains, assign it to a temporary.
+            // (i.e.:    `float tmp = <expr>;  a = $tmp;`
+            let (tmp_local_id, tmp_as_expr) = self.define_temporary(time, &data_rhs)?;
+            self.lower_assign_op(span, time, var, assign_op, &tmp_as_expr)?;
+            self.undefine_temporary(tmp_local_id)?;
+            return Ok(());
+        }
+
+        // complex expressions without a cast
+        match (assign_op.value, &data_rhs.tmp_expr.value) {
+            // a = <expr> + <expr>;
             (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
-                self.assign_direct_binop(span, time, var, assign_op, rhs.span, a, binop, b)?;
+                self.lower_assign_direct_binop(span, time, var, assign_op, rhs.span, a, binop, b)
             },
 
             // a = -<expr>;
             // a = sin(<expr>);
-            // a = _S(<expr>);
             (ast::AssignOpKind::Assign, Expr::Unop(unop, b)) => {
-                self.assign_direct_unop(span, time, var, assign_op, rhs.span, unop, b)?;
+                self.lower_assign_direct_unop(span, time, var, assign_op, rhs.span, unop, b)
             },
 
             // a = <any other expr>;
             // a += <expr>;
             (_, _) => {
-                let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-                match (assign_op.value, try_lower_simple_arg(rhs, self.ty_ctx)?) {
+                match assign_op.value {
                     // a = <big expr>
                     // if none of the other branches handled it yet, we can't do it
-                    (ast::AssignOpKind::Assign, ExprClass::Complex(_)) => return Err(unsupported(&rhs.span, "this expression")),
-
-                    // a = <atom>;
-                    // a += <atom>;
-                    (_, ExprClass::Simple(arg_rhs, ty_rhs)) => {
-                        let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
-                        self.out.push(LowLevelStmt::Instr(Instr {
-                            time,
-                            opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty), span, "update assignment with this operation")?,
-                            args: vec![arg_var, arg_rhs],
-                        }));
-                    },
+                    ast::AssignOpKind::Assign => Err(unsupported(&rhs.span, "this expression")),
 
                     // a += <expr>;
                     // split out to: `tmp = <expr>;  a += tmp;`
-                    (_, ExprClass::Complex(_)) => {
-                        let (tmp_local_id, tmp_var_expr) = self.define_temporary(time, ty_var, rhs)?;
-                        self.assign_op(span, time, var, assign_op, &tmp_var_expr)?;
+                    _ => {
+                        let (tmp_local_id, tmp_var_expr) = self.define_temporary(time, &data_rhs)?;
+                        self.lower_assign_op(span, time, var, assign_op, &tmp_var_expr)?;
                         self.undefine_temporary(tmp_local_id)?;
+                        Ok(())
                     },
                 }
             },
         }
-        Ok(())
     }
 
     /// Lowers `a = <B> * <C>;`
-    fn assign_direct_binop(
+    fn lower_assign_direct_binop(
         &mut self,
         span: Span,
         time: i32,
@@ -330,76 +348,73 @@ impl Lowerer<'_> {
         binop: &Sp<ast::BinopKind>,
         b: &Sp<Expr>,
     ) -> Result<(), CompileError> {
-        // So right here, we have something like `a = <B> * <C>`. If <B> and <C> are both simple arguments (literals or
+        // So right here, we have something like `v = <A> * <B>`. If <A> and <B> are both simple arguments (literals or
         // variables), we can emit this as one instruction. Otherwise, we need to break it up.  In the general case this
         // would mean producing
         //
         //     int tmp;
-        //     tmp = <B>;      // recursive call
-        //     a = tmp * <C>;  // recursive call
+        //     tmp = <A>;      // recursive call
+        //     v = tmp * <B>;  // recursive call
         //
-        // but sometimes it's possible to do this without a temporary by reusing the destination variable `a`, such as:
+        // but sometimes it's possible to do this without a temporary by reusing the destination variable `v`, such as:
         //
-        //     a = <B>;        // recursive call
-        //     a = tmp * <C>;  // recursive call
+        //     v = <A>;        // recursive call
+        //     v = tmp * <B>;  // recursive call
 
-        let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-        let classified_args = [try_lower_simple_arg(a, self.ty_ctx)?, try_lower_simple_arg(b, self.ty_ctx)?];
-
-        // Preserve execution order by always splitting out the first large subexpression.
-        let split_out_index = (0..2).filter(|&i| classified_args[i].as_complex().is_some()).next();
-        match split_out_index {
-            Some(split_out_index) => {
-                let other_index = 1 - split_out_index;
-
-                // If the other expression does not use our destination variable, we can reuse it.
-                let mut temp_local_id = None;
-                let mut split_out_var = var.clone();
-                let split_out_expr = [&a, &b][split_out_index];
-                let split_out_span = split_out_expr.span;
-                let split_out_op = sp!(split_out_span => ast::AssignOpKind::Assign);
-                if expr_uses_var([&a, &b][other_index], var) {
-                    // It's used, so we need a temporary.
-
-                    let subexpr_ty = self.ty_ctx.compute_type_shallow(split_out_expr)?;
-                    let (local_id, tmp_var, _) = self.allocate_temporary(split_out_span, subexpr_ty);
-
-                    temp_local_id = Some(local_id);
-                    split_out_var = tmp_var;
-                };
-
-                // first statement
-                self.assign_op(split_out_span, time, &split_out_var, &split_out_op, split_out_expr)?;
-
-                // second statement:  reconstruct the outer expression, replacing the part we split out
-                let mut parts: [&Sp<ast::Expr>; 2] = [a, b];
-                let split_out_var_as_expr = sp!(split_out_var.span => ast::Expr::Var(split_out_var));
-                parts[split_out_index] = &split_out_var_as_expr;
-                self.assign_direct_binop(span, time, var, eq_sign, rhs_span, parts[0], binop, parts[1])?;
-
-                if let Some(local_id) = temp_local_id {
-                    self.undefine_temporary(local_id)?;
+        // Evaluate the first subexpression if necessary.
+        let simple_a = match classify_expr(a, self.ty_ctx)? {
+            ExprClass::NeedsTemp(data_a) => {
+                if data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
+                    // we can reuse the output variable!
+                    let var_as_expr = self.compute_temporary_expr(time, var, &data_a)?;
+                    self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &var_as_expr, binop, b)?;
+                } else {
+                    // we need a temporary, either due to the type cast or to avoid invalidating the other subexpression
+                    let (tmp_local_id, tmp_as_expr) = self.define_temporary(time, &data_a)?;
+                    self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &tmp_as_expr, binop, b)?;
+                    self.undefine_temporary(tmp_local_id)?;
                 }
+                return Ok(());
             },
+            ExprClass::Simple(simple) => simple,
+        };
 
-            // if they're both simple, that's our base case, and we emit a single instruction
-            None => {
-                let (arg_a, ty_a) = classified_args[0].as_simple().unwrap();
-                let (arg_b, ty_b) = classified_args[1].as_simple().unwrap();
-                let ty_rhs = binop.result_type(ty_a, ty_b, (a.span, b.span))?;
-                let ty = ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
-                self.out.push(LowLevelStmt::Instr(Instr {
-                    time,
-                    opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "this binary operation")?,
-                    args: vec![arg_var, arg_a.clone(), arg_b.clone()],
-                }));
+        // FIXME: This is somewhat copy-pasta-y.  It's possible to write this and the above into a loop with two
+        //        iterations, but the end result looked pretty awkward last time I tried.
+        // First guy is simple.  Evaluate the second subexpression if necessary.
+        let simple_b = match classify_expr(b, self.ty_ctx)? {
+            ExprClass::NeedsTemp(data_b) => {
+                // similar conditions apply...
+                if data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var) {
+                    // we can reuse the output variable!
+                    let var_as_expr = self.compute_temporary_expr(time, var, &data_b)?;
+                    self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, a, binop, &var_as_expr)?;
+                } else {
+                    // we need a temporary, either due to the type cast or to avoid invalidating the other subexpression
+                    let (tmp_local_id, tmp_as_expr) = self.define_temporary(time, &data_b)?;
+                    self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, a, binop, &tmp_as_expr)?;
+                    self.undefine_temporary(tmp_local_id)?;
+                }
+                return Ok(());
             },
-        }
+            ExprClass::Simple(simple) => simple,
+        };
+
+        // They're both simple.  Emit a primitive instruction.
+        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+        let ty_rhs = binop.result_type(simple_a.ty, simple_b.ty, (a.span, b.span))?;
+        let ty = ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
+
+        self.out.push(LowLevelStmt::Instr(Instr {
+            time,
+            opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "this binary operation")?,
+            args: vec![lowered_var, simple_a.lowered, simple_b.lowered],
+        }));
         Ok(())
     }
 
     /// Lowers `a = <B> * <C>;`
-    fn assign_direct_unop(
+    fn lower_assign_direct_unop(
         &mut self,
         span: Span,
         time: i32,
@@ -409,76 +424,67 @@ impl Lowerer<'_> {
         unop: &Sp<ast::UnopKind>,
         b: &Sp<Expr>,
     ) -> Result<(), CompileError> {
-        // Unary operations can always reuse their destination register.
-        //
-        // ....well.... *almost*.  Casts can't, because that would imply you wrote two different types to the
-        // same register (and the games only allow each register to be written as a single type)
-
-        let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-        let ty_b = self.ty_ctx.compute_type_shallow(b)?;
-        let ty_rhs = unop.result_type(ty_b, b.span)?;
-        ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
-
-        if ty_b != ty_rhs {
-            // It's a cast.
-            //
-            // In this case, we don't even care whether b is simple; `try_lower_simple_arg` already treats casts
-            // of variables as simple (meaning we wouldn't be here!), and we want to treat literals here the same
-            // as complex expressions.
-            assert!(unop.value == ast::UnopKind::CastI || unop.value == ast::UnopKind::CastF, "{:?}", unop);
-
-            // Compute b into a temporary.
-            let (tmp_local_id, tmp_as_expr) = self.define_temporary(time, ty_b, b)?;
-            self.assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &tmp_as_expr)?;
-            self.undefine_temporary(tmp_local_id)?;
-            return Ok(());
-        }
+        eprintln!("unop {:?} || {:?} || {:?}", var, unop, b);
 
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == ast::UnopKind::Neg {
-            let zero = sp!(unop.span => match ty_b {
+            let zero = sp!(unop.span => match self.ty_ctx.compute_type_shallow(b)? {
                 ScalarType::Int => ast::Expr::from(0),
                 ScalarType::Float => ast::Expr::from(0.0),
             });
             let minus = sp!(unop.span => ast::BinopKind::Sub);
-            self.assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
+            self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
             return Ok(());
         }
 
-        // Not a cast. No temporary is needed.
-        match try_lower_simple_arg(b, self.ty_ctx)? {
-            ExprClass::Simple(arg_b, _ty_b_again) => {
-                assert_eq!(ty_b, _ty_b_again);
+        match classify_expr(b, self.ty_ctx)? {
+            ExprClass::NeedsTemp(data_b) => {
+                // Unary operations can reuse their destination register as long as it's the same type.
+                if data_b.tmp_ty == data_b.read_ty {
+                    // compile to:   a = <B>;
+                    //               a = sin(a);
+                    let var_as_expr = self.compute_temporary_expr(time, var, &data_b)?;
+                    self.lower_assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &var_as_expr)?;
+                } else {
+                    // compile to:   temp = <B>;
+                    //               a = sin(temp);
+                    let (tmp_local_id, tmp_as_expr) = self.define_temporary(time, &data_b)?;
+                    self.lower_assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &tmp_as_expr)?;
+                    self.undefine_temporary(tmp_local_id)?;
+                }
+                Ok(())
+            },
+
+            ExprClass::Simple(data_b) => {
+                let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+                let ty_rhs = unop.result_type(data_b.ty, b.span)?;
+                ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
+                let ty = ty_var;
+
                 match unop.value {
+                    // These are all handled other ways
                     ast::UnopKind::CastI |
                     ast::UnopKind::CastF |
                     ast::UnopKind::Neg => unreachable!(),
 
+                    // TODO: we *could* polyfill this with some conditional jumps but bleccccch
                     ast::UnopKind::Not => return Err(unsupported(&span, "logical not operator")),
 
                     ast::UnopKind::Sin |
                     ast::UnopKind::Cos |
                     ast::UnopKind::Sqrt => self.out.push(LowLevelStmt::Instr(Instr {
                         time,
-                        opcode: self.get_opcode(IKind::Unop(unop.value, ty_b), span, "this unary operation")?,
-                        args: vec![arg_var, arg_b.clone()],
+                        opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
+                        args: vec![lowered_var, data_b.lowered],
                     })),
                 }
-            },
-            ExprClass::Complex(_) => {
-                // compile to:   a = <B>;
-                //               a = sin(a);
-                let inner_eq_sign = sp!(rhs_span => ast::AssignOpKind::Assign);
-                let var_as_expr = sp!(var.span => ast::Expr::Var(var.clone()));
-                self.assign_op(span, time, var, &inner_eq_sign, b)?;
-                self.assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &var_as_expr)?;
+                Ok(())
             },
         }
-        Ok(())
     }
 
     /// Lowers `if (<cond>) goto label @ time;`
-    fn cond_jump(
+    fn lower_cond_jump(
         &mut self,
         stmt_span: Span,
         stmt_time: i32,
@@ -508,7 +514,7 @@ impl Lowerer<'_> {
             },
 
             (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
-                Expr::Binop(a, binop, b) => self.cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
+                Expr::Binop(a, binop, b) => self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
 
                 _ => Err(unsupported(&expr.span, &format!("{} in condition", expr.descr()))),
             },
@@ -516,7 +522,7 @@ impl Lowerer<'_> {
     }
 
     /// Lowers `if (<A> != <B>) goto label @ time;` and similar
-    fn cond_jump_binop(
+    fn lower_cond_jump_binop(
         &mut self,
         stmt_span: Span,
         stmt_time: i32,
@@ -526,38 +532,39 @@ impl Lowerer<'_> {
         b: &Sp<Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), CompileError>{
-        match (try_lower_simple_arg(a, self.ty_ctx)?, try_lower_simple_arg(b, self.ty_ctx)?) {
+        match (classify_expr(a, self.ty_ctx)?, classify_expr(b, self.ty_ctx)?) {
             // `if (<A> != <B>) ...`
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
-            (ExprClass::Complex(_), _) => {
-                let ty_tmp = self.ty_ctx.compute_type_shallow(a)?;
-
-                let (id, var_expr) = self.define_temporary(stmt_time, ty_tmp, a)?;
-                self.cond_jump_binop(stmt_span, stmt_time, keyword, &var_expr, binop, b, goto)?;
+            (ExprClass::NeedsTemp(data_a), _) => {
+                let (id, var_expr) = self.define_temporary(stmt_time, &data_a)?;
+                self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, &var_expr, binop, b, goto)?;
                 self.undefine_temporary(id)?;
             },
 
             // `if (a != <B>) ...`
             // split out to: `tmp = <B>;  if (a != tmp) ...`;
-            (ExprClass::Simple(_, ty_tmp), ExprClass::Complex(_)) => {
-                let (id, var_expr) = self.define_temporary(stmt_time, ty_tmp, b)?;
-                self.cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, &var_expr, goto)?;
+            (ExprClass::Simple(_), ExprClass::NeedsTemp(data_b)) => {
+                let (id, var_expr) = self.define_temporary(stmt_time, &data_b)?;
+                self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, &var_expr, goto)?;
                 self.undefine_temporary(id)?;
             },
 
             // `if (a != b) ...`
-            (ExprClass::Simple(arg_a, ty_a), ExprClass::Simple(arg_b, ty_b)) => {
-                let ty_arg = binop.result_type(ty_a, ty_b, (a.span, b.span))?;
-                let (arg_label, arg_time) = lower_goto_args(goto);
+            (ExprClass::Simple(data_a), ExprClass::Simple(data_b)) => {
+                let ty_arg = binop.result_type(data_a.ty, data_b.ty, (a.span, b.span))?;
+                let (lowered_label, lowered_time) = lower_goto_args(goto);
                 self.out.push(LowLevelStmt::Instr(Instr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
-                    args: vec![arg_a, arg_b, arg_label, arg_time],
+                    args: vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time],
                 }));
             },
         }
         Ok(())
     }
+
+    // ------------------
+    // Helpers for dealing with temporaries.
 
     /// Declares a new register-allocated temporary and initializes it with an expression.
     ///
@@ -565,15 +572,30 @@ impl Lowerer<'_> {
     fn define_temporary(
         &mut self,
         time: i32,
-        ty: ScalarType,
-        expr: &Sp<Expr>,
+        data: &TemporaryExpr<'_>,
     ) -> Result<(LocalId, Sp<Expr>), CompileError> {
-        let (local_id, var, var_as_expr) = self.allocate_temporary(expr.span, ty);
-
-        let eq_sign = sp!(expr.span => ast::AssignOpKind::Assign);
-        self.assign_op(expr.span, time, &var, &eq_sign, expr)?;
+        let (local_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty);
+        let var_as_expr = self.compute_temporary_expr(time, &var, data)?;
 
         Ok((local_id, var_as_expr))
+    }
+
+    /// Evaluate a temporary expression into an existing variable by emitting the instructions that compute it.
+    ///
+    /// For convenience, also returns an expression for reading the variable as a specific type, as you presumably
+    /// have a reason for storing this value there. (the read type is allowed to differ from the expression's type)
+    fn compute_temporary_expr(
+        &mut self,
+        time: i32,
+        var: &Sp<ast::Var>,
+        data: &TemporaryExpr<'_>,
+    ) -> Result<Sp<Expr>, CompileError> {
+        let eq_sign = sp!(data.tmp_expr.span => ast::AssignOpKind::Assign);
+        self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
+
+        let mut read_var = var.clone();
+        read_var.set_ty_sigil(Some(data.read_ty.into()));
+        Ok(sp!(var.span => ast::Expr::Var(read_var)))
     }
 
     /// Emits an intrinsic that cleans up a register-allocated temporary.
@@ -582,22 +604,21 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Grabs a new unique [`VarId`] and constructs an [`ast::Var`] as well as an [`ast::Expr`] for using the
-    /// variable in an expression.  Emits an intrinsic to allocate a register to it.
+    /// Grabs a new unique [`VarId`] and constructs an [`ast::Var`] for assigning a value to it.
+    /// Emits an intrinsic to allocate a register to it.
     ///
     /// Call [`Self::undefine_temporary`] afterwards to clean up.
     fn allocate_temporary(
         &mut self,
         span: Span,
-        ty: ScalarType,
-    ) -> (LocalId, Sp<ast::Var>, Sp<ast::Expr>) {
-        let local_id = self.ty_ctx.variables.declare_temporary(Some(ty));
-        let var = sp!(span => ast::Var::Resolved { ty_sigil: None, var_id: local_id.into() });
-        let var_as_expr = sp!(span => ast::Expr::Var(var.clone()));
+        tmp_ty: ScalarType,
+    ) -> (LocalId, Sp<ast::Var>) {
+        let local_id = self.ty_ctx.variables.declare_temporary(Some(tmp_ty));
 
+        let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(tmp_ty.into()), var_id: local_id.into() });
         self.out.push(LowLevelStmt::RegAlloc { local_id, cause: span });
 
-        (local_id, var, var_as_expr)
+        (local_id, var)
     }
 
     fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
@@ -606,70 +627,62 @@ impl Lowerer<'_> {
 }
 
 enum ExprClass<'a> {
-    Simple(InstrArg, ScalarType),
-    Complex(&'a Sp<Expr>),
+    Simple(SimpleExpr),
+    NeedsTemp(TemporaryExpr<'a>),
 }
 
-impl ExprClass<'_> {
-    fn as_complex(&self) -> Option<&Sp<Expr>> {
-        match self { ExprClass::Complex(x) => Some(x), _ => None }
-    }
-    fn as_simple(&self) -> Option<(&InstrArg, ScalarType)> {
-        match self { &ExprClass::Simple(ref a, ty) => Some((a, ty)), _ => None }
-    }
+struct SimpleExpr {
+    lowered: InstrArg,
+    ty: ScalarType,
 }
 
-fn try_lower_simple_arg<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<ExprClass<'a>, CompileError> {
+struct TemporaryExpr<'a> {
+    /// The part that must be stored to a temporary. Usually the whole expression, but for a cast we
+    /// only store the inner part as a temporary.
+    tmp_expr: &'a Sp<Expr>,
+    tmp_ty: ScalarType,
+    read_ty: ScalarType,
+}
+
+fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<ExprClass<'a>, CompileError> {
     match arg.value {
-        ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(InstrArg::Raw(value.into()), ScalarType::Int)),
-        ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(InstrArg::Raw(value.into()), ScalarType::Float)),
+        ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
+            lowered: InstrArg::Raw(value.into()),
+            ty: ScalarType::Int,
+        })),
+        ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
+            lowered: InstrArg::Raw(value.into()),
+            ty: ScalarType::Float,
+        })),
         ast::Expr::Var(ref var) => {
-            let (out, ty) = lower_var_to_arg(var, ty_ctx)?;
-            Ok(ExprClass::Simple(out, ty))
+            let (lowered, ty) = lower_var_to_arg(var, ty_ctx)?;
+            Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))
         },
 
-        // Casts of variables are also considered 'simple'; basically, during expression compilation we
-        // treat _f(x) identical to %x.  Why?  Well, consider the instruction call
+        // Here we treat casts.  A cast of any expression is understood to require a temporary of
+        // the *input* type of the cast, but not the output type.  For example:
         //
         //             foo(_f($I + 3));
         //
-        // Ideally, we would want this to compile to using only a single integer scratch register
-        // (for `$I + 3`) and not to waste an unnecessary float register:
+        // Ideally, this should compile into using only a single integer scratch register:
         //
         //             int tmp = $I + 3;
         //             foo(%tmp);
         //
-        // There are similar considerations for other places where `_f` and `_S` can appear nested inside
-        // a complex expression.  The only way to handle all of these cases properly is to pervasively
-        // treat `_f(x)` as a simple, "atomic" value.
-        ast::Expr::Unop(unop, ref b) => match &b.value {
-
-            // Notice we only do this for casts of variables, and not for literals, because the functionality
-            // for casting in the games is implemented specifically at variable read sites.
-            // (that said, the const folding pass should have already done it to any literals!)
-            ast::Expr::Var(var_orig) => {
-                let ty_cast = match unop.value {
-                    ast::UnopKind::CastI => ScalarType::Int,
-                    ast::UnopKind::CastF => ScalarType::Float,
-                    _ => return Ok(ExprClass::Complex(arg)),
-                };
-                let (_arg_orig, ty_orig) = lower_var_to_arg(var_orig, ty_ctx)?;
-                unop.type_check(ty_orig, var_orig.span)?;
-
-                // arg_orig is no good because, if it's a register, then the ID was already encoded as the wrong type.
-                // To flip it let's just call the function again with the right type.
-                let var_cast = sp!(var_orig.span => match var_orig.value {
-                    ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-                    ast::Var::Resolved { var_id, .. } => ast::Var::Resolved { var_id, ty_sigil: Some(ty_cast.into()) },
-                });
-                let (arg_cast, _) = lower_var_to_arg(&var_cast, ty_ctx)?;
-
-                Ok(ExprClass::Simple(arg_cast, ty_cast))
-            },
-
-            _ => Ok(ExprClass::Complex(arg)),
+        ast::Expr::Unop(unop, ref b) if unop.is_cast() => {
+            let (tmp_ty, read_ty) = match unop.value {
+                ast::UnopKind::CastI => (ScalarType::Float, ScalarType::Int),
+                ast::UnopKind::CastF => (ScalarType::Int, ScalarType::Float),
+                _ => unreachable!("filtered out by is_cast()"),
+            };
+            Ok(ExprClass::NeedsTemp(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
         },
-        _ => Ok(ExprClass::Complex(arg)),
+
+        // Anything else needs a temporary of the same type, consisting of the whole expression.
+        _ => Ok(ExprClass::NeedsTemp({
+            let ty = ty_ctx.compute_type_shallow(arg)?;
+            TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
+        })),
     }
 }
 
