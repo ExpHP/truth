@@ -8,7 +8,7 @@ use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{CompileError, SimpleError};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
-use crate::var::{LocalId};
+use crate::var::{LocalId, RegId};
 use crate::type_system::ScalarType;
 
 pub use lower::lower_sub_ast_to_instrs;
@@ -28,22 +28,29 @@ pub enum InstrArg {
     /// A fully encoded argument (an immediate or a register).
     Raw(RawArg),
     /// A reference to a register-allocated local.
+    ///
+    /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
+    /// a raw dword before [`InstrFormat::write_instr`] is called.
     Local { local_id: LocalId, read_ty: ScalarType },
     /// A label that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
-    /// a dword before [`InstrFormat::write_instr`] is called.
+    /// a raw dword before [`InstrFormat::write_instr`] is called.
     Label(Sp<Ident>),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
     ///
     /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
-    /// a dword before [`InstrFormat::write_instr`] is called.
+    /// a raw dword before [`InstrFormat::write_instr`] is called.
     TimeOf(Sp<Ident>),
 }
+
+/// An untyped dword argument, exactly as it will (or did) appear in the binary file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RawArg {
+    /// The encoded value.  It contains the bits of either an `i32` or an `f32`.
     pub bits: u32,
-    pub is_var: bool,
+    /// A single bit from the param mask.
+    pub is_reg: bool,
 }
 
 impl InstrArg {
@@ -64,7 +71,7 @@ impl InstrArg {
     pub fn expect_immediate_int(&self) -> i32 {
         match *self {
             InstrArg::Raw(x) => {
-                assert!(!x.is_var);
+                assert!(!x.is_reg);
                 x.bits as i32
             },
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
@@ -75,7 +82,7 @@ impl InstrArg {
     pub fn expect_immediate_float(&self) -> f32 {
         match *self {
             InstrArg::Raw(x) => {
-                assert!(!x.is_var);
+                assert!(!x.is_reg);
                 f32::from_bits(x.bits)
             },
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
@@ -84,25 +91,25 @@ impl InstrArg {
 }
 
 impl RawArg {
-    pub fn from_reg(number: i32, ty: ScalarType) -> RawArg {
+    pub fn from_reg(reg: RegId, ty: ScalarType) -> RawArg {
         let bits = match ty {
-            ScalarType::Int => number as u32,
-            ScalarType::Float => (number as f32).to_bits(),
+            ScalarType::Int => reg.0 as u32,
+            ScalarType::Float => (reg.0 as f32).to_bits(),
         };
-        RawArg { bits, is_var: true }
+        RawArg { bits, is_reg: true }
     }
 }
 
 impl From<u32> for RawArg {
-    fn from(x: u32) -> RawArg { RawArg { bits: x, is_var: false } }
+    fn from(x: u32) -> RawArg { RawArg { bits: x, is_reg: false } }
 }
 
 impl From<i32> for RawArg {
-    fn from(x: i32) -> RawArg { RawArg { bits: x as u32, is_var: false } }
+    fn from(x: i32) -> RawArg { RawArg { bits: x as u32, is_reg: false } }
 }
 
 impl From<f32> for RawArg {
-    fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_var: false } }
+    fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_reg: false } }
 }
 
 fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
@@ -296,7 +303,7 @@ pub trait InstrFormat {
     // Special purpose functions only overridden by a few formats
 
     /// List of registers available for scratch use in formats without a stack.
-    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<i32>> {
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
         enum_map::enum_map!(_ => vec![])
     }
 
@@ -332,9 +339,9 @@ pub fn read_dword_args_upto_size(
 
     let out = (0..nargs).map(|_| {
         let bits = f.read_u32()?;
-        let is_var = param_mask % 2 == 1;
+        let is_reg = param_mask % 2 == 1;
         param_mask /= 2;
-        Ok(InstrArg::Raw(RawArg { bits, is_var }))
+        Ok(InstrArg::Raw(RawArg { bits, is_reg }))
     }).collect::<ReadResult<_>>()?;
 
     if param_mask != 0 {
@@ -354,7 +361,7 @@ impl Instr {
         let mut mask = 0;
         for arg in self.args.iter().rev(){
             let bit = match *arg {
-                InstrArg::Raw(RawArg { is_var, .. }) => is_var as u16,
+                InstrArg::Raw(RawArg { is_reg, .. }) => is_reg as u16,
                 InstrArg::TimeOf { .. } |
                 InstrArg::Label { .. } => 0,
                 InstrArg::Local { .. } => 1,
@@ -370,8 +377,8 @@ impl Instr {
 #[derive(Debug, Clone, Default)]
 pub struct TestFormat {
     pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
-    pub general_use_int_regs: Vec<i32>,
-    pub general_use_float_regs: Vec<i32>,
+    pub general_use_int_regs: Vec<RegId>,
+    pub general_use_float_regs: Vec<RegId>,
 }
 impl InstrFormat for TestFormat {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
@@ -383,7 +390,7 @@ impl InstrFormat for TestFormat {
     fn write_instr(&self, _: &mut dyn BinWrite, _: &Instr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
-    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<i32>> {
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
         enum_map::enum_map!{
             ScalarType::Int => self.general_use_int_regs.clone(),
             ScalarType::Float => self.general_use_float_regs.clone(),

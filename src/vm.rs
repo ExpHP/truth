@@ -3,7 +3,7 @@ use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
 use crate::ident::Ident;
-use crate::var::VarId;
+use crate::var::{VarId, RegId};
 use crate::value::ScalarValue;
 
 macro_rules! opt_match {
@@ -349,8 +349,11 @@ impl AstVm {
 
     pub fn set_var(&mut self, var_id: VarId, value: ScalarValue) { self.var_values.insert(var_id, value); }
     pub fn get_var(&self, var_id: VarId) -> Option<ScalarValue> { self.var_values.get(&var_id).cloned() }
-    pub fn set_reg(&mut self, reg: i32, value: ScalarValue) { self.set_var(VarId::Reg(reg), value); }
-    pub fn get_reg(&self, reg: i32) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
+
+    /// Convenience wrapper of [`Self::set_var`] for test code.
+    pub fn set_reg(&mut self, reg: RegId, value: ScalarValue) { self.set_var(VarId::Reg(reg), value); }
+    /// Convenience wrapper of [`Self::get_var`] for test code.
+    pub fn get_reg(&self, reg: RegId) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
 
     fn set_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue) {
         let (key, _) = self._var_data(var);
@@ -394,7 +397,7 @@ mod tests {
 
             let mut ty_ctx = TypeSystem::new();
             for &(name, reg) in &self.globals {
-                ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), reg);
+                ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), RegId(reg));
             }
             ty_ctx.resolve_names_block(&mut ast).unwrap();
             ast.value
@@ -404,7 +407,7 @@ mod tests {
     #[test]
     fn basic_variables() {
         let ast = TestSpec {
-            globals: vec![("Y", -999)],
+            globals: vec![("Y", RegId(-999))],
             source: r#"{
                 int x = 3;
                 x = 2 + 3 * x + $Y;
@@ -413,7 +416,7 @@ mod tests {
         }.prepare();
 
         let mut vm = AstVm::new();
-        vm.set_var(VarId::Reg(-999), Int(7));
+        vm.set_reg(-999, Int(7));
 
         assert_eq!(vm.run(&ast.0), Some(Int(19)));
     }
@@ -421,7 +424,7 @@ mod tests {
     #[test]
     fn basic_instrs_and_time() {
         let ast = TestSpec {
-            globals: vec![("X", 100), ("Y", 101)],
+            globals: vec![("X", RegId(100)), ("Y", RegId(101))],
             source: r#"{
                 ins_345(0, 6);
             +10:
@@ -430,8 +433,8 @@ mod tests {
         }.prepare();
 
         let mut vm = AstVm::new();
-        vm.set_var(VarId::Reg(100), Int(3));
-        vm.set_var(VarId::Reg(101), Float(7.0));
+        vm.set_reg(RegId(100), Int(3));
+        vm.set_reg(RegId(101), Float(7.0));
         vm.run(&ast.0);
 
         assert_eq!(vm.call_log, vec![
@@ -443,7 +446,7 @@ mod tests {
     #[test]
     fn while_do_while() {
         let while_ast = TestSpec {
-            globals: vec![("X", 100), ("Y", 101)],
+            globals: vec![("X", RegId(100)), ("Y", RegId(101))],
             source: r#"{
                 X = 0;
                 while (X < Y) {
@@ -458,7 +461,7 @@ mod tests {
         }.prepare();
 
         let do_while_ast = TestSpec {
-            globals: vec![("X", 100), ("Y", 101)],
+            globals: vec![("X", RegId(100)), ("Y", RegId(101))],
             source: r#"{
                 X = 0;
                 do {
@@ -475,7 +478,7 @@ mod tests {
 
         for ast in vec![&while_ast, &do_while_ast] {
             let mut vm = AstVm::new();
-            vm.set_var(VarId::Reg(101), Int(3));
+            vm.set_reg(RegId(101), Int(3));
             vm.run(&ast.0);
 
             assert_eq!(vm.call_log, vec![
@@ -489,7 +492,7 @@ mod tests {
         // now let Y = 0 so we can see the difference between 'do' and 'do while'
         for (ast, expected_iters) in vec![(&while_ast, 0), (&do_while_ast, 1)] {
             let mut vm = AstVm::new();
-            vm.set_var(VarId::Reg(101), Int(0));
+            vm.set_reg(RegId(101), Int(0));
             vm.run(&ast.0);
 
             assert_eq!(vm.call_log.len(), expected_iters + 1);
@@ -544,7 +547,7 @@ mod tests {
 
         for count in (0..3).rev() {
             let mut vm = AstVm::new();
-            vm.set_var(VarId::Reg(100), Int(count));
+            vm.set_reg(RegId(100), Int(count));
             vm.run(&ast.0);
 
             assert_eq!(vm.call_log.len(), count as usize);
@@ -558,7 +561,7 @@ mod tests {
         macro_rules! gen_spec {
             ($last_clause:literal) => {
                 TestSpec {
-                    globals: vec![("X", 100)],
+                    globals: vec![("X", RegId(100))],
                     source: concat!(r#"{
                         if (X == 1) {
                             a(1);
@@ -582,7 +585,7 @@ mod tests {
         for ast in vec![&with_else, &without_else] {
             for x in vec![1, 2, 3] {
                 let mut vm = AstVm::new();
-                vm.set_var(VarId::Reg(100), Int(x));
+                vm.set_reg(RegId(100), Int(x));
                 vm.run(&ast.0);
 
                 assert_eq!(vm.call_log, vec![
@@ -598,7 +601,7 @@ mod tests {
     #[test]
     fn type_cast() {
         let ast = TestSpec {
-            globals: vec![("X", 30), ("Y", 31)],
+            globals: vec![("X", RegId(30)), ("Y", RegId(31))],
             source: r#"{
                 Y = 6.78;
                 X = $Y * 2;
@@ -607,8 +610,8 @@ mod tests {
 
         let mut vm = AstVm::new();
         vm.run(&ast.0);
-        assert_eq!(vm.get_reg(31).unwrap(), Float(6.78));
-        assert_eq!(vm.get_reg(30).unwrap(), Int(12));
+        assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(6.78));
+        assert_eq!(vm.get_reg(RegId(30)).unwrap(), Int(12));
     }
 
     #[test]
@@ -627,7 +630,10 @@ mod tests {
     #[test]
     fn math_funcs() {
         let ast = TestSpec {
-            globals: vec![("X", 30), ("SIN", 31), ("COS", 32), ("SQRT", 33)],
+            globals: vec![
+                ("X", RegId(30)),
+                ("SIN", RegId(31)), ("COS", RegId(32)), ("SQRT", RegId(33)),
+            ],
             source: r#"{
                 SIN = sin(X);
                 COS = cos(X);
@@ -637,18 +643,21 @@ mod tests {
         let x = 5.2405;
 
         let mut vm = AstVm::new();
-        vm.set_reg(30, Float(x));
+        vm.set_reg(RegId(30), Float(x));
         vm.run(&ast.0);
 
-        assert_eq!(vm.get_reg(31).unwrap(), Float(x.sin()));
-        assert_eq!(vm.get_reg(32).unwrap(), Float(x.cos()));
-        assert_eq!(vm.get_reg(33).unwrap(), Float((x + 3.0).sqrt()));
+        assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(x.sin()));
+        assert_eq!(vm.get_reg(RegId(32)).unwrap(), Float(x.cos()));
+        assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((x + 3.0).sqrt()));
     }
 
     #[test]
     fn cast() {
         let ast = TestSpec {
-            globals: vec![("I", 30), ("F", 31), ("F_TO_I", 32), ("I_TO_F", 33)],
+            globals: vec![
+                ("I", RegId(30)), ("F", RegId(31)),
+                ("F_TO_I", RegId(32)), ("I_TO_F", RegId(33)),
+            ],
             source: r#"{
                 F_TO_I = _S(F * 7.0) - 2;
                 I_TO_F = _f(I + 3) + 0.5;
@@ -658,11 +667,11 @@ mod tests {
         let i = 12;
 
         let mut vm = AstVm::new();
-        vm.set_reg(30, Int(i));
-        vm.set_reg(31, Float(f));
+        vm.set_reg(RegId(30), Int(i));
+        vm.set_reg(RegId(31), Float(f));
         vm.run(&ast.0);
 
-        assert_eq!(vm.get_reg(32).unwrap(), Int((f * 7.0) as i32 - 2));
-        assert_eq!(vm.get_reg(33).unwrap(), Float((i + 3) as f32 + 0.5));
+        assert_eq!(vm.get_reg(RegId(32)).unwrap(), Int((f * 7.0) as i32 - 2));
+        assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((i + 3) as f32 + 0.5));
     }
 }

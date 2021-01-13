@@ -15,13 +15,27 @@ use crate::type_system::ScalarType;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarId {
     /// A global register.  Use [`crate::type_system::RegsAndInstrs`] to obtain more information about it.
-    Reg(i32),
+    Reg(RegId),
     /// A local variable, uniquely resolved by its scope.
     Local(LocalId),
 }
 
 impl From<LocalId> for VarId {
     fn from(x: LocalId) -> Self { VarId::Local(x) }
+}
+
+impl From<RegId> for VarId {
+    fn from(x: RegId) -> Self { VarId::Reg(x) }
+}
+
+/// The number used to access a register as an instruction argument.  This uniquely identifies a register.
+///
+/// For instance, in TH17 ECL, the `TIME` register has an ID of `-9988`.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RegId(pub i32);
+
+impl From<i32> for RegId {
+    fn from(x: i32) -> Self { RegId(x) }
 }
 
 /// Uniquely identifies a scoped local variable.
@@ -60,7 +74,7 @@ struct Scope {
     /// Type of the variable defined in this scope, if fixed.
     ty: Option<ScalarType>,
     /// If the variable is a register alias (i.e. from a mapfile), the register it references.
-    reg: Option<i32>,
+    reg: Option<RegId>,
     /// Scope where the rest of the visible variables are defined.
     parent: ScopeId,
 }
@@ -98,7 +112,7 @@ impl Variables {
     /// IMPORTANT:  In some formats like ANM and old ECL, local variables are also ultimately
     /// allocated to registers, but that is unrelated to this and this function will return `None`
     /// for them.
-    fn get_mapped_register(&self, id: LocalId) -> Option<i32> { self.scopes[id.0.get()].reg }
+    fn get_mapped_register(&self, id: LocalId) -> Option<RegId> { self.scopes[id.0.get()].reg }
 
     /// Declare a new local variable with a unique [`LocalId`].
     pub fn declare_temporary(&mut self, ty: Option<ScalarType>) -> LocalId {
@@ -118,7 +132,7 @@ impl Variables {
     }
 
     /// Declares a global variable as an alias for a register, adding it to the global scope for future name resolution.
-    pub fn declare_global_register_alias(&mut self, ident: Ident, reg: i32) {
+    pub fn declare_global_register_alias(&mut self, ident: Ident, reg: RegId) {
         // NOTE: This panic is here because, under the current design, declaring globals after declaring locals could
         //       have a weird effect that all of the previously declared locals will still be using the scope without
         //       the new globals.
@@ -326,6 +340,12 @@ mod resolve_vars {
     }
 }
 
+impl fmt::Display for RegId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
 impl fmt::Display for LocalId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
@@ -335,6 +355,12 @@ impl fmt::Display for LocalId {
 impl fmt::Display for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.0.map(|x| x.0.get()).unwrap_or(0), f)
+    }
+}
+
+impl fmt::Debug for RegId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 

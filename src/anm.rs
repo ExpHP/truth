@@ -17,6 +17,7 @@ use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::type_system::{ScalarType, TypeSystem};
 use crate::passes::DecompileKind;
+use crate::var::RegId;
 
 // =============================================================================
 
@@ -853,12 +854,14 @@ impl InstrFormat for InstrFormat07 {
         }
     }
 
-    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<i32>> {
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
+        use RegId as R;
+
         match self.version {
             Version::V0 => unreachable!(),
             Version::V2 | Version::V3 | Version::V4 | Version::V7 | Version::V8 => enum_map::enum_map!{
-                ScalarType::Int => vec![10000, 10001, 10002, 10003, 10008, 10009],
-                ScalarType::Float => vec![10004, 10005, 10006, 10007],
+                ScalarType::Int => vec![R(10000), R(10001), R(10002), R(10003), R(10008), R(10009)],
+                ScalarType::Float => vec![R(10004), R(10005), R(10006), R(10007)],
             },
         }
     }

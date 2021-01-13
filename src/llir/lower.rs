@@ -6,7 +6,7 @@ use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
-use crate::var::{LocalId, VarId};
+use crate::var::{LocalId, VarId, RegId};
 use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
 
 use IntrinsicInstrKind as IKind;
@@ -32,6 +32,8 @@ pub fn lower_sub_ast_to_instrs(
     code: &[Sp<ast::Stmt>],
     ty_ctx: &mut TypeSystem,
 ) -> Result<Vec<Instr>, CompileError> {
+    let used_regs = get_used_regs(code);
+
     let mut lowerer = Lowerer {
         out: vec![],
         intrinsic_instrs: instr_format.intrinsic_instrs(),
@@ -43,7 +45,7 @@ pub fn lower_sub_ast_to_instrs(
 
     // And now postprocess
     encode_labels(&mut out, instr_format, 0)?;
-    assign_registers(&mut out, instr_format, ty_ctx)?;
+    assign_registers(&mut out, &used_regs, instr_format, ty_ctx)?;
 
     Ok(out.into_iter().filter_map(|x| match x {
         LowLevelStmt::Instr(instr) => Some(instr),
@@ -425,8 +427,6 @@ impl Lowerer<'_> {
         unop: &Sp<ast::UnopKind>,
         b: &Sp<Expr>,
     ) -> Result<(), CompileError> {
-        eprintln!("unop {:?} || {:?} || {:?}", var, unop, b);
-
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == ast::UnopKind::Neg {
             let ty = self.ty_ctx.compute_type_shallow(b)?;
@@ -823,18 +823,17 @@ fn encode_labels(
 /// Eliminates all `InstrArg::Label`s by replacing them with their dword values.
 fn assign_registers(
     code: &mut [LowLevelStmt],
+    used_regs: &[RegId],
     format: &dyn InstrFormat,
     ty_ctx: &TypeSystem,
 ) -> Result<(), CompileError> {
-    let used_regs = get_used_regs(code);
-
     let mut unused_regs = format.general_use_regs();
     for vec in unused_regs.values_mut() {
         vec.retain(|id| !used_regs.contains(id));
         vec.reverse();  // since we'll be popping from these lists
     }
 
-    let mut local_regs = HashMap::<LocalId, (i32, ScalarType, Span)>::new();
+    let mut local_regs = HashMap::<LocalId, (RegId, ScalarType, Span)>::new();
 
     for stmt in code {
         match stmt {
@@ -887,11 +886,25 @@ fn assign_registers(
     Ok(())
 }
 
-fn get_used_regs(stmts: &[LowLevelStmt]) -> Vec<i32> {
-    stmts.iter()
-        .filter_map(|stmt| match stmt { LowLevelStmt::Instr(instr) => Some(instr), _ => None })
-        .flat_map(|instr| instr.args.iter().filter_map(|arg| match arg {
-            &InstrArg::Raw(RawArg { is_var: true, bits }) => Some(bits as i32),
-            _ => None,
-        })).collect()
+// NOTE: at the time of writing, this has to be done to the ast (it can't be done to LowLevelStmts because
+//       there's no way to recover a register number from a RawArg in consideration of floats).
+fn get_used_regs(func_body: &[Sp<ast::Stmt>]) -> Vec<RegId> {
+    use ast::Visit;
+
+    struct UsedVisitor { used: Vec<RegId> }
+
+    impl Visit for UsedVisitor {
+        fn visit_var(&mut self, x: &Sp<ast::Var>) { match &x.value {
+            ast::Var::Named { ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
+            ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => self.used.push(*reg),
+            ast::Var::Resolved { var_id: VarId::Local(_), .. } => {},
+        }}
+    }
+
+    let mut v = UsedVisitor { used: vec![] };
+    // FIXME
+    for stmt in func_body {
+        v.visit_stmt(stmt);
+    }
+    v.used
 }

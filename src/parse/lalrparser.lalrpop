@@ -584,7 +584,7 @@ Var: Var = {
     "$" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Int), ident },
     "%" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign)) })
+        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign).into()) })
     },
     "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
@@ -594,7 +594,7 @@ Var: Var = {
         if reg as f32 != x * sign as f32 {
             return Err(ParseError::User { error: "non-integer variable ID" })
         }
-        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(reg) })
+        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(reg.into()) })
     },
 };
 

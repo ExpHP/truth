@@ -778,12 +778,12 @@ impl Format for ast::Var {
                 out.fmt(&fake_var)
             },
             ast::Var::Resolved { var_id: VarId::Reg(reg), ty_sigil } => match ty_sigil {
-                Some(ast::VarReadType::Int) => out.fmt(("[", reg, "]")),
-                Some(ast::VarReadType::Float) => out.fmt(("[", reg as f32, "]")),
+                Some(ast::VarReadType::Int) => out.fmt(("[", reg.0, "]")),
+                Some(ast::VarReadType::Float) => out.fmt(("[", reg.0 as f32, "]")),
                 // The only way this is possible is if a register alias was resolved to a register, and not unresolved
                 // before printing.  Since `Format` is also used for debugging we don't want to panic, just print
                 // something illegal.
-                None => out.fmt(("[?_", reg, "_?]")),  // register access with unknown type
+                None => out.fmt(("[?_", reg.0, "_?]")),  // register access with unknown type
             },
         }
     }

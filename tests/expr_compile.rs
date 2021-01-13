@@ -2,18 +2,20 @@
 //! and early ECL).
 
 use ecl_parser::{ast, llir, vm::AstVm, CompileError};
-use ecl_parser::{Files, Eclmap, TypeSystem, ScalarValue, ScalarType as Ty};
+use ecl_parser::{Files, Eclmap, TypeSystem, ScalarValue, ScalarType as Ty, RegId};
 
 use rand::Rng;
 
 struct Var {
-    reg: i32,
+    reg: RegId,
     ty: Option<Ty>,
     name: Option<&'static str>,
     scratch: bool,
     in_mapfile: bool,
 }
 
+// Note: In these tests, instructions with opcodes < 100 are reserved for specially recognized instructions
+//       and instructions named in the mapfile.  Use opcodes >= 100 for arbitrary instructions in the text.
 fn make_eclmap(vars: &[Var]) -> Eclmap {
     let mut lines = vec![];
     lines.push(format!("!anmmap"));
@@ -29,18 +31,24 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
             lines.push(format!("{} {}", var.reg, name));
         }
     }
+    lines.push(format!("!ins_names"));
+    lines.push(format!("70 nop"));
+    lines.push(format!("71 func_SSff"));
+    lines.push(format!("!ins_signatures"));
+    lines.push(format!("70"));
+    lines.push(format!("71 SSff"));
     Eclmap::parse(&lines.join("\n")).unwrap()
 }
 
 fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
     let mut format = llir::TestFormat::default();
-    llir::register_assign_ops(&mut format.intrinsic_opcode_pairs, 100);
-    llir::register_binary_ops(&mut format.intrinsic_opcode_pairs, 200);
-    llir::register_cond_jumps(&mut format.intrinsic_opcode_pairs, 300);
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, 5));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, 6));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), 7));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Cos, Ty::Float), 8));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, 1));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, 2));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), 3));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Cos, Ty::Float), 4));
+    llir::register_assign_ops(&mut format.intrinsic_opcode_pairs, 10);
+    llir::register_binary_ops(&mut format.intrinsic_opcode_pairs, 30);
+    llir::register_cond_jumps(&mut format.intrinsic_opcode_pairs, 40);
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();
@@ -64,15 +72,15 @@ fn make_randomized_vm(vars: &[Var]) -> AstVm {
     vm
 }
 
-const REG_A: i32 = 1000;
-const REG_B: i32 = 1001;
-const REG_C: i32 = 1002;
-const REG_D: i32 = 1003;
-const REG_X: i32 = 1004;
-const REG_Y: i32 = 1005;
-const REG_Z: i32 = 1006;
-const REG_W: i32 = 1007;
-const REG_COUNT: i32 = 1020;
+const REG_A: RegId = RegId(1000);
+const REG_B: RegId = RegId(1001);
+const REG_C: RegId = RegId(1002);
+const REG_D: RegId = RegId(1003);
+const REG_X: RegId = RegId(1004);
+const REG_Y: RegId = RegId(1005);
+const REG_Z: RegId = RegId(1006);
+const REG_W: RegId = RegId(1007);
+const REG_COUNT: RegId = RegId(1020);
 
 const SIMPLE_FOUR_VAR_SPEC: &'static [Var] = &[
     Var { reg: REG_A, ty: Some(Ty::Int), name: Some("A"), scratch: true, in_mapfile: true },
@@ -253,6 +261,32 @@ fn vars() {
 }
 
 #[test]
+fn float_uses_detected() {
+    // Regression test to make sure that float-typed reads are counted as uses.
+    for _ in 0..10 {
+        // This is designed to fail if any register other than Y is assigned for the local.
+        // (Y is in the middle of the scratch vars list, so this can't happen just on accident)
+        let (old_vm, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            float x = X + Z;
+            W = x;
+        }"#);
+        assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X));
+        assert_eq!(old_vm.get_reg(REG_Z), new_vm.get_reg(REG_Z));
+        assert_eq!(old_vm.get_reg(REG_W), new_vm.get_reg(REG_W));
+
+        // Likewise for float-typed reads of integer registers.
+        let (old_vm, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            int x = _S(%A + %C);
+            D = x;
+        }"#);
+        assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A));
+        assert_eq!(old_vm.get_reg(REG_C), new_vm.get_reg(REG_C));
+        assert_eq!(old_vm.get_reg(REG_D), new_vm.get_reg(REG_D));
+    }
+
+}
+
+#[test]
 fn cast() {
     // A variable should still be recognized as ineligible for scratch use even if only read as the other type.
     for _ in 0..10 {
@@ -360,7 +394,7 @@ mod no_scratch {
                 if (A == B) goto hi;
                 if (A == $X) goto hi;
                 if (A == 2) goto hi;
-                ins_40();
+                ins_400();
             hi:
                 if (A != A) goto hi;
             }"#);
@@ -373,7 +407,7 @@ mod no_scratch {
             // `if (<expr>)` can automatically be reinterpreted as `if (<expr> != 0)`
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 if (A) goto hi;
-                ins_40();
+                ins_400();
             hi:
                 if (0) goto hi;
             }"#);
@@ -395,7 +429,7 @@ mod no_scratch {
     fn ins_call() {
         for _ in 0..5 {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
-                ins_32(A, 2, 6, %B);
+                func_SSff(A, 2, 6.0, %B);
             }"#);
         }
     }
@@ -413,24 +447,31 @@ mod no_scratch {
     }
 }
 
+#[track_caller]
+fn check_bool(init: &str, cond: &str, expected: bool) {
+    let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+        {}
+        if ({}) goto hi;
+        ins_700();
+      hi:
+    }}"#, init, cond));
+
+    // The call should be skipped if the condition is true.
+    assert_eq!(new_vm.call_log.len(), 1 - (expected as usize));
+}
+
 #[test]
 fn cond_jump_non_binop() {
-    #[track_caller]
-    fn check_bool(init: &str, cond: &str, expected: bool) {
-        let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
-            {}
-            if ({}) goto hi;
-            ins_700();
-          hi:
-        }}"#, init, cond));
-
-        // The call should be skipped if the condition is true.
-        assert_eq!(new_vm.call_log.len(), 1 - (expected as usize));
-    };
-
     check_bool("", "0", false);
     check_bool("", "1", true);
     check_bool("", "-0", false);
+    check_bool("A=2;", "-A", true);
+    check_bool("", "_S(0.0)", false);
+    check_bool("", "_S(1.0)", true);
+}
+
+#[test]
+fn cond_jump_non_comparison_binop() {
     check_bool("A=2;", "A * A", true);
 }
 

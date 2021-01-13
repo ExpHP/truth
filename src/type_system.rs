@@ -3,7 +3,7 @@ use crate::error::CompileError;
 use crate::ident::Ident;
 use crate::eclmap::Eclmap;
 use crate::ast;
-use crate::var::{Variables, VarId};
+use crate::var::{Variables, VarId, RegId};
 use crate::pos::{Span, Sp};
 
 // FIXME: The overall design of this is messy and kind of dumb.
@@ -36,9 +36,9 @@ pub struct RegsAndInstrs {
     pub opcode_names: HashMap<u16, Ident>,
 
     // Registers
-    pub reg_default_types: HashMap<i32, ScalarType>,
-    pub reg_map: HashMap<Ident, i32>,
-    pub reg_names: HashMap<i32, Ident>,
+    pub reg_default_types: HashMap<RegId, ScalarType>,
+    pub reg_map: HashMap<Ident, RegId>,
+    pub reg_names: HashMap<RegId, Ident>,
 }
 
 impl TypeSystem {
@@ -58,9 +58,9 @@ impl TypeSystem {
             self.regs_and_instrs.opcode_signatures.insert(opcode as u16, Signature { arg_string });
         }
         for (&reg, name) in &eclmap.gvar_names {
-            self.regs_and_instrs.reg_names.insert(reg, name.clone());
-            self.regs_and_instrs.reg_map.insert(name.clone(), reg);
-            self.variables.declare_global_register_alias(name.clone(), reg);
+            self.regs_and_instrs.reg_names.insert(RegId(reg), name.clone());
+            self.regs_and_instrs.reg_map.insert(name.clone(), RegId(reg));
+            self.variables.declare_global_register_alias(name.clone(), RegId(reg));
         }
         for (&id, value) in &eclmap.gvar_types {
             let ty = match &value[..] {
@@ -74,7 +74,7 @@ impl TypeSystem {
                     continue;
                 },
             };
-            self.regs_and_instrs.reg_default_types.insert(id, ty);
+            self.regs_and_instrs.reg_default_types.insert(RegId(id), ty);
         }
     }
 

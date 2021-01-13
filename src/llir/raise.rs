@@ -5,7 +5,7 @@ use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{Instr, InstrArg, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
-use crate::var::VarId;
+use crate::var::{VarId, RegId};
 use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
 
 pub fn raise_instrs_to_sub_ast(
@@ -195,7 +195,7 @@ fn raise_args(args: &[InstrArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, Sim
 }
 
 fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
-    if raw.is_var {
+    if raw.is_reg {
         let ty = match enc {
             ArgEncoding::Padding |
             ArgEncoding::Color |
@@ -209,7 +209,7 @@ fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
 }
 
 fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
-    if raw.is_var {
+    if raw.is_reg {
         bail!("expected an immediate, got a variable");
     }
     match enc {
@@ -221,17 +221,17 @@ fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleEr
 }
 
 fn raise_arg_to_var(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
-    if !raw.is_var {
+    if !raw.is_reg {
         bail!("expected a variable, got an immediate");
     }
     let reg = match ty {
-        ScalarType::Int => raw.bits as i32,
+        ScalarType::Int => RegId(raw.bits as i32),
         ScalarType::Float => {
             let float_reg = f32::from_bits(raw.bits);
             if float_reg != f32::round(float_reg) {
                 bail!("non-integer float variable [{}] in binary file!", float_reg);
             }
-            float_reg as i32
+            RegId(float_reg as i32)
         },
     };
     Ok(ast::Var::Resolved {
