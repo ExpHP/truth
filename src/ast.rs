@@ -525,16 +525,43 @@ impl<S: AsRef<[u8]>> Sp<LitString<S>> {
     }
 }
 
+/// Trait for using [`Visit`] and [`VisitMut`] in a generic context.
+///
+/// Each method of [`Visit`] and [`VisitMut`] operates on a single type of AST node.
+/// However, sometimes you may find that a function implemented with a Visitor could benefit
+/// from being reused on different types of nodes (e.g. a visitor that collects all of the
+/// variables mentioned in an [`Stmt`] may also be useful when applied to an [`Expr`]).
+/// In that case, you can use this trait.
+///
+/// The methods on this trait will very simply just statically dispatch to the appropriate method
+/// on those other traits.  E.g. if the node is an [`Item`] then [`Visitable::visit_with`] will
+/// call the [`Visit::visit_item`] method, and etc.
+///
+/// This should be obvious, but still worth pointing out: For types that have multiple
+/// visit methods, this will not be able to invoke the more specialized versions.  E.g.
+/// for a [`Block`], this will call [`Visit::visit_block`] and not [`Visit::visit_func_body`].
+pub trait Visitable {
+    /// Calls the method of [`Visit`] appropriate to this type, e.g. [`Visit::visit_expr`]
+    /// if `Self` is an `Expr`.
+    fn visit_with<V: Visit>(&self, f: &mut V);
+
+    /// Calls the method of [`VisitMut`] appropriate to this type, e.g. [`VisitMut::visit_expr`]
+    /// if `Self` is an `Expr`.
+    fn visit_mut_with<V: VisitMut>(&mut self, f: &mut V);
+}
+
 macro_rules! generate_visitor_stuff {
-    ($Visit: ident $(,$mut: tt)?) => {
+    ($Visit:ident, Visitable::$visit:ident $(,$mut:tt)?) => {
         /// Recursive AST traversal trait.
         pub trait $Visit {
             fn visit_script(&mut self, e: & $($mut)? Script) { walk_script(self, e) }
             fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
+            ///
+            /// The default definition simply delegates to [`Self::visit_block`].
             fn visit_func_body(&mut self, e: & $($mut)? Block) { self.visit_block(e) }
-            fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
+            fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
             fn visit_stmt_body(&mut self, e: & $($mut)? Sp<StmtBody>) { walk_stmt_body(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
@@ -690,24 +717,42 @@ macro_rules! generate_visitor_stuff {
     };
 }
 
+macro_rules! impl_visitable {
+    ($Node:ty, $visit_node:ident) => {
+        impl Visitable for $Node {
+            fn visit_with<V: Visit>(&self, v: &mut V) { <V as Visit>::$visit_node(v, self) }
+            fn visit_mut_with<V: VisitMut>(&mut self, v: &mut V) { <V as VisitMut>::$visit_node(v, self) }
+        }
+    }
+}
+impl_visitable!(Script, visit_script);
+impl_visitable!(Sp<Item>, visit_item);
+impl_visitable!(Block, visit_block);
+impl_visitable!(Sp<Cond>, visit_cond);
+impl_visitable!(Sp<Stmt>, visit_stmt);
+impl_visitable!(Sp<StmtBody>, visit_stmt_body);
+impl_visitable!(Sp<Expr>, visit_expr);
+impl_visitable!(Sp<Var>, visit_var);
+
 mod mut_ {
     use super::*;
-    generate_visitor_stuff!(VisitMut, mut);
+    generate_visitor_stuff!(VisitMut, Visitable::visit_mut, mut);
 }
 pub use self::mut_::{
     VisitMut,
-    walk_script as walk_mut_script,
-    walk_item as walk_mut_item,
-    walk_block as walk_mut_block,
-    walk_stmt as walk_mut_stmt,
-    walk_stmt_body as walk_mut_stmt_body,
-    walk_expr as walk_mut_expr,
+    walk_script as walk_script_mut,
+    walk_item as walk_item_mut,
+    walk_block as walk_block_mut,
+    walk_stmt as walk_stmt_mut,
+    walk_stmt_body as walk_stmt_body_mut,
+    walk_expr as walk_expr_mut,
 };
 mod ref_ {
     use super::*;
-    generate_visitor_stuff!(Visit);
+    generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
     Visit, walk_script, walk_item, walk_block, walk_stmt,
     walk_stmt_body, walk_expr,
 };
+

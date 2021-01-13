@@ -82,15 +82,9 @@ impl TypeSystem {
     ///
     /// After calling this, information containing the names and declared types of all variables
     /// will be stored on the [`Variables`] type.
-    pub fn resolve_names(&mut self, ast: &mut ast::Script) -> Result<(), CompileError> {
+    pub fn resolve_names<A: ast::Visitable>(&mut self, ast: &mut A) -> Result<(), CompileError> {
         let mut v = crate::var::ResolveVarsVisitor::new(&mut self.variables);
-        ast::walk_mut_script(&mut v, ast);
-        v.finish()
-    }
-
-    pub fn resolve_names_block(&mut self, ast: &mut ast::Block) -> Result<(), CompileError> {
-        let mut v = crate::var::ResolveVarsVisitor::new(&mut self.variables);
-        <_ as ast::VisitMut>::visit_block(&mut v, ast);
+        ast.visit_mut_with(&mut v);
         v.finish()
     }
 
@@ -103,15 +97,9 @@ impl TypeSystem {
     /// strictly for testing and debugging purposes.*  In this case, setting `append_ids` to `true` will rename
     /// local variables from `x` to e.g. `x_3` by appending their [`LocalId`], enabling them to be differentiated
     /// by scope.  Note that compiler-generated temporaries may render as something unusual.
-    pub fn unresolve_names(&self, ast: &mut ast::Script, append_ids: bool) -> Result<(), CompileError> {
+    pub fn unresolve_names<A: ast::Visitable>(&self, ast: &mut A, append_ids: bool) -> Result<(), CompileError> {
         let mut v = unresolve_names::Visitor::new(self, append_ids);
-        ast::walk_mut_script(&mut v, ast);
-        v.finish()
-    }
-
-    pub fn unresolve_names_block(&mut self, ast: &mut ast::Block, append_ids: bool) -> Result<(), CompileError> {
-        let mut v = unresolve_names::Visitor::new(self, append_ids);
-        <_ as ast::VisitMut>::visit_block(&mut v, ast);
+        ast.visit_mut_with(&mut v);
         v.finish()
     }
 

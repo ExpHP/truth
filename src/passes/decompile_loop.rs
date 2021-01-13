@@ -83,7 +83,7 @@ impl VisitMut for Visitor {
         reversed_out.reverse();
         outer_stmts.0 = reversed_out;
 
-        ast::walk_mut_block(self, outer_stmts);
+        ast::walk_block_mut(self, outer_stmts);
     }
 }
 

@@ -152,7 +152,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
         use ast::VisitMut;
 
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
-        ty_ctx.resolve_names_block(&mut block)?;
+        ty_ctx.resolve_names(&mut block)?;
 
         let gensym_ctx = ecl_parser::ident::GensymContext::new();
         let mut visitor = ecl_parser::passes::compile_loop::Visitor::new(&gensym_ctx);
@@ -192,7 +192,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         use ast::VisitMut;
 
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
-        ty_ctx.resolve_names_block(&mut block).unwrap();
+        ty_ctx.resolve_names(&mut block).unwrap();
 
         let gensym_ctx = ecl_parser::ident::GensymContext::new();
         let mut visitor = ecl_parser::passes::compile_loop::Visitor::new(&gensym_ctx);

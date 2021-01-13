@@ -146,7 +146,7 @@ impl Visitor {
 impl VisitMut for Visitor {
     fn visit_expr(&mut self, e: &mut Sp<Expr>) {
         // simplify subexpressions first
-        ast::walk_mut_expr(self, e);
+        ast::walk_expr_mut(self, e);
 
         // now inspect this expression
         match &e.value {

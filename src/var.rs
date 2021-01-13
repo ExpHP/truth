@@ -275,7 +275,7 @@ mod resolve_vars {
                 locals_declared_at_this_level: vec![],
             });
 
-            ast::walk_mut_block(self, x);
+            ast::walk_block_mut(self, x);
 
             let popped = self.stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
 
@@ -322,7 +322,7 @@ mod resolve_vars {
                         }
                     }
                 }
-                _ => ast::walk_mut_stmt_body(self, x),
+                _ => ast::walk_stmt_body_mut(self, x),
             }
         }
 
@@ -400,15 +400,15 @@ mod tests {
         ty_ctx.extend_from_eclmap("<mapfile>".as_ref(), &Eclmap::parse(ECLMAP).unwrap());
 
         let mut parsed_block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
-        match ty_ctx.resolve_names_block(&mut parsed_block) {
+        match ty_ctx.resolve_names(&mut parsed_block) {
             Ok(()) => Ok((ty_ctx, parsed_block)),
             Err(e) => Err((files, e)),
         }
     }
 
     fn resolve_reformat(text: &str) -> String {
-        let (mut ty_ctx, mut parsed_block) = resolve(text).unwrap();
-        ty_ctx.unresolve_names_block(&mut parsed_block, true).unwrap();
+        let (ty_ctx, mut parsed_block) = resolve(text).unwrap();
+        ty_ctx.unresolve_names(&mut parsed_block, true).unwrap();
         crate::fmt::stringify(&parsed_block)
     }
 
@@ -492,7 +492,7 @@ mod tests {
         match &expr.value {
             ast::Expr::Call { args, .. } => {
                 assert!(
-                    matches!(args[0].value, ast::Expr::Var(sp_pat!(ast::Var::Resolved { var_id: VarId::Reg(100), .. }))),
+                    matches!(args[0].value, ast::Expr::Var(sp_pat!(ast::Var::Resolved { var_id: VarId::Reg(RegId(100)), .. }))),
                     "{:?}", args[0],
                 );
             },

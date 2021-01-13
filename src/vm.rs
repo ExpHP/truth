@@ -386,7 +386,7 @@ mod tests {
     use ScalarValue::{Int, Float};
 
     struct TestSpec {
-        globals: Vec<(&'static str, i32)>,
+        globals: Vec<(&'static str, RegId)>,
         source: &'static str,
     }
 
@@ -397,9 +397,9 @@ mod tests {
 
             let mut ty_ctx = TypeSystem::new();
             for &(name, reg) in &self.globals {
-                ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), RegId(reg));
+                ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), reg);
             }
-            ty_ctx.resolve_names_block(&mut ast).unwrap();
+            ty_ctx.resolve_names(&mut ast.value).unwrap();
             ast.value
         }
     }
@@ -416,7 +416,7 @@ mod tests {
         }.prepare();
 
         let mut vm = AstVm::new();
-        vm.set_reg(-999, Int(7));
+        vm.set_reg(RegId(-999), Int(7));
 
         assert_eq!(vm.run(&ast.0), Some(Int(19)));
     }
@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn goto() {
         let ast = TestSpec {
-            globals: vec![("X", 100)],
+            globals: vec![("X", RegId(100))],
             source: r#"{
                 X = 0;
                 loop {
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn times() {
         let ast = TestSpec {
-            globals: vec![("X", 100)],
+            globals: vec![("X", RegId(100))],
             source: r#"{
                 times(X) {
                     a();

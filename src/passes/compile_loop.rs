@@ -28,7 +28,7 @@ impl<'a> Visitor<'a> {
 impl VisitMut for Visitor<'_> {
     fn visit_block(&mut self, outer_stmts: &mut ast::Block) {
         // traverse depth-first
-        ast::walk_mut_block(self, outer_stmts);
+        ast::walk_block_mut(self, outer_stmts);
 
         let mut new_stmts = Vec::with_capacity(outer_stmts.0.len());
         for outer_stmt in outer_stmts.0.drain(..) {

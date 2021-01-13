@@ -902,7 +902,6 @@ fn get_used_regs(func_body: &[Sp<ast::Stmt>]) -> Vec<RegId> {
     }
 
     let mut v = UsedVisitor { used: vec![] };
-    // FIXME
     for stmt in func_body {
         v.visit_stmt(stmt);
     }
