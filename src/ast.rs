@@ -362,6 +362,10 @@ pub enum Expr {
 }
 
 impl Expr {
+    pub fn zero(ty: crate::type_system::ScalarType) -> Self { match ty {
+        crate::type_system::ScalarType::Int => 0.into(),
+        crate::type_system::ScalarType::Float => 0.0.into(),
+    }}
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
         Expr::Binop { .. } => "binary operator",

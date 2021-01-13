@@ -414,6 +414,27 @@ mod no_scratch {
 }
 
 #[test]
+fn cond_jump_non_binop() {
+    #[track_caller]
+    fn check_bool(init: &str, cond: &str, expected: bool) {
+        let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+            {}
+            if ({}) goto hi;
+            ins_700();
+          hi:
+        }}"#, init, cond));
+
+        // The call should be skipped if the condition is true.
+        assert_eq!(new_vm.call_log.len(), 1 - (expected as usize));
+    };
+
+    check_bool("", "0", false);
+    check_bool("", "1", true);
+    check_bool("", "-0", false);
+    check_bool("A=2;", "A * A", true);
+}
+
+#[test]
 fn cast_assignment() {
     for _ in 0..10 {
         // this hits a tiny special little code path that most casts don't hit, where it is
@@ -435,7 +456,7 @@ fn careful_cast_temporaries() {
         let vars = SIMPLE_FOUR_VAR_SPEC;
         // None of these should create an integer temporary
         let (old_vm, new_vm) = run_randomized_test(vars, r#"{
-            // ins_606(_S(%X + 4.0));
+            ins_606(_S(%X + 4.0));
             A = A + _S(%X + 4.0);
         }"#);
 

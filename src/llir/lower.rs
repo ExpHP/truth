@@ -429,10 +429,8 @@ impl Lowerer<'_> {
 
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == ast::UnopKind::Neg {
-            let zero = sp!(unop.span => match self.ty_ctx.compute_type_shallow(b)? {
-                ScalarType::Int => ast::Expr::from(0),
-                ScalarType::Float => ast::Expr::from(0.0),
-            });
+            let ty = self.ty_ctx.compute_type_shallow(b)?;
+            let zero = sp!(unop.span => ast::Expr::zero(ty));
             let minus = sp!(unop.span => ast::BinopKind::Sub);
             self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
             return Ok(());
@@ -517,7 +515,13 @@ impl Lowerer<'_> {
             (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
                 Expr::Binop(a, binop, b) => self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
 
-                _ => Err(unsupported(&expr.span, &format!("{} in condition", expr.descr()))),
+                // other arbitrary expressions: use `if (<expr> != 0)`
+                _ => {
+                    let ty = self.ty_ctx.compute_type_shallow(expr)?;
+                    let zero = sp!(expr.span => ast::Expr::zero(ty));
+                    let ne_sign = sp!(expr.span => ast::BinopKind::Ne);
+                    self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
+                },
             },
         }
     }
@@ -739,36 +743,44 @@ fn gather_label_info(
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
 
+    let mut last_time = None;
     let mut offset = initial_offset;
     let mut pending_labels = vec![];
     let mut out = HashMap::new();
+    let mut record_label = |label: &Sp<Ident>, offset, time| match out.entry(label.clone()) {
+        Entry::Vacant(e) => {
+            e.insert(RawLabelInfo { time, offset });
+            Ok(())
+        },
+        Entry::Occupied(e) => {
+            let old = e.key();
+            return Err(error!{
+                message("duplicate label '{}'", label),
+                primary(label, "redefined here"),
+                secondary(old, "originally defined here"),
+            });
+        },
+    };
     code.iter().map(|thing| {
         match thing {
             // can't insert labels until we see the time of the instructions they are labeling
             LowLevelStmt::Label(ident) => pending_labels.push(ident),
             LowLevelStmt::Instr(instr) => {
                 for label in pending_labels.drain(..) {
-                    match out.entry(label.clone()) {
-                        Entry::Vacant(e) => {
-                            e.insert(RawLabelInfo { time: instr.time, offset });
-                        },
-                        Entry::Occupied(e) => {
-                            let old = e.key();
-                            return Err(error!{
-                                message("duplicate label '{}'", label),
-                                primary(label, "redefined here"),
-                                secondary(old, "originally defined here"),
-                            });
-                        },
-                    }
+                    record_label(label, offset, instr.time)?
                 }
+                last_time = Some(instr.time);
                 offset += format.instr_size(instr);
             },
             _ => {},
         }
-        Ok(())
+        Ok::<_, CompileError>(())
     }).collect_with_recovery()?;
-    assert!(pending_labels.is_empty(), "unexpected label after last instruction! (bug?)");
+
+    // after last instruction
+    for label in pending_labels.drain(..) {
+        record_label(label, offset, last_time.expect("no instructions?!"))?;
+    }
     Ok(out)
 }
 
