@@ -259,10 +259,8 @@ MetaBracedFields: meta::Fields = {
 // Statements
 
 Stmt: Stmt = {
-    <stuff:StmtLabelsWithTime> <body:Sp<StmtBody>> => {
-        let (labels, time) = stuff;
-        Stmt { time, labels, body }
-    },
+    <stuff:StmtLabelsWithTime> <body:Sp<StmtBody>>
+        => Stmt { time: stuff.1, body },
 };
 
 StmtBody: StmtBody = {
@@ -275,6 +273,7 @@ StmtBody: StmtBody = {
     "loop" <block:StmtOrBlock> => StmtBody::Loop { block },
     <jump:StmtGoto> ";" => StmtBody::Jump(jump),
     <e:Sp<Expr>> ";" => StmtBody::Expr(e),
+    <name:Sp<Ident>> ":" => StmtBody::Label(name),
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":" => StmtBody::InterruptLabel(arg),
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
     <keyword:Sp<VarDeclKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";" => {
@@ -303,7 +302,6 @@ StmtLabelsWithTime: (Vec<Sp<StmtLabel>>, i32) = {
 StmtLabels: Vec<Sp<StmtLabel>> = <out:StmtLabelsWithTime> => out.0;
 
 StmtLabel: StmtLabel = {
-    <name:Sp<Ident>> ":" => StmtLabel::Label(name),
     <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
     <flags:DifficultyLabel> ":" => StmtLabel::Difficulty { flags, temporary: true },
 };
@@ -375,19 +373,18 @@ CondKeyword: CondKeyword = {
 
 DifficultyLabel: DifficultyLabel = {
     // TODO: Actually parse
-    <s:DIFFICULTY> => s["!".len()..].to_owned(),
+    <s:DIFFICULTY> =>? Err(ParseError::User { error: "difficulty flags not yet implemented" }),
 };
 
 Block: Block = {
     "{" <start_span:Span> <start_time:_TimeGet> <mut code:Sp<Stmt>*>
         <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span> "}"
         => {
-        // add a special "end of block" statement
+        // bookend with empty statements to simplify time and jump logic
         code.insert(0, Sp {
             span: start_span,
             value: Stmt {
                 time: start_time,
-                labels: vec![],
                 body: Sp { span: start_span, value: StmtBody::NoInstruction },
             },
         });
@@ -395,7 +392,6 @@ Block: Block = {
             span: end_labels.span,
             value: Stmt {
                 time: end_time,
-                labels: end_labels.value,
                 body: Sp { span: end_span, value: StmtBody::NoInstruction },
             },
         });
@@ -484,11 +480,11 @@ OpAssign: AssignOpKind = {
 };
 
 FuncUnopKeyword: UnopKind = {
-	"sin" => UnopKind::Sin,
-	"cos" => UnopKind::Cos,
-	"sqrt" => UnopKind::Sqrt,
-	"_S" => UnopKind::CastI,
-	"_f" => UnopKind::CastF,
+    "sin" => UnopKind::Sin,
+    "cos" => UnopKind::Cos,
+    "sqrt" => UnopKind::Sqrt,
+    "_S" => UnopKind::CastI,
+    "_f" => UnopKind::CastF,
 };
 
 // Expressions that don't contain a toplevel operator

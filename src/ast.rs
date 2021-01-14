@@ -113,13 +113,12 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub time: i32,
-    pub labels: Vec<Sp<StmtLabel>>,
     pub body: Sp<StmtBody>,
 }
 
+// FIXME: awkward now that `label:` is implemented as a statement instead
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtLabel {
-    Label(Sp<Ident>),
     Difficulty {
         /// If `true`, the difficulty reverts to `"*"` after the next statement.
         temporary: bool,
@@ -186,6 +185,9 @@ pub enum StmtBody {
     /// as a label.
     InterruptLabel(Sp<i32>),
 
+    /// A virtual instruction representing a label that can be jumped to.
+    Label(Sp<Ident>),
+
     /// A virtual instruction that marks the end of a variable's lexical scope.
     ///
     /// Blocks are eliminated during early compilation passes, leaving behind these as the only
@@ -222,6 +224,7 @@ impl StmtBody {
         StmtBody::Declaration { .. } => "var declaration",
         StmtBody::CallSub { .. } => "sub call",
         StmtBody::InterruptLabel { .. } => "interrupt label",
+        StmtBody::Label { .. } => "label",
         StmtBody::ScopeEnd { .. } => "<ScopeEnd>",
         StmtBody::NoInstruction { .. } => "<NoInstruction>",
     }}
@@ -665,6 +668,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(arg);
                     }
                 },
+                StmtBody::Label(_) => {},
                 StmtBody::InterruptLabel(_) => {},
                 StmtBody::ScopeEnd(_) => {},
                 StmtBody::NoInstruction => {},

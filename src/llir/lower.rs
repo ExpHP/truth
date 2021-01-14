@@ -20,7 +20,7 @@ enum LowLevelStmt {
     /// Represents a single instruction in the compiled file.
     Instr(Instr),
     /// An intrinsic that represents a label that can be jumped to.
-    Label(Sp<Ident>),
+    Label { time: i32, label: Sp<Ident> },
     /// An intrinsic that begins the scope of a register-allocated local.
     RegAlloc { local_id: LocalId, cause: Span },
     /// An intrinsic that ends the scope of a register-allocated local.
@@ -79,13 +79,6 @@ impl Lowerer<'_> {
                 ))}
             }
 
-            for label in &stmt.labels {
-                match &label.value {
-                    ast::StmtLabel::Label(ident) => self.out.push(LowLevelStmt::Label(ident.clone())),
-                    ast::StmtLabel::Difficulty { .. } => return Err(unsupported(&label.span, "difficulty label")),
-                }
-            }
-
             match &stmt.body.value {
                 ast::StmtBody::Jump(goto) => {
                     if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
@@ -135,6 +128,8 @@ impl Lowerer<'_> {
                     },
                     _ => return Err(unsupported(&stmt.body.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
                 }, // match expr
+
+                ast::StmtBody::Label(ident) => self.out.push(LowLevelStmt::Label { time: stmt.time, label: ident.clone() }),
 
                 &ast::StmtBody::ScopeEnd(local_id) => self.out.push(LowLevelStmt::RegFree { local_id }),
 
@@ -743,44 +738,32 @@ fn gather_label_info(
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
 
-    let mut last_time = None;
     let mut offset = initial_offset;
-    let mut pending_labels = vec![];
     let mut out = HashMap::new();
-    let mut record_label = |label: &Sp<Ident>, offset, time| match out.entry(label.clone()) {
-        Entry::Vacant(e) => {
-            e.insert(RawLabelInfo { time, offset });
-            Ok(())
-        },
-        Entry::Occupied(e) => {
-            let old = e.key();
-            return Err(error!{
-                message("duplicate label '{}'", label),
-                primary(label, "redefined here"),
-                secondary(old, "originally defined here"),
-            });
-        },
-    };
     code.iter().map(|thing| {
-        match thing {
-            // can't insert labels until we see the time of the instructions they are labeling
-            LowLevelStmt::Label(ident) => pending_labels.push(ident),
-            LowLevelStmt::Instr(instr) => {
-                for label in pending_labels.drain(..) {
-                    record_label(label, offset, instr.time)?
-                }
-                last_time = Some(instr.time);
+        match *thing {
+            LowLevelStmt::Instr(ref instr) => {
                 offset += format.instr_size(instr);
+            },
+            LowLevelStmt::Label { time, ref label } => {
+                match out.entry(label.clone()) {
+                    Entry::Vacant(e) => {
+                        e.insert(RawLabelInfo { time, offset });
+                    },
+                    Entry::Occupied(e) => {
+                        return Err(error!{
+                            message("duplicate label '{}'", label),
+                            primary(label, "redefined here"),
+                            secondary(e.key(), "originally defined here"),
+                        });
+                    },
+                }
             },
             _ => {},
         }
         Ok::<_, CompileError>(())
     }).collect_with_recovery()?;
 
-    // after last instruction
-    for label in pending_labels.drain(..) {
-        record_label(label, offset, last_time.expect("no instructions?!"))?;
-    }
     Ok(out)
 }
 
@@ -880,7 +863,7 @@ fn assign_registers(
                     }
                 }
             },
-            LowLevelStmt::Label(_) => {},
+            LowLevelStmt::Label { .. } => {},
         }
     }
     Ok(())

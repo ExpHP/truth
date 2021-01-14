@@ -34,19 +34,25 @@ impl VisitMut for Visitor<'_> {
         for outer_stmt in outer_stmts.0.drain(..) {
             match JmpKind::from_loop(outer_stmt) {
                 Ok((mut inner_block, jmp_kind)) => {
-                    let end_time = inner_block.end_time();
+                    let start_span = inner_block.first_stmt().span.start_span();
+                    let end_span = inner_block.last_stmt().span.end_span();
                     let label_ident = self.gensym_ctx.gensym("@loop#");
-                    inner_block.0.push(sp!(ast::Stmt {
-                        labels: vec![],
-                        time: end_time,
-                        body: sp!(jmp_kind.make_jump(ast::StmtGoto {
-                            destination: sp!(label_ident.clone()),
+
+                    let start_stmt = sp!(start_span => ast::Stmt {
+                        time: inner_block.start_time(),
+                        body: sp!(start_span => ast::StmtBody::Label(sp!(start_span => label_ident.clone()))),
+                    });
+                    let end_stmt = sp!(end_span => ast::Stmt {
+                        time: inner_block.end_time(),
+                        body: sp!(end_span => jmp_kind.make_jump(ast::StmtGoto {
+                            destination: sp!(end_span => label_ident),
                             time: None,
                         })),
-                    }));
-                    inner_block.0[0].labels.push(sp!(ast::StmtLabel::Label(sp!(label_ident))));
+                    });
 
+                    new_stmts.push(start_stmt);
                     new_stmts.append(&mut inner_block.0);
+                    new_stmts.push(end_stmt);
                 },
                 Err(outer_stmt) => new_stmts.push(outer_stmt),
             }

@@ -31,15 +31,15 @@ impl VisitMut for Visitor {
         self.used_labels_stack.pop();
     }
 
-    fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
-        ast::walk_stmt_mut(self, x);
-        x.labels.retain(|label| match &label.value {
-            ast::StmtLabel::Label(ident) => {
+    fn visit_block(&mut self, x: &mut ast::Block) {
+        ast::walk_block_mut(self, x);
+        x.0.retain(|stmt| match &stmt.body.value {
+            ast::StmtBody::Label(ident) => {
                 self.used_labels_stack
                     .last().expect("must be visiting a function body!")
                     .contains(&ident.value)
             },
-            ast::StmtLabel::Difficulty { .. } => true,
+            _ => true,
         });
     }
 }

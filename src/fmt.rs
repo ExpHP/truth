@@ -557,7 +557,7 @@ impl Format for ast::FuncKeyword {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Stmt { time, labels, body } = self;
+        let ast::Stmt { time, body } = self;
 
         let top_time = out.state.time_stack.last_mut().expect("empty time stack?! (bug!)");
         let prev_time = *top_time;
@@ -576,9 +576,6 @@ impl Format for ast::Stmt {
                 out.fmt_label(("+", *time - prev_time, ": // ", *time))?;
             }
         };
-        for label in labels {
-            out.fmt(label)?;
-        }
         out.fmt(body)
     }
 }
@@ -586,7 +583,6 @@ impl Format for ast::Stmt {
 impl Format for ast::StmtLabel {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
-            ast::StmtLabel::Label(ref ident) => out.fmt_label((ident, ":")),
             ast::StmtLabel::Difficulty { temporary, ref flags } => {
                 let colon = if temporary { ":" } else { "" };
                 out.fmt_label(("!", flags, colon))
@@ -650,6 +646,11 @@ impl Format for ast::StmtBody {
                     out.fmt((" ", async_))?;
                 }
                 out.fmt(";")
+            },
+            ast::StmtBody::Label(ref ident) => {
+                out.fmt_label((ident, ":"))?;
+                out.suppress_blank_line();
+                Ok(())
             },
             ast::StmtBody::InterruptLabel(id) => {
                 out.next_line()?;

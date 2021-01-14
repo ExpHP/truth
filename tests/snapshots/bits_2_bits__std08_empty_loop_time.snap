@@ -1,17 +1,29 @@
+---
+source: tests/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.stdm"
+
 meta {
     unknown: 0,
     stage_name: "dm",
-    bgm_names: ["dm", "dm", " ", " "],
-    bgm_paths: ["bgm/th08_08.mid", "bgm/th08_09.mid", " ", " "],
-    objects: [],
+    bgm: [
+        {path: "bgm/th08_08.mid", name: "dm"},
+        {path: "bgm/th08_09.mid", name: "dm"},
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {},
     instances: [],
 }
 
+
 script main {
-+10:
++10: // 10
     posKeyframe(0.0, 0.0, 0.0);
     loop {
-+5:
++5: // 15
     }
     posKeyframe(0.0, 0.0, 0.0);
 }
+

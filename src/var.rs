@@ -282,7 +282,7 @@ mod resolve_vars {
             for local_id in popped.locals_declared_at_this_level {
                 let span = x.last_stmt().span.end_span();
                 x.0.push(sp!(span => ast::Stmt {
-                    time: x.end_time(), labels: vec![],
+                    time: x.end_time(),
                     body: sp!(span => ast::StmtBody::ScopeEnd(local_id)),
                 }))
             }

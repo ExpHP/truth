@@ -6,12 +6,6 @@ use crate::ident::Ident;
 use crate::var::{VarId, RegId};
 use crate::value::ScalarValue;
 
-macro_rules! opt_match {
-    ($x:expr, $pat:pat => $expr:expr) => {
-        match $x { $pat => Some($expr), _ => None }
-    };
-}
-
 /// A VM that runs on the AST, which can be used to help verify the validity of AST transforms
 /// in unit tests.
 ///
@@ -283,6 +277,8 @@ impl AstVm {
 
                 ast::StmtBody::CallSub { .. } => unimplemented!("CallSub for AST VM"),
 
+                ast::StmtBody::Label(_) => {},
+
                 ast::StmtBody::InterruptLabel(_) => {},
 
                 ast::StmtBody::ScopeEnd(_) => {},
@@ -368,10 +364,14 @@ impl AstVm {
 
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto) -> Option<usize> {
         for (index, stmt) in stmts.iter().enumerate() {
-            let mut labels = stmt.labels.iter().filter_map(|x| opt_match!(&x.value, ast::StmtLabel::Label(label) => label));
-            if labels.any(|x| x == &goto.destination) {
-                self.time = goto.time.unwrap_or(stmt.time);
-                return Some(index);
+            match &stmt.body.value {
+                ast::StmtBody::Label(label) => {
+                    if label == &goto.destination {
+                        self.time = goto.time.unwrap_or(stmt.time);
+                        return Some(index);
+                    }
+                },
+                _ => {},
             }
         }
         return None;

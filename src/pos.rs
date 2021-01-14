@@ -22,7 +22,7 @@ pub type Files = NonUtf8Files;
 ///
 /// ```
 /// # let my_span = ecl_parser::pos::DUMMY_SPAN;
-/// # fn do_something() -> Expr { ecl_parser::Expr::LitFloat { value: 2.0 } };
+/// # fn do_something() -> Expr { Expr::LitFloat { value: 2.0 } };
 /// # fn do_something_else() -> Sp<Expr> { sp!(do_something()) };
 /// use ecl_parser::{sp, Sp, ast::Expr};
 ///
@@ -51,7 +51,7 @@ macro_rules! sp {
 ///
 /// ```
 /// # let my_span = ecl_parser::pos::DUMMY_SPAN;
-/// # fn do_something() -> Sp<Expr> { ecl_parser::sp!(ecl_parser::Expr::LitFloat { value: 2.0 }) };
+/// # fn do_something() -> Sp<Expr> { ecl_parser::sp!(Expr::LitFloat { value: 2.0 }) };
 /// use ecl_parser::{sp_pat, Sp, ast::Expr, ast::BinopKind};
 ///
 /// let expr: Sp<Expr> = do_something();
