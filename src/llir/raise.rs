@@ -18,21 +18,21 @@ pub fn raise_instrs_to_sub_ast(
     // For now we give every instruction a label and strip the unused ones later.
     let mut offset = 0;
     let mut out = vec![sp!(ast::Stmt {
-        time: 0, body: sp!(ast::StmtBody::NoInstruction),
+        time: 0, body: ast::StmtBody::NoInstruction,
     })];
     for instr in script {
         let label_ident = default_instr_label(offset);
         offset += instr_format.instr_size(instr);
 
         let body = raise_instr(instr_format, instr, ty_ctx, &intrinsic_instrs)?;
-        out.push(sp!(ast::Stmt { time: instr.time, body: sp!(ast::StmtBody::Label(label_ident)) }));
-        out.push(sp!(ast::Stmt { time: instr.time, body: sp!(body) }));
+        out.push(sp!(ast::Stmt { time: instr.time, body: ast::StmtBody::Label(label_ident) }));
+        out.push(sp!(ast::Stmt { time: instr.time, body: body }));
     }
 
     let end_time = out.last().expect("there must be at least the other bookend!").time;
     out.push(sp!(ast::Stmt {
         time: end_time,
-        body: sp!(ast::StmtBody::Label(default_instr_label(offset))),
+        body: ast::StmtBody::Label(default_instr_label(offset)),
     }));
     Ok(out)
 }

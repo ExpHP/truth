@@ -40,14 +40,14 @@ impl VisitMut for Visitor<'_> {
 
                     let start_stmt = sp!(start_span => ast::Stmt {
                         time: inner_block.start_time(),
-                        body: sp!(start_span => ast::StmtBody::Label(sp!(start_span => label_ident.clone()))),
+                        body: ast::StmtBody::Label(sp!(start_span => label_ident.clone())),
                     });
                     let end_stmt = sp!(end_span => ast::Stmt {
                         time: inner_block.end_time(),
-                        body: sp!(end_span => jmp_kind.make_jump(ast::StmtGoto {
+                        body: jmp_kind.make_jump(ast::StmtGoto {
                             destination: sp!(end_span => label_ident),
                             time: None,
-                        })),
+                        }),
                     });
 
                     new_stmts.push(start_stmt);
@@ -69,7 +69,7 @@ enum JmpKind {
 
 impl JmpKind {
     fn from_loop(ast: Sp<ast::Stmt>) -> Result<(ast::Block, JmpKind), Sp<ast::Stmt>> {
-        match ast.value.body.value {
+        match ast.value.body {
             ast::StmtBody::Loop { block } => Ok((block, JmpKind::Unconditional)),
 
             ast::StmtBody::While { is_do_while: true, cond, block } => {

@@ -71,51 +71,51 @@ impl Lowerer<'_> {
         let mut th06_anm_end_span = None;
         code.iter().map(|stmt| {
             if let Some(end) = th06_anm_end_span {
-                if !matches!(&stmt.body.value, ast::StmtBody::NoInstruction) { return Err(error!(
+                if !matches!(&stmt.body, ast::StmtBody::NoInstruction) { return Err(error!(
                     message("statement after end of script"),
-                    primary(&stmt.body, "forbidden statement"),
+                    primary(&stmt, "forbidden statement"),
                     secondary(&end, "marks the end of the script"),
                     note("In EoSD ANM, every script must have a single exit point (opcode 0 or 15), as the final instruction."),
                 ))}
             }
 
-            match &stmt.body.value {
+            match &stmt.body {
                 ast::StmtBody::Jump(goto) => {
                     if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
-                        return Err(unsupported(&stmt.body.span, "goto @ time"));
+                        return Err(unsupported(&stmt.span, "goto @ time"));
                     }
 
                     let (label_arg, time_arg) = lower_goto_args(goto);
 
                     self.out.push(LowLevelStmt::Instr(Instr {
                         time: stmt.time,
-                        opcode: self.get_opcode(IKind::Jmp, stmt.body.span, "'goto'")?,
+                        opcode: self.get_opcode(IKind::Jmp, stmt.span, "'goto'")?,
                         args: vec![label_arg, time_arg],
                     }));
                 },
 
 
                 ast::StmtBody::Assignment { var, op, value } => {
-                    self.lower_assign_op(stmt.body.span, stmt.time, var, op, value)?;
+                    self.lower_assign_op(stmt.span, stmt.time, var, op, value)?;
                 },
 
 
                 ast::StmtBody::InterruptLabel(interrupt_id) => {
                     self.out.push(LowLevelStmt::Instr(Instr {
                         time: stmt.time,
-                        opcode: self.get_opcode(IKind::InterruptLabel, stmt.body.span, "interrupt label")?,
+                        opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
                         args: vec![InstrArg::Raw(interrupt_id.value.into())],
                     }));
                 },
 
 
                 ast::StmtBody::CondJump { keyword, cond, jump } => {
-                    self.lower_cond_jump(stmt.body.span, stmt.time, keyword, cond, jump)?;
+                    self.lower_cond_jump(stmt.span, stmt.time, keyword, cond, jump)?;
                 },
 
 
                 ast::StmtBody::Declaration { keyword, vars } => {
-                    self.lower_var_declaration(stmt.body.span, stmt.time, keyword, vars)?;
+                    self.lower_var_declaration(stmt.span, stmt.time, keyword, vars)?;
                 },
 
 
@@ -126,7 +126,7 @@ impl Lowerer<'_> {
                             th06_anm_end_span = Some(func);
                         }
                     },
-                    _ => return Err(unsupported(&stmt.body.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
+                    _ => return Err(unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
                 }, // match expr
 
                 ast::StmtBody::Label(ident) => self.out.push(LowLevelStmt::Label { time: stmt.time, label: ident.clone() }),
@@ -135,7 +135,7 @@ impl Lowerer<'_> {
 
                 ast::StmtBody::NoInstruction => {}
 
-                _ => return Err(unsupported(&stmt.body.span, stmt.body.descr())),
+                _ => return Err(unsupported(&stmt.span, stmt.body.descr())),
             }
             Ok(())
         }).collect_with_recovery()

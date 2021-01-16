@@ -259,7 +259,7 @@ MetaBracedFields: meta::Fields = {
 // Statements
 
 Stmt: Stmt = {
-    <stuff:StmtLabelsWithTime> <body:Sp<StmtBody>>
+    <stuff:StmtLabelsWithTime> <body:StmtBody>
         => Stmt { time: stuff.1, body },
 };
 
@@ -381,20 +381,14 @@ Block: Block = {
         <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span> "}"
         => {
         // bookend with empty statements to simplify time and jump logic
-        code.insert(0, Sp {
-            span: start_span,
-            value: Stmt {
-                time: start_time,
-                body: Sp { span: start_span, value: StmtBody::NoInstruction },
-            },
-        });
-        code.push(Sp {
-            span: end_labels.span,
-            value: Stmt {
-                time: end_time,
-                body: Sp { span: end_span, value: StmtBody::NoInstruction },
-            },
-        });
+        code.insert(0, sp!(start_span => Stmt {
+            time: start_time,
+            body: StmtBody::NoInstruction,
+        }));
+        code.push(sp!(end_labels.span => Stmt {
+            time: end_time,
+            body: StmtBody::NoInstruction,
+        }));
         Block(code)
     },
 };

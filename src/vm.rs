@@ -162,7 +162,7 @@ impl AstVm {
             // N.B. this can't easily be factored out into a method because it would require
             //      some way of storing or communicating a "instruction pointer", which
             //      doesn't exist due to the nested nature of the AST.
-            match &stmts[stmt_index].body.value {
+            match &stmts[stmt_index].body {
                 ast::StmtBody::Jump(goto) => handle_goto!(goto),
 
                 ast::StmtBody::CondJump { keyword, cond, jump } => {
@@ -364,7 +364,7 @@ impl AstVm {
 
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto) -> Option<usize> {
         for (index, stmt) in stmts.iter().enumerate() {
-            match &stmt.body.value {
+            match &stmt.body {
                 ast::StmtBody::Label(label) => {
                     if label == &goto.destination {
                         self.time = goto.time.unwrap_or(stmt.time);

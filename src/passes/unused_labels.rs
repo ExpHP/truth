@@ -33,7 +33,7 @@ impl VisitMut for Visitor {
 
     fn visit_block(&mut self, x: &mut ast::Block) {
         ast::walk_block_mut(self, x);
-        x.0.retain(|stmt| match &stmt.body.value {
+        x.0.retain(|stmt| match &stmt.body {
             ast::StmtBody::Label(ident) => {
                 self.used_labels_stack
                     .last().expect("must be visiting a function body!")
@@ -53,7 +53,7 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
             ast::walk_stmt(self, x);
 
-            match &x.body.value {
+            match &x.body {
                 | ast::StmtBody::Jump(jump)
                 | ast::StmtBody::CondJump { jump, .. }
                 => { self.labels.insert(jump.destination.value.clone()); },

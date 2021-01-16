@@ -283,15 +283,15 @@ mod resolve_vars {
                 let span = x.last_stmt().span.end_span();
                 x.0.push(sp!(span => ast::Stmt {
                     time: x.end_time(),
-                    body: sp!(span => ast::StmtBody::ScopeEnd(local_id)),
+                    body: ast::StmtBody::ScopeEnd(local_id),
                 }))
             }
 
             self.resolver.return_to_ancestor(popped.outer_scope, &self.variables);
         }
 
-        fn visit_stmt_body(&mut self, x: &mut Sp<ast::StmtBody>) {
-            match &mut x.value {
+        fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
+            match &mut x.body {
                 ast::StmtBody::Declaration { keyword, vars } => {
                     let ty = match keyword.value {
                         ast::VarDeclKeyword::Int => Some(ScalarType::Int),
@@ -322,7 +322,7 @@ mod resolve_vars {
                         }
                     }
                 }
-                _ => ast::walk_stmt_body_mut(self, x),
+                _ => ast::walk_stmt_mut(self, x),
             }
         }
 
@@ -484,7 +484,7 @@ mod tests {
         let (_ty_ctx, block) = resolve(r#"{
         ins_21(A, X);
     }"#).unwrap();
-        let expr = block.0.iter().find_map(|stmt| match &stmt.body.value {
+        let expr = block.0.iter().find_map(|stmt| match &stmt.body {
             ast::StmtBody::Expr(e) => Some(e),
             _ => None,
         }).unwrap();

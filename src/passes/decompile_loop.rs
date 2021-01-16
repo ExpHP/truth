@@ -35,7 +35,7 @@ impl VisitMut for Visitor {
 
         // Dumb strategy: We just greedily replace the first backwards jump we find.
         while let Some(last_stmt) = outer_stmts.0.last() {
-            match JmpKind::from_jump(&last_stmt.body.value) {
+            match JmpKind::from_jump(&last_stmt.body) {
                 Some((goto, jmp_kind)) => {
                     let did_decompile = maybe_decompile_jump(outer_stmts, &mut reversed_out, &label_indices, &interrupt_label_indices, &goto, jmp_kind);
                     if did_decompile { continue; }
@@ -87,7 +87,7 @@ impl JmpKind {
 /// For each label, get the index of its statement.
 fn get_label_indices(stmts: &[Sp<ast::Stmt>]) -> HashMap<Ident, usize> {
     stmts.iter().enumerate()
-        .filter_map(|(index, stmt)| match &stmt.body.value {
+        .filter_map(|(index, stmt)| match &stmt.body {
             ast::StmtBody::Label(ident) => Some((ident.value.clone(), index)),
             _ => None,
         }).collect()
@@ -96,7 +96,7 @@ fn get_label_indices(stmts: &[Sp<ast::Stmt>]) -> HashMap<Ident, usize> {
 /// Get a list of statment indices that are interrupt labels.
 fn get_interrupt_label_indices(stmts: &[Sp<ast::Stmt>]) -> Vec<usize> {
     stmts.iter().enumerate()
-        .filter_map(|(index, stmt)| match stmt.body.value {
+        .filter_map(|(index, stmt)| match stmt.body {
             ast::StmtBody::InterruptLabel { .. } => Some(index),
             _ => None,
         }).collect()
@@ -139,7 +139,7 @@ fn maybe_decompile_jump(
     // replace the goto with an EndOfBlock, preserving its time
     let block_end = outer_stmts.0.last_mut().unwrap();
     let block_end_span = block_end.span;
-    block_end.body.value = ast::StmtBody::NoInstruction;
+    block_end.body = ast::StmtBody::NoInstruction;
 
     let mut inner_stmts: Vec<_> = outer_stmts.0.drain(dest_index..).collect();
     let inner_span = inner_stmts[0].span.merge(block_end_span);
@@ -149,13 +149,13 @@ fn maybe_decompile_jump(
         // Insert a bookend just to be safe.
         inner_stmts.insert(0, sp!(inner_span.start_span() => ast::Stmt {
             time: goto_time,
-            body: sp!(inner_span.start_span() => ast::StmtBody::NoInstruction),
-        }))
+            body: ast::StmtBody::NoInstruction,
+        }));
     }
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
         time: goto_time,
-        body: sp!(inner_span => jmp_kind.make_loop(ast::Block(inner_stmts))),
+        body: jmp_kind.make_loop(ast::Block(inner_stmts)),
     }));
     // suppress the default behavior of popping the next item
     true

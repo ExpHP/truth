@@ -113,7 +113,7 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub time: i32,
-    pub body: Sp<StmtBody>,
+    pub body: StmtBody,
 }
 
 // FIXME: awkward now that `label:` is implemented as a statement instead
@@ -566,7 +566,6 @@ macro_rules! generate_visitor_stuff {
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
-            fn visit_stmt_body(&mut self, e: & $($mut)? Sp<StmtBody>) { walk_stmt_body(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
         }
@@ -609,13 +608,7 @@ macro_rules! generate_visitor_stuff {
         pub fn walk_stmt<V>(v: &mut V, x: & $($mut)? Sp<Stmt>)
         where V: ?Sized + $Visit,
         {
-            v.visit_stmt_body(& $($mut)? x.body);
-        }
-
-        pub fn walk_stmt_body<V>(v: &mut V, x: & $($mut)? Sp<StmtBody>)
-        where V: ?Sized + $Visit,
-        {
-            match & $($mut)? x.value {
+            match & $($mut)? x.body {
                 StmtBody::Jump(_) => {},
                 StmtBody::Return { value } => {
                     if let Some(value) = value {
@@ -734,7 +727,6 @@ impl_visitable!(Sp<Item>, visit_item);
 impl_visitable!(Block, visit_block);
 impl_visitable!(Sp<Cond>, visit_cond);
 impl_visitable!(Sp<Stmt>, visit_stmt);
-impl_visitable!(Sp<StmtBody>, visit_stmt_body);
 impl_visitable!(Sp<Expr>, visit_expr);
 impl_visitable!(Sp<Var>, visit_var);
 
@@ -748,7 +740,6 @@ pub use self::mut_::{
     walk_item as walk_item_mut,
     walk_block as walk_block_mut,
     walk_stmt as walk_stmt_mut,
-    walk_stmt_body as walk_stmt_body_mut,
     walk_expr as walk_expr_mut,
 };
 mod ref_ {
@@ -756,7 +747,6 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_block, walk_stmt,
-    walk_stmt_body, walk_expr,
+    Visit, walk_script, walk_item, walk_block, walk_stmt, walk_expr,
 };
 
