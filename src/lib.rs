@@ -10,6 +10,9 @@ pub use pos::{Files, Span, Sp};
 #[macro_use]
 pub mod pos;
 
+#[macro_use]
+pub mod quote;
+
 pub use ast::{Visit, VisitMut};
 pub mod ast;
 pub use fmt::{Format, Formatter};
