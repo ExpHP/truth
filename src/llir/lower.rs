@@ -81,17 +81,7 @@ impl Lowerer<'_> {
 
             match &stmt.body {
                 ast::StmtBody::Jump(goto) => {
-                    if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
-                        return Err(unsupported(&stmt.span, "goto @ time"));
-                    }
-
-                    let (label_arg, time_arg) = lower_goto_args(goto);
-
-                    self.out.push(LowLevelStmt::Instr(Instr {
-                        time: stmt.time,
-                        opcode: self.get_opcode(IKind::Jmp, stmt.span, "'goto'")?,
-                        args: vec![label_arg, time_arg],
-                    }));
+                    self.lower_uncond_jump(stmt.span, stmt.time, goto)?;
                 },
 
 
@@ -477,6 +467,21 @@ impl Lowerer<'_> {
         }
     }
 
+    fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_time: i32, goto: &ast::StmtGoto) -> Result<(), CompileError> {
+        if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
+            return Err(unsupported(&stmt_span, "goto @ time"));
+        }
+
+        let (label_arg, time_arg) = lower_goto_args(goto);
+
+        self.out.push(LowLevelStmt::Instr(Instr {
+            time: stmt_time,
+            opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
+            args: vec![label_arg, time_arg],
+        }));
+        Ok(())
+    }
+
     /// Lowers `if (<cond>) goto label @ time;`
     fn lower_cond_jump(
         &mut self,
@@ -486,17 +491,29 @@ impl Lowerer<'_> {
         cond: &Sp<ast::Cond>,
         goto: &ast::StmtGoto,
     ) -> Result<(), CompileError>{
-        let (arg_label, arg_time) = lower_goto_args(goto);
+        match &cond.value {
+            ast::Cond::PreDecrement(var) => self.lower_cond_jump_predecrement(stmt_span, stmt_time, keyword, var, goto),
+            ast::Cond::Expr(expr) => self.lower_cond_jump_expr(stmt_span, stmt_time, keyword, expr, goto),
+        }
+    }
 
-        match (keyword.value, &cond.value) {
-            (token![unless], _) => unimplemented!("unless (conditional)"),
-
-            (token![if], ast::Cond::PreDecrement(var)) => {
+    fn lower_cond_jump_predecrement(
+        &mut self,
+        stmt_span: Span,
+        stmt_time: i32,
+        keyword: &Sp<ast::CondKeyword>,
+        var: &Sp<ast::Var>,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), CompileError>{
+        match keyword.value {
+            // 'if (--var) goto label'
+            token![if] => {
                 let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+                let (arg_label, arg_time) = lower_goto_args(goto);
                 if ty_var != ScalarType::Int {
                     return Err(error!(
                         message("type error"),
-                        primary(cond, "expected an int, got {}", ty_var.descr()),
+                        primary(var, "expected an int, got {}", ty_var.descr()),
                         secondary(keyword, "required by this"),
                     ));
                 }
@@ -509,18 +526,60 @@ impl Lowerer<'_> {
                 Ok(())
             },
 
-            (token![if], ast::Cond::Expr(expr)) => match &expr.value {
-                Expr::Binop(a, binop, b) if binop.is_comparison() => {
-                    self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, a, binop, b, goto)
-                },
+            // 'unless (--var) goto label'
+            token![unless] => {
+                // compile to:
+                //
+                //        if (--var) goto skip:
+                //        goto label
+                //     skip:
 
-                // other arbitrary expressions: use `if (<expr> != 0)`
-                _ => {
-                    let ty = self.ty_ctx.compute_type_shallow(expr)?;
-                    let zero = sp!(expr.span => ast::Expr::zero(ty));
-                    let ne_sign = sp!(expr.span => token![!=]);
-                    self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
-                },
+                let skip_label = sp!(keyword.span => self.ty_ctx.gensym.gensym("@unless_predec_skip#"));
+                let if_keyword = sp!(keyword.span => token![if]);
+                let if_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
+
+                self.lower_cond_jump_predecrement(stmt_span, stmt_time, &if_keyword, var, &if_goto)?;
+                self.lower_uncond_jump(stmt_span, stmt_time, goto)?;
+                self.out.push(LowLevelStmt::Label { time: stmt_time, label: skip_label });
+                Ok(())
+            },
+        }
+    }
+
+    fn lower_cond_jump_expr(
+        &mut self,
+        stmt_span: Span,
+        stmt_time: i32,
+        keyword: &Sp<ast::CondKeyword>,
+        expr: &Sp<ast::Expr>,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), CompileError>{
+        match &expr.value {
+            // 'if (<A> <= <B>) goto label'
+            // 'unless (<A> <= <B>) goto label'
+            Expr::Binop(a, binop, b) if binop.is_comparison() => {
+                self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, a, binop, b, goto)
+            },
+
+            // 'if (<A> || <B>) goto label'
+            // 'unless (<A> || <B>) goto label'
+            Expr::Binop(a, binop, b) if matches!(binop.value, token![&&] | token![||]) => {
+                self.lower_cond_jump_logic_binop(stmt_span, stmt_time, keyword, a, binop, b, goto)
+            },
+
+            // 'if (!<B>) goto label'
+            // 'unless (!<B>) goto label'
+            Expr::Unop(sp_pat!(op_span => token![!]), b) => {
+                let negated_kw = sp!(*op_span => keyword.negate());
+                self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, b, goto)
+            },
+
+            // other arbitrary expressions: use `<if|unless> (<expr> != 0)`
+            _ => {
+                let ty = self.ty_ctx.compute_type_shallow(expr)?;
+                let zero = sp!(expr.span => ast::Expr::zero(ty));
+                let ne_sign = sp!(expr.span => token![!=]);
+                self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
             },
         }
     }
@@ -537,7 +596,7 @@ impl Lowerer<'_> {
         goto: &ast::StmtGoto,
     ) -> Result<(), CompileError>{
         match (classify_expr(a, self.ty_ctx)?, classify_expr(b, self.ty_ctx)?) {
-            // `if (<A> != <B>) ...`
+            // `if (<A> != <B>) ...` (or `unless (<A> != <B>) ...`)
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
             (ExprClass::NeedsTemp(data_a), _) => {
                 let (id, var_expr) = self.define_temporary(stmt_time, &data_a)?;
@@ -545,7 +604,7 @@ impl Lowerer<'_> {
                 self.undefine_temporary(id)?;
             },
 
-            // `if (a != <B>) ...`
+            // `if (a != <B>) ...` (or `unless (a != <B>) ...`)
             // split out to: `tmp = <B>;  if (a != tmp) ...`;
             (ExprClass::Simple(_), ExprClass::NeedsTemp(data_b)) => {
                 let (id, var_expr) = self.define_temporary(stmt_time, &data_b)?;
@@ -553,8 +612,13 @@ impl Lowerer<'_> {
                 self.undefine_temporary(id)?;
             },
 
-            // `if (a != b) ...`
+            // `if (a != b) ...` (or `unless (a != b) ...`)
             (ExprClass::Simple(data_a), ExprClass::Simple(data_b)) => {
+                let binop = sp!(binop.span => match keyword.value {
+                    token![if] => binop.value,
+                    token![unless] => binop.negate_comparison().expect("lower_cond_jump_comparison called with non-comparison operator"),
+                });
+
                 let ty_arg = binop.result_type(data_a.ty, data_b.ty, (a.span, b.span))?;
                 let (lowered_label, lowered_time) = lower_goto_args(goto);
                 self.out.push(LowLevelStmt::Instr(Instr {
@@ -565,6 +629,20 @@ impl Lowerer<'_> {
             },
         }
         Ok(())
+    }
+
+    /// Lowers `if (<A> || <B>) goto label @ time;` and similar
+    fn lower_cond_jump_logic_binop(
+        &mut self,
+        _stmt_span: Span,
+        _stmt_time: i32,
+        _keyword: &Sp<ast::CondKeyword>,
+        _a: &Sp<Expr>,
+        _binop: &Sp<ast::BinopKind>,
+        _b: &Sp<Expr>,
+        _goto: &ast::StmtGoto,
+    ) -> Result<(), CompileError>{
+        unimplemented!()
     }
 
     // ------------------

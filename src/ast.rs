@@ -461,6 +461,16 @@ impl BinopKind {
     pub fn is_comparison(self) -> bool {
         matches!(self, token![==] | token![!=] | token![<] | token![<=] | token![>] | token![>=])
     }
+
+    pub fn negate_comparison(self) -> Option<BinopKind> { match self {
+        token![==] => Some(token![!=]),
+        token![!=] => Some(token![==]),
+        token![<=] => Some(token![>]),
+        token![>=] => Some(token![<]),
+        token![<] => Some(token![>=]),
+        token![>] => Some(token![<=]),
+        _ => None,
+    }}
 }
 
 string_enum! {

@@ -49,7 +49,7 @@ impl UnopKind {
     pub fn const_eval_int(&self, x: i32) -> Option<ScalarValue> {
         match self {
             token![unop -] => Some(ScalarValue::Int(i32::wrapping_neg(x))),
-            token![unop !] => Some(ScalarValue::Int((x != 0) as i32)),
+            token![unop !] => Some(ScalarValue::Int((x == 0) as i32)),
             token![unop sin] |
             token![unop cos] |
             token![unop sqrt] => None,

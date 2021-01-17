@@ -199,7 +199,7 @@ pub enum IntrinsicInstrKind {
     ///
     /// Args: `a, b`.
     Unop(ast::UnopKind, ScalarType),
-    /// Like `if (x--) goto label @ t`.
+    /// Like `if (--x) goto label @ t`.
     ///
     /// Args: `x, label, t`.
     CountJmp,

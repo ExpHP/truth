@@ -308,7 +308,7 @@ fn cast() {
 #[test]
 fn local_scope() {
     // check that local variables should stop taking up a register at the end of their lexical scope
-    // FIXME: Simplify this test's source after implementing `while (lol--)` or `if (true) { ... }`
+    // FIXME: Simplify this test's source after implementing `while (--lol)` or `if (true) { ... }`
     for _ in 0..10 {
         let source = r#"{
             int lol = 1;
@@ -445,17 +445,33 @@ mod no_scratch {
     }
 }
 
+struct CheckBoolVms {
+    new_if_vm: AstVm,
+    new_unless_vm: AstVm,
+}
+
+/// Checks that `if (<cond>)` and `unless (<cond>)` choose the correct branches.
+///
+/// (`expected` is what the condition is expected to conceptually evaluate to, as a boolean)
 #[track_caller]
-fn check_bool(init: &str, cond: &str, expected: bool) {
-    let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+fn check_bool(init: &str, cond: &str, expected: bool) -> CheckBoolVms {
+    let (_, new_if_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
         {}
         if ({}) goto hi;
         ins_700();
       hi:
     }}"#, init, cond));
+    let (_, new_unless_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+        {}
+        unless ({}) goto hi;
+        ins_700();
+      hi:
+    }}"#, init, cond));
 
-    // The call should be skipped if the condition is true.
-    assert_eq!(new_vm.call_log.len(), 1 - (expected as usize));
+    // For 'if', the call should be skipped if the condition is true.
+    assert_eq!(new_if_vm.call_log.len(), 1 - (expected as usize));
+    assert_eq!(new_unless_vm.call_log.len(), expected as usize);
+    CheckBoolVms { new_if_vm, new_unless_vm }
 }
 
 #[test]
@@ -471,6 +487,41 @@ fn cond_jump_non_binop() {
 #[test]
 fn cond_jump_non_comparison_binop() {
     check_bool("A=2;", "A * A", true);
+}
+
+#[test]
+fn cond_jump_logical_negations() {
+    check_bool("A=1; B=4;", "A < B", true);
+    check_bool("A=4; B=4;", "A < B", false);
+    check_bool("A=1; B=4;", "!(A < B)", false);
+    check_bool("A=4; B=4;", "!(A < B)", true);
+    check_bool("", "!(0)", true);
+    check_bool("", "!(_S(1.0))", false);
+    check_bool("A=2;", "!(A * A)", false);
+}
+
+#[test]
+fn cond_jump_logical_binop() {
+    check_bool("A=3;", "(A < 3) || (A < 5)", true);
+    check_bool("A=3;", "(A < 3) && (A < 5)", false);
+    check_bool("A=3;", "(A < 3) || !(A < 5)", false);
+    check_bool("A=3;", "!(A < 3) && (A < 5)", true);
+    check_bool("A=3;", "!(!(A < 3) && (A < 5))", false);
+}
+
+#[test]
+fn if_unless_predecrement() {
+    let vms = check_bool("A=3;", "--A", true);
+    assert_eq!(vms.new_if_vm.get_reg(REG_A).unwrap(), ScalarValue::Int(2));
+    assert_eq!(vms.new_unless_vm.get_reg(REG_A).unwrap(), ScalarValue::Int(2));
+
+    let vms = check_bool("A=1;", "--A", false);
+    assert_eq!(vms.new_if_vm.get_reg(REG_A).unwrap(), ScalarValue::Int(0));
+    assert_eq!(vms.new_unless_vm.get_reg(REG_A).unwrap(), ScalarValue::Int(0));
+
+    let vms = check_bool("A=0;", "--A", true);
+    assert_eq!(vms.new_if_vm.get_reg(REG_A).unwrap(), ScalarValue::Int(-1));
+    assert_eq!(vms.new_unless_vm.get_reg(REG_A).unwrap(), ScalarValue::Int(-1));
 }
 
 #[test]
@@ -543,7 +594,7 @@ fn unop_optimization_correctness() {
             let vars = SIMPLE_FOUR_VAR_SPEC;
             let (old_vm, new_vm) = run_randomized_test(vars, &format!(r#"{{
                 X = {}({});
-                Y = Y;  // guarantee that B is considered used so we can assert on it
+                Y = Y;  // guarantee that Y is considered used so we can assert on it
             }}"#, oper, expr_1));
 
             assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X));
