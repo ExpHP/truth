@@ -531,5 +531,25 @@ fn binop_optimization_correctness() {
 
 #[test]
 fn unop_optimization_correctness() {
-    unimplemented!()
+    let subexprs = vec![
+        "X",  // the variable we're assigning
+        "Y",  // another atomic expression
+        "(Y * (1.0 + X))",  // a non-atomic expression with A, even hiding it a bit inwards to defeat dumb implementations
+        "(Y * (1.0 + Y))",  // a non-atomic expression without A
+    ];
+
+    for oper in vec!["-", "sin"] {
+        for &expr_1 in &subexprs {
+            let vars = SIMPLE_FOUR_VAR_SPEC;
+            let (old_vm, new_vm) = run_randomized_test(vars, &format!(r#"{{
+                X = {}({});
+                Y = Y;  // guarantee that B is considered used so we can assert on it
+            }}"#, oper, expr_1));
+
+            assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X));
+            assert_eq!(old_vm.get_reg(REG_Y), new_vm.get_reg(REG_Y));
+
+            check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
+        }
+    }
 }

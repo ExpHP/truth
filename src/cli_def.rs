@@ -1,3 +1,9 @@
+// FIXME cleanup this file;
+//       for now I just made modules with the contents of the individual files that used to exist in bin/
+//       in order to speed up test compilation, without doing any cleanup.
+//       I want to change the structure of the commands to be 'truanm' and 'trustd' anyways so
+//       we'll have to do some refactoring then
+
 pub fn main() -> ! {
     let mut args = std::env::args();
     let _ = args.next();
@@ -33,10 +39,8 @@ pub fn main() -> ! {
 }
 
 pub mod ecl_reformat {
-    use crate as truth;
-
     pub fn main() -> ! {
-        use truth::{cli_helper as cli, args, args_pat};
+        use crate::{cli_helper as cli, args, args_pat};
 
         let args_pat![input, ] = cli::cli(
             "FILE [OPTIONS...]", args![cli::input()],
@@ -47,8 +51,8 @@ pub mod ecl_reformat {
     }
 
     fn run(path: impl AsRef<std::path::Path>) {
-        let mut files = truth::Files::new();
-        let script = match files.read_file::<truth::ast::Script>(path.as_ref()) {
+        let mut files = crate::Files::new();
+        let script = match files.read_file::<crate::ast::Script>(path.as_ref()) {
             Ok(x) => x,
             Err(mut e) => {
                 let _ = e.emit(&files);
@@ -56,18 +60,17 @@ pub mod ecl_reformat {
             },
         };
         let stdout = std::io::stdout();
-        let mut f = truth::Formatter::new(std::io::BufWriter::new(stdout.lock()));
+        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock()));
         f.fmt(&script).unwrap();
     }
 }
 
 pub mod anm_decomp {
-    use crate as truth;
-    use truth::{Format, CompileError};
+    use crate::{Format, CompileError};
 
     use anyhow::Context;
     pub fn main() -> ! {
-        use truth::{cli_helper as cli, args, args_pat};
+        use crate::{cli_helper as cli, args, args_pat};
 
         let args_pat![input, max_columns, mapfile, game] = cli::cli(
             "FILE -g GAME [OPTIONS...]",
@@ -78,15 +81,15 @@ pub mod anm_decomp {
     }
 
     fn run(
-        game: truth::Game,
+        game: crate::Game,
         path: impl AsRef<std::path::Path>,
         ncol: usize,
         map_path: Option<impl AsRef<std::path::Path>>,
     ) {
         let ty_ctx = {
-            use truth::Eclmap;
+            use crate::Eclmap;
 
-            let mut ty_ctx = truth::type_system::TypeSystem::new();
+            let mut ty_ctx = crate::type_system::TypeSystem::new();
 
             let map_path = map_path.map(|p| p.as_ref().to_owned());
             if let Some(map_path) = map_path.or_else(|| Eclmap::default_map_file(".anmm")) {
@@ -99,8 +102,8 @@ pub mod anm_decomp {
         let script = {
             let bytes = std::fs::read(&path).unwrap();
             let anm_result = {
-                truth::AnmFile::read_from_bytes(game, &bytes)
-                    .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, truth::DecompileKind::Fancy))
+                crate::AnmFile::read_from_bytes(game, &bytes)
+                    .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
                     .with_context(|| format!("in file: {}", path.as_ref().display()))
             };
             match anm_result {
@@ -113,20 +116,19 @@ pub mod anm_decomp {
         };
 
         let stdout = std::io::stdout();
-        let mut f = truth::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
         script.fmt(&mut f).unwrap();
     }
 }
 
 pub mod anm_modify {
-    use crate as truth;
     use anyhow::Context;
     use std::path::Path;
 
-    use truth::{CompileError};
+    use crate::{CompileError};
 
     pub fn main() -> ! {
-        use truth::{cli_helper as cli, args, args_pat};
+        use crate::{cli_helper as cli, args, args_pat};
 
         let args_pat![anm_path, script_path, game, output, mapfile] = cli::cli(
             "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
@@ -143,13 +145,13 @@ pub mod anm_modify {
     }
 
     fn run(
-        game: truth::Game,
+        game: crate::Game,
         anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
         map_path: Option<&Path>,
     ) -> bool {
-        let mut files = truth::Files::new();
+        let mut files = crate::Files::new();
         match _run(&mut files, game, anm_path, script_path, outpath, map_path) {
             Ok(()) => true,
             Err(mut e) => { let _ = e.emit(&files); false }
@@ -157,25 +159,25 @@ pub mod anm_modify {
     }
 
     fn _run(
-        files: &mut truth::Files,
-        game: truth::Game,
+        files: &mut crate::Files,
+        game: crate::Game,
         anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = truth::type_system::TypeSystem::new();
+        let mut ty_ctx = crate::type_system::TypeSystem::new();
         if let Some(map_path) = map_path {
-            let eclmap = truth::Eclmap::load(&map_path, Some(game))?;
+            let eclmap = crate::Eclmap::load(&map_path, Some(game))?;
             ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
         }
 
-        let ast = files.read_file::<truth::ast::Script>(&script_path)?;
+        let ast = files.read_file::<crate::ast::Script>(&script_path)?;
         for path_literal in &ast.mapfiles {
             let path = path_literal.as_path()?;
-            match truth::Eclmap::load(&path, Some(game)) {
+            match crate::Eclmap::load(&path, Some(game)) {
                 Ok(eclmap) => ty_ctx.extend_from_eclmap(path, &eclmap),
-                Err(e) => return Err(truth::error!(
+                Err(e) => return Err(crate::error!(
                     message("{}", e), primary(path_literal, "error loading file"),
                 )),
             }
@@ -183,11 +185,11 @@ pub mod anm_modify {
 
         let bytes = std::fs::read(&anm_path).unwrap();
         let mut anm_file = {
-            truth::AnmFile::read_from_bytes(game, &bytes)
+            crate::AnmFile::read_from_bytes(game, &bytes)
                 .with_context(|| format!("in file: {}", anm_path.display()))?
         };
 
-        let compiled_ast = truth::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
+        let compiled_ast = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
         anm_file.merge(&compiled_ast)?;
 
         let mut buf = std::io::Cursor::new(vec![]);
@@ -199,12 +201,11 @@ pub mod anm_modify {
 }
 
 pub mod anm_redump {
-    use crate as truth;
     use anyhow::Context;
-    use truth::{CompileError};
+    use crate::{CompileError};
 
     pub fn main() -> ! {
-        use truth::{cli_helper as cli, args, args_pat};
+        use crate::{cli_helper as cli, args, args_pat};
 
         let args_pat![input, output, game] = cli::cli(
             "FILE -g GAME -o OUTPUT [OPTIONS...]",
@@ -218,7 +219,7 @@ pub mod anm_redump {
     }
 
     fn run(
-        game: truth::Game,
+        game: crate::Game,
         path: impl AsRef<std::path::Path>,
         outpath: impl AsRef<std::path::Path>,
     ) -> bool {
@@ -232,13 +233,13 @@ pub mod anm_redump {
     }
 
     fn _run(
-        game: truth::Game,
+        game: crate::Game,
         path: impl AsRef<std::path::Path>,
         outpath: impl AsRef<std::path::Path>,
     ) -> Result<(), CompileError> {
         let bytes = std::fs::read(&path).unwrap();
         let anm_file = {
-            truth::AnmFile::read_from_bytes(game, &bytes)
+            crate::AnmFile::read_from_bytes(game, &bytes)
                 .with_context(|| format!("in file: {}", path.as_ref().display()))?
         };
 
@@ -251,14 +252,12 @@ pub mod anm_redump {
 }
 
 pub mod std_compile {
-    use crate as truth;
-
     use std::path::Path;
-    use truth::{CompileError};
+    use crate::{CompileError};
     use anyhow::Context;
 
     pub fn main() -> ! {
-        use truth::{cli_helper as cli, args, args_pat};
+        use crate::{cli_helper as cli, args, args_pat};
 
         let args_pat![input, output, mapfile, game] = cli::cli(
             "FILE -g GAME -o OUTPUT [OPTIONS...]",
@@ -272,12 +271,12 @@ pub mod std_compile {
     }
 
     fn run(
-        game: truth::Game,
+        game: crate::Game,
         path: &Path,
         outpath: &Path,
         map_path: Option<&Path>,
     ) -> bool {
-        let mut files = truth::Files::new();
+        let mut files = crate::Files::new();
         match _run(&mut files, game, path, outpath, map_path) {
             Ok(()) => true,
             Err(mut e) => { let _ = e.emit(&files); false }
@@ -285,30 +284,30 @@ pub mod std_compile {
     }
 
     fn _run(
-        files: &mut truth::Files,
-        game: truth::Game,
+        files: &mut crate::Files,
+        game: crate::Game,
         path: &Path,
         outpath: &Path,
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = truth::type_system::TypeSystem::new();
+        let mut ty_ctx = crate::type_system::TypeSystem::new();
         if let Some(map_path) = map_path {
-            let eclmap = truth::Eclmap::load(&map_path, Some(game)).unwrap();
+            let eclmap = crate::Eclmap::load(&map_path, Some(game)).unwrap();
             ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
         }
 
-        let script = files.read_file::<truth::ast::Script>(&path)?;
+        let script = files.read_file::<crate::ast::Script>(&path)?;
 
         for path_literal in &script.mapfiles {
             let path = path_literal.as_path()?;
-            match truth::Eclmap::load(&path, Some(game)) {
+            match crate::Eclmap::load(&path, Some(game)) {
                 Ok(eclmap) => ty_ctx.extend_from_eclmap(path, &eclmap),
-                Err(e) => return Err(truth::error!(
+                Err(e) => return Err(crate::error!(
                     message("{}", e), primary(path_literal, "error loading file"),
                 )),
             }
         }
-        let std = truth::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
+        let std = crate::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
 
         let mut out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
         std.write_to_stream(&mut out, game).unwrap();
@@ -317,13 +316,11 @@ pub mod std_compile {
 }
 
 pub mod std_decomp {
-    use crate as truth;
-
-    use truth::{Format, CompileError};
+    use crate::{Format, CompileError};
 
     use anyhow::Context;
     pub fn main() -> ! {
-        use truth::{cli_helper as cli, args, args_pat};
+        use crate::{cli_helper as cli, args, args_pat};
 
         let args_pat![input, max_columns, mapfile, game] = cli::cli(
             "FILE -g GAME [OPTIONS...]",
@@ -334,15 +331,15 @@ pub mod std_decomp {
     }
 
     fn run(
-        game: truth::Game,
+        game: crate::Game,
         path: impl AsRef<std::path::Path>,
         ncol: usize,
         map_path: Option<impl AsRef<std::path::Path>>,
     ) {
         let ty_ctx = {
-            use truth::Eclmap;
+            use crate::Eclmap;
 
-            let mut ty_ctx = truth::type_system::TypeSystem::new();
+            let mut ty_ctx = crate::type_system::TypeSystem::new();
 
             let map_path = map_path.map(|p| p.as_ref().to_owned());
             if let Some(map_path) = map_path.or_else(|| Eclmap::default_map_file(".stdm")) {
@@ -355,8 +352,8 @@ pub mod std_decomp {
         let script = {
             let bytes = std::fs::read(&path).unwrap();
             let parsed = {
-                truth::StdFile::read_from_bytes(game, &bytes)
-                    .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, truth::DecompileKind::Fancy))
+                crate::StdFile::read_from_bytes(game, &bytes)
+                    .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
                     .with_context(|| format!("in file: {}", path.as_ref().display()))
             };
             match parsed {
@@ -369,7 +366,7 @@ pub mod std_decomp {
         };
 
         let stdout = std::io::stdout();
-        let mut f = truth::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
         script.fmt(&mut f).unwrap();
     }
 }
