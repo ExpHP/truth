@@ -457,6 +457,12 @@ string_enum! {
     }
 }
 
+impl BinopKind {
+    pub fn is_comparison(self) -> bool {
+        matches!(self, token![==] | token![!=] | token![<] | token![<=] | token![>] | token![>=])
+    }
+}
+
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UnopKind {

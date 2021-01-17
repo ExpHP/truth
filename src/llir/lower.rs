@@ -510,21 +510,23 @@ impl Lowerer<'_> {
             },
 
             (token![if], ast::Cond::Expr(expr)) => match &expr.value {
-                Expr::Binop(a, binop, b) => self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
+                Expr::Binop(a, binop, b) if binop.is_comparison() => {
+                    self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, a, binop, b, goto)
+                },
 
                 // other arbitrary expressions: use `if (<expr> != 0)`
                 _ => {
                     let ty = self.ty_ctx.compute_type_shallow(expr)?;
                     let zero = sp!(expr.span => ast::Expr::zero(ty));
                     let ne_sign = sp!(expr.span => token![!=]);
-                    self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
+                    self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
                 },
             },
         }
     }
 
     /// Lowers `if (<A> != <B>) goto label @ time;` and similar
-    fn lower_cond_jump_binop(
+    fn lower_cond_jump_comparison(
         &mut self,
         stmt_span: Span,
         stmt_time: i32,
@@ -539,7 +541,7 @@ impl Lowerer<'_> {
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
             (ExprClass::NeedsTemp(data_a), _) => {
                 let (id, var_expr) = self.define_temporary(stmt_time, &data_a)?;
-                self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, &var_expr, binop, b, goto)?;
+                self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, &var_expr, binop, b, goto)?;
                 self.undefine_temporary(id)?;
             },
 
@@ -547,7 +549,7 @@ impl Lowerer<'_> {
             // split out to: `tmp = <B>;  if (a != tmp) ...`;
             (ExprClass::Simple(_), ExprClass::NeedsTemp(data_b)) => {
                 let (id, var_expr) = self.define_temporary(stmt_time, &data_b)?;
-                self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, &var_expr, goto)?;
+                self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, a, binop, &var_expr, goto)?;
                 self.undefine_temporary(id)?;
             },
 
