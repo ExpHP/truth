@@ -278,7 +278,7 @@ fn compile_std(
 
         ty_ctx.resolve_names(&mut script)?;
 
-        let mut visitor = crate::passes::compile_loop::Visitor::new(ty_ctx);
+        let mut visitor = crate::passes::desugar_blocks::Visitor::new(ty_ctx);
         visitor.visit_script(&mut script);
         visitor.finish()?;
 

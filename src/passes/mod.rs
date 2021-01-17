@@ -4,7 +4,7 @@ use crate::type_system::TypeSystem;
 
 pub mod const_simplify;
 pub mod unused_labels;
-pub mod compile_loop;
+pub mod desugar_blocks;
 pub mod decompile_loop;
 
 pub enum DecompileKind { Simple, Fancy }

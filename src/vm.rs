@@ -12,7 +12,7 @@ use crate::value::ScalarValue;
 /// Because it runs on a nested datastructure, it has no concept of a persistent instruction
 /// pointer and cannot be paused or resumed.  It will always run the code until it falls off
 /// past the last statement or hits a return.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct AstVm {
     /// Current script time in the VM.
     ///
@@ -375,7 +375,6 @@ impl AstVm {
     pub fn get_reg(&self, reg: RegId) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
 
     fn set_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue) {
-        eprintln!("{} = {:?}", crate::fmt::stringify(var), value);
         let (key, _) = self._var_data(var);
         self.var_values.insert(key, value);
     }
@@ -407,7 +406,7 @@ mod tests {
     use super::*;
     use crate::pos::Files;
     use crate::type_system::TypeSystem;
-    use ScalarValue::{Int, Float};
+    use crate::value::ScalarValue::{Int, Float};
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId)>,

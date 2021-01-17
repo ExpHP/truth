@@ -246,7 +246,7 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
 
         ty_ctx.resolve_names(&mut ast)?;
 
-        let mut visitor = crate::passes::compile_loop::Visitor::new(ty_ctx);
+        let mut visitor = crate::passes::desugar_blocks::Visitor::new(ty_ctx);
         visitor.visit_script(&mut ast);
         visitor.finish()?;
 
