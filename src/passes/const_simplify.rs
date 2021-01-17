@@ -48,25 +48,25 @@ impl Sp<UnopKind> {
 impl UnopKind {
     pub fn const_eval_int(&self, x: i32) -> Option<ScalarValue> {
         match self {
-            UnopKind::Neg => Some(ScalarValue::Int(i32::wrapping_neg(x))),
-            UnopKind::Not => Some(ScalarValue::Int((x != 0) as i32)),
-            UnopKind::Sin |
-            UnopKind::Cos |
-            UnopKind::Sqrt => None,
-            UnopKind::CastI => None,
-            UnopKind::CastF => Some(ScalarValue::Float(x as f32)),
+            token![unop -] => Some(ScalarValue::Int(i32::wrapping_neg(x))),
+            token![unop !] => Some(ScalarValue::Int((x != 0) as i32)),
+            token![unop sin] |
+            token![unop cos] |
+            token![unop sqrt] => None,
+            token![unop _S] => None,
+            token![unop _f] => Some(ScalarValue::Float(x as f32)),
         }
     }
 
     pub fn const_eval_float(&self, x: f32) -> Option<ScalarValue> {
         match self {
-            UnopKind::Neg => Some(ScalarValue::Float(-x)),
-            UnopKind::Not => None,
-            UnopKind::Sin => Some(ScalarValue::Float(x.sin())),
-            UnopKind::Cos => Some(ScalarValue::Float(x.cos())),
-            UnopKind::Sqrt => Some(ScalarValue::Float(x.sqrt())),
-            UnopKind::CastI => Some(ScalarValue::Int(x as i32)),
-            UnopKind::CastF => None,
+            token![unop -] => Some(ScalarValue::Float(-x)),
+            token![unop !] => None,
+            token![unop sin] => Some(ScalarValue::Float(x.sin())),
+            token![unop cos] => Some(ScalarValue::Float(x.cos())),
+            token![unop sqrt] => Some(ScalarValue::Float(x.sqrt())),
+            token![unop _S] => Some(ScalarValue::Int(x as i32)),
+            token![unop _f] => None,
         }
     }
 }
@@ -85,43 +85,43 @@ impl Sp<BinopKind> {
 impl BinopKind {
     pub fn const_eval_int(&self, a: i32, b: i32) -> i32 {
         match self {
-            BinopKind::Add => i32::wrapping_add(a, b),
-            BinopKind::Sub => i32::wrapping_sub(a, b),
-            BinopKind::Mul => i32::wrapping_mul(a, b),
-            BinopKind::Div => i32::wrapping_div(a, b),
-            BinopKind::Rem => i32::wrapping_rem(a, b),
-            BinopKind::Eq => (a == b) as i32,
-            BinopKind::Ne => (a != b) as i32,
-            BinopKind::Lt => (a < b) as i32,
-            BinopKind::Le => (a <= b) as i32,
-            BinopKind::Gt => (a > b) as i32,
-            BinopKind::Ge => (a >= b) as i32,
-            BinopKind::LogicOr => if a == 0 { b } else { a },
-            BinopKind::LogicAnd => if a == 0 { 0 } else { b },
-            BinopKind::BitXor => a ^ b,
-            BinopKind::BitAnd => a & b,
-            BinopKind::BitOr => a | b,
+            token![binop +] => i32::wrapping_add(a, b),
+            token![binop -] => i32::wrapping_sub(a, b),
+            token![binop *] => i32::wrapping_mul(a, b),
+            token![binop /] => i32::wrapping_div(a, b),
+            token![binop %] => i32::wrapping_rem(a, b),
+            token![binop ==] => (a == b) as i32,
+            token![binop !=] => (a != b) as i32,
+            token![binop <] => (a < b) as i32,
+            token![binop <=] => (a <= b) as i32,
+            token![binop >] => (a > b) as i32,
+            token![binop >=] => (a >= b) as i32,
+            token![binop ||] => if a == 0 { b } else { a },
+            token![binop &&] => if a == 0 { 0 } else { b },
+            token![binop ^] => a ^ b,
+            token![binop &] => a & b,
+            token![binop |] => a | b,
         }
     }
 
     pub fn const_eval_float(&self, a: f32, b: f32) -> Option<ScalarValue> {
         match self {
-            BinopKind::Add => Some(ScalarValue::Float(a + b)),
-            BinopKind::Sub => Some(ScalarValue::Float(a - b)),
-            BinopKind::Mul => Some(ScalarValue::Float(a * b)),
-            BinopKind::Div => Some(ScalarValue::Float(a / b)),
-            BinopKind::Rem => Some(ScalarValue::Float(a % b)),
-            BinopKind::Eq => Some(ScalarValue::Int((a == b) as i32)),
-            BinopKind::Ne => Some(ScalarValue::Int((a != b) as i32)),
-            BinopKind::Lt => Some(ScalarValue::Int((a < b) as i32)),
-            BinopKind::Le => Some(ScalarValue::Int((a <= b) as i32)),
-            BinopKind::Gt => Some(ScalarValue::Int((a > b) as i32)),
-            BinopKind::Ge => Some(ScalarValue::Int((a >= b) as i32)),
-            BinopKind::LogicOr => None,
-            BinopKind::LogicAnd => None,
-            BinopKind::BitXor => None,
-            BinopKind::BitAnd => None,
-            BinopKind::BitOr => None,
+            token![binop +] => Some(ScalarValue::Float(a + b)),
+            token![binop -] => Some(ScalarValue::Float(a - b)),
+            token![binop *] => Some(ScalarValue::Float(a * b)),
+            token![binop /] => Some(ScalarValue::Float(a / b)),
+            token![binop %] => Some(ScalarValue::Float(a % b)),
+            token![binop ==] => Some(ScalarValue::Int((a == b) as i32)),
+            token![binop !=] => Some(ScalarValue::Int((a != b) as i32)),
+            token![binop <] => Some(ScalarValue::Int((a < b) as i32)),
+            token![binop <=] => Some(ScalarValue::Int((a <= b) as i32)),
+            token![binop >] => Some(ScalarValue::Int((a > b) as i32)),
+            token![binop >=] => Some(ScalarValue::Int((a >= b) as i32)),
+            token![binop ||] => None,
+            token![binop &&] => None,
+            token![binop ^] => None,
+            token![binop &] => None,
+            token![binop |] => None,
         }
     }
 }

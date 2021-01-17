@@ -7,46 +7,57 @@ use crate::pos::{Sp, Span};
 #[macro_export]
 macro_rules! token {
     (rec_sp!($span:expr => $($tok:tt)+)) => { sp!($span => token!($($tok)+)) };
-    (+) => { $crate::ast::BinopKind::Add };
-    (-) => { <_ as ::core::convert::Into<_>>::into($crate::quote::MinusSign) };
-    (*) => { $crate::ast::BinopKind::Mul };
-    (/) => { $crate::ast::BinopKind::Div };
-    (%) => { $crate::ast::BinopKind::Rem };
-    (|) => { $crate::ast::BinopKind::BitOr };
-    (^) => { $crate::ast::BinopKind::BitXor };
-    (&) => { $crate::ast::BinopKind::BitAnd };
-    (||) => { $crate::ast::BinopKind::LogicOr };
-    (&&) => { $crate::ast::BinopKind::LogicAnd };
-    (==) => { $crate::ast::BinopKind::Eq };
-    (!=) => { $crate::ast::BinopKind::Ne };
-    (<) => { $crate::ast::BinopKind::Lt };
-    (<=) => { $crate::ast::BinopKind::Le };
-    (>) => { $crate::ast::BinopKind::Gt };
-    (>=) => { $crate::ast::BinopKind::Ge };
 
-    (!) => { $crate::ast::UnopKind::Not };
+    ($(binop)? +) => { $crate::ast::BinopKind::Add };
+    (  binop   -) => { $crate::ast::BinopKind::Sub };
+    ($(binop)? *) => { $crate::ast::BinopKind::Mul };
+    ($(binop)? /) => { $crate::ast::BinopKind::Div };
+    ($(binop)? %) => { $crate::ast::BinopKind::Rem };
+    ($(binop)? |) => { $crate::ast::BinopKind::BitOr };
+    ($(binop)? ^) => { $crate::ast::BinopKind::BitXor };
+    ($(binop)? &) => { $crate::ast::BinopKind::BitAnd };
+    ($(binop)? ||) => { $crate::ast::BinopKind::LogicOr };
+    ($(binop)? &&) => { $crate::ast::BinopKind::LogicAnd };
+    ($(binop)? ==) => { $crate::ast::BinopKind::Eq };
+    ($(binop)? !=) => { $crate::ast::BinopKind::Ne };
+    ($(binop)? <) => { $crate::ast::BinopKind::Lt };
+    ($(binop)? <=) => { $crate::ast::BinopKind::Le };
+    ($(binop)? >) => { $crate::ast::BinopKind::Gt };
+    ($(binop)? >=) => { $crate::ast::BinopKind::Ge };
 
-    (=) => { $crate::ast::AssignOpKind::Assign };
-    (+=) => { $crate::ast::AssignOpKind::Add };
-    (-=) => { $crate::ast::AssignOpKind::Sub };
-    (*=) => { $crate::ast::AssignOpKind::Mul };
-    (/=) => { $crate::ast::AssignOpKind::Div };
-    (%=) => { $crate::ast::AssignOpKind::Rem };
-    (|=) => { $crate::ast::AssignOpKind::BitOr };
-    (^=) => { $crate::ast::AssignOpKind::BitXor };
-    (&=) => { $crate::ast::AssignOpKind::BitAnd };
+    ($(unop)? !) => { $crate::ast::UnopKind::Not };
+    (  unop   -) => { $crate::ast::UnopKind::Neg };
+    ($(unop)? sin) => { $crate::ast::UnopKind::Sin };
+    ($(unop)? cos) => { $crate::ast::UnopKind::Cos };
+    ($(unop)? sqrt) => { $crate::ast::UnopKind::Sqrt };
+    ($(unop)? _S) => { $crate::ast::UnopKind::CastI };
+    ($(unop)? _f) => { $crate::ast::UnopKind::CastF };
 
+    ($(assignop)? =) => { $crate::ast::AssignOpKind::Assign };
+    ($(assignop)? +=) => { $crate::ast::AssignOpKind::Add };
+    ($(assignop)? -=) => { $crate::ast::AssignOpKind::Sub };
+    ($(assignop)? *=) => { $crate::ast::AssignOpKind::Mul };
+    ($(assignop)? /=) => { $crate::ast::AssignOpKind::Div };
+    ($(assignop)? %=) => { $crate::ast::AssignOpKind::Rem };
+    ($(assignop)? |=) => { $crate::ast::AssignOpKind::BitOr };
+    ($(assignop)? ^=) => { $crate::ast::AssignOpKind::BitXor };
+    ($(assignop)? &=) => { $crate::ast::AssignOpKind::BitAnd };
+
+    (  varty   int) => { $crate::ast::VarDeclKeyword::Var };
+    (  varty   float) => { $crate::ast::VarDeclKeyword::Var };
+    ($(varty)? var) => { $crate::ast::VarDeclKeyword::Var };
+
+    (  functy   int) => { $crate::ast::FuncReturnType::Void };
+    (  functy   float) => { $crate::ast::FuncReturnType::Void };
+    ($(functy)? void) => { $crate::ast::FuncReturnType::Void };
+
+    ($(cond)? if) => { $crate::ast::CondKeyword::If };
+    ($(cond)? unless) => { $crate::ast::CondKeyword::Unless };
+
+    // ambiguous ones
     (int) => { ::core::convert::Into::into($crate::quote::KeywordInt) };
     (float) => { ::core::convert::Into::into($crate::quote::KeywordFloat) };
-    (var) => { $crate::ast::VarDeclKeyword::Var };
-    (void) => { $crate::ast::FuncReturnType::Void };
-    (if) => { $crate::ast::CondKeyword::If };
-    (unless) => { $crate::ast::CondKeyword::Unless };
-    (sin) => { $crate::ast::UnopKind::Sin };
-    (cos) => { $crate::ast::UnopKind::Cos };
-    (sqrt) => { $crate::ast::UnopKind::Sqrt };
-    (_S) => { $crate::ast::UnopKind::CastI };
-    (_f) => { $crate::ast::UnopKind::CastF };
+    (-) => { ::core::convert::Into::into($crate::quote::MinusSign) };
 }
 
 // These briefly appear in the expansion of `token!()` for tokens that can be parsed as
@@ -80,6 +91,11 @@ macro_rules! rec_sp {
     // favor interior spans of nested sp! calls
     ($span:expr => sp!$args:tt ) => { sp!$args };
     ($span:expr => rec_sp!$args:tt ) => { rec_sp!$args };
+    // If the macro is wrapped in _ast_sp_transparent!(...), don't apply a span here, but DO recurse
+    ($span:expr => _ast_sp_transparent!($mac:ident!( $($arg:tt)* ))) => { $mac!(rec_sp!( span => $($arg)+ )) };
+    ($span:expr => _ast_sp_transparent!($mac:ident![ $($arg:tt)* ])) => { $mac![rec_sp!( span => $($arg)+ )] };
+    ($span:expr => _ast_sp_transparent!($mac:ident!{ $($arg:tt)* })) => { $mac!{rec_sp!( span => $($arg)+ )} };
+    ($span:expr => _ast_sp_transparent!($value:expr)) => { $value };
     // Add a span to the thing, then stick ourselves into the argument to recurse.
     ($span:expr => $mac:ident!( $($arg:tt)* )) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac!(rec_sp!( span => $($arg)+ )), span) }};
     ($span:expr => $mac:ident![ $($arg:tt)* ]) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac![rec_sp!( span => $($arg)+ )], span) }};
@@ -97,6 +113,7 @@ pub trait IntoSpanned {
     fn into_spanned(self, default_span: Span) -> Sp<Self::Value>;
 }
 
+// Implementation for a type that already has a span.
 impl<T> IntoSpanned for Sp<T> {
     type Value = T;
 
@@ -113,10 +130,61 @@ macro_rules! impl_into_spanned_for_ast {
     )+};
 }
 
+// Implementations that apply a span to an item that currently lacks one.
+//
+// One is provided for every type that we might wrap `Sp<...>` around.
 impl_into_spanned_for_ast!{
-    ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtBody, ast::StmtLabel,
+    ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtBody, ast::Cond,
     ast::UnopKind, ast::BinopKind, ast::AssignOpKind,
     ast::CondKeyword, ast::FuncReturnType, ast::VarDeclKeyword, ast::MetaKeyword,
+    crate::ident::Ident,
+    crate::meta::Meta,
+    i32, f32,
+}
+
+// -----------------------------------
+
+/// An AST macro that applies a function to the output of another AST macro.
+///
+/// This is used sometimes in the parsing and expansion of AST macros when one of the subterms is an enum.
+/// For instance, an 'if' condition might parse to `_ast_map!($crate::ast::Cond::Expr, $($toks)+)`.
+///
+/// (why not just parse to `$crate::ast::Cond::Expr($($toks)+)`? The answer is because that's not a macro
+///  call, so `rec_sp!` would not be able to recurse into it)
+#[macro_export]
+#[doc(hidden)]
+macro_rules! _ast_map {
+    (rec_sp!($span:expr => $map_func:expr, $($inner:tt)+)) => {
+        $map_func(rec_sp!($span => $($inner)+))
+    };
+    ($map_func:expr, $($inner:tt)+) => {
+        $map_func($($inner)+)
+    };
+}
+
+/// An AST pseudo-macro that causes [`rec_sp`] to recurse into another macro's body without also applying a span to the
+/// final result.
+///
+/// Basically, the difference is:
+///
+/// * `rec_sp!(span => mac!(<stuff>))` expands to `sp!(span => mac!(rec_sp!(span => <stuff>)))`. (sort of)
+/// * `rec_sp!(span => _ast_sp_transparent!(mac!(<stuff>)))` expands to `mac!(rec_sp!(span => <stuff>))`,
+///   i.e. no span is applied to the outermost result.
+///
+/// Similarly, for non-macro expressions, `rec_sp!(span => <expr>)` expands to `sp!(span => <expr>)`,
+/// while `rec_sp!(span => _ast_sp_transparent!(<expr>))` simply expands to `<expr>`.
+///
+/// In actuality, this macro is never actually called.  [`rec_sp`] will recognize it by name, alter its own behavior,
+/// and remove it from the token stream.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! _ast_sp_transparent {
+    ($($t:tt)*) => {
+        compile_error!(concat!(
+            "The macro _ast_sp_transparent!() was invoked. This should never happen!\n",
+            "Args: `", stringify!($($t)*), "`",
+        ))
+    };
 }
 
 // -----------------------------------
@@ -152,6 +220,7 @@ mod ast_macros {
 mod tests {
     use super::*;
     use crate::pos::FileId;
+    use crate::ident::Ident;
 
     const FILE_ID: FileId = std::num::NonZeroU32::new(1);
 
@@ -162,14 +231,12 @@ mod tests {
         let a: ast::Expr = 23.into();
         let b: Sp<ast::Expr> = sp!(span_2 => 42.into());
         let c: ast::Expr = 32.into();
-        let var: ast::Var = ast::Var::Named { ident: "lol".parse().unwrap(), ty_sigil: None };
-        // panic!("{:?}", expr_binop!());
 
         // Subexprs in an AST macro can be:
         //  * opaque, parenthesized expressions
         //  * local variable identifiers
         //  * another macro call, through which rec_sp! will be recursively applied
-        let expr = rec_sp!(span_1 => expr_binop!((a.clone()) + expr_binop!(a + expr_binop!(b - c))));
+        let expr = rec_sp!(span_1 => expr_binop!(#(a.clone()) + expr_binop!(#a + expr_binop!(#b - #c))));
         match &expr.value {
             ast::Expr::Binop(subexpr1, op, subexpr2) => match &subexpr2.value {
                 ast::Expr::Binop(subexpr21, op2, subexpr22) => match &subexpr22.value {
@@ -204,7 +271,9 @@ mod tests {
         // Test that the span from an inner rec_sp! takes precedence over the outer one
         let a: ast::Expr = 23.into();
         let b: ast::Expr = 42.into();
-        let expr = rec_sp!(span_1 => expr_binop!(a + rec_sp!(span_2 => expr_binop!(b + (ast::Expr::from(31))))));
+        let expr = rec_sp!(span_1 => expr_binop!(
+            #a + rec_sp!(span_2 => expr_binop!(#b + #(ast::Expr::from(31))))
+        ));
         match &expr.value {
             ast::Expr::Binop(subexpr1, _, subexpr2) => match &subexpr2.value {
                 ast::Expr::Binop(subexpr21, _, subexpr22) => {
@@ -221,13 +290,36 @@ mod tests {
         // Test that the span from an inner sp! takes precedence over an outer rec_sp!
         let a: ast::Expr = 23.into();
         let b: ast::Expr = 42.into();
-        let expr = rec_sp!(span_1 => expr_binop!(a + sp!(span_2 => b)));
+        let expr = rec_sp!(span_1 => expr_binop!(#a + sp!(span_2 => b)));
         match &expr.value {
-            ast::Expr::Binop(subexpr1, op, subexpr2) => {
+            ast::Expr::Binop(subexpr1, _, subexpr2) => {
                 assert_eq!(subexpr1.span, span_1);
                 assert_eq!(subexpr2.span, span_2);
             },
             ex => panic!("{:?}", ex),
         }
+    }
+
+    #[test]
+    fn without_rec_sp() {
+        let span_1 = Span::new(FILE_ID, 1, 1);
+
+        // Test that the span from an inner rec_sp! takes precedence over the outer one
+        let a: ast::Expr = 23.into();
+        let b: ast::Expr = 42.into();
+        let _ = expr_binop!(sp!(span_1 => a) sp!(span_1 => token![+]) sp!(span_1 => b));
+
+        let a: Sp<ast::Expr> = sp!(span_1 => 23.into());
+        let b: Sp<ast::Expr> = sp!(span_1 => 42.into());
+        let _ = expr_binop!(#a sp!(span_1 => token![+]) #b);
+    }
+
+    #[test]
+    fn stmt() {
+        let span_1 = Span::new(FILE_ID, 1, 1);
+
+        let label: Ident = "label".parse().unwrap();
+        let _ = rec_sp!(span_1 => stmt_label!(at #(30), #(label.clone())));
+        let _ = rec_sp!(span_1 => stmt_label!(#label));
     }
 }

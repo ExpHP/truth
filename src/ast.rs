@@ -302,15 +302,15 @@ string_enum! {
 impl AssignOpKind {
     pub fn corresponding_binop(self) -> Option<BinopKind> {
         match self {
-            AssignOpKind::Assign => None,
-            AssignOpKind::Add => Some(BinopKind::Add),
-            AssignOpKind::Sub => Some(BinopKind::Sub),
-            AssignOpKind::Mul => Some(BinopKind::Mul),
-            AssignOpKind::Div => Some(BinopKind::Div),
-            AssignOpKind::Rem => Some(BinopKind::Rem),
-            AssignOpKind::BitOr => Some(BinopKind::BitOr),
-            AssignOpKind::BitXor => Some(BinopKind::BitXor),
-            AssignOpKind::BitAnd => Some(BinopKind::BitAnd),
+            token![=] => None,
+            token![+=] => Some(token![+]),
+            token![-=] => Some(token![-]),
+            token![*=] => Some(token![*]),
+            token![/=] => Some(token![/]),
+            token![%=] => Some(token![%]),
+            token![|=] => Some(token![|]),
+            token![^=] => Some(token![^]),
+            token![&=] => Some(token![&]),
         }
     }
 }
@@ -455,7 +455,7 @@ string_enum! {
 
 impl UnopKind {
     pub fn is_cast(&self) -> bool {
-        matches!(self, UnopKind::CastI | UnopKind::CastF)
+        matches!(self, token![_S] | token![_f])
     }
 }
 

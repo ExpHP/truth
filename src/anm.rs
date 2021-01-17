@@ -799,7 +799,6 @@ impl InstrFormat for InstrFormat06 {
 impl InstrFormat for InstrFormat07 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         use IntrinsicInstrKind as I;
-        use ast::UnopKind as Un;
 
         match self.version {
             Version::V0 => unreachable!(),
@@ -808,8 +807,8 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
                     (I::InterruptLabel, 21),
-                    (I::Unop(Un::Sin, ScalarType::Float), 61),
-                    (I::Unop(Un::Cos, ScalarType::Float), 62),
+                    (I::Unop(token![sin], ScalarType::Float), 61),
+                    (I::Unop(token![cos], ScalarType::Float), 62),
                     // (I::Unop(Un::Tan, ScalarType::Float), 63),
                     // (I::Unop(Un::Acos, ScalarType::Float), 64),
                     // (I::Unop(Un::Atan, ScalarType::Float), 65),
@@ -824,8 +823,8 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
                     (I::InterruptLabel, 64),
-                    (I::Unop(Un::Sin, ScalarType::Float), 42),
-                    (I::Unop(Un::Cos, ScalarType::Float), 43),
+                    (I::Unop(token![sin], ScalarType::Float), 42),
+                    (I::Unop(token![cos], ScalarType::Float), 43),
                     // (I::Unop(Un::Tan, ScalarType::Float), 44),
                     // (I::Unop(Un::Acos, ScalarType::Float), 45),
                     // (I::Unop(Un::Atan, ScalarType::Float), 46),
@@ -840,8 +839,8 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 200),
                     (I::CountJmp, 201),
                     (I::InterruptLabel, 5),
-                    (I::Unop(Un::Sin, ScalarType::Float), 124),
-                    (I::Unop(Un::Cos, ScalarType::Float), 125),
+                    (I::Unop(token![sin], ScalarType::Float), 124),
+                    (I::Unop(token![cos], ScalarType::Float), 125),
                     // (I::Unop(Un::Tan, ScalarType::Float), 126),
                     // (I::Unop(Un::Acos, ScalarType::Float), 127),
                     // (I::Unop(Un::Atan, ScalarType::Float), 128),

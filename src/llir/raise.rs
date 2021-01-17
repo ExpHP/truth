@@ -2,7 +2,7 @@ use anyhow::{Context, ensure, bail};
 
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
-use crate::pos::Sp;
+use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{Instr, InstrArg, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
 use crate::var::{VarId, RegId};
@@ -15,7 +15,7 @@ pub fn raise_instrs_to_sub_ast(
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
     let intrinsic_instrs = instr_format.intrinsic_instrs();
 
-    // For now we give every instruction a label and strip the unused ones later.
+    // For now we put a label at every possible offset, and strip the unused ones later.
     let mut offset = 0;
     let mut out = vec![sp!(ast::Stmt {
         time: 0, body: ast::StmtBody::NoInstruction,
@@ -25,20 +25,17 @@ pub fn raise_instrs_to_sub_ast(
         offset += instr_format.instr_size(instr);
 
         let body = raise_instr(instr_format, instr, ty_ctx, &intrinsic_instrs)?;
-        out.push(sp!(ast::Stmt { time: instr.time, body: ast::StmtBody::Label(label_ident) }));
-        out.push(sp!(ast::Stmt { time: instr.time, body: body }));
+        out.push(rec_sp!(Span::NULL => stmt_label!(at #(instr.time), #label_ident)));
+        out.push(rec_sp!(Span::NULL => stmt!(at #(instr.time), #body)));
     }
 
     let end_time = out.last().expect("there must be at least the other bookend!").time;
-    out.push(sp!(ast::Stmt {
-        time: end_time,
-        body: ast::StmtBody::Label(default_instr_label(offset)),
-    }));
+    out.push(rec_sp!(Span::NULL => stmt_label!(at #end_time, #(default_instr_label(offset)))));
     Ok(out)
 }
 
-fn default_instr_label(offset: usize) -> Sp<Ident> {
-    sp!(format!("label_{}", offset).parse::<Ident>().unwrap())
+fn default_instr_label(offset: usize) -> Ident {
+    format!("label_{}", offset).parse::<Ident>().unwrap()
 }
 
 fn raise_instr(
@@ -61,48 +58,38 @@ fn raise_instr(
                 true => Some(args[1].expect_immediate_int()),
                 false => None,
             };
-            Ok(ast::StmtBody::Jump(ast::StmtGoto {
-                destination: default_instr_label(dest_offset),
-                time: dest_time,
-            }))
+            let dest_label = default_instr_label(dest_offset);
+
+            Ok(stmt_goto!(rec_sp!(Span::NULL => goto #dest_label #dest_time)))
         }).with_context(|| format!("while decompiling a 'goto' operation")),
 
 
         Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
-            Ok(ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty)?),
-                op: sp!(op),
-                value: sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding())?),
-            })
+            let var = raise_arg_to_var(&args[0].expect_raw(), ty)?;
+            let value = raise_arg(&args[1].expect_raw(), ty.default_encoding())?;
+
+            Ok(stmt_assign!(rec_sp!(Span::NULL => #var #op #value)))
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
 
         Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
-            Ok(ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty)?),
-                op: sp!(ast::AssignOpKind::Assign),
-                value: sp!(Expr::Binop(
-                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding())?)),
-                    sp!(op),
-                    Box::new(sp!(raise_arg(&args[2].expect_raw(), ty.default_encoding())?)),
-                )),
-            })
+            let var = raise_arg_to_var(&args[0].expect_raw(), ty)?;
+            let a = raise_arg(&args[1].expect_raw(), ty.default_encoding())?;
+            let b = raise_arg(&args[2].expect_raw(), ty.default_encoding())?;
+
+            Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_binop!(#a #op #b))))
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
 
 
         Some(IntrinsicInstrKind::Unop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
-            Ok(ast::StmtBody::Assignment {
-                var: sp!(raise_arg_to_var(&args[0].expect_raw(), ty)?),
-                op: sp!(ast::AssignOpKind::Assign),
-                value: sp!(Expr::Unop(
-                    sp!(op),
-                    Box::new(sp!(raise_arg(&args[1].expect_raw(), ty.default_encoding())?)),
-                )),
-            })
-        }).with_context(|| format!("while decompiling a '{}' operation", op)),
+            let var = raise_arg_to_var(&args[0].expect_raw(), ty)?;
+            let b = raise_arg(&args[1].expect_raw(), ty.default_encoding())?;
+
+            Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_unop!(#op #b))))
+        }).with_context(|| format!("while decompiling a unary '{}' operation", op)),
 
 
         Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
@@ -110,7 +97,7 @@ fn raise_instr(
             ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
             ensure!(args[1..].iter().all(|a| a.expect_raw().bits == 0), "unsupported data in padding of intrinsic");
 
-            Ok(ast::StmtBody::InterruptLabel(sp!(args[0].expect_immediate_int())))
+            Ok(stmt_interrupt!(rec_sp!(Span::NULL => #(args[0].expect_immediate_int()) )))
         }).with_context(|| format!("while decompiling an interrupt label")),
 
 
@@ -118,16 +105,12 @@ fn raise_instr(
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
             let var = raise_arg_to_var(&args[0].expect_raw(), ScalarType::Int)?;
             let dest_offset = instr_format.decode_label(args[1].expect_raw().bits);
-            let dest_time = Some(args[2].expect_immediate_int());
+            let dest_time = args[2].expect_immediate_int();
+            let dest_label = default_instr_label(dest_offset);
 
-            Ok(ast::StmtBody::CondJump {
-                keyword: sp!(ast::CondKeyword::If),
-                cond: sp!(ast::Cond::Decrement(sp!(var))),
-                jump: ast::StmtGoto {
-                    destination: default_instr_label(dest_offset),
-                    time: dest_time,
-                },
-            })
+            Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                if (decvar: #var) goto #dest_label @ #dest_time
+            )))
         }).with_context(|| format!("while decompiling a decrement jump")),
 
 
@@ -136,18 +119,12 @@ fn raise_instr(
             let a = raise_arg(&args[0].expect_raw(), ty.default_encoding())?;
             let b = raise_arg(&args[1].expect_raw(), ty.default_encoding())?;
             let dest_offset = instr_format.decode_label(args[2].expect_raw().bits);
-            let dest_time = Some(args[3].expect_immediate_int());
+            let dest_time = args[3].expect_immediate_int();
+            let dest_label = default_instr_label(dest_offset);
 
-            Ok(ast::StmtBody::CondJump {
-                keyword: sp!(ast::CondKeyword::If),
-                cond: sp!(ast::Cond::Expr(sp!({
-                    ast::Expr::Binop(Box::new(sp!(a)), sp!(op), Box::new(sp!(b)))
-                }))),
-                jump: ast::StmtGoto {
-                    destination: default_instr_label(dest_offset),
-                    time: dest_time,
-                },
-            })
+            Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                if (expr: expr_binop!(#a #op #b)) goto #dest_label @ #dest_time
+            )))
         }).with_context(|| format!("while decompiling a conditional jump")),
 
 

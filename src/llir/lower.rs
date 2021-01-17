@@ -256,7 +256,7 @@ impl Lowerer<'_> {
             self.out.push(LowLevelStmt::RegAlloc { local_id, cause: var.span });
 
             if let Some(expr) = expr {
-                let assign_op = sp!(pair.span => ast::AssignOpKind::Assign);
+                let assign_op = sp!(pair.span => token![=]);
                 self.lower_assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
             }
         }
@@ -423,10 +423,10 @@ impl Lowerer<'_> {
         b: &Sp<Expr>,
     ) -> Result<(), CompileError> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
-        if unop.value == ast::UnopKind::Neg {
+        if unop.value == token![-] {
             let ty = self.ty_ctx.compute_type_shallow(b)?;
             let zero = sp!(unop.span => ast::Expr::zero(ty));
-            let minus = sp!(unop.span => ast::BinopKind::Sub);
+            let minus = sp!(unop.span => token![-]);
             self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
             return Ok(());
         }
@@ -457,16 +457,16 @@ impl Lowerer<'_> {
 
                 match unop.value {
                     // These are all handled other ways
-                    ast::UnopKind::CastI |
-                    ast::UnopKind::CastF |
-                    ast::UnopKind::Neg => unreachable!(),
+                    token![_S] |
+                    token![_f] |
+                    token![unop -] => unreachable!(),
 
                     // TODO: we *could* polyfill this with some conditional jumps but bleccccch
-                    ast::UnopKind::Not => return Err(unsupported(&span, "logical not operator")),
+                    token![!] => return Err(unsupported(&span, "logical not operator")),
 
-                    ast::UnopKind::Sin |
-                    ast::UnopKind::Cos |
-                    ast::UnopKind::Sqrt => self.out.push(LowLevelStmt::Instr(Instr {
+                    token![sin] |
+                    token![cos] |
+                    token![sqrt] => self.out.push(LowLevelStmt::Instr(Instr {
                         time,
                         opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
                         args: vec![lowered_var, data_b.lowered],
@@ -489,7 +489,7 @@ impl Lowerer<'_> {
         let (arg_label, arg_time) = lower_goto_args(goto);
 
         match (keyword.value, &cond.value) {
-            (ast::CondKeyword::If, ast::Cond::Decrement(var)) => {
+            (token![if], ast::Cond::Decrement(var)) => {
                 let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
                 if ty_var != ScalarType::Int {
                     return Err(error!(
@@ -507,14 +507,14 @@ impl Lowerer<'_> {
                 Ok(())
             },
 
-            (ast::CondKeyword::If, ast::Cond::Expr(expr)) => match &expr.value {
+            (token![if], ast::Cond::Expr(expr)) => match &expr.value {
                 Expr::Binop(a, binop, b) => self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, a, binop, b, goto),
 
                 // other arbitrary expressions: use `if (<expr> != 0)`
                 _ => {
                     let ty = self.ty_ctx.compute_type_shallow(expr)?;
                     let zero = sp!(expr.span => ast::Expr::zero(ty));
-                    let ne_sign = sp!(expr.span => ast::BinopKind::Ne);
+                    let ne_sign = sp!(expr.span => token![!=]);
                     self.lower_cond_jump_binop(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
                 },
             },
@@ -590,7 +590,7 @@ impl Lowerer<'_> {
         var: &Sp<ast::Var>,
         data: &TemporaryExpr<'_>,
     ) -> Result<Sp<Expr>, CompileError> {
-        let eq_sign = sp!(data.tmp_expr.span => ast::AssignOpKind::Assign);
+        let eq_sign = sp!(data.tmp_expr.span => token![=]);
         self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
 
         let mut read_var = var.clone();
@@ -671,8 +671,8 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
         //
         ast::Expr::Unop(unop, ref b) if unop.is_cast() => {
             let (tmp_ty, read_ty) = match unop.value {
-                ast::UnopKind::CastI => (ScalarType::Float, ScalarType::Int),
-                ast::UnopKind::CastF => (ScalarType::Int, ScalarType::Float),
+                token![_S] => (ScalarType::Float, ScalarType::Int),
+                token![_f] => (ScalarType::Int, ScalarType::Float),
                 _ => unreachable!("filtered out by is_cast()"),
             };
             Ok(ExprClass::NeedsTemp(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))

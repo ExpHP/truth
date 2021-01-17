@@ -2,40 +2,38 @@
 
 pub fn gen_ast_macros() -> String {
     vec![
+        // ==== Macro that turns a StmtBody into a Stmt ====
         gen_ast_macro(
-            "expr_binop", &[
-                ("a", ArgKind::Node),
-                ("op", ArgKind::Token),
-                ("b", ArgKind::Node),
+            "stmt", &[
+                ("time", ArgKind::StmtTimeRequired),
+                ("body", ArgKind::SpTransparent),
             ],
-            "$crate::ast::Expr::Binop(
-                Box::new($a), $op, Box::new($b),
-            )",
+            FinalCasesType::Regular(r#"
+                $crate::ast::Stmt {
+                    time: $time,
+                    body: $body,
+                }
+            "#),
         ),
 
-        gen_ast_macro(
-            "expr_unop", &[
-                ("op", ArgKind::Token),
-                ("b", ArgKind::Node),
-            ],
-            "$crate::ast::Expr::Unop(
-                $op, Box::new($b),
-            )",
-        ),
+        // ==== Macros that can generate either StmtBody or Stmt ====
 
         gen_ast_macro(
             "stmt_assign", &[
                 ("time", ArgKind::StmtTime),
                 ("var", ArgKind::Node),
-                ("op", ArgKind::Token),
+                ("op", ArgKind::Token(&[
+                    "=", "+=", "-=", "*=", "/=", "%=", "|=", "^=", "&="
+                ])),
                 ("value", ArgKind::Node),
             ],
-            "$crate::ast::Stmt {
-                time: $time,
-                body: $crate::ast::StmtBody::Assignment {
-                    var: $var, op: $op, value: $value,
-                },
-            }",
+            FinalCasesType::Stmt { body: r#"
+                $crate::ast::StmtBody::Assignment {
+                    var: ::core::convert::Into::into($var),
+                    op: $op,
+                    value: ::core::convert::Into::into($value),
+                }
+            "#},
         ),
 
         gen_ast_macro(
@@ -43,46 +41,91 @@ pub fn gen_ast_macros() -> String {
                 ("time", ArgKind::StmtTime),
                 ("label", ArgKind::Node),
             ],
-            "$crate::ast::Stmt {
-                time: $time,
-                body: $crate::ast::StmtBody::Label($label.clone()),
-            }",
+            FinalCasesType::Stmt { body: r#"
+                $crate::ast::StmtBody::Label($label)
+            "#},
         ),
 
         gen_ast_macro(
             "stmt_goto", &[
                 ("time", ArgKind::StmtTime),
-                ("keyword", ArgKind::Token),
-                ("cond", ArgKind::Node),
                 ("goto_label", ArgKind::GotoLabel),
                 ("goto_time", ArgKind::GotoTime),
             ],
-            "$crate::ast::Stmt {
-                time: $time,
-                body: $crate::ast::StmtBody::Jump($crate::ast::StmtGoto {
-                    destination: $goto_label, time: $goto_time,
-                }),
-            }",
+            FinalCasesType::Stmt { body: r#"
+                $crate::ast::StmtBody::Jump($crate::ast::StmtGoto {
+                    destination: $goto_label,
+                    time: $goto_time,
+                })
+            "#},
         ),
 
         gen_ast_macro(
             "stmt_cond_goto", &[
                 ("time", ArgKind::StmtTime),
-                ("keyword", ArgKind::Token),
-                ("cond", ArgKind::Node),
+                ("keyword", ArgKind::Token(&["if", "unless"])),
+                ("cond", ArgKind::Cond),
                 ("goto_label", ArgKind::GotoLabel),
                 ("goto_time", ArgKind::GotoTime),
             ],
-            "$crate::ast::Stmt {
-                time: $time,
-                body: $crate::ast::StmtBody::CondJump {
+            FinalCasesType::Stmt { body: r#"
+                $crate::ast::StmtBody::CondJump {
                     keyword: $keyword,
                     cond: $cond,
                     jump: $crate::ast::StmtGoto {
-                        destination: $goto_label, time: $goto_time,
+                        destination: $goto_label,
+                        time: $goto_time,
                     },
-                },
-            }",
+                }
+            "#},
+        ),
+
+        gen_ast_macro(
+            "stmt_interrupt", &[
+                ("time", ArgKind::StmtTime),
+                ("number", ArgKind::Node),
+            ],
+            FinalCasesType::Stmt { body: r#"
+                $crate::ast::StmtBody::InterruptLabel($number)
+            "#},
+        ),
+
+        // ==== Macros to generate Exprs ====
+
+        gen_ast_macro(
+            "expr_binop", &[
+                ("a", ArgKind::Node),
+                ("op", ArgKind::Token(&[
+                    "+", "-", "*", "/", "%",
+                    "==", "!=", "<", "<=", ">", ">=",
+                    "|", "^", "&", "||", "&&",
+                ])),
+                ("b", ArgKind::Node),
+            ],
+            FinalCasesType::Regular(r#"
+                $crate::ast::Expr::Binop(
+                    Box::new(Into::into($a)),
+                    $op,
+                    Box::new(Into::into($b)),
+                )
+            "#),
+        ),
+
+        gen_ast_macro(
+            "expr_unop", &[
+                ("op", ArgKind::Token(&[
+                    "-", "!",
+                    "sin", "cos", "sqrt",
+                    "_S", "_f",
+                ])),
+                ("b", ArgKind::Node),
+            ],
+            FinalCasesType::Regular(r#"
+                $crate::ast::Expr::Unop(
+                    $op,
+                    Box::new(Into::into($b)),
+                )
+            "#),
         ),
     ].iter().map(|s| s.to_string())
         .collect::<Vec<_>>()
@@ -93,98 +136,187 @@ use std::fmt;
 
 #[derive(Debug, Copy, Clone)]
 enum ArgKind {
-    StmtTime,
-    Token,
+    /// The most standard type of subterm.
     Node,
+    /// A node for something that should not get its own span, yet still allows `rec_sp!` to
+    /// recurse through it if it is an AST macro call.
+    SpTransparent,
+    /// This allows a keyword or token to be directly written
+    Token(&'static [&'static str]),
+
+    // A bunch of things that require special treatment due to e.g. optional parts or extra syntax
+    StmtTime,
+    StmtTimeRequired,
+    Cond,
     GotoLabel,
     GotoTime,
 }
 
-fn make_case(mac: &str, cur_step: &str, next_step: &str, to_parse: &str, to_save: &str) -> Rule {
+fn make_case(mac: &str, cur_step: &str, next_step: &str, to_parse: &str, to_save: &str, record_flag: Option<&str>) -> Rule {
+    let new_flags = match record_flag {
+        Some(flag) => format!(" {}", flag),
+        None => format!(""),
+    };
     Rule {
         pattern: format!(
-            "@{cur_step} [{to_parse} $($rest:tt)*] $($done:tt)*",
+            "@{cur_step} [$($flags:ident)*] [{to_parse} $($rest:tt)*] $($done:tt)*",
             cur_step=cur_step, to_parse=to_parse,
         ),
         result: format!(
-            "_{mac}_impl!{{ @{next_step} [$($rest)*] $($done)* [{to_save}] }}",
-            mac=mac, next_step=next_step, to_save=to_save,
+            "_{mac}_impl!{{ @{next_step} [$($flags)*{new_flags}] [$($rest)*] $($done)* [{to_save}] }}",
+            mac=mac, next_step=next_step, to_save=to_save, new_flags=new_flags,
         ),
     }
 }
-fn make_err_case(cur_step: &str, expected: &str) -> Rule {
+
+fn make_err_case_expected(cur_step: &str, expected: &str) -> Rule {
+    make_err_case(cur_step, &format!(r#"
+        _truth__concat!(
+            "in {cur_step}: expected {expected}",
+            $(", got '", _truth__stringify!($first), "'")?
+        )
+    "#, expected=expected, cur_step=cur_step))
+}
+
+fn make_err_case(cur_step: &str, msg: &str) -> Rule {
     Rule {
         pattern: format!(
-            "@{cur_step} [$($first:tt $($rest:tt)*)?] $($done:tt)*",
+            "@{cur_step} [$($flags:ident)*] [$($first:tt $($rest:tt)*)?] $($done:tt)*",
             cur_step=cur_step,
         ),
-        result: format!(
-            r#"_truth__compile_error!{{
-                _truth__concat!(
-                    "in {cur_step}: expected {expected}",
-                    $(", got '", _truth__stringify!($first), "'")?
-                )
-            }}"#,
-            expected=expected, cur_step=cur_step,
-        ),
+        result: format!("_truth__compile_error!{{ {:?} }}", msg),
     }
 }
 
 impl ArgKind {
     fn gen_cases(&self, out: &mut Vec<Rule>, mac: &str, cur_step: &str, next_step: &str) {
-        let case = |to_parse: &str, to_save: &str| make_case(mac, cur_step, next_step, to_parse, to_save);
+        let case = |to_parse: &str, to_save: &str, flag: Option<&str>| make_case(mac, cur_step, next_step, to_parse, to_save, flag);
+        let expected = |msg: &str| make_err_case_expected(cur_step, msg);
         let err = |msg: &str| make_err_case(cur_step, msg);
         match self {
+            ArgKind::Node |
+            ArgKind::SpTransparent => {
+                out.push(case(&format!("#($expr:expr)"), "$expr", None));
+                out.push(case(&format!("#$var:ident"), "$var", None));
+                out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args", None));
+                out.push(expected("an AST macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'"));
+            },
             ArgKind::StmtTime => {
-                out.push(case(&format!("at $time:expr,"), ""));
-                out.push(err(&format!("'at <time>,'")));
+                // the optional StmtTime sets a flag to let us know to create a Stmt instead of StmtBody
+                out.push(case(&format!("at #($expr:expr),"), "$expr", Some("has_time")));
+                out.push(case(&format!("at #$var:ident,"), "$var", Some("has_time")));
+                out.push(case(&format!(""), "unreachable!()", None));
+                out.push(expected("'at <time>,', where <time> is an interpolated variable '#var', or an interpolated expression '#(...)'"));
             },
-            ArgKind::Node => {
-                out.push(case(&format!("($expr:expr)"), "$expr"));
-                out.push(case(&format!("$krate:ident::$mac:ident!$args:tt"), "$krate::$mac!$args"));
-                out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args"));
-                out.push(case(&format!("$var:ident"), "$var"));
-                out.push(err(&format!("a macro invocation, a local variable, or a parenthesized expression")));
+            ArgKind::StmtTimeRequired => {
+                out.push(case(&format!("at #($expr:expr),"), "$expr", None));
+                out.push(case(&format!("at #$var:ident,"), "$var", None));
+                out.push(expected("'at <time>,', where <time> is an interpolated variable '#var', or an interpolated expression '#(...)'"));
             },
-            ArgKind::Token => {
-                out.push(case(&format!("($expr:expr)"), "$expr"));
-                out.push(case(&format!("$krate:ident::$mac:ident!$args:tt"), "$krate::$mac!$args"));
-                out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args"));
-                out.push(case(&format!("$var:ident"), "$var"));
-                out.push(case(&format!("$token:tt"), "token!($token)"));
-                out.push(err(&format!("a macro invocation, a local variable, a parenthesized expression, or an operator")));
+            ArgKind::Cond => {
+                out.push(case(&format!("(expr: #($expr:expr))"), "_ast_map!($crate::ast::Cond::Expr, $expr)", None));
+                out.push(case(&format!("(expr: #$var:ident)"), "_ast_map!($crate::ast::Cond::Expr, $var)", None));
+                out.push(case(&format!("(expr: $mac:ident!$args:tt)"), "_ast_map!($crate::ast::Cond::Expr, $mac!$args)", None));
+                out.push(case(&format!("(decvar: #($expr:expr))"), "_ast_map!($crate::ast::Cond::Decrement, $expr)", None));
+                out.push(case(&format!("(decvar: #$var:ident)"), "_ast_map!($crate::ast::Cond::Decrement, $var)", None));
+                out.push(case(&format!("(decvar: $mac:ident!$args:tt)"), "_ast_map!($crate::ast::Cond::Decrement, $mac!$args)", None));
+                out.push(err("conditionals need to be written as 'if (expr: <expr>)' or 'if (decvar: <var>)', where <expr> and <var> can be a macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'"));
+            },
+            ArgKind::Token(tokens) => {
+                out.push(case(&format!("#($expr:expr)"), "$expr", None));
+                out.push(case(&format!("#$var:ident"), "$var", None));
+                out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args", None));
+                for token in tokens.iter() {
+                    out.push(case(token, &format!("token!({})", token), None));
+                }
+                out.push(expected("a macro invocation 'mac!(...)', an interpolated variable '#var', an interpolated expression '#(...)', or a keyword/operator '+'"));
             },
             ArgKind::GotoLabel => {
-                out.push(case(&format!("goto ($expr:expr)"), "$expr"));
-                out.push(case(&format!("goto $krate:ident::$mac:ident!$args:tt"), "$krate::$mac!$args"));
-                out.push(case(&format!("goto $mac:ident!$args:tt"), "$mac!$args"));
-                out.push(case(&format!("goto $var:ident"), "$var"));
-                out.push(err(&format!("goto label")));
+                out.push(case(&format!("goto #($expr:expr)"), "$expr", None));
+                out.push(case(&format!("goto #$var:ident"), "$var", None));
+                out.push(case(&format!("goto $mac:ident!$args:tt"), "$mac!$args", None));
+                out.push(expected("'goto <label>', where label is a macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'"));
             },
             ArgKind::GotoTime => {
-                out.push(case(&format!("@ ($expr:expr)"), "Some($expr)"));
-                out.push(case(&format!("@ $var:ident"), "Some($var)"));
-                out.push(case(&format!(""), "None"));
-                out.push(err(&format!("an optional '@ time'")));
+                out.push(case(&format!("#($expr:expr)"), "$expr", None));
+                out.push(case(&format!("#$var:ident"), "$var", None));
+                out.push(case(&format!("@ #($expr:expr)"), "Some($expr)", None));
+                out.push(case(&format!("@ #$var:ident"), "Some($var)", None));
+                out.push(case(&format!(""), "None", None));
+                out.push(expected("an optional '@ <time>' or '<time>', where <time> is an interpolated variable '#var', or an interpolated expression '#(...)'"));
             },
         }
     }
 
     fn rec_sp_step_pieces(&self, name: &str) -> (String, String) {
         match self {
-            // cases for things that can receive spans recursively.  We need to match as `:tt*`
+            // Cases for things that can receive spans recursively.  We need to match as `:tt*`
             // so that inner macro calls are still transparent.
-            ArgKind::Token => (format!("$(${}:tt)*", name), format!("rec_sp!(span => $(${})*)", name)),
-            ArgKind::Node => (format!("$(${}:tt)*", name), format!("rec_sp!(span => $(${})*)", name)),
+            | ArgKind::Token(_)
+            | ArgKind::Node
+            | ArgKind::Cond
+            | ArgKind::GotoLabel
+                => (format!("$(${}:tt)*", name), format!("rec_sp!(_span => $(${})*)", name)),
+
+            | ArgKind::SpTransparent
+                => (format!("$(${}:tt)*", name), format!("rec_sp!(_span => _ast_sp_transparent!($(${})*))", name)),
+
             // Cases for things that don't need spans.
-            ArgKind::StmtTime => (format!("${}:expr", name), format!("${}", name)),
-            ArgKind::GotoLabel => (format!("${}:expr", name), format!("${}", name)),
-            ArgKind::GotoTime => (format!("${}:expr", name), format!("${}", name)),
+            | ArgKind::StmtTime
+            | ArgKind::StmtTimeRequired
+            | ArgKind::GotoTime
+                => (format!("${}:expr", name), format!("${}", name)),
         }
     }
 }
 
-fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_expr: &str) -> String {
+enum FinalCasesType {
+    /// Have the final rule match all of the subexpressions as `$<name>` and then produce whatever
+    /// result is contained in the string. (which will basically be the RHS of the rule)
+    Regular(&'static str),
+
+    /// Special final case type for statements.
+    ///
+    /// This is similar to Regular, but the first argument (which should be ArgKind::StmtTime) will
+    /// be matched; if the user wrote `at <time>,`, it produces a Stmt.  Otherwise, it produces a StmtBody.
+    Stmt { body: &'static str },
+}
+
+impl FinalCasesType {
+    fn gen_final_rules(&self, out: &mut Vec<Rule>, steps: &[(&str, ArgKind)]) {
+        let get_steps_as_exprs = |steps: &[(&str, ArgKind)]| {
+            steps.iter().map(|(name, _)| format!("[${}:expr]", name))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        match self {
+            FinalCasesType::Regular(final_expr) => {
+                out.push(Rule {
+                    pattern: format!("@finish[] [] [] {}", get_steps_as_exprs(steps)),
+                    result: final_expr.to_string(),
+                });
+            },
+            FinalCasesType::Stmt { body: body_expr } => {
+                let time_name = steps[0].0;
+                out.push(Rule {
+                    pattern: format!("@finish[has_time] [] [] [${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    result: format!(r#"
+                        $crate::ast::Stmt {{
+                            time: ${},
+                            body: {},
+                        }}
+                    "#, time_name, body_expr),
+                });
+                out.push(Rule {
+                    pattern: format!("@finish[] [] [] [$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    result: format!("{}", body_expr),
+                });
+            }
+        }
+    }
+}
+
+fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_case: FinalCasesType) -> String {
     let first_step_name = steps[0].0;
     let main_macro = MacroRules {
         name: format!("{}", mac),
@@ -192,12 +324,12 @@ fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_expr: &str) -> Stri
             // A rule that sets aside the span from rec_sp! so it can be recursively applied to arguments.
             Rule {
                 pattern: format!("rec_sp!($span:expr => $($input:tt)+)"),
-                result: format!("_{}_impl!{{ @parse_{}[$($input)+] [$span] }}", mac, first_step_name),
+                result: format!("_{}_impl!{{ @parse_{} [] [$($input)+] [$span] }}", mac, first_step_name),
             },
             // Rule with no span
             Rule {
                 pattern: format!("$($input:tt)+"),
-                result: format!("_{}_impl!{{ @parse_{}[$($input)+] [] }}", mac, first_step_name),
+                result: format!("_{}_impl!{{ @parse_{} [] [$($input)+] [] }}", mac, first_step_name),
             },
         ]
     };
@@ -230,24 +362,16 @@ fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_expr: &str) -> Stri
     }
 
     impl_macro.rules.push(Rule {
-        pattern: format!("@finish[] [$span:expr] {}", parts_in),
+        pattern: format!("@finish [$($flags:ident)*] [] [$span:expr] {}", parts_in),
         result: format!(r#"
             match $span {{
-                span => _{mac}_impl!{{ @finish[] [] {parts_out} }},
+                _span => _{mac}_impl!{{ @finish [$($flags)*] [] [] {parts_out} }},
             }}
         "#, mac=mac, parts_out=parts_out),
     });
 
-    // case that produces the final output
-    let final_case_pats = {
-        steps.iter().map(|(name, _)| format!("[${}:expr]", name))
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    impl_macro.rules.push(Rule {
-        pattern: format!("@finish[] [] {}", final_case_pats),
-        result: final_expr.to_string(),
-    });
+    // case(s) that produces the final output
+    final_case.gen_final_rules(&mut impl_macro.rules, steps);
 
     // https://users.rust-lang.org/t/having-helper-macros-call-each-other-in-generated-code/54212
     //

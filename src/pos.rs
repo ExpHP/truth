@@ -15,13 +15,13 @@ pub use codespan::{ByteIndex as BytePos, ByteOffset, RawIndex, RawOffset};
 
 pub type Files = NonUtf8Files;
 
-/// Helper to wrap a value in [`Sp`].
+/// Helper to wrap a value in [`Sp`]. It is recommended to use this in place of the type constructor.
 ///
 /// * `sp!(span => value)` uses the given span.
-/// * `sp!(value)` uses [`DUMMY_SPAN`].
+/// * `sp!(value)` uses [`Span::NULL`].
 ///
 /// ```
-/// # let my_span = ecl_parser::pos::DUMMY_SPAN;
+/// # let my_span = ecl_parser::Span::NULL;
 /// # fn do_something() -> Expr { Expr::LitFloat { value: 2.0 } };
 /// # fn do_something_else() -> Sp<Expr> { sp!(do_something()) };
 /// use ecl_parser::{sp, Sp, ast::Expr};
@@ -40,7 +40,7 @@ pub type Files = NonUtf8Files;
 #[macro_export]
 macro_rules! sp {
     ($span:expr => $expr:expr) => { $crate::Sp { span: $span, value: $expr } };
-    ($expr:expr) => { $crate::Sp { span: $crate::pos::DUMMY_SPAN, value: $expr } };
+    ($expr:expr) => { $crate::Sp { span: $crate::pos::Span::NULL, value: $expr } };
 }
 
 /// Pattern for matching against [`Sp`].
@@ -50,7 +50,7 @@ macro_rules! sp {
 /// with nested `Sp`s.
 ///
 /// ```
-/// # let my_span = ecl_parser::pos::DUMMY_SPAN;
+/// # let my_span = ecl_parser::Span::NULL;
 /// # fn do_something() -> Sp<Expr> { ecl_parser::sp!(Expr::LitFloat { value: 2.0 }) };
 /// use ecl_parser::{sp_pat, Sp, ast::Expr, ast::BinopKind};
 ///
@@ -76,11 +76,6 @@ macro_rules! sp_pat {
     ($span:pat => $pat:pat) => { $crate::Sp { span: $span, value: $pat } };
     ($pat:pat) => { $crate::Sp { value: $pat, span: _ } };
 }
-
-/// A dummy span for generated code during decompilation.
-///
-/// Diagnostic labels using this Span cannot be displayed.
-pub const DUMMY_SPAN: Span = Span { start: BytePos(0), end: BytePos(0), file_id: None };
 
 /// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
 ///
@@ -249,6 +244,11 @@ pub struct Span {
 }
 
 impl Span {
+    /// A dummy span for generated code during decompilation.
+    ///
+    /// Because it uses an invalid file ID, diagnostic labels using this Span cannot be displayed.
+    pub const NULL: Span = Span { start: BytePos(0), end: BytePos(0), file_id: None };
+
     /// Create a new span from a starting and ending span.
     pub fn new(file_id: FileId, start: impl Into<BytePos>, end: impl Into<BytePos>) -> Span {
         let start = start.into();
@@ -265,19 +265,6 @@ impl Span {
             start: BytePos(0),
             end: BytePos(0),
         }
-    }
-
-    /// Measure the span of a string.
-    ///
-    /// ```rust
-    /// use ecl_parser::Span;
-    ///
-    /// let span = Span::from_str("hello");
-    ///
-    /// assert_eq!(span, Span::new(None, 0, 5));
-    /// ```
-    pub fn from_str(s: &str) -> Span {
-        Span::new(None, 0, s.len() as RawIndex)
     }
 
     /// Combine two spans by taking the start of the earlier span

@@ -166,7 +166,7 @@ impl AstVm {
                 ast::StmtBody::Jump(goto) => handle_goto!(goto),
 
                 ast::StmtBody::CondJump { keyword, cond, jump } => {
-                    if self.eval_cond(cond) == (keyword == &ast::CondKeyword::If) {
+                    if self.eval_cond(cond) == (keyword == &token![if]) {
                         handle_goto!(jump);
                     }
                 },
@@ -180,7 +180,7 @@ impl AstVm {
 
                     let mut branch_taken = false;
                     for ast::CondBlock { keyword, cond, block } in cond_blocks {
-                        if self.eval_cond(cond) == (keyword == &ast::CondKeyword::If) {
+                        if self.eval_cond(cond) == (keyword == &token![if]) {
                             branch_taken = true;
                             self.time = block.start_time();
                             handle_block!(&block.0);

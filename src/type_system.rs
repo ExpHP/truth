@@ -440,26 +440,26 @@ impl Sp<ast::UnopKind> {
     /// Figure out the output type without full type-checking.
     pub fn result_type_shallow(&self, arg_ty: ScalarType) -> ScalarType {
         match self.value {
-            ast::UnopKind::Neg => arg_ty,
-            ast::UnopKind::Not => ScalarType::Int,
-            ast::UnopKind::Sin |
-            ast::UnopKind::Cos |
-            ast::UnopKind::Sqrt => ScalarType::Float,
-            ast::UnopKind::CastI => ScalarType::Int,
-            ast::UnopKind::CastF => ScalarType::Float,
+            token![unop -] => arg_ty,
+            token![unop !] => ScalarType::Int,
+            token![unop sin] |
+            token![unop cos] |
+            token![unop sqrt] => ScalarType::Float,
+            token![unop _S] => ScalarType::Int,
+            token![unop _f] => ScalarType::Float,
         }
     }
 
     /// Perform type-checking.
     pub fn type_check(&self, ty: ScalarType, arg_span: Span) -> Result<(), CompileError> {
         match self.value {
-            ast::UnopKind::Neg => Ok(()),
-            ast::UnopKind::CastF |
-            ast::UnopKind::Not => ty.require_int(self.span, arg_span),
-            ast::UnopKind::CastI |
-            ast::UnopKind::Sin |
-            ast::UnopKind::Cos |
-            ast::UnopKind::Sqrt => ty.require_float(self.span, arg_span),
+            token![unop -] => Ok(()),
+            token![unop _f] |
+            token![unop !] => ty.require_int(self.span, arg_span),
+            token![unop _S] |
+            token![unop sin] |
+            token![unop cos] |
+            token![unop sqrt] => ty.require_float(self.span, arg_span),
         }
     }
 
