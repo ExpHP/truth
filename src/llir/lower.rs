@@ -634,15 +634,48 @@ impl Lowerer<'_> {
     /// Lowers `if (<A> || <B>) goto label @ time;` and similar
     fn lower_cond_jump_logic_binop(
         &mut self,
-        _stmt_span: Span,
-        _stmt_time: i32,
-        _keyword: &Sp<ast::CondKeyword>,
-        _a: &Sp<Expr>,
-        _binop: &Sp<ast::BinopKind>,
-        _b: &Sp<Expr>,
-        _goto: &ast::StmtGoto,
-    ) -> Result<(), CompileError>{
-        unimplemented!()
+        stmt_span: Span,
+        stmt_time: i32,
+        keyword: &Sp<ast::CondKeyword>,
+        a: &Sp<Expr>,
+        binop: &Sp<ast::BinopKind>,
+        b: &Sp<Expr>,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), CompileError> {
+        let is_easy_case = match (keyword.value, binop.value) {
+            (token![if], token![||]) => true,
+            (token![if], token![&&]) => false,
+            (token![unless], token![&&]) => true,
+            (token![unless], token![||]) => false,
+            _ => unreachable!("non-logic binop in lower_cond_jump_logic_binop: {}", binop)
+        };
+
+        if is_easy_case {
+            // 'if (a || b) ...' can just split up into 'if (a) ...' and 'if (b) ...'.
+            // Likewise for 'unless (a && b) ...'
+            self.lower_cond_jump_expr(stmt_span, stmt_time, keyword, a, goto)?;
+            self.lower_cond_jump_expr(stmt_span, stmt_time, keyword, b, goto)?;
+            Ok(())
+
+        } else {
+            // The other case is only slightly more unsightly.
+            // 'if (a && b) goto label' compiles to:
+            //
+            //         unless (a) goto skip;
+            //         unless (b) goto skip;
+            //         goto label;
+            //      skip:
+
+            let negated_kw = sp!(keyword.span => keyword.negate());
+            let skip_label = sp!(binop.span => self.ty_ctx.gensym.gensym("@unless_predec_skip#"));
+            let skip_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
+
+            self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, a, &skip_goto)?;
+            self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, b, &skip_goto)?;
+            self.lower_uncond_jump(stmt_span, stmt_time, goto)?;
+            self.out.push(LowLevelStmt::Label { time: stmt_time, label: skip_label });
+            Ok(())
+        }
     }
 
     // ------------------

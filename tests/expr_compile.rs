@@ -1,6 +1,8 @@
 //! Tests that perform AST lowering with expression conversion to register-allocated locals (like in ANM
 //! and early ECL).
 
+#[macro_use]
+extern crate truth;
 use truth::{ast, llir, vm::AstVm, CompileError};
 use truth::{Files, Eclmap, TypeSystem, ScalarValue, ScalarType as Ty, RegId};
 
@@ -327,7 +329,7 @@ fn local_scope() {
 
         // first, demonstrate that the test does fail when there aren't enough scratch registers
         // (lol, a, b, and c require four regs)
-        expect_not_enough_vars(SIMPLE_THREE_VAR_SPEC, source); // TODO
+        expect_not_enough_vars(SIMPLE_THREE_VAR_SPEC, source);
         // now, show that four regs is enough, demonstrating that the registers for a, b, and c
         // are freed when they fall out of scope
         run_randomized_test(SIMPLE_FOUR_VAR_SPEC, source);
@@ -386,7 +388,7 @@ mod no_scratch {
     }
 
     #[test]
-    fn cond_jmp_binop() {
+    fn cond_jmp_compare() {
         for _ in 0..5 {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 if (A == B) goto hi;
@@ -395,6 +397,52 @@ mod no_scratch {
                 ins_400();
             hi:
                 if (A != A) goto hi;
+            }"#);
+        }
+    }
+
+    #[test]
+    fn cond_jmp_logic_binop() {
+        for _ in 0..5 {
+            check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
+                if (A && B && C) goto hi;
+            hi:
+                if (A || B || C) goto lo;
+            lo:
+            }"#);
+        }
+    }
+
+    #[test]
+    fn cond_jmp_predecrement() {
+        for _ in 0..5 {
+            check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
+                if (--A) goto hi;
+            hi:
+                unless (--A) goto lo;
+            lo:
+            }"#);
+        }
+    }
+
+    #[test]
+    fn cond_jmp_negated_compare() {
+        for _ in 0..5 {
+            check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
+                if (!(!(!(!(A < B))))) goto hi;
+                if (!(!(!(A < B)))) goto hi;
+            hi:
+            }"#);
+        }
+    }
+
+    #[test]
+    fn cond_jmp_negated_logic_binop() {
+        for _ in 0..5 {
+            check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
+                if (!(!(!(!((A > 2) && !(A > 0)))))) goto hi;
+                if (!(!(!((A > 2) && !(A > 0))))) goto hi;
+            hi:
             }"#);
         }
     }
@@ -505,8 +553,24 @@ fn cond_jump_logical_binop() {
     check_bool("A=3;", "(A < 3) || (A < 5)", true);
     check_bool("A=3;", "(A < 3) && (A < 5)", false);
     check_bool("A=3;", "(A < 3) || !(A < 5)", false);
+    // With negations too! (inside and around)
     check_bool("A=3;", "!(A < 3) && (A < 5)", true);
     check_bool("A=3;", "!(!(A < 3) && (A < 5))", false);
+}
+
+#[test]
+fn cond_jump_logical_binop_exhaustive() {
+    let or: fn(bool, bool) -> bool = |a, b| a || b;
+    let and: fn(bool, bool) -> bool = |a, b| a && b;
+
+    for (logic_op, logic_func) in vec![(token![||], or), (token![&&], and)] {
+        for (a_str, a_bool) in vec![("A < B", true), ("A > B", false)] {
+            for (b_str, b_bool) in vec![("A < B", true), ("A > B", false)] {
+                let cond_str = format!("({}) {} ({})", a_str, logic_op, b_str);
+                check_bool("A=1; B=2;", &cond_str, logic_func(a_bool, b_bool));
+            }
+        }
+    }
 }
 
 #[test]
