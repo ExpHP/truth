@@ -1,8 +1,8 @@
 //! Tests that perform AST lowering with expression conversion to register-allocated locals (like in ANM
 //! and early ECL).
 
-use ecl_parser::{ast, llir, vm::AstVm, CompileError};
-use ecl_parser::{Files, Eclmap, TypeSystem, ScalarValue, ScalarType as Ty, RegId};
+use truth::{ast, llir, vm::AstVm, CompileError};
+use truth::{Files, Eclmap, TypeSystem, ScalarValue, ScalarType as Ty, RegId};
 
 use rand::Rng;
 
@@ -154,8 +154,8 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
         ty_ctx.resolve_names(&mut block)?;
 
-        let gensym_ctx = ecl_parser::ident::GensymContext::new();
-        let mut visitor = ecl_parser::passes::compile_loop::Visitor::new(&gensym_ctx);
+        let gensym_ctx = truth::ident::GensymContext::new();
+        let mut visitor = truth::passes::compile_loop::Visitor::new(&gensym_ctx);
         visitor.visit_block(&mut block);
         visitor.finish()?;
 
@@ -168,7 +168,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
 
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
-    eprintln!("{}", ecl_parser::fmt::stringify(&ast::Block(new_code.clone())));
+    eprintln!("{}", truth::fmt::stringify(&ast::Block(new_code.clone())));
     old_vm.run(&old_code);
     new_vm.run(&new_code);
 
@@ -194,8 +194,8 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
         ty_ctx.resolve_names(&mut block).unwrap();
 
-        let gensym_ctx = ecl_parser::ident::GensymContext::new();
-        let mut visitor = ecl_parser::passes::compile_loop::Visitor::new(&gensym_ctx);
+        let gensym_ctx = truth::ident::GensymContext::new();
+        let mut visitor = truth::passes::compile_loop::Visitor::new(&gensym_ctx);
         visitor.visit_block(&mut block);
         visitor.finish().unwrap();
 

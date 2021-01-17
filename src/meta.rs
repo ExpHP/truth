@@ -288,7 +288,7 @@ impl BuildObject {
     ///
     /// # Example
     /// ```
-    /// use ecl_parser::meta::{Meta, BuildObject};
+    /// use truth::meta::{Meta, BuildObject};
     ///
     /// fn add_options(b: &mut BuildObject) { /* ... */ }
     ///

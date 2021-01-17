@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use ecl_parser::Game;
+use truth::Game;
 
 use assert_cmd::prelude::*;
 

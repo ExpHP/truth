@@ -1,5 +1,5 @@
 [package]
-name = "ecl-parser"
+name = "truth"
 version = "0.1.0"
 authors = ["Michael Lamparski <diagonaldevice@gmail.com>"]
 edition = "2018"

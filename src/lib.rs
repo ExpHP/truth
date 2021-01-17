@@ -43,6 +43,8 @@ pub mod ident;
 pub use game::Game;
 mod game;
 
+#[doc(hidden)]
+pub mod cli_def;
 pub mod cli_helper;
 
 pub use var::{RegId, VarId, LocalId, Variables};
@@ -269,3 +271,5 @@ mod tests {
         assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty_sigil: Some(VarReadType::Float), ident: "lmao".parse().unwrap() }));
     }
 }
+
+pub fn bleh() {}

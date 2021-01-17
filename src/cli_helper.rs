@@ -9,7 +9,7 @@ pub fn cli<A: CliArg>(
 ) -> A::Value {
     let args: Vec<String> = std::env::args().collect();
     let program = args[0].clone();
-    match parse_args(&args[1..], arg_parsers) {
+    match parse_args(&args[2..], arg_parsers) {
         Ok(arg_values) => arg_values,
         Err(ParseError::PrintHelp(opts)) => {
             print_help(&program, usage_args, &opts);

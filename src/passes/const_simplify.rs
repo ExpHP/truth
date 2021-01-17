@@ -13,8 +13,8 @@
 //!
 //! # Example
 //! ```
-//! use ecl_parser::{VisitMut, ast, pos::{Files, Sp}};
-//! use ecl_parser::passes::const_simplify;
+//! use truth::{VisitMut, ast, pos::{Files, Sp}};
+//! use truth::passes::const_simplify;
 //!
 //! let mut files = Files::new();
 //!

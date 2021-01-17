@@ -21,10 +21,10 @@ pub type Files = NonUtf8Files;
 /// * `sp!(value)` uses [`Span::NULL`].
 ///
 /// ```
-/// # let my_span = ecl_parser::Span::NULL;
+/// # let my_span = truth::Span::NULL;
 /// # fn do_something() -> Expr { Expr::LitFloat { value: 2.0 } };
 /// # fn do_something_else() -> Sp<Expr> { sp!(do_something()) };
-/// use ecl_parser::{sp, Sp, ast::Expr};
+/// use truth::{sp, Sp, ast::Expr};
 ///
 /// let expr: Expr = do_something();
 /// let something_else: Sp<Expr> = do_something_else();
@@ -50,9 +50,9 @@ macro_rules! sp {
 /// with nested `Sp`s.
 ///
 /// ```
-/// # let my_span = ecl_parser::Span::NULL;
-/// # fn do_something() -> Sp<Expr> { ecl_parser::sp!(Expr::LitFloat { value: 2.0 }) };
-/// use ecl_parser::{sp_pat, Sp, ast::Expr, ast::BinopKind};
+/// # let my_span = truth::Span::NULL;
+/// # fn do_something() -> Sp<Expr> { truth::sp!(Expr::LitFloat { value: 2.0 }) };
+/// use truth::{sp_pat, Sp, ast::Expr, ast::BinopKind};
 ///
 /// let expr: Sp<Expr> = do_something();
 ///
@@ -275,7 +275,7 @@ impl Span {
     /// In that case, you can use `Span::disjoint` as a convenience function.
     ///
     /// ```rust
-    /// use ecl_parser::Span;
+    /// use truth::Span;
     ///
     /// let span1 = Span::from(0..4);
     /// let span2 = Span::from(10..16);
@@ -294,7 +294,7 @@ impl Span {
     /// A helper function to tell whether two spans do not overlap.
     ///
     /// ```
-    /// use ecl_parser::Span;
+    /// use truth::Span;
     /// let span1 = Span::from(0..4);
     /// let span2 = Span::from(10..16);
     /// assert!(span1.disjoint(span2));
@@ -315,7 +315,7 @@ impl Span {
     /// Get the starting byte index.
     ///
     /// ```rust
-    /// use ecl_parser::pos::{BytePos, Span};
+    /// use truth::pos::{BytePos, Span};
     ///
     /// let span = Span::new(None, 0, 4);
     ///
@@ -328,7 +328,7 @@ impl Span {
     /// Get the ending byte index.
     ///
     /// ```rust
-    /// use ecl_parser::pos::{BytePos, Span};
+    /// use truth::pos::{BytePos, Span};
     ///
     /// let span = Span::new(None, 0, 4);
     ///
