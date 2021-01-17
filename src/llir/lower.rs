@@ -489,7 +489,9 @@ impl Lowerer<'_> {
         let (arg_label, arg_time) = lower_goto_args(goto);
 
         match (keyword.value, &cond.value) {
-            (token![if], ast::Cond::Decrement(var)) => {
+            (token![unless], _) => unimplemented!("unless (conditional)"),
+
+            (token![if], ast::Cond::PreDecrement(var)) => {
                 let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
                 if ty_var != ScalarType::Int {
                     return Err(error!(

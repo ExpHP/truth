@@ -126,6 +126,36 @@ impl BinopKind {
     }
 }
 
+impl Expr {
+    /// Get the expression's value, if it is an integer literal.
+    ///
+    /// Because const simplification turns expressions into literals, this is the quickest way to
+    /// inspect the final, evaluated result of a constant integer expression.
+    pub fn as_const_int(&self) -> Option<i32> { match *self {
+        Expr::LitInt { value, .. } => Some(value),
+        _ => None,
+    }}
+
+    /// Get the expression's value, if it is a float literal.
+    ///
+    /// Because const simplification turns expressions into literals, this is the quickest way to
+    /// inspect the final, evaluated result of a constant float expression.
+    pub fn as_const_float(&self) -> Option<f32> { match *self {
+        Expr::LitFloat { value, .. } => Some(value),
+        _ => None,
+    }}
+
+    /// Get the expression's value, if it is a literal.
+    ///
+    /// Because const simplification turns expressions into literals, this is the quickest way to
+    /// inspect the final, evaluated result of a constant float expression.
+    pub fn as_const(&self) -> Option<ScalarValue> { match *self {
+        Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
+        Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
+        _ => None,
+    }}
+}
+
 /// Visitor for const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.

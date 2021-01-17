@@ -3,7 +3,7 @@ use bstr::{BString};
 use crate::meta;
 use crate::var::{VarId, LocalId};
 use crate::ident::Ident;
-use crate::pos::Sp;
+use crate::pos::{Sp, Span};
 use crate::error::CompileError;
 use crate::type_system;
 
@@ -149,6 +149,7 @@ pub enum StmtBody {
         block: Block,
     },
     Times {
+        clobber: Option<Sp<Var>>,
         count: Sp<Expr>,
         block: Block,
     },
@@ -237,11 +238,9 @@ pub struct StmtGoto {
     pub time: Option<i32>,
 }
 
-// FIXME: This has been extracted just because the parser needs to build one incrementally.
-//        Make a more sensible design.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtCondChain {
-    pub cond_blocks: Vec<CondBlock>,
+    pub cond_blocks: Vec<Sp<CondBlock>>,
     pub else_block: Option<Block>,
 }
 
@@ -261,8 +260,15 @@ pub struct CondBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cond {
-    Decrement(Sp<Var>),
     Expr(Sp<Expr>),
+    /// This is how jmpDec works in register-based languages.
+    ///
+    /// (stack-based ECL instead has a decrement operator that is postdec)
+    PreDecrement(Sp<Var>),
+}
+
+impl From<Sp<Expr>> for Sp<Cond> {
+    fn from(expr: Sp<Expr>) -> Sp<Cond> { sp!(expr.span => Cond::Expr(expr)) }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -275,10 +281,15 @@ string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CondKeyword {
         #[str = "if"] If,
-        // TODO: not currently implemented.  All places that would be affected explicitly match on
-        //       the CondKeyword so that we can't miss them if/when the feature is added.
-        // #[str = "unless"] Unless,
+        #[str = "unless"] Unless,
     }
+}
+
+impl CondKeyword {
+    pub fn negate(self) -> Self { match self {
+        CondKeyword::If => CondKeyword::Unless,
+        CondKeyword::Unless => CondKeyword::If,
+    }}
 }
 
 // TODO: Parse
@@ -328,6 +339,12 @@ impl Block {
 
     /// Effective time label after the final statement in the loop body.
     pub fn end_time(&self) -> i32 { self.last_stmt().time }
+
+    /// Zero-length span at beginning of block interior.
+    pub fn start_span(&self) -> Span { self.first_stmt().span.start_span() }
+
+    /// Zero-length span at end of block interior.
+    pub fn end_span(&self) -> Span { self.last_stmt().span.end_span() }
 
     pub fn first_stmt(&self) -> &Sp<Stmt> {
         self.0.get(0).expect("(bug?) unexpected empty block!")
@@ -464,6 +481,16 @@ impl From<i32> for Expr {
 }
 impl From<f32> for Expr {
     fn from(value: f32) -> Expr { Expr::LitFloat { value } }
+}
+
+impl From<Sp<i32>> for Sp<Expr> {
+    fn from(num: Sp<i32>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
+}
+impl From<Sp<f32>> for Sp<Expr> {
+    fn from(num: Sp<f32>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
+}
+impl From<Sp<Var>> for Sp<Expr> {
+    fn from(var: Sp<Var>) -> Sp<Expr> { sp!(var.span => Expr::Var(var)) }
 }
 
 // =============================================================================
@@ -621,7 +648,7 @@ macro_rules! generate_visitor_stuff {
                 },
                 StmtBody::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
-                    for CondBlock { cond, block, keyword: _ } in cond_blocks {
+                    for sp_pat!(CondBlock { cond, block, keyword: _ }) in cond_blocks {
                         v.visit_cond(cond);
                         v.visit_block(block);
                     }
@@ -637,7 +664,10 @@ macro_rules! generate_visitor_stuff {
                     v.visit_block(block);
                     v.visit_cond(cond);
                 },
-                StmtBody::Times { count, block } => {
+                StmtBody::Times { clobber, count, block } => {
+                    if let Some(clobber) = clobber {
+                        v.visit_var(clobber);
+                    }
                     v.visit_expr(count);
                     v.visit_block(block);
                 },
@@ -672,7 +702,7 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? e.value {
-                Cond::Decrement(var) => v.visit_var(var),
+                Cond::PreDecrement(var) => v.visit_var(var),
                 Cond::Expr(e) => v.visit_expr(e),
             }
         }

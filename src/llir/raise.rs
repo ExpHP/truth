@@ -123,7 +123,7 @@ fn raise_instr(
             let dest_label = default_instr_label(dest_offset);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                if (expr: expr_binop!(#a #op #b)) goto #dest_label @ #dest_time
+                if expr_binop!(#a #op #b) goto #dest_label @ #dest_time
             )))
         }).with_context(|| format!("while decompiling a conditional jump")),
 

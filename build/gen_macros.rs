@@ -71,7 +71,7 @@ pub fn gen_ast_macros() -> String {
             FinalCasesType::Stmt { body: r#"
                 $crate::ast::StmtBody::CondJump {
                     keyword: $keyword,
-                    cond: $cond,
+                    cond: Into::into($cond),
                     jump: $crate::ast::StmtGoto {
                         destination: $goto_label,
                         time: $goto_time,
@@ -169,8 +169,8 @@ fn make_case(mac: &str, cur_step: &str, next_step: &str, to_parse: &str, to_save
     }
 }
 
-fn make_err_case_expected(cur_step: &str, expected: &str) -> Rule {
-    make_err_case(cur_step, &format!(r#"
+fn make_err_case_expected_after(pattern_prefix: &str, cur_step: &str, expected: &str) -> Rule {
+    make_err_case(pattern_prefix, cur_step, &format!(r#"
         _truth__concat!(
             "in {cur_step}: expected {expected}",
             $(", got '", _truth__stringify!($first), "'")?
@@ -178,49 +178,66 @@ fn make_err_case_expected(cur_step: &str, expected: &str) -> Rule {
     "#, expected=expected, cur_step=cur_step))
 }
 
-fn make_err_case(cur_step: &str, msg: &str) -> Rule {
-    Rule {
-        pattern: format!(
-            "@{cur_step} [$($flags:ident)*] [$($first:tt $($rest:tt)*)?] $($done:tt)*",
-            cur_step=cur_step,
-        ),
-        result: format!("_truth__compile_error!{{ {:?} }}", msg),
-    }
+fn make_err_case_expected(cur_step: &str, expected: &str) -> Rule {
+    make_err_case_expected_after("", cur_step, expected)
 }
+
+fn make_err_case(cur_step: &str, pattern_prefix: &str, msg: &str) -> Rule {
+    let pattern = format!(
+        "@{cur_step} [$($flags:ident)*] [{prefix} $($first:tt $($rest:tt)*)?] $span:tt $($first_done:tt $($done:tt)*)?",
+        cur_step=cur_step, prefix=pattern_prefix,
+    );
+    let debug_heading = "\n Things parsed so far:  ";
+    let debug_spacing = "\n                        ";
+    let debug_report = format!(
+        r#"$( {:?}, _truth__stringify!($first_done) $(, {:?}, _truth__stringify!($done))* )?"#, debug_heading, debug_spacing,
+    );
+    let result = format!("_truth__compile_error!{{ _truth__concat!( {}, {} ) }}", msg, debug_report);
+    Rule { pattern, result }
+}
+
+const MAC_OR_INTERP: &'static str = "an AST macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'";
+const MAC_INTERP_OR_TOKEN: &'static str = "a macro invocation 'mac!(...)', an interpolated variable '#var', an interpolated expression '#(...)', or a keyword/operator '+'";
+const JUST_INTERP: &'static str = "an interpolated variable '#var', or an interpolated expression '#(...)'";
 
 impl ArgKind {
     fn gen_cases(&self, out: &mut Vec<Rule>, mac: &str, cur_step: &str, next_step: &str) {
         let case = |to_parse: &str, to_save: &str, flag: Option<&str>| make_case(mac, cur_step, next_step, to_parse, to_save, flag);
         let expected = |msg: &str| make_err_case_expected(cur_step, msg);
-        let err = |msg: &str| make_err_case(cur_step, msg);
+        let expected_after = |prefix: &str, msg: &str| make_err_case_expected_after(cur_step, prefix, msg);
+        let err = |msg: &str| make_err_case("", cur_step, msg);
         match self {
             ArgKind::Node |
             ArgKind::SpTransparent => {
                 out.push(case(&format!("#($expr:expr)"), "$expr", None));
                 out.push(case(&format!("#$var:ident"), "$var", None));
                 out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args", None));
-                out.push(expected("an AST macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'"));
+                out.push(expected(MAC_OR_INTERP));
             },
             ArgKind::StmtTime => {
                 // the optional StmtTime sets a flag to let us know to create a Stmt instead of StmtBody
                 out.push(case(&format!("at #($expr:expr),"), "$expr", Some("has_time")));
                 out.push(case(&format!("at #$var:ident,"), "$var", Some("has_time")));
-                out.push(case(&format!(""), "unreachable!()", None));
-                out.push(expected("'at <time>,', where <time> is an interpolated variable '#var', or an interpolated expression '#(...)'"));
+                out.push(expected_after("at", JUST_INTERP));
+
+                // if there's no time, we still need to save an expression, we just won't use it
+                out.push(case(&format!(""), r#"unreachable!("unused dummy time")"#, None));
+                out.push(expected(&format!("'at <time>,', where <time> is {}", JUST_INTERP)));
             },
             ArgKind::StmtTimeRequired => {
                 out.push(case(&format!("at #($expr:expr),"), "$expr", None));
                 out.push(case(&format!("at #$var:ident,"), "$var", None));
-                out.push(expected("'at <time>,', where <time> is an interpolated variable '#var', or an interpolated expression '#(...)'"));
+                out.push(expected(&format!("'at <time>,', where <time> is {}", JUST_INTERP)));
             },
             ArgKind::Cond => {
-                out.push(case(&format!("(expr: #($expr:expr))"), "_ast_map!($crate::ast::Cond::Expr, $expr)", None));
-                out.push(case(&format!("(expr: #$var:ident)"), "_ast_map!($crate::ast::Cond::Expr, $var)", None));
-                out.push(case(&format!("(expr: $mac:ident!$args:tt)"), "_ast_map!($crate::ast::Cond::Expr, $mac!$args)", None));
-                out.push(case(&format!("(decvar: #($expr:expr))"), "_ast_map!($crate::ast::Cond::Decrement, $expr)", None));
-                out.push(case(&format!("(decvar: #$var:ident)"), "_ast_map!($crate::ast::Cond::Decrement, $var)", None));
-                out.push(case(&format!("(decvar: $mac:ident!$args:tt)"), "_ast_map!($crate::ast::Cond::Decrement, $mac!$args)", None));
-                out.push(err("conditionals need to be written as 'if (expr: <expr>)' or 'if (decvar: <var>)', where <expr> and <var> can be a macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'"));
+                // NOTE: Sp<Expr> implements Into<Sp<Cond>> so we don't need special snytax for it
+                out.push(case(&format!("(decvar: #($expr:expr))"), "_ast_map!($crate::ast::Cond::PreDecrement, $expr)", None));
+                out.push(case(&format!("(decvar: #$var:ident)"), "_ast_map!($crate::ast::Cond::PreDecrement, $var)", None));
+                out.push(case(&format!("(decvar: $mac:ident!$args:tt)"), "_ast_map!($crate::ast::Cond::PreDecrement, $mac!$args)", None));
+                out.push(case(&format!("#($expr:expr)"), "$expr", None));
+                out.push(case(&format!("#$var:ident"), "$var", None));
+                out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args", None));
+                out.push(err(&format!("{:?}", format!("conditionals need to be written as 'if <cond>' or 'if (decvar: <var>)', where <var>/<cond> can be {}", MAC_OR_INTERP))));
             },
             ArgKind::Token(tokens) => {
                 out.push(case(&format!("#($expr:expr)"), "$expr", None));
@@ -229,21 +246,23 @@ impl ArgKind {
                 for token in tokens.iter() {
                     out.push(case(token, &format!("token!({})", token), None));
                 }
-                out.push(expected("a macro invocation 'mac!(...)', an interpolated variable '#var', an interpolated expression '#(...)', or a keyword/operator '+'"));
+                out.push(expected(MAC_INTERP_OR_TOKEN));
             },
             ArgKind::GotoLabel => {
                 out.push(case(&format!("goto #($expr:expr)"), "$expr", None));
                 out.push(case(&format!("goto #$var:ident"), "$var", None));
                 out.push(case(&format!("goto $mac:ident!$args:tt"), "$mac!$args", None));
-                out.push(expected("'goto <label>', where label is a macro invocation 'mac!(...)', an interpolated variable '#var', or an interpolated expression '#(...)'"));
+                out.push(expected_after("goto", MAC_OR_INTERP));
+                out.push(expected(&format!("'goto <label>', where label is {}", MAC_OR_INTERP)));
             },
             ArgKind::GotoTime => {
-                out.push(case(&format!("#($expr:expr)"), "$expr", None));
-                out.push(case(&format!("#$var:ident"), "$var", None));
                 out.push(case(&format!("@ #($expr:expr)"), "Some($expr)", None));
                 out.push(case(&format!("@ #$var:ident"), "Some($var)", None));
+                out.push(expected_after("@", JUST_INTERP));
+                out.push(case(&format!("#($expr:expr)"), "$expr", None));
+                out.push(case(&format!("#$var:ident"), "$var", None));
                 out.push(case(&format!(""), "None", None));
-                out.push(expected("an optional '@ <time>' or '<time>', where <time> is an interpolated variable '#var', or an interpolated expression '#(...)'"));
+                out.push(expected(&format!("an optional '@ <time>' or '<time>', where <time> is {}", JUST_INTERP)));
             },
         }
     }

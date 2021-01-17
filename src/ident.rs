@@ -1,4 +1,3 @@
-use std::sync::atomic;
 use std::fmt;
 
 use thiserror::Error;
@@ -128,22 +127,25 @@ impl std::fmt::Display for Ident {
 
 // =============================================================================
 
-/// Helper for generating unique identifiers in a threadsafe manner.
+/// Helper for generating unique identifiers.
+#[derive(Debug, Clone, Default)]
 pub struct GensymContext {
-    next_id: atomic::AtomicU64,
+    next_id: u64,
 }
 
 impl GensymContext {
     pub const fn new() -> Self {
-        GensymContext { next_id: atomic::AtomicU64::new(0) }
+        GensymContext { next_id: 0 }
     }
 
-    pub fn gensym(&self, prefix: &str) -> Ident {
+    pub fn gensym(&mut self, prefix: &str) -> Ident {
         let id = self.next_id();
         format!("{}{}", prefix, id).parse().expect("invalid prefix")
     }
 
-    fn next_id(&self) -> u64 {
-        self.next_id.fetch_add(1, atomic::Ordering::Relaxed)
+    fn next_id(&mut self) -> u64 {
+        let x = self.next_id;
+        self.next_id += 1;
+        x
     }
 }

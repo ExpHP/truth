@@ -270,8 +270,6 @@ fn compile_std(
     let script = {
         use ast::VisitMut;
 
-        let gensym_ctx = crate::ident::GensymContext::new();
-
         let mut script = script.clone();
 
         let mut visitor = crate::passes::const_simplify::Visitor::new();
@@ -280,7 +278,7 @@ fn compile_std(
 
         ty_ctx.resolve_names(&mut script)?;
 
-        let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
+        let mut visitor = crate::passes::compile_loop::Visitor::new(ty_ctx);
         visitor.visit_script(&mut script);
         visitor.finish()?;
 

@@ -264,21 +264,45 @@ Stmt: Stmt = {
 };
 
 StmtBody: StmtBody = {
-    "return" <value:Sp<Expr>?> ";" => StmtBody::Return { value },
-    <chain: CondChain> => StmtBody::CondChain(chain),
-    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";" => StmtBody::CondJump { keyword, cond, jump },
-    "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Cond>> ")" ";" => StmtBody::While { is_do_while: true, cond, block },
-    "while" "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock> => StmtBody::While { is_do_while: false, cond, block },
-    "times" "(" <count:Sp<Expr>> ")" <block:StmtOrBlock> => StmtBody::Times { count, block },
-    "loop" <block:StmtOrBlock> => StmtBody::Loop { block },
-    <jump:StmtGoto> ";" => StmtBody::Jump(jump),
-    <e:Sp<Expr>> ";" => StmtBody::Expr(e),
-    <name:Sp<Ident>> ":" => StmtBody::Label(name),
-    "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":" => StmtBody::InterruptLabel(arg),
-    <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";" => StmtBody::Assignment { var, op, value },
-    <keyword:Sp<VarDeclKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";" => {
-        StmtBody::Declaration { keyword, vars }
-    },
+    "return" <value:Sp<Expr>?> ";"
+        => StmtBody::Return { value },
+
+    <chain: CondChain>
+        => StmtBody::CondChain(chain),
+
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";"
+        => StmtBody::CondJump { keyword, cond, jump },
+
+    "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Cond>> ")" ";"
+        => StmtBody::While { is_do_while: true, cond, block },
+
+    "while" "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
+        => StmtBody::While { is_do_while: false, cond, block },
+
+    "times" "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
+        => StmtBody::Times { clobber, count, block },
+
+    "loop" <block:StmtOrBlock>
+        => StmtBody::Loop { block },
+
+    <jump:StmtGoto> ";"
+        => StmtBody::Jump(jump),
+
+    <e:Sp<Expr>> ";"
+        => StmtBody::Expr(e),
+
+    <name:Sp<Ident>> ":"
+        => StmtBody::Label(name),
+
+    "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
+        => StmtBody::InterruptLabel(arg),
+
+    <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
+        => StmtBody::Assignment { var, op, value },
+
+    <keyword:Sp<VarDeclKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
+        => StmtBody::Declaration { keyword, vars },
+
     StmtSpecialCall,
 }
 
@@ -341,10 +365,10 @@ CondChain: ast::StmtCondChain = {
     },
 };
 CondChainWithoutElse: ast::StmtCondChain = {
-    <cond_block:CondBlock> => {
+    <cond_block:Sp<CondBlock>> => {
         ast::StmtCondChain { cond_blocks: vec![cond_block], else_block: None }
     },
-    <mut chain:CondChainWithoutElse> "else" <cond_block:CondBlock> => {
+    <mut chain:CondChainWithoutElse> "else" <cond_block:Sp<CondBlock>> => {
         chain.cond_blocks.push(cond_block);
         chain
     },
@@ -355,7 +379,7 @@ CondBlock: CondBlock = {
 };
 
 Cond: Cond = {
-    <var:Sp<Var>> "--" => Cond::Decrement(var),
+    "--" <var:Sp<Var>> => Cond::PreDecrement(var),
     <expr:Sp<Expr>> => Cond::Expr(expr),
 };
 

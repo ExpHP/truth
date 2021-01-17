@@ -613,8 +613,12 @@ impl Format for ast::StmtBody {
             ast::StmtBody::While { is_do_while: false, cond, block } => {
                 out.fmt(("while (", SuppressParens(cond), ") ", block))
             },
-            ast::StmtBody::Times { count, block } => {
-                out.fmt(("times(", SuppressParens(count), ") ", block))
+            ast::StmtBody::Times { clobber, count, block } => {
+                out.fmt("times(")?;
+                if let Some(clobber) = clobber {
+                    out.fmt((clobber, " = "))?;
+                }
+                out.fmt((SuppressParens(count), ") ", block))
             },
             ast::StmtBody::Expr(e) => out.fmt((e, ";")),
             ast::StmtBody::Assignment { var, op, value } => {
@@ -704,7 +708,7 @@ impl Format for ast::CondBlock {
 impl Format for ast::Cond {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::Cond::Decrement(var) => out.fmt((var, "--")),
+            ast::Cond::PreDecrement(var) => out.fmt(("--", var)),
             ast::Cond::Expr(expr) => out.fmt(expr),
         }
     }

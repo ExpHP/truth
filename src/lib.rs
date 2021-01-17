@@ -65,15 +65,6 @@ mod value {
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
     pub enum ScalarValue { Int(i32), Float(f32) }
 
-    impl ast::Expr {
-        pub fn as_const(&self) -> Option<ScalarValue> {
-            match *self {
-                ast::Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
-                ast::Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
-                _ => None,
-            }
-        }
-    }
     impl From<ScalarValue> for ast::Expr {
         fn from(value: ScalarValue) -> Self { match value {
             ScalarValue::Int(value) => ast::Expr::from(value),
@@ -271,5 +262,3 @@ mod tests {
         assert_eq!(Var::parse("%lmao"), Ok(Var::Named { ty_sigil: Some(VarReadType::Float), ident: "lmao".parse().unwrap() }));
     }
 }
-
-pub fn bleh() {}

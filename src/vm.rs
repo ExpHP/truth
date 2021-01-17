@@ -179,7 +179,8 @@ impl AstVm {
                     let ast::StmtCondChain { cond_blocks, else_block } = chain;
 
                     let mut branch_taken = false;
-                    for ast::CondBlock { keyword, cond, block } in cond_blocks {
+                    for cond_block in cond_blocks {
+                        let ast::CondBlock { keyword, cond, block } = &cond_block.value;
                         if self.eval_cond(cond) == (keyword == &token![if]) {
                             branch_taken = true;
                             self.time = block.start_time();
@@ -221,21 +222,45 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Times { count, block } => {
+                ast::StmtBody::Times { clobber: None, count, block } => {
+                    self.time = block.end_time();
                     match self.eval(count) {
                         ScalarValue::Float(x) => panic!("float count {}", x),
-                        ScalarValue::Int(0) => {
-                            self.time = block.end_time();
-                        },
+                        ScalarValue::Int(0) => {},
                         ScalarValue::Int(count) => {
-                            for i in 0..count {
+                            for _ in 0..count {
+                                self.time = block.start_time();
                                 handle_block!(&block.0);
-                                if i + 1 < count {
-                                    self.time = block.start_time();
-                                }
                             }
                         },
                     }
+                },
+
+                // when a clobber is specified we have to treat it pretty differently
+                // as the loop counter now has an observable presence
+                ast::StmtBody::Times { clobber: Some(clobber), count, block } => {
+                    let count = self.eval(count);
+                    self.set_var_by_ast(clobber, count);
+
+                    self.time = block.end_time();
+                    match count {
+                        ScalarValue::Float(x) => panic!("float count {}", x),
+                        ScalarValue::Int(0) => {},
+                        ScalarValue::Int(_) => loop {
+                            self.time = block.start_time();
+                            handle_block!(&block.0);
+
+                            match self.read_var_by_ast(clobber) {
+                                ScalarValue::Float(x) => panic!("float count {}", x),
+                                ScalarValue::Int(x) => {
+                                    let predecremented = x - 1;
+                                    self.set_var_by_ast(clobber, ScalarValue::Int(predecremented));
+                                    if predecremented == 0 { break; }
+                                },
+                            }
+                        },
+                    }
+
                 },
 
                 ast::StmtBody::Expr(expr) => {
@@ -320,13 +345,11 @@ impl AstVm {
 
     pub fn eval_cond(&mut self, cond: &ast::Cond) -> bool {
         match cond {
-            ast::Cond::Decrement(var) => match self.read_var_by_ast(var) {
+            ast::Cond::PreDecrement(var) => match self.read_var_by_ast(var) {
                 ScalarValue::Float(x) => panic!("type error: {:?}", x),
-                // REMINDER: unlike in C, `if (x--)` in ECL does not decrement past 0.
-                ScalarValue::Int(0) => false,
                 ScalarValue::Int(value) => {
                     self.set_var_by_ast(var, ScalarValue::Int(value - 1));
-                    true
+                    value - 1 != 0
                 },
             },
             ast::Cond::Expr(expr) => match self.eval(expr) {
@@ -352,6 +375,7 @@ impl AstVm {
     pub fn get_reg(&self, reg: RegId) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
 
     fn set_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue) {
+        eprintln!("{} = {:?}", crate::fmt::stringify(var), value);
         let (key, _) = self._var_data(var);
         self.var_values.insert(key, value);
     }
@@ -385,12 +409,16 @@ mod tests {
     use crate::type_system::TypeSystem;
     use ScalarValue::{Int, Float};
 
-    struct TestSpec {
+    struct TestSpec<S> {
         globals: Vec<(&'static str, RegId)>,
-        source: &'static str,
+        source: S,
     }
 
-    impl TestSpec {
+    fn new_test_vm() -> AstVm {
+        AstVm::new().with_max_iterations(1000)
+    }
+
+    impl<S: AsRef<[u8]>> TestSpec<S> {
         fn prepare(&self) -> ast::Block {
             let mut files = Files::new();
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
@@ -415,7 +443,7 @@ mod tests {
             }"#,
         }.prepare();
 
-        let mut vm = AstVm::new();
+        let mut vm = new_test_vm();
         vm.set_reg(RegId(-999), Int(7));
 
         assert_eq!(vm.run(&ast.0), Some(Int(19)));
@@ -432,7 +460,7 @@ mod tests {
             }"#,
         }.prepare();
 
-        let mut vm = AstVm::new();
+        let mut vm = new_test_vm();
         vm.set_reg(RegId(100), Int(3));
         vm.set_reg(RegId(101), Float(7.0));
         vm.run(&ast.0);
@@ -477,7 +505,7 @@ mod tests {
         dbg!(&do_while_ast);
 
         for ast in vec![&while_ast, &do_while_ast] {
-            let mut vm = AstVm::new();
+            let mut vm = new_test_vm();
             vm.set_reg(RegId(101), Int(3));
             vm.run(&ast.0);
 
@@ -491,7 +519,7 @@ mod tests {
 
         // now let Y = 0 so we can see the difference between 'do' and 'do while'
         for (ast, expected_iters) in vec![(&while_ast, 0), (&do_while_ast, 1)] {
-            let mut vm = AstVm::new();
+            let mut vm = new_test_vm();
             vm.set_reg(RegId(101), Int(0));
             vm.run(&ast.0);
 
@@ -521,7 +549,7 @@ mod tests {
             }"#,
         }.prepare();
 
-        let mut vm = AstVm::new();
+        let mut vm = new_test_vm();
         vm.run(&ast.0);
         assert_eq!(vm.call_log, vec![
             LoggedCall { real_time: 0, name: "a".parse().unwrap(), args: vec![] },
@@ -534,26 +562,101 @@ mod tests {
 
     #[test]
     fn times() {
+        for possible_clobber in vec!["", "C = "] {
+            let ast = TestSpec {
+                globals: vec![("X", RegId(100)), ("C", RegId(101))],
+                source: format!(r#"{{
+                    times({}X) {{
+                        a();
+                    +10:
+                    }}
+                    +5:
+                }}"#, possible_clobber),
+            }.prepare();
+
+            for count in (0..3).rev() {
+                let mut vm = new_test_vm();
+                vm.set_reg(RegId(100), Int(count));
+                vm.run(&ast.0);
+
+                assert_eq!(vm.call_log.len(), count as usize);
+                assert_eq!(vm.real_time, count * 10 + 5);
+                assert_eq!(vm.time, 15);
+            }
+        }
+    }
+
+    #[test]
+    fn predecrement_jmp() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(100))],
+            globals: vec![("X", RegId(100)), ("C", RegId(101))],
             source: r#"{
-                times(X) {
-                    a();
+                C = 2;
+            label:
+                foo(C);
                 +10:
-                }
-                +5:
+                if (--C) goto label;
             }"#,
         }.prepare();
 
-        for count in (0..3).rev() {
-            let mut vm = AstVm::new();
-            vm.set_reg(RegId(100), Int(count));
-            vm.run(&ast.0);
+        let mut vm = new_test_vm();
+        vm.run(&ast.0);
 
-            assert_eq!(vm.call_log.len(), count as usize);
-            assert_eq!(vm.real_time, count * 10 + 5);
-            assert_eq!(vm.time, 15);
-        }
+        assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
+        assert_eq!(vm.call_log, vec![
+            LoggedCall { real_time: 0, name: "foo".parse().unwrap(), args: vec![Int(2)] },
+            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(1)] },
+        ]);
+        assert_eq!(vm.real_time, 20);
+    }
+
+    #[test]
+    fn times_clobber_nice() {
+        let ast = TestSpec {
+            globals: vec![("X", RegId(100)), ("C", RegId(101))],
+            source: r#"{
+                X = 2;
+                times(C = X) {
+                    foo(C);
+                +10:
+                }
+            }"#,
+        }.prepare();
+
+        let mut vm = new_test_vm();
+        vm.run(&ast.0);
+
+        assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
+        assert_eq!(vm.call_log, vec![
+            LoggedCall { real_time: 0, name: "foo".parse().unwrap(), args: vec![Int(2)] },
+            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(1)] },
+        ]);
+        assert_eq!(vm.real_time, 20);
+    }
+
+    #[test]
+    fn times_clobber_naughty() {
+        let ast = TestSpec {
+            globals: vec![("X", RegId(100)), ("C", RegId(101))],
+            source: r#"{
+                X = 4;
+                times(C = X) {
+                    foo(C);
+                    C -= 1;  // further manipulate the counter! (le gasp)
+                +10:
+                }
+            }"#,
+        }.prepare();
+
+        let mut vm = new_test_vm();
+        vm.run(&ast.0);
+
+        assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
+        assert_eq!(vm.call_log, vec![
+            LoggedCall { real_time: 0, name: "foo".parse().unwrap(), args: vec![Int(4)] },
+            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(2)] },
+        ]);
+        assert_eq!(vm.real_time, 20);
     }
 
     #[test]
@@ -584,7 +687,7 @@ mod tests {
         // both of these should have the same results for X in [1, 2, 3]
         for ast in vec![&with_else, &without_else] {
             for x in vec![1, 2, 3] {
-                let mut vm = AstVm::new();
+                let mut vm = new_test_vm();
                 vm.set_reg(RegId(100), Int(x));
                 vm.run(&ast.0);
 
@@ -608,7 +711,7 @@ mod tests {
             }"#,
         }.prepare();
 
-        let mut vm = AstVm::new();
+        let mut vm = new_test_vm();
         vm.run(&ast.0);
         assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(6.78));
         assert_eq!(vm.get_reg(RegId(30)).unwrap(), Int(12));
@@ -623,7 +726,7 @@ mod tests {
                 loop {}
             }"#,
         }.prepare();
-        let mut vm = AstVm::new().with_max_iterations(1000);
+        let mut vm = new_test_vm().with_max_iterations(1000);
         vm.run(&ast.0);
     }
 
@@ -642,7 +745,7 @@ mod tests {
         }.prepare();
         let x = 5.2405;
 
-        let mut vm = AstVm::new();
+        let mut vm = new_test_vm();
         vm.set_reg(RegId(30), Float(x));
         vm.run(&ast.0);
 
@@ -666,7 +769,7 @@ mod tests {
         let f = 5.2405;
         let i = 12;
 
-        let mut vm = AstVm::new();
+        let mut vm = new_test_vm();
         vm.set_reg(RegId(30), Int(i));
         vm.set_reg(RegId(31), Float(f));
         vm.run(&ast.0);

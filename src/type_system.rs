@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::error::CompileError;
-use crate::ident::Ident;
+use crate::ident::{Ident, GensymContext};
 use crate::eclmap::Eclmap;
 use crate::ast;
 use crate::var::{Variables, VarId, RegId};
@@ -20,6 +20,7 @@ use crate::pos::{Span, Sp};
 pub struct TypeSystem {
     pub regs_and_instrs: RegsAndInstrs,
     pub variables: Variables,
+    pub gensym: GensymContext,
 }
 
 /// Information about raw instructions and registers, usually derived from a mapfile.

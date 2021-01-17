@@ -154,8 +154,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
         ty_ctx.resolve_names(&mut block)?;
 
-        let gensym_ctx = truth::ident::GensymContext::new();
-        let mut visitor = truth::passes::compile_loop::Visitor::new(&gensym_ctx);
+        let mut visitor = truth::passes::compile_loop::Visitor::new(&mut ty_ctx);
         visitor.visit_block(&mut block);
         visitor.finish()?;
 
@@ -194,8 +193,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
         ty_ctx.resolve_names(&mut block).unwrap();
 
-        let gensym_ctx = truth::ident::GensymContext::new();
-        let mut visitor = truth::passes::compile_loop::Visitor::new(&gensym_ctx);
+        let mut visitor = truth::passes::compile_loop::Visitor::new(&mut ty_ctx);
         visitor.visit_block(&mut block);
         visitor.finish().unwrap();
 

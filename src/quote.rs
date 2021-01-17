@@ -91,15 +91,17 @@ macro_rules! rec_sp {
     // favor interior spans of nested sp! calls
     ($span:expr => sp!$args:tt ) => { sp!$args };
     ($span:expr => rec_sp!$args:tt ) => { rec_sp!$args };
+    // `rec_sp!()` can be applied to a vec of macro calls
+    ($span:expr => vec![$($mac:ident!$args:tt),* $(,)?]) => { match $span { span => _truth__vec![$( rec_sp!(span => $mac!$args) ),*] } };
     // If the macro is wrapped in _ast_sp_transparent!(...), don't apply a span here, but DO recurse
-    ($span:expr => _ast_sp_transparent!($mac:ident!( $($arg:tt)* ))) => { $mac!(rec_sp!( span => $($arg)+ )) };
-    ($span:expr => _ast_sp_transparent!($mac:ident![ $($arg:tt)* ])) => { $mac![rec_sp!( span => $($arg)+ )] };
-    ($span:expr => _ast_sp_transparent!($mac:ident!{ $($arg:tt)* })) => { $mac!{rec_sp!( span => $($arg)+ )} };
+    ($span:expr => _ast_sp_transparent!($mac:ident!( $($arg:tt)+ ))) => { $mac!(rec_sp!( span => $($arg)+ )) };
+    ($span:expr => _ast_sp_transparent!($mac:ident![ $($arg:tt)+ ])) => { $mac![rec_sp!( span => $($arg)+ )] };
+    ($span:expr => _ast_sp_transparent!($mac:ident!{ $($arg:tt)+ })) => { $mac!{rec_sp!( span => $($arg)+ )} };
     ($span:expr => _ast_sp_transparent!($value:expr)) => { $value };
     // Add a span to the thing, then stick ourselves into the argument to recurse.
-    ($span:expr => $mac:ident!( $($arg:tt)* )) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac!(rec_sp!( span => $($arg)+ )), span) }};
-    ($span:expr => $mac:ident![ $($arg:tt)* ]) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac![rec_sp!( span => $($arg)+ )], span) }};
-    ($span:expr => $mac:ident!{ $($arg:tt)* }) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac!{rec_sp!( span => $($arg)+ )}, span) }};
+    ($span:expr => $mac:ident!( $($arg:tt)+ )) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac!(rec_sp!( span => $($arg)+ )), span) }};
+    ($span:expr => $mac:ident![ $($arg:tt)+ ]) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac![rec_sp!( span => $($arg)+ )], span) }};
+    ($span:expr => $mac:ident!{ $($arg:tt)+ }) => { match $span { span => $crate::quote::IntoSpanned::into_spanned($mac!{rec_sp!( span => $($arg)+ )}, span) }};
     ($span:expr => $value:expr) => { $crate::quote::IntoSpanned::into_spanned($value, $span) };
 }
 
@@ -207,6 +209,12 @@ mod ast_macros {
     #[macro_export]
     macro_rules! _truth__concat {
         ($($t:tt)*) => { concat!{$($t)*} }
+    }
+
+    #[doc(hidden)]
+    #[macro_export]
+    macro_rules! _truth__vec {
+        ($($t:tt)*) => { vec!{$($t)*} }
     }
 
     // The macros are some nasty incremental tt munchers that are too tedious to write by hand,

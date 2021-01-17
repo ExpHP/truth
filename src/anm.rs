@@ -238,8 +238,6 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
     let ast = {
         use ast::VisitMut;
 
-        let gensym_ctx = crate::ident::GensymContext::new();
-
         let mut ast = ast.clone();
 
         let mut visitor = crate::passes::const_simplify::Visitor::new();
@@ -248,7 +246,7 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
 
         ty_ctx.resolve_names(&mut ast)?;
 
-        let mut visitor = crate::passes::compile_loop::Visitor::new(&gensym_ctx);
+        let mut visitor = crate::passes::compile_loop::Visitor::new(ty_ctx);
         visitor.visit_script(&mut ast);
         visitor.finish()?;
 

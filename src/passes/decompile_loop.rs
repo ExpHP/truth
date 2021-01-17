@@ -66,6 +66,7 @@ impl JmpKind {
 
             ast::StmtBody::CondJump { keyword, cond, jump } => match keyword.value {
                 ast::CondKeyword::If => Some((jump.clone(), JmpKind::Conditional(cond.clone()))),
+                ast::CondKeyword::Unless => unimplemented!(),  // you won't see 'unless' in decompiled code
             }
 
             _ => None,
