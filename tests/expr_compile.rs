@@ -704,14 +704,13 @@ mod anti_scratch_regs {
 }
 
 #[test]
-fn weird_crash() {
+fn times() {
     for _ in 0..10 {
         run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = 5;  // ensure positive
             times(2) {
-                times(A) {
-                    times(3) {
-                        ins_300(1 + 5);
-                    }
+                times(3*A + 2) {
+                    ins_300(1 + 5);
                 }
             }
         }"#);

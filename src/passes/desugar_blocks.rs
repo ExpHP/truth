@@ -59,22 +59,34 @@ impl<'a> Desugarer<'a> {
                     });
                 },
 
-                ast::StmtBody::Times { clobber, count, mut block } => {
-                    let clobber = match clobber {
-                        Some(var) => var,
+                ast::StmtBody::Times { clobber, count, block } => {
+                    let (clobber, local_id) = match clobber {
+                        Some(var) => (var, None),
                         None => {
                             let local_id = self.ty_ctx.variables.declare_temporary(Some(ScalarType::Int));
                             let var = sp!(count.span => ast::Var::Resolved { var_id: local_id.into(), ty_sigil: None });
 
-                            block.0.push(sp!(block.end_span() => ast::Stmt {
-                                time: block.end_time(),
-                                body: ast::StmtBody::ScopeEnd(local_id),
+                            self.out.push(sp!(count.span => ast::Stmt {
+                                time: outer_time,
+                                body: ast::StmtBody::Declaration {
+                                    keyword: sp!(count.span => token![int]),
+                                    vars: vec![sp!(count.span => (var.clone(), None))]
+                                },
                             }));
-                            var
+
+                            (var, Some(local_id))
                         },
                     };
+                    let (end_span, end_time) = (block.end_span(), block.end_time());
 
                     self.desugar_times(outer_time, clobber, count, block);
+
+                    if let Some(local_id) = local_id {
+                        self.out.push(sp!(end_span => ast::Stmt {
+                            time: end_time,
+                            body: ast::StmtBody::ScopeEnd(local_id),
+                        }));
+                    }
                 },
 
                 ast::StmtBody::CondChain(chain) => {
