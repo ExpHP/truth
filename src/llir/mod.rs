@@ -307,6 +307,14 @@ pub trait InstrFormat {
         enum_map::enum_map!(_ => vec![])
     }
 
+    /// Should return `true` if this instruction implicitly uses registers not mentioned in the
+    /// argument list.  This will disable scratch register allocation.
+    ///
+    /// This is used for ANM ins_509 which copies all variables from the parent.  (basically,
+    /// a script in the middle of a `grandparent->parent->child` ancestry could be using it to
+    /// communicate registers it doesn't even mention, if both `parent` and `child` are using it!)
+    fn instr_disables_scratch_regs(&self, _opcode: u16) -> bool { false }
+
     /// Indicates that [`IntrinsicInstrKind::Jmp`] takes two arguments, where the second is time.
     ///
     /// TH06 ANM has no time arg. (it always sets the script clock to the destination's time)
@@ -379,6 +387,8 @@ pub struct TestFormat {
     pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
+    /// For simulating the existence of an instruction like ANM ins_509
+    pub anti_scratch_opcode: Option<u16>,
 }
 impl InstrFormat for TestFormat {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
@@ -389,6 +399,10 @@ impl InstrFormat for TestFormat {
     fn read_instr(&self, _: &mut dyn BinRead) -> ReadResult<Option<Instr>> { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_instr(&self, _: &mut dyn BinWrite, _: &Instr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
+
+    fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
+        self.anti_scratch_opcode == Some(opcode)
+    }
 
     fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
         enum_map::enum_map!{

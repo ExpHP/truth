@@ -918,7 +918,7 @@ fn encode_labels(
     }).collect_with_recovery()
 }
 
-/// Eliminates all `InstrArg::Label`s by replacing them with their dword values.
+/// Eliminates all `InstrArg::Local`s by allocating registers for them.
 fn assign_registers(
     code: &mut [LowLevelStmt],
     used_regs: &[RegId],
@@ -932,10 +932,14 @@ fn assign_registers(
     }
 
     let mut local_regs = HashMap::<LocalId, (RegId, ScalarType, Span)>::new();
+    let mut has_used_scratch: Option<Span> = None;
+    let mut has_anti_scratch_ins = false;
 
     for stmt in code {
         match stmt {
             LowLevelStmt::RegAlloc { local_id, ref cause } => {
+                has_used_scratch.get_or_insert(*cause);
+
                 let ty = ty_ctx.variables.get_type(*local_id).expect("(bug!) this should have been type-checked!");
 
                 let reg = unused_regs[ty].pop().ok_or_else(|| {
@@ -972,6 +976,10 @@ fn assign_registers(
                 unused_regs[inherent_ty].push(reg);
             },
             LowLevelStmt::Instr(instr) => {
+                if format.instr_disables_scratch_regs(instr.opcode) {
+                    has_anti_scratch_ins = true;
+                }
+
                 for arg in &mut instr.args {
                     if let InstrArg::Local { local_id, read_ty } = *arg {
                         *arg = InstrArg::Raw(RawArg::from_reg(local_regs[&local_id].0, read_ty));
@@ -981,6 +989,18 @@ fn assign_registers(
             LowLevelStmt::Label { .. } => {},
         }
     }
+
+    if has_anti_scratch_ins {
+        if let Some(span) = has_used_scratch {
+            return Err(error!(
+                message("scratch registers are disabled in this script"),
+                primary(span, "this requires a scratch register"),
+                // FIXME: If we ever add spans around Instr, we should give its span instead of this unhelpful note
+                note("Automatic register allocation is disabled in this script because it contains an instruction that uses variables without mentioning them"),
+            ))
+        }
+    }
+
     Ok(())
 }
 

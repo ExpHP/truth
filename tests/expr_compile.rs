@@ -42,6 +42,8 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
     Eclmap::parse(&lines.join("\n")).unwrap()
 }
 
+const ANTI_SCRATCH_OPCODE: u16 = 99;
+
 fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
     let mut format = llir::TestFormat::default();
     format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, 1));
@@ -54,6 +56,7 @@ fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();
+    format.anti_scratch_opcode = Some(ANTI_SCRATCH_OPCODE);
     format
 }
 
@@ -666,5 +669,51 @@ fn unop_optimization_correctness() {
 
             check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
         }
+    }
+}
+
+mod anti_scratch_regs {
+    use super::*;
+
+    #[test]
+    fn safe() {
+        run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+            A = B + B * -A;  // requires no scratch
+            ins_{}();
+        }}"#, ANTI_SCRATCH_OPCODE));
+    }
+
+    #[test]
+    #[should_panic(expected = "scratch registers are disabled")]
+    fn bad_before() {
+        run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+            A = A + B * -A;  // requires scratch!
+            ins_{}();
+        }}"#, ANTI_SCRATCH_OPCODE));
+    }
+
+    #[test]
+    #[should_panic(expected = "scratch registers are disabled")]
+    fn bad_after() {
+        // (this is to make sure the check doesn't depend on instruction order...)
+        run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+            ins_{}();
+            A = A + B * -A;  // requires scratch!
+        }}"#, ANTI_SCRATCH_OPCODE));
+    }
+}
+
+#[test]
+fn weird_crash() {
+    for _ in 0..10 {
+        run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            times(2) {
+                times(A) {
+                    times(3) {
+                        ins_300(1 + 5);
+                    }
+                }
+            }
+        }"#);
     }
 }

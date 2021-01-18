@@ -598,7 +598,7 @@ impl Version {
 fn game_format(game: Game) -> FileFormat {
     let version = Version::from_game(game);
     let instr_format: Box<dyn InstrFormat> = match version.has_vars() {
-        true => Box::new(InstrFormat07 { version }),
+        true => Box::new(InstrFormat07 { version, game }),
         false => Box::new(InstrFormat06),
     };
     FileFormat { version, instr_format }
@@ -607,7 +607,7 @@ fn game_format(game: Game) -> FileFormat {
 /// Type responsible for dealing with version differences in the format.
 struct FileFormat { version: Version, instr_format: Box<dyn InstrFormat> }
 struct InstrFormat06;
-struct InstrFormat07 { version: Version }
+struct InstrFormat07 { version: Version, game: Game }
 
 impl InstrFormat06 { const HEADER_SIZE: usize = 4; }
 impl InstrFormat07 { const HEADER_SIZE: usize = 8; }
@@ -893,6 +893,11 @@ impl InstrFormat for InstrFormat07 {
         f.write_u16(0)?;
         f.write_u16(0)?;
         f.write_u16(0)
+    }
+
+    fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
+        // copyParentVars
+        Game::Th14 <= self.game && opcode == 509
     }
 
     fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
