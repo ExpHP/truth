@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Expr>(\"token\", \"(32 + \\u{306F})\").trim()"
+---
+error: invalid token
+  ┌─ <input>:1:7
+  │
+1 │ (32 + は)
+  │       ^^ invalid token

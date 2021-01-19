@@ -7,7 +7,9 @@ use std::borrow::Cow;
 use std::num::NonZeroU32;
 use std::path::Path;
 
+use crate::error::CompileError;
 use crate::parse::Parse;
+use crate::parse::lexer;
 
 pub type FileId = Option<NonZeroU32>;
 use codespan_reporting::{files as cs_files};
@@ -107,7 +109,7 @@ impl NonUtf8Files {
     /// This is just a wrapper around [`Self::parse`] and [`std::fs::read`] with suitable
     /// handling of errors.
     pub fn read_file<T>(&mut self, path: &Path)
-        -> Result<Sp<T>, crate::CompileError>
+        -> Result<Sp<T>, CompileError>
     where
         T: for<'a> Parse<'a>,
     {
@@ -123,13 +125,15 @@ impl NonUtf8Files {
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
     pub fn parse<'input, T>(&mut self, filename: &str, source: &'input [u8])
-        -> crate::parse::Result<'input, Sp<T>>
+        -> Result<Sp<T>, CompileError>
     where
         T: Parse<'input>,
     {
         let file_id = self.add(filename, source.as_ref());
-        let mut state = crate::parse::State::new(file_id);
-        T::parse_stream(&mut state, crate::parse::lexer::Lexer::new(source.as_ref()))
+        let mut state = crate::parse::State::new();
+
+        T::parse_stream(&mut state, lexer::Lexer::new(file_id, source.as_ref()))
+            .map_err(Into::into)
     }
 
     fn unshift_file_id(file_id: FileId) -> Result<usize, cs_files::Error> {
@@ -265,6 +269,11 @@ impl Span {
             start: BytePos(0),
             end: BytePos(0),
         }
+    }
+
+    pub(crate) fn from_locs(left: lexer::Location, right: lexer::Location) -> Self {
+        debug_assert_eq!(left.0, right.0);
+        Self::new(left.0, left.1, right.1)
     }
 
     /// Combine two spans by taking the start of the earlier span

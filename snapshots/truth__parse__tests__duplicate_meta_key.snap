@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<meta::Meta>(\"duplicate\",\n                                 r#\"{\n  a: {\n    thing: 100,\n    another: 101,\n    yet_another: 102,\n    thing: 103,\n  },\n}\"#).trim()"
+---
+error: duplicate metadata field 'thing'
+  ┌─ <input>:6:5
+  │
+6 │     thing: 103,
+  │     ^^^^^ duplicate key

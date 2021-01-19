@@ -6,10 +6,11 @@ use regex::bytes::{Regex, RegexBuilder};
 use bstr::{BStr, ByteSlice};
 use lazy_static::lazy_static;
 
-use crate::pos::{BytePos};
+use crate::pos::{FileId, BytePos};
+use crate::error::CompileError;
 
-// This is a simple lexer that tries to keep most of the maintainability
-// of the default lexer (though it is almost certainly nowhere near as fast).
+// This is a simple lexer that tries to keep most of the maintainability of the
+// LALRPOP default lexer (though it is almost certainly nowhere near as fast).
 //
 // The following macro is an `each_x` style macro that associates each fixed
 // string or regex with its lexical class, as well as a priority (which roughly
@@ -186,8 +187,13 @@ impl<'a> fmt::Display for Token<'a> {
     }
 }
 
+/// truth's lexer.
+///
+/// You should not need to use this type; the primary API for parsing code in truth
+/// is provided by [`crate::pos::NonUtf8Files::parse`].
 #[derive(Debug, Clone)]
 pub struct Lexer<'input> {
+    file_id: FileId,
     offset: usize,
     remainder: &'input [u8],
     // a temporary kept around to reduce allocations
@@ -195,22 +201,24 @@ pub struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(input: &'input [u8]) -> Lexer<'input> {
+    pub fn new(file_id: FileId, input: &'input [u8]) -> Lexer<'input> {
         Lexer {
+            file_id,
             offset: 0,
             matches_buf: vec![],
             remainder: input,
         }
     }
 
-    /// Get the current offset into the original input.
-    pub fn offset(&self) -> usize { self.offset }
+    pub fn location(&self) -> Location { (self.file_id, BytePos(self.offset as u32)) }
 }
 
-// FIXME: Replace this with a proper Error type.
-//
-// &'static str is simply the default used by LALRPOP.
-pub type LexerError = &'static str;
+/// The location type reported to LALRPOP.
+///
+/// This type only exists because LALRPOP needs a type to represent a single point in the source code,
+/// and generally speaking these are converted into the more common [`crate::pos::Span`] type as soon
+/// as reasonably possible.
+pub type Location = (FileId, BytePos);
 
 macro_rules! impl_token_matchers {
     (
@@ -266,7 +274,7 @@ macro_rules! impl_token_matchers {
 with_each_terminal!(impl_token_matchers);
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<(BytePos, Token<'a>, BytePos), LexerError>;
+    type Item = Result<(Location, Token<'a>, Location), CompileError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(ws_match) = WHITESPACE_REGEX.find(self.remainder) {
@@ -283,7 +291,11 @@ impl<'a> Iterator for Lexer<'a> {
         Self::gather_fixed_matches(&mut self.matches_buf, self.remainder);
         Self::gather_regex_matches(&mut self.matches_buf, self.remainder);
         if self.matches_buf.is_empty() {
-            return Some(Err("bad token"));
+            let loc = self.location();
+            return Some(Err(error!(
+                message("invalid token"),
+                primary(crate::pos::Span::from_locs(loc, loc), "invalid token"),
+            )));
         }
 
         // Longest match wins.
@@ -300,10 +312,11 @@ impl<'a> Iterator for Lexer<'a> {
         );
 
         let token = self.matches_buf.pop().unwrap();
-        let start = self.offset;
+        let start = self.location();
         self.offset += token.len();
+        let end = self.location();
         self.remainder = &self.remainder[token.len()..];
-        Some(Ok((BytePos(start as u32), token, BytePos(self.offset as u32))))
+        Some(Ok((start, token, end)))
     }
 }
 
@@ -312,7 +325,10 @@ mod tests {
     use super::*;
 
     fn tokenize(s: &str) -> Vec<(BytePos, Token<'_>, BytePos)> {
-        Lexer::new(s.as_ref()).map(|res| res.unwrap()).collect::<Vec<_>>()
+        Lexer::new(None, s.as_ref())
+            .map(|res| res.unwrap())
+            .map(|(start, tok, end)| (start.1, tok, end.1))
+            .collect::<Vec<_>>()
     }
 
     #[test]

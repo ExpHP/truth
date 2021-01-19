@@ -1,0 +1,12 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Stmt>(\"unexpected\", \"int x = int;\").trim()"
+---
+error: unexpected token `int`
+  ┌─ <input>:1:9
+  │
+1 │ int x = int;
+  │         ^^^ unexpected token
+  │
+  = 
+    Expected one of "!", "$", "%", "(", "-", "[", "_S", "_f", "anim", "cos", "ecli", "entry", "false", "mapfile", "script", "sin", "sqrt", "timeline", "true", FLOAT, FLOAT_RAD, IDENT, INT, INT_BIN, INT_HEX or STRING

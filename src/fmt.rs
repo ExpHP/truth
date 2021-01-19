@@ -855,7 +855,7 @@ mod tests {
     fn reformat_bytes<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, text: &'a [u8]) -> Vec<u8> {
         let mut f = Formatter::new(vec![]).with_max_columns(ncol);
         let mut files = crate::pos::Files::new();
-        let value = files.parse::<T>("<input>", text.as_bytes()).unwrap_or_else(|e| panic!("{}", e));
+        let value = files.parse::<T>("<input>", text.as_bytes()).unwrap();
         f.fmt(&value).unwrap();
         f.into_inner().unwrap()
     }

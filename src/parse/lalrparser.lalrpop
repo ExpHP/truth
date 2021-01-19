@@ -1,9 +1,9 @@
-use lalrpop_util::ParseError;
 use bstr::{BStr, ByteSlice};
+use crate::error::CompileError;
 use crate::parse::lexer::{Token};
 use crate::meta::{self, Meta};
 use crate::ident::Ident;
-use crate::pos::{Sp, BytePos};
+use crate::pos::{Sp, Span};
 use crate::ast::{
     self,
     Script, MetaKeyword,
@@ -18,8 +18,8 @@ use super::lalrparser_util::{parse_ascii, u32_from_ascii_radix, push};
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
 
 extern {
-    type Location = BytePos;
-    type Error = crate::parse::ErrorPayload;
+    type Location = crate::parse::lexer::Location;
+    type Error = CompileError;
 
     enum Token<'input> {
         // Terminals
@@ -156,7 +156,7 @@ Script: Script = {
     <items:Items> => {
         let mapfiles = state.mapfiles.clone();
         Script { items, mapfiles }
-    },
+    }
 };
 
 Items: Vec<Sp<Item>> = {
@@ -245,10 +245,15 @@ MetaBracedFields: meta::Fields = {
     "{" <kvs:SeparatedTrailing<(<Sp<Ident>> ":" <Sp<Meta>>), ",">> "}" =>? {
         let mut map = indexmap::IndexMap::with_capacity(kvs.len());
         for (key, value) in kvs {
-            if let Some(_) = map.insert(key, value) {
-                return Err(ParseError::User {
-                    error: "metadata contains duplicate key", // TODO: show key
-                });
+            let new_key_span = key.span;
+            match map.entry(key) {
+                indexmap::map::Entry::Vacant(entry) => { entry.insert(value); },
+                indexmap::map::Entry::Occupied(entry) => return Err(error!(
+                    message("duplicate metadata field '{}'", entry.key()),
+                    primary(new_key_span, "duplicate key"),
+                    // FIXME: OccupiedEntry::key currently gives the new key so we can't do this
+                    // secondary(entry.key().span, "previously supplied here"),
+                ).into()),
             }
         }
         Ok(map)
@@ -397,7 +402,10 @@ CondKeyword: CondKeyword = {
 
 DifficultyLabel: DifficultyLabel = {
     // TODO: Actually parse
-    <s:DIFFICULTY> =>? Err(ParseError::User { error: "difficulty flags not yet implemented" }),
+    <l: @L> <s:DIFFICULTY> <r: @R> =>? Err(error!(
+        message("unsupported syntax"),
+        primary(Span::from_locs(l, r), "difficulty flags not yet implemented"),
+    ).into()),
 };
 
 Block: Block = {
@@ -520,7 +528,10 @@ ExprTerm: Expr = {
 
     // This syntax is reserved.
     // The only reason we parse it right now is just to prove that adding it wouldn't make the grammar ambiguous.
-    <Var> "[" <Expr> "]" =>? Err(ParseError::User { error: "array indexing is not a thing, sorry" }),
+    <l: @L> <_v: Var> "[" <_e: Expr> "]" <r: @R> =>? Err(error!(
+        message("invalid operation"),
+        primary(Span::from_locs(l, r), "array indexing is not a thing, sorry"),
+    ).into()),
 };
 
 ExprCallParts: (Sp<Ident>, Vec<Sp<Expr>>) = {
@@ -530,10 +541,10 @@ ExprCallParts: (Sp<Ident>, Vec<Sp<Expr>>) = {
 // ==================================================
 
 LitString: LitString = {
-    <s:STRING> =>? {
+    <l: @L> <s:STRING> <r: @R> =>? {
         let mut out = vec![];
         let mut escape = false;
-        for b in s[1..s.len()-1].bytes() { // FIXME input should be &[u8] instead of &str
+        for b in s[1..s.len()-1].bytes() {
             if escape {
                 escape = false;
                 match b {
@@ -542,14 +553,24 @@ LitString: LitString = {
                     b'\\' => out.push(b'\\'),
                     b'n' => out.push(b'\n'),
                     b'r' => out.push(b'\r'),
-                    _ => return Err(ParseError::User {
-                        error: "invalid escape",
-                    }),
+                    c => {
+                        let escape = match c.is_ascii_graphic() {
+                            true => format!("{}", c as char),
+                            false => format!("\\x{:02x}", c),
+                        };
+                        return Err(error!(
+                            message("invalid escape character '{}'", escape),
+                            primary(Span::from_locs(l, r), "contains invalid escape"),
+                        ).into());
+                    }
                 }
+            } else if b == b'\\' {
+                escape = true;
             } else {
                 out.push(b);
             }
         }
+        assert!(!escape);  // should be impossible due to the token's regex
         Ok(LitString { string: out.into() })
     },
 };
@@ -582,12 +603,25 @@ LitFloatUnsigned: f32 = {
 };
 
 LitIntUnsigned: i32 = {
-    // FIXME: Don't panic on big numbers
-    <s:INT> => parse_ascii(s).unwrap(),
-    <s:INT_HEX> => u32_from_ascii_radix(&s[2..], 16).unwrap() as i32,
-    <s:INT_BIN> => u32_from_ascii_radix(&s[2..], 2).unwrap() as i32,
-    "true" => 1,
-    "false" => 0,
+    <l: @L> <result: LitIntUnsigned_Result> <r: @R> =>? {
+        // Note: Parsing numbers in the range 2^31..2^32 without overflow errors is deliberately supported
+        result.map(|x: u32| x as i32)
+            .map_err(|e| error!(
+                message("bad integer literal"),
+                primary(Span::from_locs(l, r), "{}", e)
+            ).into())
+    },
+};
+
+LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
+    <l: @L> <s:INT> <r: @R> => {
+        #![allow(unused_braces)]  // without these braces, lalrpop can't parse this turbofish
+        parse_ascii::<_, u32>(s)
+    },
+    <l: @L> <s:INT_HEX> <r: @R> => u32_from_ascii_radix(&s[2..], 16),
+    <l: @L> <s:INT_BIN> <r: @R> => u32_from_ascii_radix(&s[2..], 2),
+    "true" => Ok(1),
+    "false" => Ok(0),
 };
 
 // ==================================================
@@ -600,13 +634,19 @@ Var: Var = {
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
         Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign).into()) })
     },
-    "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" =>? {
+    <l: @L> "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" <r: @R> =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
-            return Err(ParseError::User { error: "variable ID overflow" })
+            return Err(error!(
+                message("register ID overflow"),
+                primary(Span::from_locs(l, r), "register ID overflow")
+            ).into());
         }
         let reg = i32::wrapping_mul(x as i32, sign);
         if reg as f32 != x * sign as f32 {
-            return Err(ParseError::User { error: "non-integer variable ID" })
+            return Err(error!(
+                message("non-integer register ID"),
+                primary(Span::from_locs(l, r), "non-integer register ID")
+            ).into());
         }
         Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(reg.into()) })
     },
@@ -626,11 +666,19 @@ OptionalMinus: i32 = {
 };
 
 Ident: Ident = {
-    <tok:IdentStr> =>? {
+    <l: @L> <tok:IdentStr> <r: @R> =>? {
         std::str::from_utf8(&tok[..]).expect("cannot fail because lexed token is ascii")
             .parse()
-            // FIXME: user error should include error message from .parse()
-            .map_err(|_| ParseError::User { error: "illegal identifier" })
+            .map_err(|e| {
+                let mut diag = crate::error::Diagnostic::error();
+                diag.message(format!("invalid identifier"));
+                diag.primary(Span::from_locs(l, r), format!("{}", e));
+                if let crate::ident::ParseIdentError::InvalidIns = e {
+                    diag.note(format!(r#"identifiers beginning with "ins_" are reserved for instructions and must follow a specific format"#));
+                }
+                let ce: CompileError = diag.into();
+                ce.into()
+            })
     },
 };
 
@@ -653,12 +701,12 @@ IdentStr: &'input BStr = {
 #[inline]
 Sp<Rule>: Sp<Rule> = {
     <l: @L> <rule: Rule> <r: @R> => Sp {
-        span: crate::pos::Span::new(state.file_id, l, r),
+        span: Span::from_locs(l, r),
         value: rule,
     },
 }
 /// Get a zero-length span at the current position.
-Span: crate::pos::Span = <sp:Sp<()>> => sp.span;
+Span: Span = <sp:Sp<()>> => sp.span;
 
 Box<Rule>: Box<Rule> = <r:Rule> => Box::new(r);
 

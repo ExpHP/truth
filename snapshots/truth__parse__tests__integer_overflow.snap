@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Expr>(\"too large\", \"124712894724479\").trim()"
+---
+error: bad integer literal
+  ┌─ <input>:1:1
+  │
+1 │ 124712894724479
+  │ ^^^^^^^^^^^^^^^ number too large to fit in target type

@@ -1,7 +1,9 @@
 use lalrpop_util::lalrpop_mod;
 
-use crate::{ast, meta};
-use crate::pos::{BytePos, Sp, FileId};
+use crate::error::CompileError;
+use crate::ast;
+use crate::meta;
+use crate::pos::{Sp};
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 mod lalrparser_util;
@@ -9,9 +11,8 @@ mod lalrparser_util;
 use lexer::{Lexer, Token};
 pub mod lexer;
 
-pub type ErrorPayload = &'static str; // FIXME: this is the default for LALRPOP
-pub type Error<'input> = lalrpop_util::ParseError<BytePos, Token<'input>, ErrorPayload>;
-pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
+#[cfg(test)]
+mod tests;
 
 pub trait Parse<'input>: Sized {
     /// Parse a string into an AST node.
@@ -21,17 +22,21 @@ pub trait Parse<'input>: Sized {
     /// strings of text. For proper diagnostics you should prefer the helper method
     /// [`crate::pos::NonUtf8Files::parse`] instead.
     fn parse<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Self> {
-        let mut state = State::new(None);
-        Self::parse_stream(&mut state, Lexer::new(s.as_ref()))
+        let mut state = State::new();
+        Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
             .map(|x| x.value)
     }
 
     fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>>;
 }
 
+
+pub type Error<'input> = lalrpop_util::ParseError<lexer::Location, Token<'input>, CompileError>;
+pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
+
+
 /// Extra state during parsing.
 pub struct State {
-    file_id: FileId,
     mapfiles: Vec<Sp<ast::LitString>>,
 
     /// When we are parsing instructions, tracks the last time label so that we can produce an
@@ -44,8 +49,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(file_id: FileId) -> State { State {
-        file_id,
+    pub fn new() -> State { State {
         mapfiles: vec![],
         time_stack: vec![0],
     }}
@@ -87,8 +91,8 @@ fn call_anything_parser<'input>(
     state: &mut State,
     lexer: Lexer<'input>,
 ) -> Result<'input, Sp<AnythingValue>> {
-    let offset = BytePos(lexer.offset() as u32);
-    let lexer = std::iter::once(Ok((offset, Token::VirtualDispatch(tag), offset))).chain(lexer);
+    let start = lexer.location();
+    let lexer = std::iter::once(Ok((start, Token::VirtualDispatch(tag), start))).chain(lexer);
     lalrparser::AnythingParser::new().parse(state, lexer)
 }
 

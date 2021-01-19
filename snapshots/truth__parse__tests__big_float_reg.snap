@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Stmt>(\"overflow\",\n                                \"int x = [1234258905623.0];\").trim()"
+---
+error: register ID overflow
+  ┌─ <input>:1:9
+  │
+1 │ int x = [1234258905623.0];
+  │         ^^^^^^^^^^^^^^^^^ register ID overflow

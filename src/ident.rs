@@ -38,9 +38,9 @@ impl Ident {
 
 #[derive(Debug, Error)]
 pub enum ParseIdentError {
-    #[error("Invalid instruction identifier")]
+    #[error("invalid instruction identifier")]
     InvalidIns,
-    #[error("Non-ascii byte '\\x{:02x}'", .0)]
+    #[error("non-ascii byte '\\x{:02x}'", .0)]
     NonAsciiByte(u8),
 }
 

@@ -1,0 +1,12 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Stmt>(\"EOF\", \"int x = 3\").trim()"
+---
+error: unexpected EOF
+  ┌─ <input>:1:10
+  │
+1 │ int x = 3
+  │          ^ unexpected EOF
+  │
+  = 
+    Expected one of "," or ";"

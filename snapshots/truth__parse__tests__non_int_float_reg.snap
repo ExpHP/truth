@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Expr>(\"non-integer\", \"32 * [101.32f]\").trim()"
+---
+error: non-integer register ID
+  ┌─ <input>:1:6
+  │
+1 │ 32 * [101.32f]
+  │      ^^^^^^^^^ non-integer register ID

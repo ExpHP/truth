@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Expr>(\"escape\", r#\" \"abc\\jefg\" \"#).trim()"
+---
+error: invalid escape character 'j'
+  ┌─ <input>:1:2
+  │
+1 │  "abc\jefg" 
+  │  ^^^^^^^^^^ contains invalid escape
