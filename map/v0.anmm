@@ -1,9 +1,9 @@
 !anmmap
-!ins_names
 
 #  v0.anmm  - for EoSD only
 # created with help from https://pytouhou.linkmauve.fr/doc/06/anm.xml
 
+!ins_names
 0 delete
 1 sprite
 2 scale
@@ -39,40 +39,3 @@
 
 !gvar_names
 # EoSD has no vars
-
-!gvar_types
-# EoSD has no vars
-
-!ins_signatures
-0
-1 n
-2 ff
-3 S
-4 C
-5 o
-6
-7
-8
-9 fff
-10 fff
-11 ff
-12 SS
-13
-14
-15
-16 nS
-17 fff
-18 fffS
-19 fffS
-20 fffS
-21
-22 S
-23
-24
-25 S
-26 S
-27 f
-28 f
-29 S
-30 ffS
-31 S

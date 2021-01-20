@@ -45,10 +45,12 @@ pub struct RegsAndInstrs {
 impl TypeSystem {
     pub fn new() -> Self { Self::default() }
 
-    /// Add info from an eclmap.  Its path is recorded in order to help emit import directives
-    /// into the file.
-    pub fn extend_from_eclmap(&mut self, path: &std::path::Path, eclmap: &Eclmap) {
-        self.regs_and_instrs.mapfiles.push(path.to_owned());
+    /// Add info from an eclmap.  Its path (if one is provided) is recorded in order to emit
+    /// import directives into a decompiled script file.
+    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) {
+        if let Some(path) = path {
+            self.regs_and_instrs.mapfiles.push(path.to_owned());
+        }
 
         for (&opcode, name) in &eclmap.ins_names {
             self.regs_and_instrs.opcode_names.insert(opcode as u16, name.clone());

@@ -22,23 +22,3 @@
 16 interruptLabel
 17 distortion  # distorts bottom of screen
 18 upTime
-
-!ins_signatures
-0
-1 SS  # ot
-2 fff
-3 SSfff
-4 fff
-5 SSfff
-6 fff
-7 f
-8 Cff
-9 SSCff
-10 SSfffffffff
-11 SSfffffffff
-12 S
-13 C
-14 SS     # different from 14+
-16 S      # TH11 (10 had no callSTD...?)
-17 S      # TH11
-18 SSfff  # TH12

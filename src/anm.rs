@@ -604,6 +604,29 @@ fn game_format(game: Game) -> FileFormat {
     FileFormat { version, instr_format }
 }
 
+pub fn game_core_mapfile(game: Game) -> String {
+    match game {
+        Game::Th06 => include_str!("../map/core/v0.anmm").to_string(),
+        Game::Th07 => include_str!("../map/core/v2.anmm").to_string(),
+        Game::Th08 |
+        Game::Th09 => include_str!("../map/core/v3.anmm").to_string(),
+        Game::Th095 |
+        Game::Th10 |
+        Game::Alcostg |
+        Game::Th11 |
+        Game::Th12 |
+        Game::Th125 |
+        Game::Th128 => include_str!("../map/core/v4.anmm").to_string(),
+        Game::Th13 |
+        Game::Th14 |
+        Game::Th143 |
+        Game::Th15 |
+        Game::Th16 |
+        Game::Th165 |
+        Game::Th17 => include_str!("../map/core/v8.anmm").to_string(),
+    }
+}
+
 /// Type responsible for dealing with version differences in the format.
 struct FileFormat { version: Version, instr_format: Box<dyn InstrFormat> }
 struct InstrFormat06;

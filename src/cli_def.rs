@@ -91,10 +91,12 @@ pub mod anm_decomp {
 
             let mut ty_ctx = crate::type_system::TypeSystem::new();
 
+            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::anm::game_core_mapfile(game)).unwrap());
+
             let map_path = map_path.map(|p| p.as_ref().to_owned());
-            if let Some(map_path) = map_path.or_else(|| Eclmap::default_map_file(".anmm")) {
+            if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".anmm")) {
                 let eclmap = Eclmap::load(&map_path, Some(game)).unwrap();
-                ty_ctx.extend_from_eclmap(&map_path, &eclmap);
+                ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
             }
             ty_ctx
         };
@@ -167,16 +169,19 @@ pub mod anm_modify {
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let mut ty_ctx = crate::type_system::TypeSystem::new();
+
+        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::anm::game_core_mapfile(game)).unwrap());
+
         if let Some(map_path) = map_path {
             let eclmap = crate::Eclmap::load(&map_path, Some(game))?;
-            ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
+            ty_ctx.extend_from_eclmap(Some(map_path.as_ref()), &eclmap);
         }
 
         let ast = files.read_file::<crate::ast::Script>(&script_path)?;
         for path_literal in &ast.mapfiles {
             let path = path_literal.as_path()?;
             match crate::Eclmap::load(&path, Some(game)) {
-                Ok(eclmap) => ty_ctx.extend_from_eclmap(path, &eclmap),
+                Ok(eclmap) => ty_ctx.extend_from_eclmap(Some(path), &eclmap),
                 Err(e) => return Err(crate::error!(
                     message("{}", e), primary(path_literal, "error loading file"),
                 )),
@@ -291,9 +296,12 @@ pub mod std_compile {
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let mut ty_ctx = crate::type_system::TypeSystem::new();
+
+        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::std::game_core_mapfile(game)).unwrap());
+
         if let Some(map_path) = map_path {
             let eclmap = crate::Eclmap::load(&map_path, Some(game)).unwrap();
-            ty_ctx.extend_from_eclmap(map_path.as_ref(), &eclmap);
+            ty_ctx.extend_from_eclmap(Some(map_path.as_ref()), &eclmap);
         }
 
         let script = files.read_file::<crate::ast::Script>(&path)?;
@@ -301,7 +309,7 @@ pub mod std_compile {
         for path_literal in &script.mapfiles {
             let path = path_literal.as_path()?;
             match crate::Eclmap::load(&path, Some(game)) {
-                Ok(eclmap) => ty_ctx.extend_from_eclmap(path, &eclmap),
+                Ok(eclmap) => ty_ctx.extend_from_eclmap(Some(path), &eclmap),
                 Err(e) => return Err(crate::error!(
                     message("{}", e), primary(path_literal, "error loading file"),
                 )),
@@ -341,10 +349,12 @@ pub mod std_decomp {
 
             let mut ty_ctx = crate::type_system::TypeSystem::new();
 
+            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::std::game_core_mapfile(game)).unwrap());
+
             let map_path = map_path.map(|p| p.as_ref().to_owned());
-            if let Some(map_path) = map_path.or_else(|| Eclmap::default_map_file(".stdm")) {
+            if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".stdm")) {
                 let eclmap = Eclmap::load(&map_path, Some(game)).unwrap();
-                ty_ctx.extend_from_eclmap(&map_path, &eclmap);
+                ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
             }
             ty_ctx
         };

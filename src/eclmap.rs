@@ -42,8 +42,8 @@ impl Eclmap {
     /// Check the default map directories for a file whose name is `any.{extension}`
     /// and return it if it exists.
     ///
-    /// Intended to be used with `Option::or_else` on an optional map path.
-    pub fn default_map_file(extension: &'static str) -> Option<std::path::PathBuf> {
+    /// Intended to be used with `Option::or_else` on an optional map path during decompilation.
+    pub fn decomp_map_file_from_env(extension: &'static str) -> Option<std::path::PathBuf> {
         std::env::var_os("TRUTH_MAP_PATH")
             .filter(|s| !s.is_empty())
             .into_iter().flat_map(|paths| {

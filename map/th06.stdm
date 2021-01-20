@@ -10,13 +10,4 @@
 4 fogTime
 5 pause  # unpause from ECL
 
-!ins_signatures
-0 fff
-1 Cff
-2 fff
-3 S__
-4 S__
-5 ___
-
-
 # that's all, folks
