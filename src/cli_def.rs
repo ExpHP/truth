@@ -197,10 +197,8 @@ pub mod anm_modify {
         let compiled_ast = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
         anm_file.merge(&compiled_ast)?;
 
-        let mut buf = std::io::Cursor::new(vec![]);
-        anm_file.write_to_stream(&mut buf, game)?;
-
-        std::fs::write(outpath, buf.into_inner())?;
+        let out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
+        anm_file.write_to_stream(&mut std::io::BufWriter::new(out), game)?;
         Ok(())
     }
 }
@@ -317,8 +315,8 @@ pub mod std_compile {
         }
         let std = crate::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
 
-        let mut out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
-        std.write_to_stream(&mut out, game).unwrap();
+        let out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
+        std.write_to_stream(&mut std::io::BufWriter::new(out), game).unwrap();
         Ok(())
     }
 }
