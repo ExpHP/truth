@@ -28,6 +28,9 @@ tempfile = "3.0"
 assert_cmd = "1.0"
 rand = "0.7.3"
 
+[profile.release]
+debug = true
+
 # This is used at build time, so optimizing it immensely speeds up debug builds.
 [profile.dev.package.lalrpop]
 opt-level = 3

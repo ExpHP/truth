@@ -12,6 +12,7 @@ pub fn main() -> ! {
         ("anm-decomp", anm_decomp::main, true),
         ("anm-modify", anm_modify::main, true),
         ("anm-redump", anm_redump::main, false),
+        ("anm-benchmark", anm_benchmark::main, false),
         ("ecl-reformat", ecl_reformat::main, false),
         ("std-decomp", std_decomp::main, true),
         ("std-compile", std_compile::main, true),
@@ -86,6 +87,17 @@ pub mod anm_decomp {
         ncol: usize,
         map_path: Option<impl AsRef<std::path::Path>>,
     ) {
+        let stdout = std::io::stdout();
+        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        _run(&mut f, game, path, map_path)
+    }
+
+    pub(super) fn _run(
+        out: &mut crate::Formatter<impl std::io::Write>,
+        game: crate::Game,
+        path: impl AsRef<std::path::Path>,
+        map_path: Option<impl AsRef<std::path::Path>>,
+    ) {
         let ty_ctx = {
             use crate::Eclmap;
 
@@ -117,9 +129,7 @@ pub mod anm_decomp {
             }
         };
 
-        let stdout = std::io::stdout();
-        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
-        script.fmt(&mut f).unwrap();
+        script.fmt(out).unwrap();
     }
 }
 
@@ -160,7 +170,7 @@ pub mod anm_modify {
         }
     }
 
-    fn _run(
+    pub(super) fn _run(
         files: &mut crate::Files,
         game: crate::Game,
         anm_path: &Path,
@@ -251,6 +261,62 @@ pub mod anm_redump {
 
         std::fs::write(outpath, buf.into_inner())?;
         Ok(())
+    }
+}
+
+pub mod anm_benchmark {
+    use anyhow::Context;
+    use std::path::Path;
+
+    use crate::{CompileError};
+
+    pub fn main() -> ! {
+        use crate::{cli_helper as cli, args, args_pat};
+
+        let args_pat![anm_path, script_path, game, output, mapfile] = cli::cli(
+            "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
+            args![
+            cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
+            cli::game(), cli::required_output(), cli::mapfile(),
+        ],
+        );
+
+        if !run(game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)) {
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+
+    fn run(
+        game: crate::Game,
+        anm_path: &Path,
+        script_path: &Path,
+        outpath: &Path,
+        map_path: Option<&Path>,
+    ) -> bool {
+        let mut files = crate::Files::new();
+        match _run(&mut files, game, anm_path, script_path, outpath, map_path) {
+            Ok(()) => true,
+            Err(mut e) => { let _ = e.emit(&files); false }
+        }
+    }
+
+    fn _run(
+        files: &mut crate::Files,
+        game: crate::Game,
+        anm_path: &Path,
+        script_path: &Path,
+        outpath: &Path,
+        map_path: Option<&Path>,
+    ) -> Result<(), CompileError> {
+        loop {
+            let script_out = std::fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
+            let mut f = crate::Formatter::new(std::io::BufWriter::new(script_out)).with_max_columns(100);
+            super::anm_decomp::_run(&mut f, game, anm_path, map_path);
+            drop(f);
+
+            super::anm_modify::_run(files, game, anm_path, script_path, outpath, map_path)?;
+        }
     }
 }
 
