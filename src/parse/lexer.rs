@@ -101,15 +101,15 @@ macro_rules! with_each_terminal {
             [0, b"_f", CastF]
         ]
         regex=[
-            [0, r##""([^\\"]|\\.)*""##, LitString]
-            [0, r"[0-9]+(\.([0-9]*f|[0-9]+)|f)", LitFloat]
-            [0, r"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)", LitRad]
-            [0, r"[0-9]+", LitIntDec]
-            [0, r"0[xX][0-9a-fA-F]+", LitIntHex]
-            [0, r"0[bB][0-1]+", LitIntBin]
-            [0, r"![-*ENHLWXYZO4567]+", Difficulty]
+            [0, STRING_RE_PAIR = r##""([^\\"]|\\.)*""##, LitString]
+            [0, FLOAT_RE_PAIR = r"[0-9]+(\.([0-9]*f|[0-9]+)|f)", LitFloat]
+            [0, FLOAT_RAD_RE_PAIR = r"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)", LitRad]
+            [0, INT_DEC_RE_PAIR = r"[0-9]+", LitIntDec]
+            [0, INT_HEX_RE_PAIR = r"0[xX][0-9a-fA-F]+", LitIntHex]
+            [0, INT_BIN_RE_PAIR = r"0[bB][0-1]+", LitIntBin]
+            [0, DIFFICULTY_RE_PAIR = r"![-*ENHLWXYZO4567]+", Difficulty]
             // Lower priority
-            [1, r"[a-zA-Z_][a-zA-Z0-9_]*", Ident]
+            [1, IDENT_RE_PAIR = r"[a-zA-Z_][a-zA-Z0-9_]*", Ident]
         ]
         // These correspond to `=> {}` patterns in the LALRPOP default lexer,
         // and all effectively have a priority of -1.
@@ -124,7 +124,7 @@ macro_rules! with_each_terminal {
 macro_rules! define_token_enum {
     (
         fixed=[$([$f_prio:literal, $f_bytes:literal, $f_variant:ident])+]
-        regex=[$([$r_prio:literal, $r_str:literal, $r_variant:ident])+]
+        regex=[$([$r_prio:literal, $r_static:ident = $r_str:literal, $r_variant:ident])+]
         whitespace=[$([$s_str:literal])+]
     ) => {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -145,7 +145,7 @@ with_each_terminal!(define_token_enum);
 macro_rules! impl_token_helpers {
     (
         fixed=[$([$f_prio:literal, $f_bytes:literal, $f_variant:ident])+]
-        regex=[$([$r_prio:literal, $r_str:literal, $r_variant:ident])+]
+        regex=[$([$r_prio:literal, $r_static:ident = $r_str:literal, $r_variant:ident])+]
         whitespace=[$([$s_str:literal])+]
     ) => {
         impl<'a> Token<'a> {
@@ -220,22 +220,20 @@ impl<'input> Lexer<'input> {
 /// as reasonably possible.
 pub type Location = (FileId, BytePos);
 
+fn make_regex(s: &str) -> Regex {
+    RegexBuilder::new(&format!("^{}", s)).unicode(false).build().unwrap()
+}
+
 macro_rules! impl_token_matchers {
     (
         fixed=[$([$f_prio:literal, $f_bytes:literal, $f_variant:ident])+]
-        regex=[$([$r_prio:literal, $r_str:literal, $r_variant:ident])+]
+        regex=[$([$r_prio:literal, $r_static:ident = $r_str:literal, $r_variant:ident])+]
         whitespace=[$([$s_str:literal])+]
     ) => {
         lazy_static!{
-            static ref NORMAL_REGEXES: Vec<Regex> = {
-                vec![ $({
-                    RegexBuilder::new(&format!("^{}", $r_str))
-                        .unicode(false).build().unwrap()
-                },)+ ]
-            };
             static ref WHITESPACE_REGEX: Regex = {
                 // construct alternation of all whitespace regexes
-                let mut pattern = "^(".to_string();
+                let mut pattern = "(".to_string();
                 $(
                     pattern.push_str($s_str);
                     pattern.push('|');
@@ -243,13 +241,17 @@ macro_rules! impl_token_matchers {
                 pattern.pop(); // remove last '|'
                 pattern.push(')');
                 pattern.push('*'); // apply repeatedly
-                RegexBuilder::new(&pattern)
-                    .unicode(false).build().unwrap()
+                make_regex(&pattern)
             };
+
+            $(
+                // regex/constructor pairs
+                static ref $r_static: (Regex, fn(&BStr) -> Token<'_>) = (
+                    make_regex($r_str),
+                    |b: &BStr| -> Token<'_> { Token::$r_variant(b) },
+                );
+            )+
         }
-        static RE_TOKEN_CONSTRUCTORS: &'static [fn(&BStr) -> Token] = {
-            &[$( |b: &BStr| -> Token { Token::$r_variant(b) }, )+]
-        };
 
         impl<'a> Lexer<'a> {
             #[inline(never)] // show in profiler
@@ -258,20 +260,49 @@ macro_rules! impl_token_matchers {
                     out.push(Token::$f_variant);
                 })+
             }
-
-            #[inline(never)] // show in profiler
-            fn gather_regex_matches(out: &mut Vec<Token<'a>>, input: &'a [u8]) {
-                for (re, &constructor) in NORMAL_REGEXES.iter().zip(RE_TOKEN_CONSTRUCTORS) {
-                    if let Some(re_match) = re.find(input) {
-                        let matched = &input[..re_match.end()];
-                        out.push(constructor(matched.as_bstr()))
-                    }
-                }
-            }
         }
     };
 }
 with_each_terminal!(impl_token_matchers);
+
+impl<'a> Lexer<'a> {
+    #[inline(never)] // show in profiler
+    fn gather_regex_matches(out: &mut Vec<Token<'a>>, input: &'a [u8]) {
+        macro_rules! try_regex {
+            ($re_pair:expr) => {
+                if let Some(re_match) = $re_pair.0.find(input) {
+                    let matched = &input[..re_match.end()];
+                    out.push(($re_pair.1)(matched.as_bstr()))
+                }
+            };
+        }
+
+        if input.get(0) == Some(&b'r') {
+            try_regex!(FLOAT_RAD_RE_PAIR);
+        }
+        match input.get(0) {
+            None => return,
+            Some(b'"') => try_regex!(STRING_RE_PAIR),
+            Some(b'!') => try_regex!(DIFFICULTY_RE_PAIR),
+
+            Some(b'a'..=b'z') |
+            Some(b'A'..=b'Z') |
+            Some(b'_') => {
+                try_regex!(IDENT_RE_PAIR);
+            },
+
+            Some(b'0'..=b'9') => match input.get(1) {
+                Some(b'b') | Some(b'B') => try_regex!(INT_BIN_RE_PAIR),
+                Some(b'x') | Some(b'X') => try_regex!(INT_HEX_RE_PAIR),
+                _ => {
+                    try_regex!(INT_DEC_RE_PAIR);
+                    try_regex!(FLOAT_RE_PAIR);
+                },
+            },
+            _ => {},
+        }
+    }
+}
 
 impl<'a> Iterator for Lexer<'a> {
     type Item = Result<(Location, Token<'a>, Location), CompileError>;
