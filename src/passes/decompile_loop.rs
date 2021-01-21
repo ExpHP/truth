@@ -123,10 +123,8 @@ fn maybe_decompile_jump(
         return false;
     }
 
-    // Does it jump to timeof(label) or lower?
-    let time_of_label = outer_stmts.0[dest_index].time;
-    let goto_time = goto.time.unwrap_or(time_of_label);
-    if time_of_label < goto_time {
+    // Only decompile if the time arg was suppressed. (i.e. same as label)
+    if goto.time.is_some() {
         return false;
     }
 
@@ -138,25 +136,14 @@ fn maybe_decompile_jump(
     }
 
     // replace the goto with an EndOfBlock, preserving its time
-    let block_end = outer_stmts.0.last_mut().unwrap();
-    let block_end_span = block_end.span;
-    block_end.body = ast::StmtBody::NoInstruction;
+    outer_stmts.0.last_mut().unwrap().body = ast::StmtBody::NoInstruction;
 
-    let mut inner_stmts: Vec<_> = outer_stmts.0.drain(dest_index..).collect();
-    let inner_span = inner_stmts[0].span.merge(block_end_span);
-
-    if goto_time < time_of_label {
-        // loop body begins with a `+n:` time label.
-        // Insert a bookend just to be safe.
-        inner_stmts.insert(0, sp!(inner_span.start_span() => ast::Stmt {
-            time: goto_time,
-            body: ast::StmtBody::NoInstruction,
-        }));
-    }
+    let new_block = ast::Block(outer_stmts.0.drain(dest_index..).collect());
+    let inner_span = new_block.start_span().merge(new_block.end_span());
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
-        time: goto_time,
-        body: jmp_kind.make_loop(ast::Block(inner_stmts)),
+        time: new_block.start_time(),
+        body: jmp_kind.make_loop(new_block),
     }));
     // suppress the default behavior of popping the next item
     true

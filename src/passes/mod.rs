@@ -37,9 +37,5 @@ pub fn postprocess_decompiled_fancy(script: &mut ast::Script, ty_ctx: &TypeSyste
 pub fn postprocess_decompiled_simple(script: &mut ast::Script, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
     ty_ctx.unresolve_names(script, false)?;
 
-    let mut v = unused_labels::Visitor::new();
-    v.visit_script(script);
-    v.finish()?;
-
     Ok(())
 }

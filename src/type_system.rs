@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::error::CompileError;
+use crate::error::{CompileError, SimpleError};
 use crate::ident::{Ident, GensymContext};
 use crate::eclmap::Eclmap;
 use crate::ast;
@@ -57,8 +57,7 @@ impl TypeSystem {
             self.regs_and_instrs.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u16));
         }
         for (&opcode, value) in &eclmap.ins_signatures {
-            let arg_string = value.to_string();
-            self.regs_and_instrs.opcode_signatures.insert(opcode as u16, Signature { arg_string });
+            self.regs_and_instrs.add_signature(opcode as u16, value).unwrap(); // XXX XXX FIXME propagate to caller
         }
         for (&reg, name) in &eclmap.gvar_names {
             self.regs_and_instrs.reg_names.insert(RegId(reg), name.clone());
@@ -250,6 +249,23 @@ impl RegsAndInstrs {
         self.opcode_signatures.get(&(opcode as _))
     }
 
+    pub fn add_signature(&mut self, opcode: u16, str: &str) -> Result<(), SimpleError> {
+        let o_count = str.chars().filter(|&c| c == 'o').count();
+        let t_count = str.chars().filter(|&c| c == 't').count();
+
+        for &(restricted, count) in &[('o', o_count), ('t', t_count)][..] {
+            if count > 1 {
+                anyhow::bail!("signature for opcode {} has multiple '{}' args", opcode, restricted);
+            }
+        }
+        if t_count == 1 && o_count == 0 {
+            anyhow::bail!("signature for opcode {} has a 't' arg without an 'o' arg", opcode);
+        }
+
+        self.opcode_signatures.insert(opcode as u16, Signature { arg_string: str.to_string() });
+        Ok(())
+    }
+
     pub fn resolve_func_aliases<'a>(&'a self, name: &'a Ident) -> &'a Ident {
         let mut name: &Ident = name;
         loop {
@@ -282,19 +298,20 @@ impl Signature {
         Signature { arg_string: String::from_utf8(vec![b'S'; n]).unwrap() }
     }
 
-    pub fn arg_encodings(&self) -> Vec<ArgEncoding> {
-        self.arg_string.chars().map(|c| match c {
-            'S' => ArgEncoding::Dword,
-            'C' => ArgEncoding::Color,
-            // o and t get no special encoding because we translate jumps directly into `goto`
-            'o' => ArgEncoding::Dword, // offset
-            't' => ArgEncoding::Dword, // time
-            'f' => ArgEncoding::Float,
-            '_' => ArgEncoding::Padding,
-            'n' => ArgEncoding::Dword, // FIXME sprite
-            'N' => ArgEncoding::Dword, // FIXME script
-            _ => panic!("In mapfile: unknown signature character: {:?}", c)
-        }).collect()
+    pub fn as_str(&self) -> &str { &self.arg_string }
+
+    pub fn arg_encodings(&self) -> impl crate::VeclikeIterator<Item=ArgEncoding> + '_ {
+        self.arg_string.bytes().map(|c| match c {
+            b'S' => ArgEncoding::Dword,
+            b'C' => ArgEncoding::Color,
+            b'o' => ArgEncoding::JumpOffset,
+            b't' => ArgEncoding::JumpTime,
+            b'f' => ArgEncoding::Float,
+            b'_' => ArgEncoding::Padding,
+            b'n' => ArgEncoding::Dword, // FIXME sprite
+            b'N' => ArgEncoding::Dword, // FIXME script
+            _ => panic!("In mapfile: unknown signature character: {:?}", c as char)
+        })
     }
 
     /// Get the minimum number of args allowed in the AST.
@@ -333,15 +350,19 @@ pub enum ScalarType { Int, Float }
 /// [`ScalarType`] tends to be more relevant for variables.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArgEncoding {
-    /// Script argument encoded as a 4-byte integer.
+    /// `S` in mapfile. Script argument encoded as a 4-byte integer.
     Dword,
-    /// Unused 4-byte space after script arguments, optionally displayed as integer in text.
+    /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
+    JumpOffset,
+    /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
+    JumpTime,
+    /// `_` in mapfile. Unused 4-byte space after script arguments, optionally displayed as integer in text.
     ///
     /// Only exists in pre-StB STD where instructions have fixed sizes.
     Padding,
-    /// Script argument encoded as a 4-byte integer, printed as hex.
+    /// `C` in mapfile. Script argument encoded as a 4-byte integer, printed as hex.
     Color,
-    /// Script argument encoded as a 4-byte float.
+    /// `f` in mapfile. Script argument encoded as a 4-byte float.
     Float,
 }
 

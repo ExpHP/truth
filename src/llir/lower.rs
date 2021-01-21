@@ -14,7 +14,7 @@ use IntrinsicInstrKind as IKind;
 /// An intermediate representation that is only used during lowering.
 ///
 /// In addition to instructions, it has a couple of extra things that are handled via
-/// some post-processing steps
+/// some post-processing steps.
 #[derive(Debug, Clone, PartialEq)]
 enum LowLevelStmt {
     /// Represents a single instruction in the compiled file.
@@ -170,7 +170,7 @@ impl Lowerer<'_> {
                         primary(name, "expects {} to {} arguments, got {}", siggy.min_args(), siggy.max_args(), args.len()),
                     ));
                 }
-                Some(siggy.arg_encodings())
+                Some(siggy.arg_encodings().collect::<Vec<_>>())
             },
             None => None,
         };
@@ -192,6 +192,8 @@ impl Lowerer<'_> {
 
             let expected_ty = match encodings.as_ref() {
                 Some(encodings) => match encodings[arg_index] {
+                    ArgEncoding::JumpOffset |
+                    ArgEncoding::JumpTime |
                     ArgEncoding::Padding |
                     ArgEncoding::Color |
                     ArgEncoding::Dword => ScalarType::Int,

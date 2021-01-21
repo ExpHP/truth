@@ -114,3 +114,6 @@ mod value {
         }
     }
 }
+
+pub trait VeclikeIterator: ExactSizeIterator + DoubleEndedIterator { }
+impl<Xs: ExactSizeIterator + DoubleEndedIterator> VeclikeIterator for Xs { }
