@@ -11,7 +11,7 @@ pub type WriteError = crate::error::SimpleError;
 pub type ReadResult<T> = Result<T, ReadError>;
 pub type WriteResult<T = ()> = Result<T, WriteError>;
 
-pub trait BinRead: Read {
+pub trait BinRead: Read + Seek {
     fn read_i8(&mut self) -> ReadResult<i8> { ReadBytesExt::read_i8(self).map_err(Into::into) }
     fn read_u8(&mut self) -> ReadResult<u8> { ReadBytesExt::read_u8(self).map_err(Into::into) }
     fn read_i16(&mut self) -> ReadResult<i16> { ReadBytesExt::read_i16::<Le>(self).map_err(Into::into) }
@@ -54,6 +54,14 @@ pub trait BinRead: Read {
         }
         Ok(())
     }
+
+    fn pos(&mut self) -> ReadResult<u64> {
+        self.seek(SeekFrom::Current(0)).map_err(Into::into)
+    }
+    fn seek_to(&mut self, offset: u64) -> ReadResult<()> {
+        self.seek(SeekFrom::Start(offset))?;
+        Ok(())
+    }
 }
 
 // Seek is needed because some formats contain offsets.
@@ -92,7 +100,7 @@ pub trait BinWrite: Write + Seek {
     }
 }
 
-impl<R: Read> BinRead for R {}
+impl<R: Read + Seek> BinRead for R {}
 impl<R: Write + Seek> BinWrite for R {}
 
 

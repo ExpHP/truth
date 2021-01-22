@@ -4,6 +4,13 @@
 //       I want to change the structure of the commands to be 'truanm' and 'trustd' anyways so
 //       we'll have to do some refactoring then
 
+use std::path::Path;
+use std::fs;
+use std::io;
+use anyhow::Context;
+use crate::game::Game;
+use crate::error::CompileError;
+
 pub fn main() -> ! {
     let mut args = std::env::args();
     let _ = args.next();
@@ -40,6 +47,8 @@ pub fn main() -> ! {
 }
 
 pub mod ecl_reformat {
+    use super::*;
+
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
 
@@ -51,7 +60,7 @@ pub mod ecl_reformat {
         std::process::exit(0);
     }
 
-    fn run(path: impl AsRef<std::path::Path>) {
+    fn run(path: impl AsRef<Path>) {
         let mut files = crate::Files::new();
         let script = match files.read_file::<crate::ast::Script>(path.as_ref()) {
             Ok(x) => x,
@@ -60,16 +69,16 @@ pub mod ecl_reformat {
                 std::process::exit(1);
             },
         };
-        let stdout = std::io::stdout();
-        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock()));
+        let stdout = io::stdout();
+        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock()));
         f.fmt(&script).unwrap();
     }
 }
 
 pub mod anm_decomp {
-    use crate::{Format, CompileError};
+    use super::*;
+    use crate::{Format};
 
-    use anyhow::Context;
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
 
@@ -83,20 +92,20 @@ pub mod anm_decomp {
 
     fn run(
         game: crate::Game,
-        path: impl AsRef<std::path::Path>,
+        path: impl AsRef<Path>,
         ncol: usize,
-        map_path: Option<impl AsRef<std::path::Path>>,
+        map_path: Option<impl AsRef<Path>>,
     ) {
-        let stdout = std::io::stdout();
-        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        let stdout = io::stdout();
+        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
         _run(&mut f, game, path, map_path)
     }
 
     pub(super) fn _run(
-        out: &mut crate::Formatter<impl std::io::Write>,
+        out: &mut crate::Formatter<impl io::Write>,
         game: crate::Game,
-        path: impl AsRef<std::path::Path>,
-        map_path: Option<impl AsRef<std::path::Path>>,
+        path: impl AsRef<Path>,
+        map_path: Option<impl AsRef<Path>>,
     ) {
         let ty_ctx = {
             use crate::Eclmap;
@@ -114,12 +123,14 @@ pub mod anm_decomp {
         };
 
         let script = {
-            let bytes = std::fs::read(&path).unwrap();
+            // tiny buffer due to seeking
+            let reader = io::BufReader::with_capacity(64, fs::File::open(&path).unwrap());
             let anm_result = {
-                crate::AnmFile::read_from_bytes(game, &bytes)
+                crate::AnmFile::read_from_stream(reader, game, false)
                     .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
                     .with_context(|| format!("in file: {}", path.as_ref().display()))
             };
+
             match anm_result {
                 Ok(anm) => anm,
                 Err(e) => {
@@ -134,10 +145,7 @@ pub mod anm_decomp {
 }
 
 pub mod anm_modify {
-    use anyhow::Context;
-    use std::path::Path;
-
-    use crate::{CompileError};
+    use super::*;
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
@@ -145,9 +153,9 @@ pub mod anm_modify {
         let args_pat![anm_path, script_path, game, output, mapfile] = cli::cli(
             "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             args![
-            cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
-            cli::game(), cli::required_output(), cli::mapfile(),
-        ],
+                cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
+                cli::game(), cli::required_output(), cli::mapfile(),
+            ],
         );
 
         if !run(game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)) {
@@ -198,24 +206,23 @@ pub mod anm_modify {
             }
         }
 
-        let bytes = std::fs::read(&anm_path).unwrap();
+        let reader = io::Cursor::new(fs::read(&anm_path).unwrap());
         let mut anm_file = {
-            crate::AnmFile::read_from_bytes(game, &bytes)
+            crate::AnmFile::read_from_stream(reader, game, true)
                 .with_context(|| format!("in file: {}", anm_path.display()))?
         };
 
         let compiled_ast = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
         anm_file.merge(&compiled_ast)?;
 
-        let out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
-        anm_file.write_to_stream(&mut std::io::BufWriter::new(out), game)?;
+        let out = fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
+        anm_file.write_to_stream(&mut io::BufWriter::new(out), game)?;
         Ok(())
     }
 }
 
 pub mod anm_redump {
-    use anyhow::Context;
-    use crate::{CompileError};
+    use super::*;
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
@@ -232,9 +239,9 @@ pub mod anm_redump {
     }
 
     fn run(
-        game: crate::Game,
-        path: impl AsRef<std::path::Path>,
-        outpath: impl AsRef<std::path::Path>,
+        game: Game,
+        path: impl AsRef<Path>,
+        outpath: impl AsRef<Path>,
     ) -> bool {
         match _run(game, path, outpath) {
             Ok(()) => true,
@@ -246,29 +253,26 @@ pub mod anm_redump {
     }
 
     fn _run(
-        game: crate::Game,
-        path: impl AsRef<std::path::Path>,
-        outpath: impl AsRef<std::path::Path>,
+        game: Game,
+        path: impl AsRef<Path>,
+        outpath: impl AsRef<Path>,
     ) -> Result<(), CompileError> {
-        let bytes = std::fs::read(&path).unwrap();
+        let reader = io::BufReader::new(fs::File::open(&path).unwrap());
         let anm_file = {
-            crate::AnmFile::read_from_bytes(game, &bytes)
+            crate::AnmFile::read_from_stream(reader, game, true)
                 .with_context(|| format!("in file: {}", path.as_ref().display()))?
         };
 
-        let mut buf = std::io::Cursor::new(vec![]);
+        let mut buf = io::Cursor::new(vec![]);
         anm_file.write_to_stream(&mut buf, game)?;
 
-        std::fs::write(outpath, buf.into_inner())?;
+        fs::write(outpath, buf.into_inner())?;
         Ok(())
     }
 }
 
 pub mod anm_benchmark {
-    use anyhow::Context;
-    use std::path::Path;
-
-    use crate::{CompileError};
+    use super::*;
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
@@ -276,9 +280,9 @@ pub mod anm_benchmark {
         let args_pat![anm_path, script_path, game, output, mapfile] = cli::cli(
             "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             args![
-            cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
-            cli::game(), cli::required_output(), cli::mapfile(),
-        ],
+                cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
+                cli::game(), cli::required_output(), cli::mapfile(),
+            ],
         );
 
         if !run(game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)) {
@@ -310,8 +314,8 @@ pub mod anm_benchmark {
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         loop {
-            let script_out = std::fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
-            let mut f = crate::Formatter::new(std::io::BufWriter::new(script_out)).with_max_columns(100);
+            let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
+            let mut f = crate::Formatter::new(io::BufWriter::new(script_out)).with_max_columns(100);
             super::anm_decomp::_run(&mut f, game, anm_path, map_path);
             drop(f);
 
@@ -321,9 +325,7 @@ pub mod anm_benchmark {
 }
 
 pub mod std_compile {
-    use std::path::Path;
-    use crate::{CompileError};
-    use anyhow::Context;
+    use super::*;
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
@@ -381,16 +383,16 @@ pub mod std_compile {
         }
         let std = crate::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
 
-        let out = std::fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
-        std.write_to_stream(&mut std::io::BufWriter::new(out), game).unwrap();
+        let out = fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game).unwrap();
         Ok(())
     }
 }
 
 pub mod std_decomp {
-    use crate::{Format, CompileError};
+    use super::*;
+    use crate::{Format};
 
-    use anyhow::Context;
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
 
@@ -403,10 +405,10 @@ pub mod std_decomp {
     }
 
     fn run(
-        game: crate::Game,
-        path: impl AsRef<std::path::Path>,
+        game: Game,
+        path: impl AsRef<Path>,
         ncol: usize,
-        map_path: Option<impl AsRef<std::path::Path>>,
+        map_path: Option<impl AsRef<Path>>,
     ) {
         let ty_ctx = {
             use crate::Eclmap;
@@ -424,9 +426,9 @@ pub mod std_decomp {
         };
 
         let script = {
-            let bytes = std::fs::read(&path).unwrap();
+            let reader = io::Cursor::new(fs::read(&path).unwrap());
             let parsed = {
-                crate::StdFile::read_from_bytes(game, &bytes)
+                crate::StdFile::read_from_stream(reader, game)
                     .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
                     .with_context(|| format!("in file: {}", path.as_ref().display()))
             };
@@ -439,8 +441,8 @@ pub mod std_decomp {
             }
         };
 
-        let stdout = std::io::stdout();
-        let mut f = crate::Formatter::new(std::io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        let stdout = io::stdout();
+        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
         script.fmt(&mut f).unwrap();
     }
 }

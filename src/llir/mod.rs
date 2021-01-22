@@ -127,17 +127,18 @@ fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
 /// instructions, it also may be given an end offset. This will cause it to stop with a warning if it lands on this
 /// offset without receiving a `None` result, or to fail outright if it goes past this offset.  This enables the
 /// reading of TH095's `front.anm`, which contains the only ANM script in existence to have no end marker.  *Sigh.*
+#[inline(never)]
 pub fn read_instrs(
     f: &mut dyn BinRead,
     format: &dyn InstrFormat,
-    starting_offset: usize,
-    end_offset: Option<usize>,
+    starting_offset: u64,
+    end_offset: Option<u64>,
 ) -> ReadResult<Vec<Instr>> {
     let mut script = vec![];
     let mut offset = starting_offset;
     for index in 0.. {
         if let Some(instr) = format.read_instr(f).with_context(|| format!("in instruction {} (offset {:#x})", index, offset))? {
-            offset += format.instr_size(&instr);
+            offset += format.instr_size(&instr) as u64;
             script.push(instr);
 
             if let Some(end_offset) = end_offset {
@@ -160,6 +161,7 @@ pub fn read_instrs(
 }
 
 /// Writes the instructions of a complete script, attaching useful information on errors.
+#[inline(never)]
 pub fn write_instrs(
     f: &mut dyn BinWrite,
     format: &dyn InstrFormat,
@@ -326,8 +328,8 @@ pub trait InstrFormat {
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the
     // instruction *index* instead.
-    fn encode_label(&self, offset: usize) -> u32 { offset as _ }
-    fn decode_label(&self, bits: u32) -> usize { bits as _ }
+    fn encode_label(&self, offset: u64) -> u32 { offset as _ }
+    fn decode_label(&self, bits: u32) -> u64 { bits as _ }
 }
 
 /// Helper to help implement `InstrFormat::read_instr`.

@@ -56,9 +56,9 @@ struct Label {
 // Data-gathering pass
 struct JumpData {
     /// For each offset that has at least one jump to it, all of the time arguments for those jumps.
-    all_offset_args: BTreeMap<usize, BTreeSet<Option<i32>>>,
+    all_offset_args: BTreeMap<u64, BTreeSet<Option<i32>>>,
     /// The offsets for each instruction.
-    instr_offsets: Vec<usize>,
+    instr_offsets: Vec<u64>,
 }
 
 fn gather_label_data(
@@ -66,12 +66,12 @@ fn gather_label_data(
     script: &[Instr],
     ty_ctx: &RegsAndInstrs,
 ) -> Result<JumpData, SimpleError> {
-    let mut all_offset_args = BTreeMap::<usize, BTreeSet<Option<i32>>>::new();
+    let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
     let mut instr_offsets = vec![0];
     let mut offset = 0;
 
     for instr in script {
-        offset += instr_format.instr_size(instr);
+        offset += instr_format.instr_size(instr) as u64;
         instr_offsets.push(offset);
 
         if let Some((jump_offset, jump_time)) = extract_jump_args_by_signature(instr_format, instr, ty_ctx) {
@@ -85,7 +85,7 @@ fn gather_label_data(
 fn generate_offset_labels(
     script: &[Instr],
     jump_data: &JumpData,
-) -> Result<BTreeMap<usize, Label>, SimpleError> {
+) -> Result<BTreeMap<u64, Label>, SimpleError> {
     let mut offset_labels = BTreeMap::new();
     for (&offset, time_args) in &jump_data.all_offset_args {
         let dest_index = {
@@ -106,8 +106,8 @@ fn generate_offset_labels(
 /// Given all of the different time args used when jumping to `next_offset`,
 /// determine what to call the label at this offset (and what time label to give it).
 fn generate_label_at_offset(
-    prev: Option<(usize, i32)>,  // info about previous instruction, None for first instruction
-    (next_offset, next_time): (usize, i32),
+    prev: Option<(u64, i32)>,  // info about previous instruction, None for first instruction
+    (next_offset, next_time): (u64, i32),
     time_args: &BTreeSet<Option<i32>>,
 ) -> Label {
     let time_args = time_args.iter().map(|&x| x.unwrap_or(next_time)).collect::<BTreeSet<_>>();
@@ -147,7 +147,7 @@ fn extract_jump_args_by_signature(
     instr_format: &dyn InstrFormat,
     instr: &Instr,
     ty_ctx: &RegsAndInstrs,
-) -> Option<(usize, Option<i32>)> {
+) -> Option<(u64, Option<i32>)> {
     let mut jump_offset = None;
     let mut jump_time = None;
 
@@ -172,7 +172,7 @@ fn raise_instr(
     instr: &Instr,
     ty_ctx: &RegsAndInstrs,
     intrinsic_instrs: &IntrinsicInstrs,
-    offset_labels: &BTreeMap<usize, Label>,
+    offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
     let Instr { opcode, ref args, .. } = *instr;
     match intrinsic_instrs.get_intrinsic(opcode) {
@@ -350,7 +350,7 @@ fn raise_jump_args(
     offset_arg: &InstrArg,
     time_arg: Option<&InstrArg>,  // None when the instruction signature has no time arg
     instr_format: &dyn InstrFormat,
-    offset_labels: &BTreeMap<usize, Label>,
+    offset_labels: &BTreeMap<u64, Label>,
 ) -> ast::StmtGoto {
     let offset = instr_format.decode_label(offset_arg.expect_raw().bits);
     let label = &offset_labels[&offset];

@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU64;
 
 use anyhow::Context;
 use bstr::BString;
@@ -44,8 +44,8 @@ impl AnmFile {
         write_anm(&mut w, &game_format(game), self)
     }
 
-    pub fn read_from_bytes(game: Game, bytes: &[u8]) -> ReadResult<Self> {
-        read_anm(&game_format(game), bytes)
+    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, with_images: bool) -> ReadResult<Self> {
+        read_anm(&game_format(game), &mut r, with_images)
     }
 }
 
@@ -138,7 +138,7 @@ impl Entry {
 #[derive(Clone)]
 pub struct Texture {
     pub thtx: ThtxHeader,
-    pub data: Vec<u8>,
+    pub data: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,7 +152,7 @@ impl fmt::Debug for Texture {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Texture")
             .field("thtx", &self.thtx)
-            .field("data", &(..))
+            .field("data", &self.data.as_ref().map(|_| (..)))
             .finish()
     }
 }
@@ -322,29 +322,29 @@ struct EntryHeaderData {
     width: u32,
     height: u32,
     format: u32,
-    name_offset: usize,
-    secondary_name_offset: Option<NonZeroUsize>, // EoSD only?
+    name_offset: u64,
+    secondary_name_offset: Option<NonZeroU64>, // EoSD only?
     colorkey: u32, // Only in old format
     offset_x: u32,
     offset_y: u32,
     memory_priority: u32,
-    thtx_offset: Option<NonZeroUsize>,
+    thtx_offset: Option<NonZeroU64>,
     has_data: u32,
     low_res_scale: u32,
-    next_offset: u32,
+    next_offset: u64,
 }
 
-fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> {
+fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) -> ReadResult<AnmFile> {
     let instr_format = format.instr_format();
 
     let mut entries = vec![];
     let mut next_script_index = 0;
     let mut next_sprite_index = 0;
     loop {
-        let mut f = entry_bytes;
+        let entry_pos = reader.pos()?;
 
         // 64 byte header regardless of version
-        let header_data = format.read_header(&mut f)?;
+        let header_data = format.read_header(reader)?;
         if header_data.has_data != header_data.has_data % 2 {
             fast_warning!("non-boolean value found for 'has_data': {}", header_data.has_data);
         }
@@ -352,33 +352,39 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
             fast_warning!("non-boolean value found for 'low_res_scale': {}", header_data.low_res_scale);
         }
 
-        let sprite_offsets = (0..header_data.num_sprites).map(|_| f.read_u32()).collect::<ReadResult<Vec<_>>>()?;
+        let sprite_offsets = (0..header_data.num_sprites).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
         let script_ids_and_offsets = (0..header_data.num_scripts).map(|_| {
-            Ok((f.read_i32()?, f.read_u32()? as usize))
+            Ok((reader.read_i32()?, reader.read_u32()? as u64))
         }).collect::<ReadResult<Vec<_>>>()?;
         // eprintln!("{:?}", header_data);
         // eprintln!("{:?}", sprite_offsets);
         // eprintln!("{:?}", script_ids_and_offsets);
 
-        let path = (&entry_bytes[header_data.name_offset..]).read_cstring(16)?;
-        let path_2 = {
-            header_data.secondary_name_offset
-                .map(|x| (&entry_bytes[x.get()..]).read_cstring(16)).transpose()?
+        reader.seek_to(entry_pos + header_data.name_offset)?;
+        let path = reader.read_cstring(16)?;
+        let path_2 = match header_data.secondary_name_offset {
+            None => None,
+            Some(n) => {
+                reader.seek_to(entry_pos + n.get())?;
+                Some(reader.read_cstring(16)?)
+            },
         };
 
         let sprites = sprite_offsets.iter().map(|&offset| {
             let key = sp!(auto_sprite_name(next_sprite_index as u32));
-            let value = read_sprite(&mut &entry_bytes[offset as usize..])?;
+
+            reader.seek_to(entry_pos + offset as u64)?;
+            let value = read_sprite(reader)?;
             next_sprite_index += 1;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
         // Blame StB
         let mut all_offsets = vec![header_data.name_offset];
-        all_offsets.extend(header_data.thtx_offset.map(NonZeroUsize::get));
-        all_offsets.extend(header_data.secondary_name_offset.map(NonZeroUsize::get));
-        all_offsets.extend(sprite_offsets.iter().map(|&offset| offset as usize));
-        all_offsets.extend(script_ids_and_offsets.iter().map(|&(_, offset)| offset as usize));
+        all_offsets.extend(header_data.thtx_offset.map(NonZeroU64::get));
+        all_offsets.extend(header_data.secondary_name_offset.map(NonZeroU64::get));
+        all_offsets.extend(sprite_offsets.iter().map(|&offset| offset as u64));
+        all_offsets.extend(script_ids_and_offsets.iter().map(|&(_, offset)| offset as u64));
 
         let scripts = script_ids_and_offsets.iter().map(|&(id, offset)| {
             let key = sp!(auto_script_name(next_script_index));
@@ -387,7 +393,8 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
             let end_offset = all_offsets.iter().copied().filter(|&x| x > offset).min();
 
             let instrs = {
-                llir::read_instrs(&mut &entry_bytes[offset..], instr_format, offset, end_offset)
+                reader.seek_to(entry_pos + offset)?;
+                llir::read_instrs(reader, instr_format, offset, end_offset)
                     .with_context(|| format!("while reading {}", key))?
             };
             Ok((key, Script { id, instrs }))
@@ -400,7 +407,10 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
 
         let texture = match header_data.thtx_offset {
             None => None,
-            Some(n) => Some(read_texture(&mut &entry_bytes[n.get()..])?),
+            Some(n) => {
+                reader.seek_to(entry_pos + n.get())?;
+                Some(read_texture(reader, with_images)?)
+            },
         };
         let specs = EntrySpecs {
             width: header_data.width, height: header_data.height,
@@ -416,7 +426,7 @@ fn read_anm(format: &FileFormat, mut entry_bytes: &[u8]) -> ReadResult<AnmFile> 
         if header_data.next_offset == 0 {
             break;
         }
-        entry_bytes = &entry_bytes[header_data.next_offset as usize..];
+        reader.seek_to(entry_pos + header_data.next_offset)?;
     }
     Ok(AnmFile { entries })
 }
@@ -543,7 +553,8 @@ fn write_sprite(f: &mut dyn BinWrite, sprite: &Sprite) -> WriteResult {
     f.write_f32s(&sprite.size)
 }
 
-fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
+#[inline(never)]
+fn read_texture(f: &mut dyn BinRead, with_images: bool) -> ReadResult<Texture> {
     f.expect_magic("THTX")?;
 
     let zero = f.read_u16()?;
@@ -556,12 +567,16 @@ fn read_texture(f: &mut dyn BinRead) -> ReadResult<Texture> {
     }
     let thtx = ThtxHeader { format, width, height };
 
-    let mut data = vec![0; size as usize];
-    f.read_exact(&mut data)?;
-
-    Ok(Texture { thtx, data })
+    if with_images {
+        let mut data = vec![0; size as usize];
+        f.read_exact(&mut data)?;
+        Ok(Texture { thtx, data: Some(data) })
+    } else {
+        Ok(Texture { thtx, data: None })
+    }
 }
 
+#[inline(never)]
 fn write_texture(f: &mut dyn BinWrite, texture: &Texture) -> WriteResult {
     f.write_all(b"THTX")?;
 
@@ -569,8 +584,10 @@ fn write_texture(f: &mut dyn BinWrite, texture: &Texture) -> WriteResult {
     f.write_u16(texture.thtx.format as _)?;
     f.write_u16(texture.thtx.width as _)?;
     f.write_u16(texture.thtx.height as _)?;
-    f.write_u32(texture.data.len() as _)?;
-    f.write_all(&texture.data)?;
+
+    let data = texture.data.as_ref().expect("(bug!) trying to write images but did not read them!");
+    f.write_u32(data.len() as _)?;
+    f.write_all(data)?;
     Ok(())
 }
 
@@ -657,10 +674,10 @@ impl FileFormat {
             let colorkey = f.read_u32()? as _;
             let name_offset = f.read_u32()? as _;
             warn_if_nonzero!("unused_1", f.read_u32()?);
-            let secondary_name_offset = NonZeroUsize::new(f.read_u32()? as _);
+            let secondary_name_offset = NonZeroU64::new(f.read_u32()? as _);
             let version = f.read_u32()? as _;
             let memory_priority = f.read_u32()? as _;
-            let thtx_offset = NonZeroUsize::new(f.read_u32()? as _) as _;
+            let thtx_offset = NonZeroU64::new(f.read_u32()? as _) as _;
             let has_data = f.read_u16()? as _;
             warn_if_nonzero!("unused_2", f.read_u16()?);
             let next_offset = f.read_u32()? as _;
@@ -687,7 +704,7 @@ impl FileFormat {
             let offset_x = f.read_u16()? as _;
             let offset_y = f.read_u16()? as _;
             let memory_priority = f.read_u32()? as _;
-            let thtx_offset = NonZeroUsize::new(f.read_u32()? as _);
+            let thtx_offset = NonZeroU64::new(f.read_u32()? as _);
             let has_data = f.read_u16()? as _;
             let low_res_scale = f.read_u16()? as _;
             let next_offset = f.read_u32()? as _;
@@ -718,13 +735,13 @@ impl FileFormat {
             f.write_u32(header.colorkey as _)?;
             f.write_u32(header.name_offset as _)?;
             f.write_u32(0)?;
-            f.write_u32(header.secondary_name_offset.map(NonZeroUsize::get).unwrap_or(0) as _)?;
+            f.write_u32(header.secondary_name_offset.map(NonZeroU64::get).unwrap_or(0) as _)?;
             f.write_u32(header.version)?;
             f.write_u32(header.memory_priority)?;
-            f.write_u32(header.thtx_offset.map(NonZeroUsize::get).unwrap_or(0) as _)?;
+            f.write_u32(header.thtx_offset.map(NonZeroU64::get).unwrap_or(0) as _)?;
             f.write_u16(header.has_data as _)?;
             f.write_u16(0)?;
-            f.write_u32(header.next_offset)?;
+            f.write_u32(header.next_offset as _)?;
             f.write_u32(0)?;
 
         } else {
@@ -740,7 +757,7 @@ impl FileFormat {
             f.write_u16(header.offset_x as _)?;
             f.write_u16(header.offset_y as _)?;
             f.write_u32(header.memory_priority as _)?;
-            f.write_u32(header.thtx_offset.map(NonZeroUsize::get).unwrap_or(0) as _)?;
+            f.write_u32(header.thtx_offset.map(NonZeroU64::get).unwrap_or(0) as _)?;
             f.write_u16(header.has_data as _)?;
             f.write_u16(header.low_res_scale as _)?;
             f.write_u32(header.next_offset as _)?;

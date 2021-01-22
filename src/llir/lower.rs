@@ -846,11 +846,11 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
 
 struct RawLabelInfo {
     time: i32,
-    offset: usize,
+    offset: u64,
 }
 fn gather_label_info(
     format: &dyn InstrFormat,
-    initial_offset: usize,
+    initial_offset: u64,
     code: &[LowLevelStmt]
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
@@ -860,7 +860,7 @@ fn gather_label_info(
     code.iter().map(|thing| {
         match *thing {
             LowLevelStmt::Instr(ref instr) => {
-                offset += format.instr_size(instr);
+                offset += format.instr_size(instr) as u64;
             },
             LowLevelStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
@@ -890,7 +890,7 @@ fn gather_label_info(
 fn encode_labels(
     code: &mut [LowLevelStmt],
     format: &dyn InstrFormat,
-    initial_offset: usize,
+    initial_offset: u64,
 ) -> Result<(), CompileError> {
     let label_info = gather_label_info(format, initial_offset, code)?;
 

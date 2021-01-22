@@ -74,8 +74,8 @@ impl StdFile {
         write_std(&mut w, &*game_format(game), self)
     }
 
-    pub fn read_from_bytes(game: Game, bytes: &[u8]) -> ReadResult<Self> {
-        read_std(&*game_format(game), bytes)
+    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game) -> ReadResult<Self> {
+        read_std(&mut r, &*game_format(game))
     }
 }
 
@@ -343,35 +343,38 @@ fn compile_std(
 
 // =============================================================================
 
-fn read_std(format: &dyn FileFormat, bytes: &[u8]) -> ReadResult<StdFile> {
-    let mut f = bytes;
+fn read_std(reader: &mut dyn BinRead, format: &dyn FileFormat) -> ReadResult<StdFile> {
+    let start_pos = reader.pos()?;
 
-    let num_objects = f.read_u16()? as usize;
-    let num_quads = f.read_u16()? as usize;
-    let instances_offset = f.read_u32()? as usize;
-    let script_offset = f.read_u32()? as usize;
-    let unknown = f.read_u32()?;
-    let extra = format.read_extra(&mut f)?;
+    let num_objects = reader.read_u16()? as usize;
+    let num_quads = reader.read_u16()? as usize;
+    let instances_offset = reader.read_u32()? as u64;
+    let script_offset = reader.read_u32()? as u64;
+    let unknown = reader.read_u32()?;
+    let extra = format.read_extra(reader)?;
 
-    let object_offsets = (0..num_objects).map(|_| f.read_u32()).collect::<ReadResult<Vec<_>>>()?;
+    let object_offsets = (0..num_objects).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
     let objects = (0..num_objects)
         .map(|i| {
             let key = sp!(format!("object{}", i).parse::<Ident>().unwrap());
-            let value = read_object(i, &mut &bytes[object_offsets[i] as usize..])?;
+
+            reader.seek_to(start_pos + object_offsets[i] as u64)?;
+            let value = read_object(i, reader)?;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
     assert_eq!(num_quads, objects.values().map(|x| x.quads.len()).sum::<usize>());
 
     let instances = {
-        let mut f = &bytes[instances_offset..];
+        reader.seek_to(start_pos + instances_offset)?;
         let mut vec = vec![];
-        while let Some(instance) = read_instance(&mut f, &objects)? {
+        while let Some(instance) = read_instance(reader, &objects)? {
             vec.push(instance);
         }
         vec
     };
 
-    let script = llir::read_instrs(&mut &bytes[script_offset..], format.instr_format(), 0, None)?;
+    reader.seek_to(start_pos + script_offset)?;
+    let script = llir::read_instrs(reader, format.instr_format(), 0, None)?;
 
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
@@ -761,12 +764,12 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_size(&self, _instr: &Instr) -> usize { 20 }
 
-    fn encode_label(&self, offset: usize) -> u32 {
+    fn encode_label(&self, offset: u64) -> u32 {
         assert_eq!(offset % 20, 0);
         (offset / 20) as u32
     }
-    fn decode_label(&self, bits: u32) -> usize {
-        (bits * 20) as usize
+    fn decode_label(&self, bits: u32) -> u64 {
+        (bits * 20) as u64
     }
 }
 
