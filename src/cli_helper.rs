@@ -79,6 +79,7 @@ pub fn max_columns() -> impl CliArg<Value=usize> { opts::MaxColumnsOpt }
 pub fn game() -> impl CliArg<Value=Game> { opts::GameOpt }
 pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::Positional { metavar: s }) }
 pub fn input() -> impl CliArg<Value=PathBuf> { path_arg("INPUT") }
+pub fn image_sources() -> impl CliArg<Value=Vec<PathBuf>> { opts::ImageSrcOpt }
 
 
 /// A simple HList type for CliArg.
@@ -172,6 +173,17 @@ pub mod opts {
         fn add_to_options(&self, opts: &mut getopts::Options) { self.0.add_to_options(opts) }
         fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
             self.0.extract_value(matches).map(Into::into)
+        }
+    }
+
+    pub struct ImageSrcOpt;
+    impl CliArg for ImageSrcOpt {
+        type Value = Vec<PathBuf>;
+        fn add_to_options(&self, opts: &mut getopts::Options) {
+            opts.optmulti("i", "image-source", "", "GAME");
+        }
+        fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+            Ok(matches.opt_strs("image-source").into_iter().map(Into::into).collect())
         }
     }
 

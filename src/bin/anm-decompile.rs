@@ -8,5 +8,5 @@
 mod common;
 
 fn main() {
-    common::run_truth_subcommand("std-decomp");
+    common::run_truth_subcommand("anm-decompile");
 }

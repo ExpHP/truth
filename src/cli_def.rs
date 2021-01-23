@@ -4,7 +4,7 @@
 //       I want to change the structure of the commands to be 'truanm' and 'trustd' anyways so
 //       we'll have to do some refactoring then
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
 use anyhow::Context;
@@ -16,12 +16,12 @@ pub fn main() -> ! {
     let _ = args.next();
 
     let subcommands: Vec<(&str, fn() -> !, bool)> = vec![
-        ("anm-decomp", anm_decomp::main, true),
-        ("anm-modify", anm_modify::main, true),
+        ("anm-decompile", anm_decompile::main, true),
+        ("anm-compile", anm_compile::main, true),
         ("anm-redump", anm_redump::main, false),
         ("anm-benchmark", anm_benchmark::main, false),
         ("ecl-reformat", ecl_reformat::main, false),
-        ("std-decomp", std_decomp::main, true),
+        ("std-decompile", std_decompile::main, true),
         ("std-compile", std_compile::main, true),
     ];
 
@@ -75,7 +75,7 @@ pub mod ecl_reformat {
     }
 }
 
-pub mod anm_decomp {
+pub mod anm_decompile {
     use super::*;
     use crate::{Format};
 
@@ -144,21 +144,21 @@ pub mod anm_decomp {
     }
 }
 
-pub mod anm_modify {
+pub mod anm_compile {
     use super::*;
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
 
-        let args_pat![anm_path, script_path, game, output, mapfile] = cli::cli(
-            "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
+        let args_pat![script_path, game, output, mapfile, image_sources] = cli::cli(
+            "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             args![
-                cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfile(),
+                cli::path_arg("SCRIPT"),
+                cli::game(), cli::required_output(), cli::mapfile(), cli::image_sources(),
             ],
         );
 
-        if !run(game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)) {
+        if !run(game, &script_path, &output, &image_sources, mapfile.as_ref().map(AsRef::as_ref)) {
             std::process::exit(1);
         }
         std::process::exit(0);
@@ -166,13 +166,13 @@ pub mod anm_modify {
 
     fn run(
         game: crate::Game,
-        anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
+        image_source_paths: &[PathBuf],
         map_path: Option<&Path>,
     ) -> bool {
         let mut files = crate::Files::new();
-        match _run(&mut files, game, anm_path, script_path, outpath, map_path) {
+        match _run(&mut files, game, script_path, outpath, image_source_paths, map_path) {
             Ok(()) => true,
             Err(mut e) => { let _ = e.emit(&files); false }
         }
@@ -181,9 +181,9 @@ pub mod anm_modify {
     pub(super) fn _run(
         files: &mut crate::Files,
         game: crate::Game,
-        anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
+        image_source_paths: &[PathBuf],
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let mut ty_ctx = crate::type_system::TypeSystem::new();
@@ -206,17 +206,19 @@ pub mod anm_modify {
             }
         }
 
-        let reader = io::Cursor::new(fs::read(&anm_path).unwrap());
-        let mut anm_file = {
-            crate::AnmFile::read_from_stream(reader, game, true)
-                .with_context(|| format!("in file: {}", anm_path.display()))?
-        };
+        let mut compiled = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
 
-        let compiled_ast = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
-        anm_file.merge(&compiled_ast)?;
+        for image_source_path in image_source_paths.iter() {
+            let reader = io::Cursor::new(fs::read(image_source_path).unwrap());
+            let source_anm_file = {
+                crate::AnmFile::read_from_stream(reader, game, true)
+                    .with_context(|| format!("in file: {}", image_source_path.display()))?
+            };
+            compiled.apply_image_source(source_anm_file)?;
+        }
 
         let out = fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
-        anm_file.write_to_stream(&mut io::BufWriter::new(out), game)?;
+        compiled.write_to_stream(&mut io::BufWriter::new(out), game)?;
         Ok(())
     }
 }
@@ -313,13 +315,14 @@ pub mod anm_benchmark {
         outpath: &Path,
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
+        let image_source_paths = [anm_path.to_owned()];
         loop {
             let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
             let mut f = crate::Formatter::new(io::BufWriter::new(script_out)).with_max_columns(100);
-            super::anm_decomp::_run(&mut f, game, anm_path, map_path);
+            super::anm_decompile::_run(&mut f, game, anm_path, map_path);
             drop(f);
 
-            super::anm_modify::_run(files, game, anm_path, script_path, outpath, map_path)?;
+            super::anm_compile::_run(files, game, script_path, outpath, &image_source_paths, map_path)?;
         }
     }
 }
@@ -389,7 +392,7 @@ pub mod std_compile {
     }
 }
 
-pub mod std_decomp {
+pub mod std_decompile {
     use super::*;
     use crate::{Format};
 

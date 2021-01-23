@@ -36,8 +36,18 @@ impl AnmFile {
         compile(&game_format(game), ast, ty_ctx)
     }
 
-    pub fn merge(&mut self, other: &Self) -> Result<(), CompileError> {
-        merge(self, other)
+    /// Uses `other` as a source for any missing metadata from the entries, as well as for embedded images.
+    ///
+    /// For each entry in `self`, if there exists an entry in `other` with a matching `path`, then that entry
+    /// will be used to fill in things that are missing. (e.g. metadata in the header, as well as the embedded
+    /// image if `has_data: true`).
+    /// **Scripts and sprites from `other` are entirely ignored.**
+    ///
+    /// If multiple entries have the same path, then the first one with that path in `other` applies to the first
+    /// one with that path in `self`, and so on in matching order.  This is to facilitate recompilation of files
+    /// like `ascii.anm`, which have multiple `"@R"` entries.
+    pub fn apply_image_source(&mut self, other: Self) -> Result<(), CompileError> {
+        apply_image_source(self, other)
     }
 
     pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
@@ -67,15 +77,15 @@ pub struct Script {
 
 #[derive(Debug, Clone)]
 pub struct EntrySpecs {
-    pub width: u32,
-    pub height: u32,
-    pub format: u32,
-    pub colorkey: u32, // Only in old format
-    pub offset_x: u32,
-    pub offset_y: u32,
-    pub memory_priority: u32,
-    pub has_data: bool,
-    pub low_res_scale: bool,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub format: Option<u32>,
+    pub colorkey: Option<u32>, // Only in old format
+    pub offset_x: Option<u32>,
+    pub offset_y: Option<u32>,
+    pub memory_priority: Option<u32>,
+    pub has_data: Option<bool>,
+    pub low_res_scale: Option<bool>,
 }
 
 impl Entry {
@@ -86,15 +96,15 @@ impl Entry {
         } = &self.specs;
 
         Meta::make_object()
-            .field("format", format)
-            .field("width", width)
-            .field("height", height)
-            .field("colorkey", colorkey)
-            .field("offset_x", offset_x)
-            .field("offset_y", offset_y)
-            .field("memory_priority", memory_priority)
-            .field("low_res_scale", low_res_scale)
-            .field("has_data", has_data)
+            .opt_field("format", format.as_ref())
+            .opt_field("width", width.as_ref())
+            .opt_field("height", height.as_ref())
+            .opt_field("colorkey", colorkey.as_ref())
+            .opt_field("offset_x", offset_x.as_ref())
+            .opt_field("offset_y", offset_y.as_ref())
+            .opt_field("memory_priority", memory_priority.as_ref())
+            .opt_field("low_res_scale", low_res_scale.as_ref())
+            .opt_field("has_data", has_data.as_ref())
             .field("path", &self.path)
             .with_mut(|b| if let Some(texture) = &self.texture {
                 b.field("thtx_format", &texture.thtx.format);
@@ -108,22 +118,22 @@ impl Entry {
 
     fn from_fields(fields: &Sp<meta::Fields>) -> Result<Self, FromMetaError<'_>> {
         meta::ParseObject::scope(fields, |m| {
-            let format = m.expect_field("format")?;
-            let width = m.expect_field("width")?;
-            let height = m.expect_field("height")?;
-            let colorkey = m.expect_field("colorkey")?;
-            let offset_x = m.expect_field("offset_x")?;
-            let offset_y = m.expect_field("offset_y")?;
-            let memory_priority = m.expect_field("memory_priority")?;
-            let low_res_scale = m.expect_field("low_res_scale")?;
-            let has_data = m.expect_field("has_data")?;
+            let format = m.get_field("format")?;
+            let width = m.get_field("width")?;
+            let height = m.get_field("height")?;
+            let colorkey = m.get_field("colorkey")?;
+            let offset_x = m.get_field("offset_x")?;
+            let offset_y = m.get_field("offset_y")?;
+            let memory_priority = m.get_field("memory_priority")?;
+            let low_res_scale = m.get_field("low_res_scale")?;
+            let has_data = m.get_field("has_data")?;
             let path = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let texture = None;
             m.allow_field("thtx_format")?;
             m.allow_field("thtx_width")?;
             m.allow_field("thtx_height")?;
-            let sprites = m.expect_field("sprites")?;
+            let sprites = m.get_field("sprites")?.unwrap_or_default();
 
             let specs = EntrySpecs {
                 width, height, format, colorkey, offset_x, offset_y,
@@ -215,20 +225,52 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem, decom
     Ok(out)
 }
 
-fn merge(dest_file: &mut AnmFile, src_file: &AnmFile) -> Result<(), CompileError> {
-    // let dest = dest_file.entries.last().unwrap();
-    // eprintln!("{:?}", dest.scripts.len());
-    // eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
-    // let dest = src_file.entries.last().unwrap();
-    // eprintln!("{:?}", dest.scripts.len());
-    // eprintln!("{:?}", dest.scripts[dest.scripts.len()-2]);
+fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), CompileError> {
+    let mut src_entries_by_path: IndexMap<_, Vec<_>> = IndexMap::new();
+    for entry in src_file.entries {
+        src_entries_by_path.entry(entry.path.clone()).or_default().push(entry);
+    };
+    for vec in src_entries_by_path.values_mut() {
+        vec.reverse();  // so we can pop them in forwards order
+    }
 
-    for (dest_entry, src_entry) in zip!(&mut dest_file.entries, &src_file.entries) {
-        dest_entry.scripts = src_entry.scripts.clone();
+    for dest_entry in &mut dest_file.entries {
+        if let Some(src_entry) = src_entries_by_path.get_mut(&dest_entry.path).and_then(|vec| vec.pop()) {
+            update_entry_from_image_source(dest_entry, src_entry)?;
+        }
     }
-    if dest_file.entries.len() < src_file.entries.len() {
-        dest_file.entries.extend(src_file.entries[src_file.entries.len()..].iter().cloned())
+    Ok(())
+}
+
+fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Result<(), CompileError> {
+    let EntrySpecs {
+        width: dest_width, height: dest_height, format: dest_format,
+        colorkey: dest_colorkey, offset_x: dest_offset_x, offset_y: dest_offset_y,
+        memory_priority: dest_memory_priority, has_data: dest_has_data,
+        low_res_scale: dest_low_res_scale,
+    } = &mut dest_file.specs;
+
+    let EntrySpecs {
+        width: src_width, height: src_height, format: src_format,
+        colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
+        memory_priority: src_memory_priority, has_data: src_has_data,
+        low_res_scale: src_low_res_scale,
+    } = src_file.specs;
+
+    *dest_width = dest_width.or(src_width);
+    *dest_height = dest_height.or(src_height);
+    *dest_format = dest_format.or(src_format);
+    *dest_colorkey = dest_colorkey.or(src_colorkey);
+    *dest_offset_x = dest_offset_x.or(src_offset_x);
+    *dest_offset_y = dest_offset_y.or(src_offset_y);
+    *dest_memory_priority = dest_memory_priority.or(src_memory_priority);
+    *dest_has_data = dest_has_data.or(src_has_data);
+    *dest_low_res_scale = dest_low_res_scale.or(src_low_res_scale);
+
+    if *dest_has_data != Some(false) && dest_file.texture.is_none() {
+        dest_file.texture = src_file.texture;
     }
+
     Ok(())
 }
 
@@ -413,12 +455,12 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
             },
         };
         let specs = EntrySpecs {
-            width: header_data.width, height: header_data.height,
-            format: header_data.format, colorkey: header_data.colorkey,
-            offset_x: header_data.offset_x, offset_y: header_data.offset_y,
-            memory_priority: header_data.memory_priority,
-            has_data: header_data.has_data != 0,
-            low_res_scale: header_data.low_res_scale != 0,
+            width: Some(header_data.width), height: Some(header_data.height),
+            format: Some(header_data.format), colorkey: Some(header_data.colorkey),
+            offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
+            memory_priority: Some(header_data.memory_priority),
+            has_data: Some(header_data.has_data != 0),
+            low_res_scale: Some(header_data.low_res_scale != 0),
         };
 
         entries.push(Entry { texture, specs, path, path_2, sprites, scripts });
@@ -465,10 +507,34 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
         has_data, low_res_scale,
     } = entry.specs;
 
+    fn missing(path: &BString, problem: &str) -> anyhow::Error {
+        const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
+        anyhow::anyhow!(
+            "entry for '{}' {}\n       {}",
+            String::from_utf8_lossy(path), problem, SUGGESTION,
+        )
+    }
+
+    macro_rules! expect {
+        ($name:ident) => { match $name {
+            Some(x) => x,
+            None => {
+                let problem = format!("is missing required field '{}'!", stringify!($name));
+                return Err(missing(&entry.path, &problem));
+            },
+        }};
+    }
+
     file_format.write_header(f, &EntryHeaderData {
-        width, height, format, colorkey, offset_x, offset_y, memory_priority,
-        has_data: has_data as u32,
-        low_res_scale: low_res_scale as u32,
+        width: expect!(width),
+        height: expect!(height),
+        format: expect!(format),
+        colorkey: expect!(colorkey),
+        offset_x: expect!(offset_x),
+        offset_y: expect!(offset_y),
+        memory_priority: expect!(memory_priority),
+        has_data: expect!(has_data) as u32,
+        low_res_scale: expect!(low_res_scale) as u32,
         version: file_format.version as u32,
         num_sprites: entry.sprites.len() as u32,
         num_scripts: entry.scripts.len() as u32,
@@ -476,6 +542,7 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
         name_offset: 0, secondary_name_offset: None,
         next_offset: 0, thtx_offset: None,
     })?;
+    let has_data = expect!(has_data);
 
     let sprite_offsets_pos = f.pos()?;
     f.write_u32s(&vec![0; entry.sprites.len()])?;
@@ -506,9 +573,17 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    if let Some(texture) = &entry.texture {
-        texture_offset = f.pos()? - entry_pos;
-        write_texture(f, texture)?;
+    if has_data {
+        match &entry.texture {
+            None => {
+                let problem = format!("has 'has_data: true', but there's no bitmap data available!");
+                return Err(missing(&entry.path, &problem));
+            },
+            Some(texture) => {
+                texture_offset = f.pos()? - entry_pos;
+                write_texture(f, texture)?;
+            }
+        }
     };
 
     let end_pos = f.pos()?;

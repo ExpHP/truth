@@ -18,7 +18,7 @@ fn bits_to_bits(
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
     let output = {
-        Command::cargo_bin("std-decomp").unwrap()
+        Command::cargo_bin("std-decompile").unwrap()
             .arg("-g").arg(format!("{}", game))
             .arg("-m").arg(mapfile.as_ref())
             .arg(infile.as_ref().canonicalize().unwrap())
