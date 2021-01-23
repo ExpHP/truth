@@ -95,11 +95,28 @@ impl CompileError {
     /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
     /// nodes is required.
     pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> Result<(), codespan_reporting::files::Error> {
-        use codespan_reporting::term::{self, termcolor as tc};
+        use cs::term::termcolor as tc;
 
-        let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
+        if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
+            // test harness - use eprint! to make sure the harness can capture it
+            let mut writer = tc::Ansi::new(vec![]);
+            self.emit_to_writer(&mut writer, files)?;
+            eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
+        } else {
+            // typical
+            let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
+            self.emit_to_writer(&mut writer.lock(), files)?;
+        }
+        Ok(())
+    }
+
+    fn emit_to_writer<'a>(
+        &mut self,
+        writer: &mut impl cs::term::termcolor::WriteColor,
+        files: &'a impl cs::files::Files<'a, FileId=FileId>,
+    ) -> Result<(), codespan_reporting::files::Error> {
         for e in self.diagnostics.drain(..) {
-            term::emit(&mut writer.lock(), &*TERM_CONFIG, files, &e.imp).unwrap();
+            cs::term::emit(writer, &*TERM_CONFIG, files, &e.imp).unwrap();
         }
         Ok(())
     }

@@ -37,6 +37,14 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
     lines.push(format!("70 nop"));
     lines.push(format!("71 func_SSff"));
     lines.push(format!("!ins_signatures"));
+    lines.push(format!("1 ot"));
+    lines.push(format!("2 Sot"));
+    lines.push(format!("40 SSot\n41ffot"));
+    lines.push(format!("42 SSot\n43ffot"));
+    lines.push(format!("44 SSot\n45ffot"));
+    lines.push(format!("46 SSot\n47ffot"));
+    lines.push(format!("48 SSot\n49ffot"));
+    lines.push(format!("50 SSot\n51ffot"));
     lines.push(format!("70"));
     lines.push(format!("71 SSff"));
     Eclmap::parse(&lines.join("\n")).unwrap()
@@ -146,6 +154,8 @@ fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
 
 #[track_caller]
 fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(AstVm, AstVm), CompileError> {
+    truth::setup_for_test_harness();
+
     let mut ty_ctx = TypeSystem::new();
 
     let eclmap = make_eclmap(vars);
@@ -185,6 +195,8 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
 /// Checks that attempting to compile this produces a "no more registers of this type" error.
 #[track_caller]
 fn expect_not_enough_vars(vars: &[Var], text: &str) {
+    truth::setup_for_test_harness();
+
     let mut files = Files::new();
     let mut ty_ctx = TypeSystem::new();
 

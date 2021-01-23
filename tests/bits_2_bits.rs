@@ -15,6 +15,8 @@ fn bits_to_bits(
     mapfile: impl AsRef<Path>,
     do_with_text: impl FnOnce(&str),
 ) {
+    truth::setup_for_test_harness();
+
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
     let output = {

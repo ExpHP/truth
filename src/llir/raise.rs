@@ -93,7 +93,9 @@ fn generate_offset_labels(
                 .map_err(|_| anyhow::anyhow!("an instruction has a bad jump offset!"))?
         };
         // Find out the time range between this instruction and the previous one
-        let next = (jump_data.instr_offsets[dest_index], script[dest_index].time);
+        // (the or_else triggers when dest_index == script.len() (label after last instruction))
+        let dest_time = script.get(dest_index).unwrap_or_else(|| script.last().unwrap()).time;
+        let next = (jump_data.instr_offsets[dest_index], dest_time);
         let prev = match dest_index {
             0 => None,
             i => Some((jump_data.instr_offsets[i - 1], script[i - 1].time)),
