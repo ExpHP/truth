@@ -240,14 +240,15 @@ pub struct StmtGoto {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtCondChain {
+    // FIXME why do these have spans
     pub cond_blocks: Vec<Sp<CondBlock>>,
     pub else_block: Option<Block>,
 }
 
 impl StmtCondChain {
-    pub fn end_time(&self) -> i32 {
-        self.else_block.as_ref().map(|b| b.end_time())
-            .unwrap_or_else(|| self.cond_blocks.last().unwrap().block.end_time())
+    pub fn last_block(&self) -> &Block {
+        self.else_block.as_ref()
+            .unwrap_or_else(|| &self.cond_blocks.last().unwrap().block)
     }
 }
 
@@ -582,10 +583,6 @@ impl<S: AsRef<[u8]>> Sp<LitString<S>> {
 /// The methods on this trait will very simply just statically dispatch to the appropriate method
 /// on those other traits.  E.g. if the node is an [`Item`] then [`Visitable::visit_with`] will
 /// call the [`Visit::visit_item`] method, and etc.
-///
-/// This should be obvious, but still worth pointing out: For types that have multiple
-/// visit methods, this will not be able to invoke the more specialized versions.  E.g.
-/// for a [`Block`], this will call [`Visit::visit_block`] and not [`Visit::visit_func_body`].
 pub trait Visitable {
     /// Calls the method of [`Visit`] appropriate to this type, e.g. [`Visit::visit_expr`]
     /// if `Self` is an `Expr`.
@@ -609,6 +606,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
+            fn visit_goto(&mut self, e: & $($mut)? StmtGoto) { walk_goto(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
         }
@@ -652,15 +650,18 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.body {
-                StmtBody::Jump(_) => {},
+                StmtBody::Jump(goto) => {
+                    v.visit_goto(goto);
+                },
                 StmtBody::Return { value } => {
                     if let Some(value) = value {
                         v.visit_expr(value);
                     }
                 },
                 StmtBody::Loop { block } => v.visit_block(block),
-                StmtBody::CondJump { cond, keyword: _, jump: _ } => {
+                StmtBody::CondJump { cond, keyword: _, jump } => {
                     v.visit_cond(cond);
+                    v.visit_goto(jump);
                 },
                 StmtBody::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
@@ -712,6 +713,11 @@ macro_rules! generate_visitor_stuff {
                 StmtBody::ScopeEnd(_) => {},
                 StmtBody::NoInstruction => {},
             }
+        }
+
+        pub fn walk_goto<V>(_: &mut V, _: & $($mut)? StmtGoto)
+        where V: ?Sized + $Visit,
+        {
         }
 
         fn walk_cond<V>(v: &mut V, e: & $($mut)? Sp<Cond>)
@@ -774,6 +780,7 @@ impl_visitable!(Block, visit_block);
 impl_visitable!(Sp<Cond>, visit_cond);
 impl_visitable!(Sp<Stmt>, visit_stmt);
 impl_visitable!(Sp<Expr>, visit_expr);
+impl_visitable!(StmtGoto, visit_goto);
 impl_visitable!(Sp<Var>, visit_var);
 
 mod mut_ {
@@ -786,6 +793,7 @@ pub use self::mut_::{
     walk_item as walk_item_mut,
     walk_block as walk_block_mut,
     walk_stmt as walk_stmt_mut,
+    walk_goto as walk_goto_mut,
     walk_expr as walk_expr_mut,
 };
 mod ref_ {
@@ -793,6 +801,6 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_block, walk_stmt, walk_expr,
+    Visit, walk_script, walk_item, walk_block, walk_stmt, walk_goto, walk_expr,
 };
 

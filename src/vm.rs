@@ -195,7 +195,7 @@ impl AstVm {
                             handle_block!(&else_block.0);
                         }
                     }
-                    self.time = chain.end_time();
+                    self.time = chain.last_block().end_time();
                 },
 
                 ast::StmtBody::Loop { block } => {

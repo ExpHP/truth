@@ -392,6 +392,11 @@ impl<T: Format + ?Sized> Format for &T {
         Format::fmt(&**self, out)
     }
 }
+impl<T: Format + ?Sized> Format for &mut T {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        Format::fmt(&**self, out)
+    }
+}
 impl<T: Format + ?Sized> Format for Box<T> {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         Format::fmt(&**self, out)

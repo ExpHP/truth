@@ -23,7 +23,11 @@ pub fn postprocess_decompiled_fancy(script: &mut ast::Script, ty_ctx: &TypeSyste
 
     ty_ctx.unresolve_names(script, false)?;
 
-    let mut v = decompile_loop::Visitor::new();
+    let mut v = decompile_loop::IfElseVisitor::new();
+    v.visit_script(script);
+    v.finish()?;
+
+    let mut v = decompile_loop::LoopVisitor::new();
     v.visit_script(script);
     v.finish()?;
 
