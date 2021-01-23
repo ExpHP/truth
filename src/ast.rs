@@ -46,7 +46,19 @@ macro_rules! string_enum {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Script {
     pub mapfiles: Vec<Sp<LitString>>,
+    pub image_sources: Vec<Sp<LitString>>,
     pub items: Vec<Sp<Item>>,
+}
+
+impl Script {
+    pub fn expect_no_image_sources(&self) -> Result<(), CompileError> {
+        if let Some(path) = self.image_sources.get(0) {
+            Err(error!(
+                message("unexpected image_source"),
+                primary(path.span, "image_source not valid in this format"),
+            ))
+        } else { Ok(()) }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

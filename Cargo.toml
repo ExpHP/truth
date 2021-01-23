@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Michael Lamparski <diagonaldevice@gmail.com>"]
 edition = "2018"
 build = "build/main.rs"
+default-run = "truth"
 
 [build-dependencies]
 lalrpop = { version = "0.19.0", features = ['lexer'] }

@@ -96,22 +96,22 @@ impl Entry {
         } = &self.specs;
 
         Meta::make_object()
-            .opt_field("format", format.as_ref())
+            .field("path", &self.path)
+            .opt_field("path_2", self.path_2.as_ref())
+            .opt_field("has_data", has_data.as_ref())
             .opt_field("width", width.as_ref())
             .opt_field("height", height.as_ref())
-            .opt_field("colorkey", colorkey.as_ref())
             .opt_field("offset_x", offset_x.as_ref())
             .opt_field("offset_y", offset_y.as_ref())
+            .opt_field("format", format.as_ref())
+            .opt_field("colorkey", colorkey.as_ref())
             .opt_field("memory_priority", memory_priority.as_ref())
             .opt_field("low_res_scale", low_res_scale.as_ref())
-            .opt_field("has_data", has_data.as_ref())
-            .field("path", &self.path)
             .with_mut(|b| if let Some(texture) = &self.texture {
                 b.field("thtx_format", &texture.thtx.format);
                 b.field("thtx_width", &texture.thtx.width);
                 b.field("thtx_height", &texture.thtx.height);
             })
-            .opt_field("path_2", self.path_2.as_ref())
             .field("sprites", &self.sprites)
             .build_fields()
     }
@@ -220,7 +220,11 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem, decom
             }));
         }
     }
-    let mut out = ast::Script { items, mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast() };
+    let mut out = ast::Script {
+        items,
+        mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast(),
+        image_sources: vec![],
+    };
     crate::passes::postprocess_decompiled(&mut out, ty_ctx, decompile_kind)?;
     Ok(out)
 }

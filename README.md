@@ -17,14 +17,20 @@ I mean, this isn't really a fair comparison given how far `thstd` is behind its 
 * Correct treatment of "strip" quads in TH08, TH09.
 * Labels and `goto`.
 * Round trip decompilation and compilation is tested to produce bit-for-bit identical output.
+    * Note: This is just *tested*, not *guaranteed*.  Some files don't recompile back because the original files are... unusual in some way.
 * No possibility of segfaults!
 * Cool-ass error messages, sometimes:
 
 ![Sexy error message example](./doc/img/sexy-error.png)
 
-### Disadvantages compared to thanm and thecl
+### Advantages over thanm
 
-* Everything
+* No segfaults again
+* Decompilation of loops and `if ... else ...`
+
+### Disadvantages compared to thanm
+
+* Can't embed/extract images
 
 ## Downloading
 
@@ -32,21 +38,23 @@ Everything is still so alpha at this point that I can't even fathom labeling rel
 
 ## Using
 
-**truth is EXTREMELY alpha at this stage**:
+**truth is fairly alpha at this stage**:
 
-* The tools currently available are mostly just things I shat out for testing purposes and do not resemble any vision of the final CLI at all.
-* Some bad error messages still remain.
+* Lots of testing is still needed.
+* The CLI and binary names still do not quite resemble the final product.  (eventually it will look like `trustd decompile` or `trustd d` for short but this is fairly low on the list of priorities)
 
 With that in mind:
 
 ### STD
 
-```sh
-std-decomp -g13 -m map/any.stdm in.std > out.stdspec
-std-compile -g13 -m map/any.stdm in.stdspec -o out.std
+```shell
+std-decompile -g13 -m map/any.stdm in.std > out.stdspec
+std-compile -g13 in.stdspec -o out.std
 ```
 
 These work on all games in the series.
+
+Any mapfiles used during decompilation are recorded in the output script and automatically used during recompilation, which is why the `-m` argument is not used during compilation in the example above (though you *can* supply it if you want to).
 
 You can set the environment variable `TRUTH_MAP_PATH` to automatically locate mapfiles during decompilation.  Each directory listed in this `PATH`-like variable will be checked for a file named `any.stdm` if you are compiling STD, `any.anmm` if you are compiling ANM, and etc.  
 
@@ -54,18 +62,18 @@ You can set the environment variable `TRUTH_MAP_PATH` to automatically locate ma
 
 You can decompile an ANM file into a script, similar to `thanm -l`.
 ```sh
-anm-decomp -g12 -m map/any.anmm in.anm > out.spec
+anm-decompile -g12 -m map/any.anmm in.anm > out.spec
+```
+
+To recompile an ANM file, you will likely need to supply the original ANM file as a source to copy image data from.  This can be done using the `-i`/`--image-source` flag:
+
+```sh
+anm-compile -g12 -m map/any.anmm edited.spec -i original.anm -o out.anm
 ```
 
 There is no image extraction from ANM files (and it is doubtful that there ever will need to be, since thtk remains perfectly fine for this purpose).
 
-Compilation currently requires the use of an existing ANM file as a base, to use as a source of embedded images.  The scripts and sprites in your script file will replace the ones in the ANM file.  This is just a concept I am playing around with, and some more experimentation is needed to see what sort of design will work well.
-
-```sh
-anm-modify -g12 -m map/any.anmm in.anm text.spec -o out.anm
-```
-
-More specifically, each `entry` in the text file will be matched to the corresponding one in the anm file by order of appearance, and the list of sprites and scripts under that entry in the text file will replace the lists in the original entry.  Brand new entries can also be added to the end.
+There is also no way to embed new images from `.png` files, as thcrap's image hotloading works just fine for this purpose.  To compile a brand new ANM file that isn't based on any original ANM file, simply make sure to supply all necessary header data in the `entry` objects along with `has_data: false`; in this case, you do NOT require the `-i` flag.  An example of such a script be found at [./tests/anm_compile/th12-no-source-required.anm.spec].  To use the compiled file, make a thcrap patch which contains images in all of the right locations.  (for instance, if the script has a `has_data: false` entry with `path: "subdir/file.png"`, the thcrap patch should have an image at e.g. `<patch_root>/th17/subdir/file.png`)
 
 ## Building and installing from source
 
@@ -76,10 +84,11 @@ git clone https://github.com/ExpHP/truth
 cd truth
 
 # Debug builds  (for optimized builds, change it to `cargo run --release`)
-cargo run --bin=std-decomp -- -g10 -m map/any.stdm in.std > out.stdspec
-cargo run --bin=std-compile -- -g10 -m map/any.stdm out.stdspec > in.std
+cargo run -- std-decompile -g10 -m map/any.stdm in.std > out.stdspec
+cargo run -- std-compile -g10 out.stdspec -o out.std
 
 # If you want optimized binaries installed globally:
 cargo install --path=.
 ```
 
+**Important:** Notice that development builds use `cargo run -- std-decompile` instead of `cargo run --bin=std-decompile`.  This is because most binaries in this project are actually shims around the main binary (`truth`), and if you do `--bin=std-decompile` then that main binary won't be rebuilt.

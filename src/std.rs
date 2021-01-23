@@ -236,6 +236,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, de
 
     let mut script = ast::Script {
         mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast(),
+        image_sources: vec![],
         items: vec! [
             sp!(ast::Item::Meta {
                 keyword: sp!(ast::MetaKeyword::Meta),

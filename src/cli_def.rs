@@ -183,7 +183,7 @@ pub mod anm_compile {
         game: crate::Game,
         script_path: &Path,
         outpath: &Path,
-        image_source_paths: &[PathBuf],
+        cli_image_source_paths: &[PathBuf],
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let mut ty_ctx = crate::type_system::TypeSystem::new();
@@ -196,6 +196,7 @@ pub mod anm_compile {
         }
 
         let ast = files.read_file::<crate::ast::Script>(&script_path)?;
+
         for path_literal in &ast.mapfiles {
             let path = path_literal.as_path()?;
             match crate::Eclmap::load(&path, Some(game)) {
@@ -207,6 +208,13 @@ pub mod anm_compile {
         }
 
         let mut compiled = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
+
+        // image sources referenced in file take precedence
+        let mut image_source_paths = vec![];
+        for path_literal in &ast.image_sources {
+            image_source_paths.push(path_literal.as_path()?.to_owned());
+        }
+        image_source_paths.extend(cli_image_source_paths.iter().cloned());
 
         for image_source_path in image_source_paths.iter() {
             let reader = io::Cursor::new(fs::read(image_source_path).unwrap());
@@ -374,6 +382,7 @@ pub mod std_compile {
         }
 
         let script = files.read_file::<crate::ast::Script>(&path)?;
+        script.expect_no_image_sources()?;
 
         for path_literal in &script.mapfiles {
             let path = path_literal.as_path()?;

@@ -56,7 +56,7 @@ fn bits_to_bits(
 
 #[track_caller]
 fn file(fname: &str) -> std::path::PathBuf {
-    let mut path = std::path::PathBuf::from("tests/bits_2_bits");
+    let mut path = std::path::PathBuf::from("tests/bits-2-bits");
     path.push(fname);
     assert!(path.exists());
     path
@@ -77,7 +77,7 @@ macro_rules! std_b2b_test {
 fn all_files_tested() {
     let mut not_mentioned = vec![];
     let this_file_src = std::fs::read_to_string(file!()).unwrap();
-    for entry in std::fs::read_dir("tests/bits_2_bits").unwrap() {
+    for entry in std::fs::read_dir("tests/bits-2-bits").unwrap() {
         let path = entry.unwrap().path();
         if path.is_file() && path.extension().unwrap() == "std" {
             let file_name = path.file_name().unwrap().to_str().unwrap();

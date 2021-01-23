@@ -1,0 +1,8 @@
+---
+source: tests/anm_compile.rs
+expression: "compile_fail_stderr(Game::Th12, file(\"th12-err-missing-image.anm.spec\"))"
+---
+error: entry for 'subdir/file.png' has 'has_data: true', but there's no bitmap data available!
+       (if this data is available in an existing anm file, try using `-i ANM_FILE`)
+
+

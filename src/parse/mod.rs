@@ -38,6 +38,7 @@ pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 /// Extra state during parsing.
 pub struct State {
     mapfiles: Vec<Sp<ast::LitString>>,
+    image_sources: Vec<Sp<ast::LitString>>,
 
     /// When we are parsing instructions, tracks the last time label so that we can produce an
     /// AST with time fields instead of explicit labels.
@@ -51,6 +52,7 @@ pub struct State {
 impl State {
     pub fn new() -> State { State {
         mapfiles: vec![],
+        image_sources: vec![],
         time_stack: vec![0],
     }}
 }

@@ -94,6 +94,7 @@ macro_rules! with_each_terminal {
             [0, b"true", True]
             [0, b"pragma", Pragma]
             [0, b"mapfile", Mapfile]
+            [0, b"image_source", ImageSource]
             [0, b"sin", Sin]
             [0, b"cos", Cos]
             [0, b"sqrt", Sqrt]

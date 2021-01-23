@@ -98,13 +98,12 @@ impl CompileError {
         use cs::term::termcolor as tc;
 
         if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
-            // test harness - use eprint! to make sure the harness can capture it
-            let mut writer = tc::Ansi::new(vec![]);
+            let mut writer = tc::NoColor::new(vec![]);
             self.emit_to_writer(&mut writer, files)?;
             eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
         } else {
             // typical
-            let writer = tc::StandardStream::stderr(tc::ColorChoice::Always);
+            let writer = tc::StandardStream::stderr(tc::ColorChoice::Auto);
             self.emit_to_writer(&mut writer.lock(), files)?;
         }
         Ok(())

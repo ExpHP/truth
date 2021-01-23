@@ -121,11 +121,13 @@ impl<Xs: ExactSizeIterator + DoubleEndedIterator> VeclikeIterator for Xs { }
 /// Sets global environment to improve testing conditions.
 ///
 /// List of effects:
+/// * Ensures there is no default search path for mapfiles.
 /// * Will allow warnings to be captured by the test harness instead of going straight to stderr.
 ///
 /// Of course, because the test harness runs tests in parallel, this ultimately only needs to run
 /// once; but it is safe to run it any number of times.
 #[doc(hidden)]
 pub fn setup_for_test_harness() {
-    ::std::env::set_var("_TRUTH_DEBUG__TEST", "1")
+    ::std::env::set_var("_TRUTH_DEBUG__TEST", "1");
+    ::std::env::remove_var("TRUTH_MAP_PATH");
 }

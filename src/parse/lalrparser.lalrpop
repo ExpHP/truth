@@ -106,6 +106,7 @@ extern {
         "true" => Token::True,
         "pragma" => Token::Pragma,
         "mapfile" => Token::Mapfile,
+        "image_source" => Token::ImageSource,
         "sin" => Token::Sin,
         "cos" => Token::Cos,
         "sqrt" => Token::Sqrt,
@@ -155,7 +156,8 @@ AnythingInner: crate::parse::AnythingValue = {
 Script: Script = {
     <items:Items> => {
         let mapfiles = state.mapfiles.clone();
-        Script { items, mapfiles }
+        let image_sources = state.image_sources.clone();
+        Script { items, mapfiles, image_sources }
     }
 };
 
@@ -169,6 +171,10 @@ Items: Vec<Sp<Item>> = {
     //        to look like
     <items:Items> "#" "pragma" "mapfile" <file:Sp<LitString>> => {
         state.mapfiles.push(file);
+        items
+    },
+    <items:Items> "#" "pragma" "image_source" <file:Sp<LitString>> => {
+        state.image_sources.push(file);
         items
     },
 };
