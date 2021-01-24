@@ -1,6 +1,11 @@
-// Tests that decompile and recompile .std to make sure it's bit-for-bit identical.
+// Tests that decompile and recompile a file to test that the result is bit-for-bit identical.
+//
+// This is primarily for regression testing against changes that would break bit-for-bit recompilation.
 //
 // They also do insta snapshots to give clues on possible causes of trouble.
+//
+// Tests for things like loop- and if- decompilation (which used to be here) are better suited to the
+// `sbsb` test, which start from a readable script file.
 
 use std::path::Path;
 use std::process::Command;
@@ -95,17 +100,8 @@ fn all_files_tested() {
 
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_rects, "th08-rects.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_strip, "th08-strip.std");
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_loop, "th08-loop.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_instance_order, "th08-instance-order.std");
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_jump_forward, "th08-jump-forward.std");
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_loop_nonzero_time, "th08-loop-nonzero-time.std");
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_loop_not_timeof, "th08-loop-not-timeof.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_nonzero_padding, "th08-nonzero-padding.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_script, "th08-empty-script.std");
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_loop, "th08-empty-loop.std");
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_2loops_1label, "th08-2loops-1label.std");
 std_b2b_test!(Game::Th06, "map/any.stdm", std06_general, "th06-general.std");
 std_b2b_test!(Game::Th12, "map/any.stdm", std12_general, "th12-general.std");
-
-// NOTE: The original script used to create this input contained `loop { +5: }`.
-std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_loop_time, "th08-empty-loop-time.std");

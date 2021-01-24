@@ -47,10 +47,15 @@ impl VisitMut for IfElseVisitor {
         let context = BlockContext::from_block(outer_block, self.label_refcounts_stack.last().expect("must use on a function body!"));
 
         let original_len = outer_block.0.len();
+
+        // FIXME: temporary hack (we probably should put more time info in BlockContext);
+        //        I plan to get rid of the stmt.time field and turns time labels into statements,
+        //        so this should become unnecessary then.
+        let stmt_times = outer_block.0.iter().map(|stmt| stmt.time).collect::<Vec<_>>();
         let mut index = 0;
         let mut stmt_iter = outer_block.0.drain(..);
         while index < original_len {
-            match gather_cond_chain(index, &context) {
+            match gather_cond_chain(index, &stmt_times, &context) {
                 Err(NoCondChain) => {
                     new_stmts.push(stmt_iter.next().unwrap()); index += 1;
                 },
@@ -130,7 +135,7 @@ struct CondBlockInfo {
 
 struct NoCondChain;
 
-fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainInfo, NoCondChain> {
+fn gather_cond_chain(start: usize, stmt_times: &[i32], context: &BlockContext) -> Result<CondChainInfo, NoCondChain> {
     let mut chain = vec![];
     let mut src = start;
     let mut known_end = None;
@@ -140,6 +145,9 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
         // this .get() will fail if this stmt isn't a jump, or if the target label is
         // at a different block nesting level I guess
         let if_jmp = &context.jmp_info.get(&src).ok_or(NoCondChain)?;
+        if if_jmp.time_arg.is_some() {
+            return Err(NoCondChain);
+        }
         if if_jmp.direction_given_src(src) == Direction::Backwards {
             return Err(NoCondChain);
         }
@@ -151,9 +159,22 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
             return Err(NoCondChain);
         }
 
+        // see integration test 'anm10_if_elseif_time_impossible_1'
+        if stmt_times[if_jmp.dest] != stmt_times[if_jmp.dest - 1] {
+            return Err(NoCondChain);
+        }
+
+        // see integration test 'anm10_if_elseif_time_sorta_possible'
+        if stmt_times[if_jmp.dest] != stmt_times[if_jmp.dest + 1] {
+            return Err(NoCondChain);
+        }
+
         // just before the label, there should be an unconditional jump to the end of the construction.
         let uncond_src = if_jmp.dest - 1;
         let uncond_jmp = &context.jmp_info.get(&uncond_src).ok_or(NoCondChain)?;
+        if uncond_jmp.time_arg.is_some() {
+            return Err(NoCondChain);
+        }
         if !matches!(uncond_jmp.kind, JmpKind::Uncond) {
             return Err(NoCondChain);
         }
