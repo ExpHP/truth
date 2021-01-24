@@ -273,6 +273,12 @@ impl From<std::io::Error> for CompileError {
     }
 }
 
+impl From<crate::fmt::Error> for CompileError {
+    fn from(e: crate::fmt::Error) -> CompileError {
+        SimpleError::from(e).into()
+    }
+}
+
 /// Trait for running an iterator and continuing after an `Err` to collect more errors.
 pub trait GatherErrorIteratorExt {
     type OkItem;

@@ -9,7 +9,8 @@ use std::fs;
 use std::io;
 use anyhow::Context;
 use crate::game::Game;
-use crate::error::CompileError;
+use crate::error::{CompileError, SimpleError};
+use crate::pos::Files;
 
 pub fn main() -> ! {
     let mut args = std::env::args();
@@ -56,28 +57,21 @@ pub mod ecl_reformat {
             "FILE [OPTIONS...]", args![cli::input()],
         );
 
-        run(input);
-        std::process::exit(0);
+        wrap_cli(|files| run(files, input));
     }
 
-    fn run(path: impl AsRef<Path>) {
-        let mut files = crate::Files::new();
-        let script = match files.read_file::<crate::ast::Script>(path.as_ref()) {
-            Ok(x) => x,
-            Err(mut e) => {
-                let _ = e.emit(&files);
-                std::process::exit(1);
-            },
-        };
+    fn run(files: &mut Files, path: impl AsRef<Path>) -> Result<(), CompileError> {
+        let script = files.read_file::<crate::ast::Script>(path.as_ref())?;
+
         let stdout = io::stdout();
         let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock()));
-        f.fmt(&script).unwrap();
+        f.fmt(&script)?;
+        Ok(())
     }
 }
 
 pub mod anm_decompile {
     use super::*;
-    use crate::{Format};
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
@@ -86,37 +80,30 @@ pub mod anm_decompile {
             "FILE -g GAME [OPTIONS...]",
             args![cli::input(), cli::max_columns(), cli::mapfile(), cli::game()],
         );
-        run(game, &input, max_columns, mapfile);
-        std::process::exit(0);
-    }
 
-    fn run(
-        game: crate::Game,
-        path: impl AsRef<Path>,
-        ncol: usize,
-        map_path: Option<impl AsRef<Path>>,
-    ) {
         let stdout = io::stdout();
-        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
-        _run(&mut f, game, path, map_path)
+        wrap_cli(|_files| {
+            let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(max_columns);
+            run(&mut f, game, &input, mapfile)
+        });
     }
 
-    pub(super) fn _run(
+    pub(super) fn run(
         out: &mut crate::Formatter<impl io::Write>,
-        game: crate::Game,
+        game: Game,
         path: impl AsRef<Path>,
         map_path: Option<impl AsRef<Path>>,
-    ) {
+    ) -> Result<(), CompileError> {
         let ty_ctx = {
             use crate::Eclmap;
 
             let mut ty_ctx = crate::type_system::TypeSystem::new();
 
-            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::anm::game_core_mapfile(game)).unwrap());
+            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::anm::game_core_mapfile(game))?);
 
             let map_path = map_path.map(|p| p.as_ref().to_owned());
             if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".anmm")) {
-                let eclmap = Eclmap::load(&map_path, Some(game)).unwrap();
+                let eclmap = Eclmap::load(&map_path, Some(game))?;
                 ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
             }
             ty_ctx
@@ -124,23 +111,14 @@ pub mod anm_decompile {
 
         let script = {
             // tiny buffer due to seeking
-            let reader = io::BufReader::with_capacity(64, fs::File::open(&path).unwrap());
-            let anm_result = {
-                crate::AnmFile::read_from_stream(reader, game, false)
-                    .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
-                    .with_context(|| format!("in file: {}", path.as_ref().display()))
-            };
-
-            match anm_result {
-                Ok(anm) => anm,
-                Err(e) => {
-                    CompileError::from(e).emit_nospans();
-                    std::process::exit(1); // FIXME skips RAII
-                },
-            }
+            let reader = io::BufReader::with_capacity(64, fs_open(&path)?);
+            crate::AnmFile::read_from_stream(reader, game, false)
+                .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
+                .with_context(|| format!("in file: {}", path.as_ref().display()))?
         };
 
-        script.fmt(out).unwrap();
+        out.fmt(&script)?;
+        Ok(())
     }
 }
 
@@ -158,29 +136,12 @@ pub mod anm_compile {
             ],
         );
 
-        if !run(game, &script_path, &output, &image_sources, mapfile.as_ref().map(AsRef::as_ref)) {
-            std::process::exit(1);
-        }
-        std::process::exit(0);
+        wrap_cli(|files| run(files, game, &script_path, &output, &image_sources, mapfile.as_ref().map(AsRef::as_ref)));
     }
 
-    fn run(
-        game: crate::Game,
-        script_path: &Path,
-        outpath: &Path,
-        image_source_paths: &[PathBuf],
-        map_path: Option<&Path>,
-    ) -> bool {
-        let mut files = crate::Files::new();
-        match _run(&mut files, game, script_path, outpath, image_source_paths, map_path) {
-            Ok(()) => true,
-            Err(mut e) => { let _ = e.emit(&files); false }
-        }
-    }
-
-    pub(super) fn _run(
-        files: &mut crate::Files,
-        game: crate::Game,
+    pub(super) fn run(
+        files: &mut Files,
+        game: Game,
         script_path: &Path,
         outpath: &Path,
         cli_image_source_paths: &[PathBuf],
@@ -188,7 +149,7 @@ pub mod anm_compile {
     ) -> Result<(), CompileError> {
         let mut ty_ctx = crate::type_system::TypeSystem::new();
 
-        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::anm::game_core_mapfile(game)).unwrap());
+        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::anm::game_core_mapfile(game))?);
 
         if let Some(map_path) = map_path {
             let eclmap = crate::Eclmap::load(&map_path, Some(game))?;
@@ -217,7 +178,7 @@ pub mod anm_compile {
         image_source_paths.extend(cli_image_source_paths.iter().cloned());
 
         for image_source_path in image_source_paths.iter() {
-            let reader = io::Cursor::new(fs::read(image_source_path).unwrap());
+            let reader = io::Cursor::new(fs_read(image_source_path)?);
             let source_anm_file = {
                 crate::AnmFile::read_from_stream(reader, game, true)
                     .with_context(|| format!("in file: {}", image_source_path.display()))?
@@ -242,32 +203,15 @@ pub mod anm_redump {
             args![cli::input(), cli::required_output(), cli::game()],
         );
 
-        if !run(game, &input, output) {
-            std::process::exit(1);
-        }
-        std::process::exit(0);
+        wrap_cli(|_| run(game, &input, output))
     }
 
     fn run(
         game: Game,
         path: impl AsRef<Path>,
         outpath: impl AsRef<Path>,
-    ) -> bool {
-        match _run(game, path, outpath) {
-            Ok(()) => true,
-            Err(mut e) => {
-                e.emit_nospans();
-                false
-            }
-        }
-    }
-
-    fn _run(
-        game: Game,
-        path: impl AsRef<Path>,
-        outpath: impl AsRef<Path>,
     ) -> Result<(), CompileError> {
-        let reader = io::BufReader::new(fs::File::open(&path).unwrap());
+        let reader = io::BufReader::new(fs_open(&path)?);
         let anm_file = {
             crate::AnmFile::read_from_stream(reader, game, true)
                 .with_context(|| format!("in file: {}", path.as_ref().display()))?
@@ -295,29 +239,12 @@ pub mod anm_benchmark {
             ],
         );
 
-        if !run(game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)) {
-            std::process::exit(1);
-        }
-        std::process::exit(0);
+        wrap_cli(|files| run(files, game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)))
     }
 
     fn run(
-        game: crate::Game,
-        anm_path: &Path,
-        script_path: &Path,
-        outpath: &Path,
-        map_path: Option<&Path>,
-    ) -> bool {
-        let mut files = crate::Files::new();
-        match _run(&mut files, game, anm_path, script_path, outpath, map_path) {
-            Ok(()) => true,
-            Err(mut e) => { let _ = e.emit(&files); false }
-        }
-    }
-
-    fn _run(
-        files: &mut crate::Files,
-        game: crate::Game,
+        files: &mut Files,
+        game: Game,
         anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
@@ -327,10 +254,10 @@ pub mod anm_benchmark {
         loop {
             let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
             let mut f = crate::Formatter::new(io::BufWriter::new(script_out)).with_max_columns(100);
-            super::anm_decompile::_run(&mut f, game, anm_path, map_path);
+            super::anm_decompile::run(&mut f, game, anm_path, map_path)?;
             drop(f);
 
-            super::anm_compile::_run(files, game, script_path, outpath, &image_source_paths, map_path)?;
+            super::anm_compile::run(files, game, script_path, outpath, &image_source_paths, map_path)?;
         }
     }
 }
@@ -346,38 +273,22 @@ pub mod std_compile {
             args![cli::input(), cli::required_output(), cli::mapfile(), cli::game()],
         );
 
-        if !run(game, &input, &output, mapfile.as_ref().map(AsRef::as_ref)) {
-            std::process::exit(1);
-        }
-        std::process::exit(0);
+        wrap_cli(|files| run(files, game, &input, &output, mapfile.as_ref().map(AsRef::as_ref)));
     }
 
     fn run(
-        game: crate::Game,
-        path: &Path,
-        outpath: &Path,
-        map_path: Option<&Path>,
-    ) -> bool {
-        let mut files = crate::Files::new();
-        match _run(&mut files, game, path, outpath, map_path) {
-            Ok(()) => true,
-            Err(mut e) => { let _ = e.emit(&files); false }
-        }
-    }
-
-    fn _run(
-        files: &mut crate::Files,
-        game: crate::Game,
+        files: &mut Files,
+        game: Game,
         path: &Path,
         outpath: &Path,
         map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let mut ty_ctx = crate::type_system::TypeSystem::new();
 
-        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::std::game_core_mapfile(game)).unwrap());
+        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::std::game_core_mapfile(game))?);
 
         if let Some(map_path) = map_path {
-            let eclmap = crate::Eclmap::load(&map_path, Some(game)).unwrap();
+            let eclmap = crate::Eclmap::load(&map_path, Some(game))?;
             ty_ctx.extend_from_eclmap(Some(map_path.as_ref()), &eclmap);
         }
 
@@ -395,15 +306,14 @@ pub mod std_compile {
         }
         let std = crate::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
 
-        let out = fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
-        std.write_to_stream(&mut io::BufWriter::new(out), game).unwrap();
+        let out = fs_create(outpath)?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game)?;
         Ok(())
     }
 }
 
 pub mod std_decompile {
     use super::*;
-    use crate::{Format};
 
     pub fn main() -> ! {
         use crate::{cli_helper as cli, args, args_pat};
@@ -412,8 +322,7 @@ pub mod std_decompile {
             "FILE -g GAME [OPTIONS...]",
             args![cli::input(), cli::max_columns(), cli::mapfile(), cli::game()],
         );
-        run(game, &input, max_columns, mapfile);
-        std::process::exit(0);
+        wrap_cli(|_files| run(game, &input, max_columns, mapfile))
     }
 
     fn run(
@@ -421,40 +330,53 @@ pub mod std_decompile {
         path: impl AsRef<Path>,
         ncol: usize,
         map_path: Option<impl AsRef<Path>>,
-    ) {
+    ) -> Result<(), CompileError> {
         let ty_ctx = {
             use crate::Eclmap;
 
             let mut ty_ctx = crate::type_system::TypeSystem::new();
 
-            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::std::game_core_mapfile(game)).unwrap());
+            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::std::game_core_mapfile(game))?);
 
             let map_path = map_path.map(|p| p.as_ref().to_owned());
             if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".stdm")) {
-                let eclmap = Eclmap::load(&map_path, Some(game)).unwrap();
+                let eclmap = Eclmap::load(&map_path, Some(game))?;
                 ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
             }
             ty_ctx
         };
 
         let script = {
-            let reader = io::Cursor::new(fs::read(&path).unwrap());
-            let parsed = {
-                crate::StdFile::read_from_stream(reader, game)
-                    .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
-                    .with_context(|| format!("in file: {}", path.as_ref().display()))
-            };
-            match parsed {
-                Ok(x) => x,
-                Err(e) => {
-                    CompileError::from(e).emit_nospans();
-                    std::process::exit(1); // FIXME skips RAII
-                },
-            }
+            let reader = io::Cursor::new(fs_read(path.as_ref())?);
+            crate::StdFile::read_from_stream(reader, game)
+                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
+                .with_context(|| format!("in file: {}", path.as_ref().display()))?
         };
 
         let stdout = io::stdout();
         let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
-        script.fmt(&mut f).unwrap();
+        f.fmt(&script)?;
+        Ok(())
+    }
+}
+
+fn fs_open(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
+    fs::File::open(path.as_ref()).with_context(|| format!("while opening file: {}", path.as_ref().display()))
+}
+fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, SimpleError> {
+    fs::read(path.as_ref()).with_context(|| format!("while reading file: {}", path.as_ref().display()))
+}
+fn fs_create(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
+    fs::File::create(path.as_ref()).with_context(|| format!("creating file '{}'", path.as_ref().display()))
+}
+
+fn wrap_cli(func: impl FnOnce(&mut Files) -> Result<(), CompileError>) -> ! {
+    let mut files = Files::new();
+    match func(&mut files) {
+        Ok(()) => std::process::exit(0),
+        Err(mut e) => {
+            let _ = e.emit(&files);
+            std::process::exit(1);
+        }
     }
 }
