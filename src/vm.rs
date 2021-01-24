@@ -426,7 +426,7 @@ mod tests {
             for &(name, reg) in &self.globals {
                 ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), reg);
             }
-            ty_ctx.resolve_names(&mut ast.value).unwrap();
+            crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
             ast.value
         }
     }

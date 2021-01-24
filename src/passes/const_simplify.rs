@@ -13,7 +13,7 @@
 //!
 //! # Example
 //! ```
-//! use truth::{VisitMut, ast, pos::{Files, Sp}};
+//! use truth::{ast, pos::{Files, Sp}};
 //! use truth::passes::const_simplify;
 //!
 //! let mut files = Files::new();
@@ -21,9 +21,7 @@
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
-//! let mut visitor = const_simplify::Visitor::new();
-//! visitor.visit_expr(&mut expr);
-//! visitor.finish().expect("failed to simplify");
+//! const_simplify::run(&mut expr).expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * x";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
@@ -159,18 +157,14 @@ impl Expr {
 /// Visitor for const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.
-pub struct Visitor {
-    errors: CompileError,
+pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), CompileError> {
+    let mut visitor = Visitor { errors: CompileError::new_empty() };
+    ast.visit_mut_with(&mut visitor);
+    visitor.errors.into_result(())
 }
 
-impl Visitor {
-    pub fn new() -> Self {
-        Visitor { errors: CompileError::new_empty() }
-    }
-
-    pub fn finish(self) -> Result<(), CompileError> {
-        self.errors.into_result(())
-    }
+struct Visitor {
+    errors: CompileError,
 }
 
 impl VisitMut for Visitor {

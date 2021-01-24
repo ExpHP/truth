@@ -8,16 +8,15 @@ use crate::pos::{Sp, Span};
 use crate::ident::{Ident};
 use crate::type_system::{ScalarType, TypeSystem};
 
-pub struct Visitor<'a> {
-    ty_ctx: &'a mut TypeSystem,
+pub fn run<V: ast::Visitable>(ast: &mut V, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
+    let mut visitor = Visitor { ty_ctx };
+    ast.visit_mut_with(&mut visitor);
+    Ok(())
 }
 
-impl<'a> Visitor<'a> {
-    pub fn new(ty_ctx: &'a mut TypeSystem) -> Self {
-        Visitor { ty_ctx }
-    }
 
-    pub fn finish(self) -> Result<(), CompileError> { Ok(()) }
+struct Visitor<'a> {
+    ty_ctx: &'a mut TypeSystem,
 }
 
 impl VisitMut for Visitor<'_> {
@@ -208,7 +207,7 @@ type JumpInfo = Option<(Sp<ast::CondKeyword>, ast::Cond)>;
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{self, VisitMut};
+    use crate::ast;
     use crate::pos::Files;
     use crate::type_system::TypeSystem;
     use crate::var::RegId;
@@ -229,14 +228,12 @@ mod tests {
             for &(name, reg) in &self.globals {
                 ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), reg);
             }
-            ty_ctx.resolve_names(&mut ast.value).unwrap();
+            crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
             vm_before.run(&ast.0);
 
-            let mut visitor = crate::passes::desugar_blocks::Visitor::new(&mut ty_ctx);
-            visitor.visit_func_body(&mut ast);
-            visitor.finish().unwrap();
+            crate::passes::desugar_blocks::run(&mut ast.value, &mut ty_ctx).unwrap();
 
             let mut vm_after = AstVm::new().with_max_iterations(1000);
             vm_after.run(&ast.0);

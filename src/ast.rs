@@ -586,15 +586,16 @@ impl<S: AsRef<[u8]>> Sp<LitString<S>> {
 
 /// Trait for using [`Visit`] and [`VisitMut`] in a generic context.
 ///
-/// Each method of [`Visit`] and [`VisitMut`] operates on a single type of AST node.
-/// However, sometimes you may find that a function implemented with a Visitor could benefit
-/// from being reused on different types of nodes (e.g. a visitor that collects all of the
-/// variables mentioned in an [`Stmt`] may also be useful when applied to an [`Expr`]).
-/// In that case, you can use this trait.
-///
-/// The methods on this trait will very simply just statically dispatch to the appropriate method
+/// The methods on this trait very simply just statically dispatch to the appropriate method
 /// on those other traits.  E.g. if the node is an [`Item`] then [`Visitable::visit_with`] will
 /// call the [`Visit::visit_item`] method, and etc.
+///
+/// The public API for most passes in [`crate::passes`] is a function with a bound on this trait,
+/// because this is a lot nicer than directly exposing the visitors.  In particular, it saves the
+/// caller from needing to import traits, or from having to worry about whether the visitor has a
+/// method that they need to call in order to find out if an error occurred.
+///
+/// Note: For [`Block`], this specifically dispatches to [`Visit::visit_root_block`].
 pub trait Visitable {
     /// Calls the method of [`Visit`] appropriate to this type, e.g. [`Visit::visit_expr`]
     /// if `Self` is an `Expr`.
@@ -613,8 +614,16 @@ macro_rules! generate_visitor_stuff {
             fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
             ///
+            /// Overriding this is useful for things that need to know the full contents of a function
+            /// (e.g. things that deal with labels). It also lets the visitor know if it is about to
+            /// enter a nested function (if those ever become a thing).
+            ///
+            /// The implementation of [`Visitable`] for [`Block`] calls this instead of [`Self::visit_block`].
+            /// The reasoning behind this is that any visitor which does override [`Self::visit_root_block`] is
+            /// likely to only ever be used on blocks that do in fact represent a full function body.
+            ///
             /// The default definition simply delegates to [`Self::visit_block`].
-            fn visit_func_body(&mut self, e: & $($mut)? Block) { self.visit_block(e) }
+            fn visit_root_block(&mut self, e: & $($mut)? Block) { self.visit_block(e) }
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
@@ -639,11 +648,11 @@ macro_rules! generate_visitor_stuff {
                     code, inline: _, keyword: _, name: _, params: _,
                 } => {
                     if let Some(code) = code {
-                        v.visit_func_body(code);
+                        v.visit_root_block(code);
                     }
                 },
                 Item::AnmScript { number: _, name: _, code } => {
-                    v.visit_func_body(code);
+                    v.visit_root_block(code);
                 },
                 Item::Meta { .. } => {},
                 Item::FileList { .. } => {},
@@ -788,7 +797,7 @@ macro_rules! impl_visitable {
 }
 impl_visitable!(Script, visit_script);
 impl_visitable!(Sp<Item>, visit_item);
-impl_visitable!(Block, visit_block);
+impl_visitable!(Block, visit_root_block);
 impl_visitable!(Sp<Cond>, visit_cond);
 impl_visitable!(Sp<Stmt>, visit_stmt);
 impl_visitable!(Sp<Expr>, visit_expr);

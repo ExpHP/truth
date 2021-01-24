@@ -80,31 +80,6 @@ impl TypeSystem {
         }
     }
 
-    /// Resolve names in a script parsed from text, replacing all variables with unique [`VarId`]s.
-    ///
-    /// After calling this, information containing the names and declared types of all variables
-    /// will be stored on the [`Variables`] type.
-    pub fn resolve_names<A: ast::Visitable>(&mut self, ast: &mut A) -> Result<(), CompileError> {
-        let mut v = crate::var::ResolveVarsVisitor::new(&mut self.variables);
-        ast.visit_mut_with(&mut v);
-        v.finish()
-    }
-
-    /// Convert [`VarId`]s in the AST back into their original identifiers.
-    ///
-    /// When used on decompiled code from a binary file, this will typically just replace raw register
-    /// access with their mapfile aliases (e.g. from `[10004]` to `I3`).
-    ///
-    /// It can also be used on partially-compiled source code, though *this particular usage is only supported
-    /// strictly for testing and debugging purposes.*  In this case, setting `append_ids` to `true` will rename
-    /// local variables from `x` to e.g. `x_3` by appending their [`LocalId`], enabling them to be differentiated
-    /// by scope.  Note that compiler-generated temporaries may render as something unusual.
-    pub fn unresolve_names<A: ast::Visitable>(&self, ast: &mut A, append_ids: bool) -> Result<(), CompileError> {
-        let mut v = unresolve_names::Visitor::new(self, append_ids);
-        ast.visit_mut_with(&mut v);
-        v.finish()
-    }
-
     /// Get the effective type of a variable at a place where it is referenced.
     ///
     /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be
@@ -202,39 +177,6 @@ impl TypeSystem {
                 primary(expr, "string in expression"),
             )),
             ast::Expr::Var(var) => self.var_read_type_from_ast(var),
-        }
-    }
-}
-
-// --------------------------------------------
-
-mod unresolve_names {
-    use super::*;
-
-    /// Visitor for "unresolving" local variables and recovering their original names.
-    pub struct Visitor<'ts> {
-        ty_ctx: &'ts TypeSystem,
-        append_ids: bool,
-        errors: CompileError,
-    }
-
-    impl<'ts> Visitor<'ts> {
-        pub fn new(ty_ctx: &'ts TypeSystem, append_ids: bool) -> Self {
-            Visitor { ty_ctx, append_ids, errors: CompileError::new_empty() }
-        }
-        pub fn finish(self) -> Result<(), CompileError> { self.errors.into_result(()) }
-    }
-
-    impl ast::VisitMut for Visitor<'_> {
-        fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
-            if let ast::Var::Resolved { ty_sigil: _, var_id } = var.value {
-                // FIXME this seems weird because we ought to just be able to reuse ty_sigil in the output,
-                //       but 'var_read_type_from_ast' seems to require a definite type.
-                match self.ty_ctx.var_read_type_from_ast(var) {
-                    Ok(ty) => var.value = self.ty_ctx.var_to_ast(var_id, ty, self.append_ids),
-                    Err(e) => self.errors.append(e),
-                }
-            }
         }
     }
 }

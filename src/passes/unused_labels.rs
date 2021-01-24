@@ -7,23 +7,21 @@ use crate::pos::Sp;
 
 /// Removes unused labels from function bodies.
 ///
-/// To use this, you must call a method whose scope is at least as large as [`VisitMut::visit_func_body`].
-pub struct Visitor {
+/// To use this, you must call a method whose scope is at least as large as [`VisitMut::visit_root_block`].
+pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), CompileError> {
+    let mut visitor = Visitor { used_labels_stack: vec![] };
+    ast.visit_mut_with(&mut visitor);
+    Ok(())
+}
+
+struct Visitor {
     // This is a stack.  If we ever get nested functions this might become relevant,
     // but for now this is always 0 to 1 elements.
     used_labels_stack: Vec<HashSet<Ident>>,
 }
 
-impl Visitor {
-    pub fn new() -> Self {
-        Visitor { used_labels_stack: vec![] }
-    }
-
-    pub fn finish(self) -> Result<(), CompileError> { Ok(()) }
-}
-
 impl VisitMut for Visitor {
-    fn visit_func_body(&mut self, func_body: &mut ast::Block) {
+    fn visit_root_block(&mut self, func_body: &mut ast::Block) {
         let used_labels = get_used_labels(func_body);
 
         self.used_labels_stack.push(used_labels);
@@ -67,6 +65,6 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
     }
 
     let mut v = UsedVisitor { labels: HashSet::new() };
-    v.visit_func_body(func_body);
+    v.visit_root_block(func_body);
     v.labels
 }

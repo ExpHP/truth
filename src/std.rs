@@ -269,20 +269,11 @@ fn compile_std(
     use ast::Item;
 
     let script = {
-        use ast::VisitMut;
-
         let mut script = script.clone();
 
-        let mut visitor = crate::passes::const_simplify::Visitor::new();
-        visitor.visit_script(&mut script);
-        visitor.finish()?;
-
-        ty_ctx.resolve_names(&mut script)?;
-
-        let mut visitor = crate::passes::desugar_blocks::Visitor::new(ty_ctx);
-        visitor.visit_script(&mut script);
-        visitor.finish()?;
-
+        crate::passes::const_simplify::run(&mut script)?;
+        crate::passes::resolve_names::run(&mut script, ty_ctx)?;
+        crate::passes::desugar_blocks::run(&mut script, ty_ctx)?;
         script
     };
 

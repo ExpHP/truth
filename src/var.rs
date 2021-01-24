@@ -239,7 +239,8 @@ mod resolve_vars {
     use crate::pos::Sp;
     use crate::error::CompileError;
 
-    /// Visitor for name resolution. Please don't use this directly, but instead call [`crate::type_system::TypeSystem::resolve_names`].
+    /// Visitor for name resolution. Please don't use this directly,
+    /// but instead call [`crate::passes::resolve_names::run`].
     pub struct Visitor<'ts> {
         resolver: NameResolver,
         stack: Vec<BlockState>,
@@ -400,7 +401,7 @@ mod tests {
         ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap());
 
         let mut parsed_block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
-        match ty_ctx.resolve_names(&mut parsed_block) {
+        match crate::passes::resolve_names::run(&mut parsed_block, &mut ty_ctx) {
             Ok(()) => Ok((ty_ctx, parsed_block)),
             Err(e) => Err((files, e)),
         }
@@ -408,7 +409,7 @@ mod tests {
 
     fn resolve_reformat(text: &str) -> String {
         let (ty_ctx, mut parsed_block) = resolve(text).unwrap();
-        ty_ctx.unresolve_names(&mut parsed_block, true).unwrap();
+        crate::passes::resolve_names::unresolve(&mut parsed_block, true, &ty_ctx).unwrap();
         crate::fmt::stringify(&parsed_block)
     }
 

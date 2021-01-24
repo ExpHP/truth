@@ -282,20 +282,11 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
     let instr_format = format.instr_format();
 
     let ast = {
-        use ast::VisitMut;
-
         let mut ast = ast.clone();
 
-        let mut visitor = crate::passes::const_simplify::Visitor::new();
-        visitor.visit_script(&mut ast);
-        visitor.finish()?;
-
-        ty_ctx.resolve_names(&mut ast)?;
-
-        let mut visitor = crate::passes::desugar_blocks::Visitor::new(ty_ctx);
-        visitor.visit_script(&mut ast);
-        visitor.finish()?;
-
+        crate::passes::const_simplify::run(&mut ast)?;
+        crate::passes::resolve_names::run(&mut ast, ty_ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ty_ctx)?;
         ast
     };
 
@@ -327,7 +318,7 @@ fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> R
         }
     }
     match cur_entry {
-        None => return Err(error!("empty ANM file")),
+        None => return Err(error!("empty ANM script")),
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
     }
 

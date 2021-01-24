@@ -10,32 +10,29 @@ use crate::ident::Ident;
 use crate::pos::Sp;
 
 /// Decompiles `if { ... } else if { ... } else { ... }` chains.
-pub struct IfElseVisitor {
-    // whole-function-body label refcounts at the beginning of the procedure
-    label_refcounts_stack: Vec<HashMap<Ident, u32>>,
-}
-
-impl IfElseVisitor {
-    pub fn new() -> Self { IfElseVisitor { label_refcounts_stack: vec![] } }
-    pub fn finish(self) -> Result<(), SimpleError> { Ok(()) }
+pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V) -> Result<(), SimpleError> {
+    let mut visitor = IfElseVisitor { label_refcounts_stack: vec![] };
+    ast.visit_mut_with(&mut visitor);
+    Ok(())
 }
 
 /// Decompiles `loop { ... }` and `do { ... } while (<cond>)`.
-pub struct LoopVisitor {
-    // whole-function-body label refcounts at the beginning of the procedure
-    label_refcounts_stack: Vec<HashMap<Ident, u32>>,
-}
-
-impl LoopVisitor {
-    pub fn new() -> Self { LoopVisitor { label_refcounts_stack: vec![] } }
-    pub fn finish(self) -> Result<(), SimpleError> { Ok(()) }
+pub fn decompile_loop<V: ast::Visitable>(ast: &mut V) -> Result<(), SimpleError> {
+    let mut visitor = LoopVisitor { label_refcounts_stack: vec![] };
+    ast.visit_mut_with(&mut visitor);
+    Ok(())
 }
 
 // =============================================================================
 // if-else decompilation
 
+struct IfElseVisitor {
+    // whole-function-body label refcounts at the beginning of the procedure
+    label_refcounts_stack: Vec<HashMap<Ident, u32>>,
+}
+
 impl VisitMut for IfElseVisitor {
-    fn visit_func_body(&mut self, block: &mut ast::Block) {
+    fn visit_root_block(&mut self, block: &mut ast::Block) {
         self.label_refcounts_stack.push(get_label_refcounts(&block.0));
         self.visit_block(block);
         self.label_refcounts_stack.pop();
@@ -238,7 +235,7 @@ fn get_label_refcounts(block: &[Sp<ast::Stmt>]) -> HashMap<Ident, u32> {
         fn visit_goto(&mut self, goto: &ast::StmtGoto) {
             *self.0.entry(goto.destination.value.clone()).or_insert(0) += 1;
         }
-        fn visit_func_body(&mut self, _: &ast::Block) {}  // ignore inner functions
+        fn visit_root_block(&mut self, _: &ast::Block) {}  // ignore inner functions
     }
 
     let mut visitor = Visitor(HashMap::new());
@@ -297,8 +294,13 @@ fn get_interrupt_label_indices(stmts: &[Sp<ast::Stmt>]) -> Vec<usize> {
 
 // =============================================================================
 
+struct LoopVisitor {
+    // whole-function-body label refcounts at the beginning of the procedure
+    label_refcounts_stack: Vec<HashMap<Ident, u32>>,
+}
+
 impl VisitMut for LoopVisitor {
-    fn visit_func_body(&mut self, block: &mut ast::Block) {
+    fn visit_root_block(&mut self, block: &mut ast::Block) {
         self.label_refcounts_stack.push(get_label_refcounts(&block.0));
         self.visit_block(block);
         self.label_refcounts_stack.pop();

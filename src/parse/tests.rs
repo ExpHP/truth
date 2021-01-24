@@ -5,12 +5,8 @@ use crate::parse::Parse;
 use crate::error::CompileError;
 
 fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
-    use crate::ast::VisitMut;
-
     let mut expr = sp!(expr);
-    let mut visitor = crate::passes::const_simplify::Visitor::new();
-    visitor.visit_expr(&mut expr);
-    visitor.finish()?;
+    crate::passes::const_simplify::run(&mut expr)?;
 
     Ok(expr.value)
 }
