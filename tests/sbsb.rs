@@ -21,8 +21,7 @@ use truth::Game;
 use assert_cmd::prelude::*;
 
 struct Format {
-    compile_cmd: &'static str,
-    decompile_cmd: &'static str,
+    cmd: &'static str,
     game: Game,
     /// Make a source file from the contents of a single script.
     make_source: fn(&str) -> String,
@@ -31,7 +30,8 @@ struct Format {
 impl Format {
     fn compile(&self, src: impl AsRef<OsStr>, out: impl AsRef<OsStr>) {
         let output = {
-            Command::cargo_bin(self.compile_cmd).unwrap()
+            Command::cargo_bin(self.cmd).unwrap()
+                .arg("compile")
                 .arg("-g").arg(format!("{}", self.game))
                 .arg(src)
                 .arg("-o").arg(out)
@@ -47,7 +47,8 @@ impl Format {
 
     fn decompile(&self, src: impl AsRef<OsStr>) -> String {
         let output = {
-            Command::cargo_bin(self.decompile_cmd).unwrap()
+            Command::cargo_bin(self.cmd).unwrap()
+                .arg("decompile")
                 .arg("-g").arg(format!("{}", self.game))
                 .arg(src)
                 .output().expect("failed to execute process")
@@ -87,8 +88,7 @@ impl Format {
 }
 
 const ANM_10: Format = Format {
-    compile_cmd: "anm-compile",
-    decompile_cmd: "anm-decompile",
+    cmd: "truanm",
     game: Game::Th10,
     make_source: |body| format!(r#"
 #pragma mapfile "map/any.anmm"
@@ -121,8 +121,7 @@ script script0 {{
 };
 
 const STD_08: Format = Format {
-    compile_cmd: "std-compile",
-    decompile_cmd: "std-decompile",
+    cmd: "trustd",
     game: Game::Th08,
     make_source: |body| format!(r#"
 #pragma mapfile "map/any.stdm"

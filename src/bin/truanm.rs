@@ -1,4 +1,4 @@
-// This binary is just a shim that calls 'truth' with the first argument set.
+// This binary is just a shim that calls 'truth-core' with the first argument set.
 //
 // IMPORTANT: DO NOT USE ANYTHING FROM THE LIB CRATE HERE!
 //
@@ -8,5 +8,5 @@
 mod common;
 
 fn main() {
-    common::run_truth_subcommand("std-decompile");
+    common::run_truth_subcommand("truanm");
 }

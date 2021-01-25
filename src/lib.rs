@@ -45,7 +45,6 @@ mod game;
 
 #[doc(hidden)]
 pub mod cli_def;
-pub mod cli_helper;
 
 pub use var::{RegId, VarId, LocalId, Variables};
 mod var;

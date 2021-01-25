@@ -25,7 +25,8 @@ fn bits_to_bits(
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
     let output = {
-        Command::cargo_bin("std-decompile").unwrap()
+        Command::cargo_bin("trustd").unwrap()
+            .arg("decompile")
             .arg("-g").arg(format!("{}", game))
             .arg("-m").arg(mapfile.as_ref())
             .arg(infile.as_ref().canonicalize().unwrap())
@@ -45,7 +46,8 @@ fn bits_to_bits(
     std::fs::write(temp.join("test.stdspec"), &decompiled).unwrap();
 
     assert!({
-        Command::cargo_bin("std-compile").unwrap()
+        Command::cargo_bin("trustd").unwrap()
+            .arg("compile")
             .arg("-g").arg(format!("{}", game))
             .arg("-m").arg(mapfile.as_ref())
             .arg(temp.join("test.stdspec"))

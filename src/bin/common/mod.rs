@@ -15,12 +15,12 @@ pub fn run_truth_subcommand(subcommand: &str) {
     });
 
     // find a binary named 'truth' in the same dir with the same extension as us
-    let mut truth_path = exe_dir.join("truth");
+    let mut truth_path = exe_dir.join("truth-core");
     if let Some(ext) = exe_path.extension() {
         truth_path = truth_path.with_extension(ext);
     }
     if !truth_path.exists() {
-        eprintln!("ERROR: cannot find 'truth' in '{}'. Exiting.", exe_dir.display());
+        eprintln!("ERROR: cannot find 'truth-core' in '{}'. Exiting.", exe_dir.display());
         std::process::exit(1);
     }
 
@@ -30,7 +30,7 @@ pub fn run_truth_subcommand(subcommand: &str) {
             .args(std::env::args_os().skip(1))
             .status()
             .unwrap_or_else(|e| {
-                eprintln!("ERROR: unable to start 'truth': {}", e);
+                eprintln!("ERROR: unable to start 'truth-core': {}", e);
                 std::process::exit(1);
             })
     };

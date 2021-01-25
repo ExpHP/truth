@@ -44,7 +44,8 @@ fn compile(game: Game, infile: impl AsRef<Path>) -> AnmFile {
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
     let status = {
-        Command::cargo_bin("anm-compile").unwrap()
+        Command::cargo_bin("truanm").unwrap()
+            .arg("compile")
             .arg(infile.as_ref())
             .arg("-g").arg(game.to_string())
             .arg("-o").arg(temp.join("test.anm"))
@@ -62,7 +63,8 @@ fn compile_fail_stderr(game: Game, infile: impl AsRef<Path>) -> String {
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
     let output = {
-        Command::cargo_bin("anm-compile").unwrap()
+        Command::cargo_bin("truanm").unwrap()
+            .arg("compile")
             .arg(infile.as_ref())
             .arg("-g").arg(game.to_string())
             .arg("-o").arg(temp.join("test.anm"))

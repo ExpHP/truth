@@ -15,49 +15,59 @@ use crate::pos::Files;
 pub fn main() -> ! {
     let mut args = std::env::args();
     let _ = args.next();
-
-    let subcommands: Vec<(&str, fn() -> !, bool)> = vec![
-        ("anm-decompile", anm_decompile::main, true),
-        ("anm-compile", anm_compile::main, true),
-        ("anm-redump", anm_redump::main, false),
-        ("anm-benchmark", anm_benchmark::main, false),
-        ("ecl-reformat", ecl_reformat::main, false),
-        ("std-decompile", std_decompile::main, true),
-        ("std-compile", std_compile::main, true),
-    ];
-
-    let err_with_usage = || -> ! {
-        let mut usage_or_align = "usage: ";
-        for &(subcommand, _, public) in &subcommands {
-            if public {
-                eprintln!("{} truth {} ARGS...", usage_or_align, subcommand);
-                usage_or_align = "       ";
-            }
-        }
-        std::process::exit(1);
-    };
-
-    let user_subcommand = args.next().unwrap_or_else(|| err_with_usage());
-    for &(subcommand, function, _) in &subcommands {
-        if subcommand == user_subcommand {
-            function();
-        }
-    }
-
-    err_with_usage();
+    truth_main(&args.collect::<Vec<_>>());
 }
+
+
+pub fn truth_main(args: &[String]) -> ! {
+    cli::parse_subcommand(&args, Subcommands {
+        abbreviations: cli::Abbreviations::Forbid,
+        program: "truth-core",
+        choices: &[
+            SubcommandSpec { name: "truanm", entry: truanm_main, public: true },
+            SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
+            SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
+            SubcommandSpec { name: "ecl-reformat", entry: ecl_reformat::main, public: false },
+        ],
+    })
+}
+
+
+pub fn truanm_main(args: &[String]) -> ! {
+    cli::parse_subcommand(&args, Subcommands {
+        abbreviations: cli::Abbreviations::Allow,
+        program: "truanm",
+        choices: &[
+            SubcommandSpec { name: "decompile", entry: anm_decompile::main, public: true },
+            SubcommandSpec { name: "compile", entry: anm_compile::main, public: true },
+        ],
+    })
+}
+
+
+pub fn trustd_main(args: &[String]) -> ! {
+    cli::parse_subcommand(&args, Subcommands {
+        abbreviations: cli::Abbreviations::Allow,
+        program: "trustdd",
+        choices: &[
+            SubcommandSpec { name: "decompile", entry: std_decompile::main, public: true },
+            SubcommandSpec { name: "compile", entry: std_compile::main, public: true },
+        ],
+    })
+}
+
 
 pub mod ecl_reformat {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
+    pub fn main(argv: &[String]) -> ! {
+        let (input,) = cli::parse_args(argv, CmdSpec {
+            program: "truth-core ecl-reformat",
+            usage_args: "FILE [OPTIONS...]",
+            options: (cli::input(),),
+        });
 
-        let args_pat![input, ] = cli::cli(
-            "FILE [OPTIONS...]", args![cli::input()],
-        );
-
-        wrap_cli(|files| run(files, input));
+        wrap_fancy_errors(|files| run(files, input));
     }
 
     fn run(files: &mut Files, path: impl AsRef<Path>) -> Result<(), CompileError> {
@@ -73,16 +83,15 @@ pub mod ecl_reformat {
 pub mod anm_decompile {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
-
-        let args_pat![input, max_columns, mapfile, game] = cli::cli(
-            "FILE -g GAME [OPTIONS...]",
-            args![cli::input(), cli::max_columns(), cli::mapfile(), cli::game()],
-        );
+    pub fn main(args: &[String]) -> ! {
+        let (input, max_columns, mapfile, game) = cli::parse_args(args, CmdSpec {
+            program: "truanm decompile",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
+        });
 
         let stdout = io::stdout();
-        wrap_cli(|_files| {
+        wrap_fancy_errors(|_files| {
             let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(max_columns);
             run(&mut f, game, &input, mapfile)
         });
@@ -125,18 +134,17 @@ pub mod anm_decompile {
 pub mod anm_compile {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
-
-        let args_pat![script_path, game, output, mapfile, image_sources] = cli::cli(
-            "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
-            args![
+    pub fn main(args: &[String]) -> ! {
+        let (script_path, game, output, mapfile, image_sources) = cli::parse_args(args, CmdSpec {
+            program: "truanm compile",
+            usage_args: "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
+            options: (
                 cli::path_arg("SCRIPT"),
                 cli::game(), cli::required_output(), cli::mapfile(), cli::image_sources(),
-            ],
-        );
+            ),
+        });
 
-        wrap_cli(|files| run(files, game, &script_path, &output, &image_sources, mapfile.as_ref().map(AsRef::as_ref)));
+        wrap_fancy_errors(|files| run(files, game, &script_path, &output, &image_sources, mapfile.as_ref().map(AsRef::as_ref)));
     }
 
     pub(super) fn run(
@@ -195,15 +203,14 @@ pub mod anm_compile {
 pub mod anm_redump {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
+    pub fn main(args: &[String]) -> ! {
+        let (input, output, game) = cli::parse_args(args, CmdSpec {
+            program: "truth-core anm-redump",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::game()),
+        });
 
-        let args_pat![input, output, game] = cli::cli(
-            "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            args![cli::input(), cli::required_output(), cli::game()],
-        );
-
-        wrap_cli(|_| run(game, &input, output))
+        wrap_fancy_errors(|_| run(game, &input, output))
     }
 
     fn run(
@@ -228,18 +235,17 @@ pub mod anm_redump {
 pub mod anm_benchmark {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
-
-        let args_pat![anm_path, script_path, game, output, mapfile] = cli::cli(
-            "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
-            args![
+    pub fn main(args: &[String]) -> ! {
+        let (anm_path, script_path, game, output, mapfile) = cli::parse_args(args, CmdSpec {
+            program: "truth-core anm-benchmark",
+            usage_args: "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
+            options: (
                 cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
                 cli::game(), cli::required_output(), cli::mapfile(),
-            ],
-        );
+            ),
+        });
 
-        wrap_cli(|files| run(files, game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)))
+        wrap_fancy_errors(|files| run(files, game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)))
     }
 
     fn run(
@@ -265,15 +271,14 @@ pub mod anm_benchmark {
 pub mod std_compile {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
+    pub fn main(args: &[String]) -> ! {
+        let (input, output, mapfile, game) = cli::parse_args(args, CmdSpec {
+            program: "trustd compile",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+        });
 
-        let args_pat![input, output, mapfile, game] = cli::cli(
-            "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            args![cli::input(), cli::required_output(), cli::mapfile(), cli::game()],
-        );
-
-        wrap_cli(|files| run(files, game, &input, &output, mapfile.as_ref().map(AsRef::as_ref)));
+        wrap_fancy_errors(|files| run(files, game, &input, &output, mapfile.as_ref().map(AsRef::as_ref)));
     }
 
     fn run(
@@ -315,14 +320,13 @@ pub mod std_compile {
 pub mod std_decompile {
     use super::*;
 
-    pub fn main() -> ! {
-        use crate::{cli_helper as cli, args, args_pat};
-
-        let args_pat![input, max_columns, mapfile, game] = cli::cli(
-            "FILE -g GAME [OPTIONS...]",
-            args![cli::input(), cli::max_columns(), cli::mapfile(), cli::game()],
-        );
-        wrap_cli(|_files| run(game, &input, max_columns, mapfile))
+    pub fn main(args: &[String]) -> ! {
+        let (input, max_columns, mapfile, game) = cli::parse_args(args, CmdSpec {
+            program: "trustd decompile",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
+        });
+        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile))
     }
 
     fn run(
@@ -360,6 +364,8 @@ pub mod std_decompile {
     }
 }
 
+// =============================================================================
+
 fn fs_open(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
     fs::File::open(path.as_ref()).with_context(|| format!("while opening file: {}", path.as_ref().display()))
 }
@@ -370,13 +376,335 @@ fn fs_create(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
     fs::File::create(path.as_ref()).with_context(|| format!("creating file '{}'", path.as_ref().display()))
 }
 
-fn wrap_cli(func: impl FnOnce(&mut Files) -> Result<(), CompileError>) -> ! {
+fn wrap_fancy_errors(func: impl FnOnce(&mut Files) -> Result<(), CompileError>) -> ! {
     let mut files = Files::new();
     match func(&mut files) {
         Ok(()) => std::process::exit(0),
         Err(mut e) => {
             let _ = e.emit(&files);
             std::process::exit(1);
+        }
+    }
+}
+
+// =============================================================================
+
+use cli::{CmdSpec, Subcommands, SubcommandSpec};
+
+// FIXME: This stuff is still disgustingly overengineered and I hate it.
+mod cli {
+    use super::*;
+    use anyhow::anyhow;
+    use getopts::{Options, Matches};
+
+    pub fn mapfile() -> impl CliArg<Value=Option<PathBuf>> { opts::PathOpt(opts::Opt {
+        short: "m", long: "map", metavar: "MAPFILE",
+        help: "use a mapfile to translate instruction names and argument types",
+    })}
+    pub fn required_output() -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::ReqOpt(opts::Opt {
+        short: "o", long: "output", metavar: "OUTPUT",
+        help: "output file",
+    }))}
+    pub fn max_columns() -> impl CliArg<Value=usize> { opts::MaxColumnsOpt }
+    pub fn game() -> impl CliArg<Value=Game> { opts::GameOpt }
+    pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::Positional { metavar: s }) }
+    pub fn input() -> impl CliArg<Value=PathBuf> { path_arg("INPUT") }
+    pub fn image_sources() -> impl CliArg<Value=Vec<PathBuf>> { opts::ImageSrcOpt }
+
+    pub enum Abbreviations { Allow, Forbid }
+
+    pub struct CmdSpec<A> {
+        pub program: &'static str,
+        pub usage_args: &'static str,
+        pub options: A,
+    }
+
+    pub fn parse_args<A: CliArg>(
+        args: &[String],
+        CmdSpec { program, usage_args, options }: CmdSpec<A>,
+    ) -> A::Value {
+        match _parse_args(args, options) {
+            Ok(arg_values) => arg_values,
+
+            Err(ParseError::PrintHelp(opts)) => {
+                print_help(&program, usage_args, &opts);
+                std::process::exit(0);
+            },
+
+            Err(ParseError::PrintVersion) => {
+                print_version();
+                std::process::exit(0);
+            },
+
+            Err(ParseError::Error(e)) => {
+                print_usage(&program, usage_args);
+                eprintln!();
+
+                let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
+                CompileError::from(e).emit_nospans();
+                std::process::exit(1);
+            },
+        }
+    }
+
+    pub struct Subcommands {
+        pub program: &'static str,
+        pub abbreviations: Abbreviations,
+        pub choices: &'static [SubcommandSpec],
+    }
+
+    pub struct SubcommandSpec {
+        pub name: &'static str,
+        pub entry: fn(&[String]) -> !,
+
+        /// Whether to show in usage.
+        pub public: bool,
+    }
+
+    pub fn parse_subcommand(
+        args: &[String],
+        subcommands: Subcommands,
+    ) -> ! {
+        match _parse_args(&args, &subcommands) {
+            // parsing will automatically call the subcommand so this is unreachable...
+            Ok(never) => match never {},
+
+            Err(ParseError::PrintHelp(_)) => {
+                subcommands.show_usage();
+                std::process::exit(0);
+            },
+
+            Err(ParseError::PrintVersion) => {
+                print_version();
+                std::process::exit(0);
+            },
+
+            Err(ParseError::Error(e)) => {
+                subcommands.show_usage();
+                eprintln!();
+
+                let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
+                CompileError::from(e).emit_nospans();
+                std::process::exit(1);
+            },
+        }
+    }
+
+    fn print_usage(program: &str, usage_args: &str) {
+        eprintln!("Usage: {} {}", program, usage_args);
+    }
+    fn print_help(program: &str, usage_args: &str, opts: &getopts::Options) {
+        eprint!("{}", opts.usage(&format!("Usage: {} {}", program, usage_args)));
+    }
+    fn print_version() {
+        eprintln!("truth {}", git_version::git_version!());
+    }
+
+    pub type ArgError = SimpleError;
+    pub trait CliArg {
+        type Value;
+        fn add_to_options(&self, opts: &mut getopts::Options);
+        /// NOTE: `matches.free` is in reverse order, so you can call `Vec::pop` to extract them.
+        fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError>;
+    }
+
+    impl<A: CliArg> CliArg for &A {
+        type Value = A::Value;
+
+        fn add_to_options(&self, opts: &mut Options) {
+            (**self).add_to_options(opts)
+        }
+        fn extract_value(&self, matches: &mut Matches) -> Result<Self::Value, ArgError> {
+            (**self).extract_value(matches)
+        }
+    }
+
+    enum ParseError { Error(ArgError), PrintHelp(getopts::Options), PrintVersion }
+
+    // factors out the parts where we want usage with errors
+    fn _parse_args<A: CliArg>(args: &[String], arg_parsers: A) -> Result<A::Value, ParseError> {
+        let mut opts = getopts::Options::new();
+        opts.optflag("h", "help", "print this help menu");
+        opts.optflag("", "version", "print version info");
+        arg_parsers.add_to_options(&mut opts);
+
+        let mut matches = opts.parse(args).map_err(|e| ParseError::Error(anyhow!("{}", e)))?;
+        if matches.opt_present("h") {
+            return Err(ParseError::PrintHelp(opts));
+        }
+        if matches.opt_present("version") {
+            return Err(ParseError::PrintVersion);
+        }
+
+        matches.free.reverse();
+
+        let out = arg_parsers.extract_value(&mut matches).map_err(ParseError::Error)?;
+
+        if let Some(unexpected_pos) = matches.free.pop() {
+            return Err(ParseError::Error(anyhow!("unexpected positional: {:?}", unexpected_pos)));
+        }
+
+        Ok(out)
+    }
+
+    macro_rules! impl_args_tuple {
+        () => {};
+        ($a0:ident : $A0:ident $(, $a:ident : $A:ident)*) => {
+            impl_args_tuple!(@one $a0: $A0 $(, $a: $A)*);
+            impl_args_tuple!($($a: $A),*);
+        };
+        (@one $($a:ident : $A:ident),+) => {
+            impl<$($A: CliArg),+> CliArg for ( $($A,)+ ) {
+                type Value = ( $($A::Value,)+ );
+
+                fn add_to_options(&self, options: &mut getopts::Options) {
+                    let ( $($a,)+ ) = self;
+                    $( $a.add_to_options(options); )+
+                }
+
+                fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                    let ( $($a,)+ ) = self;
+                    $( let $a = $a.extract_value(matches)?; )+
+                    Ok(( $($a,)+ ))
+                }
+            }
+        }
+    }
+    impl_args_tuple!(a:A, b:B, c:C, d:D, e:E, f:F, g:G, h:H, i:I, j:J);
+
+    pub enum Never {}
+
+    impl CliArg for Subcommands {
+        type Value = Never;
+
+        fn add_to_options(&self, opts: &mut getopts::Options) {
+            opts.parsing_style(getopts::ParsingStyle::StopAtFirstFree);
+        }
+
+        fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+            let selection = matches.free.pop().ok_or_else(|| anyhow!("please choose a subcommand"))?;
+            matches.free.reverse();  // back into forwards order
+            let remaining_args = &matches.free;
+
+            let is_applicable: Box<dyn Fn(&str) -> bool> = match self.abbreviations {
+                Abbreviations::Allow => Box::new(|name| name.starts_with(&selection)),
+                Abbreviations::Forbid => Box::new(|name| name == &selection),
+            };
+
+            let choices = self.choices.iter().filter(|choice| is_applicable(choice.name)).collect::<Vec<_>>();
+            match choices.len() {
+                0 => anyhow::bail!("invalid subcommand '{}'", selection),
+                1 => {},
+                _ => anyhow::bail!("ambiguous subcommand '{}'", selection),
+            };
+
+            (choices.into_iter().next().unwrap().entry)(remaining_args)
+        }
+    }
+
+    impl Subcommands {
+        pub fn show_usage(&self) {
+            let mut usage_or_align = "usage: ";
+            for choice in self.choices {
+                if choice.public {
+                    eprintln!("{} {} {} ARGS...", usage_or_align, self.program, choice.name);
+                    usage_or_align = "       ";
+                }
+            }
+        }
+    }
+
+    pub mod opts {
+        pub use super::*;
+
+        pub struct Opt {
+            pub short: &'static str,
+            pub long: &'static str,
+            pub metavar: &'static str,
+            pub help: &'static str
+        }
+        impl CliArg for Opt {
+            type Value = Option<String>;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.optopt(self.short, self.long, self.help, self.metavar);
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                matches.opt_get(self.long).map_err(|e| anyhow!("{}", e))
+            }
+        }
+
+        pub struct ReqOpt(pub Opt);
+        impl CliArg for ReqOpt {
+            type Value = String;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.reqopt(self.0.short, self.0.long, self.0.help, self.0.metavar);
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                self.0.extract_value(matches).map(Option::unwrap)
+            }
+        }
+
+        pub struct Positional {
+            pub metavar: &'static str,
+        }
+        impl CliArg for Positional {
+            type Value = String;
+            fn add_to_options(&self, _: &mut getopts::Options) {}
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                matches.free.pop().ok_or_else(|| anyhow!("missing required positional arg {}", self.metavar))
+            }
+        }
+
+        pub struct PathOpt<Inner>(pub Inner);
+        impl<Inner: CliArg<Value=Option<String>>> CliArg for PathOpt<Inner> {
+            type Value = Option<PathBuf>;
+            fn add_to_options(&self, opts: &mut getopts::Options) { self.0.add_to_options(opts) }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                self.0.extract_value(matches).map(|opt| opt.map(Into::into))
+            }
+        }
+
+        pub struct ReqPathOpt<Inner>(pub Inner);
+        impl<Inner: CliArg<Value=String>> CliArg for ReqPathOpt<Inner> {
+            type Value = PathBuf;
+            fn add_to_options(&self, opts: &mut getopts::Options) { self.0.add_to_options(opts) }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                self.0.extract_value(matches).map(Into::into)
+            }
+        }
+
+        pub struct ImageSrcOpt;
+        impl CliArg for ImageSrcOpt {
+            type Value = Vec<PathBuf>;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.optmulti("i", "image-source", "", "GAME");
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                Ok(matches.opt_strs("image-source").into_iter().map(Into::into).collect())
+            }
+        }
+
+        pub struct GameOpt;
+        impl CliArg for GameOpt {
+            type Value = Game;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.reqopt("g", "game", "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.", "GAME");
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                matches.opt_get("game").map(Option::unwrap).map_err(|e| anyhow!("{}", e))
+            }
+        }
+
+        pub struct MaxColumnsOpt;
+        impl CliArg for MaxColumnsOpt {
+            type Value = usize;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.optopt("", "max-columns", "where possible, will attempt to break lines for < NUM columns", "NUM");
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                matches.opt_get("max-columns").map_err(|e| anyhow!("{}", e))
+                    .map(|opt| opt.unwrap_or(100))
+            }
         }
     }
 }
