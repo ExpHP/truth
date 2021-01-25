@@ -12,15 +12,18 @@ use crate::game::Game;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::Files;
 
-pub fn main() -> ! {
+pub fn main(version: &str) -> ! {
     let mut args = std::env::args();
     let _ = args.next();
-    truth_main(&args.collect::<Vec<_>>());
+    truth_main(version, &args.collect::<Vec<_>>());
 }
 
 
-pub fn truth_main(args: &[String]) -> ! {
-    cli::parse_subcommand(&args, Subcommands {
+type EntryPoint = fn(version: &str, args: &[String]) -> !;
+
+
+pub fn truth_main(version: &str, args: &[String]) -> ! {
+    cli::parse_subcommand(version, &args, Subcommands {
         abbreviations: cli::Abbreviations::Forbid,
         program: "truth-core",
         choices: &[
@@ -33,8 +36,8 @@ pub fn truth_main(args: &[String]) -> ! {
 }
 
 
-pub fn truanm_main(args: &[String]) -> ! {
-    cli::parse_subcommand(&args, Subcommands {
+pub fn truanm_main(version: &str, args: &[String]) -> ! {
+    cli::parse_subcommand(version, &args, Subcommands {
         abbreviations: cli::Abbreviations::Allow,
         program: "truanm",
         choices: &[
@@ -45,8 +48,8 @@ pub fn truanm_main(args: &[String]) -> ! {
 }
 
 
-pub fn trustd_main(args: &[String]) -> ! {
-    cli::parse_subcommand(&args, Subcommands {
+pub fn trustd_main(version: &str, args: &[String]) -> ! {
+    cli::parse_subcommand(version, &args, Subcommands {
         abbreviations: cli::Abbreviations::Allow,
         program: "trustdd",
         choices: &[
@@ -60,8 +63,8 @@ pub fn trustd_main(args: &[String]) -> ! {
 pub mod ecl_reformat {
     use super::*;
 
-    pub fn main(argv: &[String]) -> ! {
-        let (input,) = cli::parse_args(argv, CmdSpec {
+    pub fn main(version: &str, argv: &[String]) -> ! {
+        let (input,) = cli::parse_args(version, argv, CmdSpec {
             program: "truth-core ecl-reformat",
             usage_args: "FILE [OPTIONS...]",
             options: (cli::input(),),
@@ -83,8 +86,8 @@ pub mod ecl_reformat {
 pub mod anm_decompile {
     use super::*;
 
-    pub fn main(args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game) = cli::parse_args(args, CmdSpec {
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, max_columns, mapfile, game) = cli::parse_args(version, args, CmdSpec {
             program: "truanm decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
             options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
@@ -134,8 +137,8 @@ pub mod anm_decompile {
 pub mod anm_compile {
     use super::*;
 
-    pub fn main(args: &[String]) -> ! {
-        let (script_path, game, output, mapfile, image_sources) = cli::parse_args(args, CmdSpec {
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (script_path, game, output, mapfile, image_sources) = cli::parse_args(version, args, CmdSpec {
             program: "truanm compile",
             usage_args: "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
@@ -203,8 +206,8 @@ pub mod anm_compile {
 pub mod anm_redump {
     use super::*;
 
-    pub fn main(args: &[String]) -> ! {
-        let (input, output, game) = cli::parse_args(args, CmdSpec {
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core anm-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
             options: (cli::input(), cli::required_output(), cli::game()),
@@ -235,8 +238,8 @@ pub mod anm_redump {
 pub mod anm_benchmark {
     use super::*;
 
-    pub fn main(args: &[String]) -> ! {
-        let (anm_path, script_path, game, output, mapfile) = cli::parse_args(args, CmdSpec {
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (anm_path, script_path, game, output, mapfile) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core anm-benchmark",
             usage_args: "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
@@ -271,8 +274,8 @@ pub mod anm_benchmark {
 pub mod std_compile {
     use super::*;
 
-    pub fn main(args: &[String]) -> ! {
-        let (input, output, mapfile, game) = cli::parse_args(args, CmdSpec {
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
             program: "trustd compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
             options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
@@ -320,8 +323,8 @@ pub mod std_compile {
 pub mod std_decompile {
     use super::*;
 
-    pub fn main(args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game) = cli::parse_args(args, CmdSpec {
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, max_columns, mapfile, game) = cli::parse_args(version, args, CmdSpec {
             program: "trustd decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
             options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
@@ -391,25 +394,51 @@ fn wrap_fancy_errors(func: impl FnOnce(&mut Files) -> Result<(), CompileError>) 
 
 use cli::{CmdSpec, Subcommands, SubcommandSpec};
 
-// FIXME: This stuff is still disgustingly overengineered and I hate it.
 mod cli {
     use super::*;
     use anyhow::anyhow;
     use getopts::{Options, Matches};
 
-    pub fn mapfile() -> impl CliArg<Value=Option<PathBuf>> { opts::PathOpt(opts::Opt {
-        short: "m", long: "map", metavar: "MAPFILE",
-        help: "use a mapfile to translate instruction names and argument types",
-    })}
-    pub fn required_output() -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::ReqOpt(opts::Opt {
-        short: "o", long: "output", metavar: "OUTPUT",
-        help: "output file",
-    }))}
-    pub fn max_columns() -> impl CliArg<Value=usize> { opts::MaxColumnsOpt }
-    pub fn game() -> impl CliArg<Value=Game> { opts::GameOpt }
-    pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> { opts::ReqPathOpt(opts::Positional { metavar: s }) }
+    pub fn mapfile() -> impl CliArg<Value=Option<PathBuf>> {
+        opts::Opt {
+            short: "m", long: "map", metavar: "MAPFILE",
+            help: "use a mapfile to translate instruction names and argument types",
+        }.map(|opt| opt.map(Into::into))
+    }
+
+    pub fn required_output() -> impl CliArg<Value=PathBuf> {
+        opts::ReqOpt(opts::Opt {
+            short: "o", long: "output", metavar: "OUTPUT",
+            help: "output file",
+        }).map(Into::into)
+    }
+
+    pub fn game() -> impl CliArg<Value=Game> {
+        opts::ReqOpt(opts::Opt {
+            short: "g", long: "game", metavar: "GAME",
+            help: "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.",
+        }).and_then(|s| s.parse().map_err(Into::into))
+    }
+
+    pub fn max_columns() -> impl CliArg<Value=usize> {
+        opts::Opt {
+            short: "", long: "max-columns", metavar: "NUM",
+            help: "where possible, will attempt to break lines for < NUM columns",
+        }.and_then(|s| s.unwrap_or_else(|| "100".to_string()).parse().map_err(Into::into))
+    }
+
+    pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> {
+        opts::Positional { metavar: s }.map(Into::into)
+    }
+
     pub fn input() -> impl CliArg<Value=PathBuf> { path_arg("INPUT") }
-    pub fn image_sources() -> impl CliArg<Value=Vec<PathBuf>> { opts::ImageSrcOpt }
+
+    pub fn image_sources() -> impl CliArg<Value=Vec<PathBuf>> {
+        opts::MultiOpt(opts::Opt {
+            short: "i", long: "image-source", metavar: "ANMFILE",
+            help: "supply an existing ANM file to copy any missing embedded images and header data from",
+        }).map(|strs| strs.into_iter().map(Into::into).collect())
+    }
 
     pub enum Abbreviations { Allow, Forbid }
 
@@ -420,6 +449,7 @@ mod cli {
     }
 
     pub fn parse_args<A: CliArg>(
+        version: &str,
         args: &[String],
         CmdSpec { program, usage_args, options }: CmdSpec<A>,
     ) -> A::Value {
@@ -432,7 +462,7 @@ mod cli {
             },
 
             Err(ParseError::PrintVersion) => {
-                print_version();
+                print_version(version);
                 std::process::exit(0);
             },
 
@@ -455,19 +485,20 @@ mod cli {
 
     pub struct SubcommandSpec {
         pub name: &'static str,
-        pub entry: fn(&[String]) -> !,
+        pub entry: EntryPoint,
 
         /// Whether to show in usage.
         pub public: bool,
     }
 
     pub fn parse_subcommand(
+        version: &str,
         args: &[String],
         subcommands: Subcommands,
     ) -> ! {
         match _parse_args(&args, &subcommands) {
             // parsing will automatically call the subcommand so this is unreachable...
-            Ok(never) => match never {},
+            Ok((entry_point, remaining_args)) => entry_point(version, &remaining_args),
 
             Err(ParseError::PrintHelp(_)) => {
                 subcommands.show_usage();
@@ -475,7 +506,7 @@ mod cli {
             },
 
             Err(ParseError::PrintVersion) => {
-                print_version();
+                print_version(version);
                 std::process::exit(0);
             },
 
@@ -496,8 +527,8 @@ mod cli {
     fn print_help(program: &str, usage_args: &str, opts: &getopts::Options) {
         eprint!("{}", opts.usage(&format!("Usage: {} {}", program, usage_args)));
     }
-    fn print_version() {
-        eprintln!("truth {}", git_version::git_version!());
+    fn print_version(version: &str) {
+        eprintln!("truth {}", version);
     }
 
     pub type ArgError = SimpleError;
@@ -506,6 +537,42 @@ mod cli {
         fn add_to_options(&self, opts: &mut getopts::Options);
         /// NOTE: `matches.free` is in reverse order, so you can call `Vec::pop` to extract them.
         fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError>;
+
+        fn map<B, F: Fn(Self::Value) -> B>(self, func: F) -> Map<Self, F>
+        where
+            Self: Sized,
+            F: Fn(Self::Value) -> B,
+        { Map(self, func) }
+
+        fn and_then<B, F>(self, func: F) -> AndThen<Self, F>
+        where
+            Self: Sized,
+            F: Fn(Self::Value) -> Result<B, ArgError>,
+        { AndThen(self, func) }
+    }
+
+    pub struct Map<A, F>(A, F);
+    impl<A: CliArg, B, F: Fn(A::Value) -> B> CliArg for Map<A, F> {
+        type Value = B;
+
+        fn add_to_options(&self, opts: &mut Options) {
+            self.0.add_to_options(opts)
+        }
+        fn extract_value(&self, matches: &mut Matches) -> Result<Self::Value, ArgError> {
+            self.0.extract_value(matches).map(&self.1)
+        }
+    }
+
+    pub struct AndThen<A, F>(A, F);
+    impl<A: CliArg, B, F: Fn(A::Value) -> Result<B, ArgError>> CliArg for AndThen<A, F> {
+        type Value = B;
+
+        fn add_to_options(&self, opts: &mut Options) {
+            self.0.add_to_options(opts)
+        }
+        fn extract_value(&self, matches: &mut Matches) -> Result<Self::Value, ArgError> {
+            self.0.extract_value(matches).and_then(&self.1)
+        }
     }
 
     impl<A: CliArg> CliArg for &A {
@@ -572,10 +639,8 @@ mod cli {
     }
     impl_args_tuple!(a:A, b:B, c:C, d:D, e:E, f:F, g:G, h:H, i:I, j:J);
 
-    pub enum Never {}
-
     impl CliArg for Subcommands {
-        type Value = Never;
+        type Value = (EntryPoint, Vec<String>);
 
         fn add_to_options(&self, opts: &mut getopts::Options) {
             opts.parsing_style(getopts::ParsingStyle::StopAtFirstFree);
@@ -584,7 +649,7 @@ mod cli {
         fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
             let selection = matches.free.pop().ok_or_else(|| anyhow!("please choose a subcommand"))?;
             matches.free.reverse();  // back into forwards order
-            let remaining_args = &matches.free;
+            let remaining_args = matches.free.drain(..).collect();
 
             let is_applicable: Box<dyn Fn(&str) -> bool> = match self.abbreviations {
                 Abbreviations::Allow => Box::new(|name| name.starts_with(&selection)),
@@ -598,7 +663,8 @@ mod cli {
                 _ => anyhow::bail!("ambiguous subcommand '{}'", selection),
             };
 
-            (choices.into_iter().next().unwrap().entry)(remaining_args)
+            let entry_point = choices.into_iter().next().unwrap().entry;
+            Ok((entry_point, remaining_args))
         }
     }
 
@@ -637,10 +703,23 @@ mod cli {
         impl CliArg for ReqOpt {
             type Value = String;
             fn add_to_options(&self, opts: &mut getopts::Options) {
-                opts.reqopt(self.0.short, self.0.long, self.0.help, self.0.metavar);
+                // NOTE: Don't use reqopt because it will trigger error messages even if `--help` and `--version` are provided.
+                //       (seriously, why aren't those two options built into getopts?!)
+                opts.optopt(self.0.short, self.0.long, self.0.help, self.0.metavar);
             }
             fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                self.0.extract_value(matches).map(Option::unwrap)
+                self.0.extract_value(matches).and_then(|opt| opt.ok_or_else(|| anyhow!("missing required option '--{}'", self.0.long)))
+            }
+        }
+
+        pub struct MultiOpt(pub Opt);
+        impl CliArg for MultiOpt {
+            type Value = Vec<String>;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.optmulti(self.0.short, self.0.long, self.0.help, self.0.metavar);
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                Ok(matches.opt_strs(self.0.long))
             }
         }
 
@@ -652,58 +731,6 @@ mod cli {
             fn add_to_options(&self, _: &mut getopts::Options) {}
             fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
                 matches.free.pop().ok_or_else(|| anyhow!("missing required positional arg {}", self.metavar))
-            }
-        }
-
-        pub struct PathOpt<Inner>(pub Inner);
-        impl<Inner: CliArg<Value=Option<String>>> CliArg for PathOpt<Inner> {
-            type Value = Option<PathBuf>;
-            fn add_to_options(&self, opts: &mut getopts::Options) { self.0.add_to_options(opts) }
-            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                self.0.extract_value(matches).map(|opt| opt.map(Into::into))
-            }
-        }
-
-        pub struct ReqPathOpt<Inner>(pub Inner);
-        impl<Inner: CliArg<Value=String>> CliArg for ReqPathOpt<Inner> {
-            type Value = PathBuf;
-            fn add_to_options(&self, opts: &mut getopts::Options) { self.0.add_to_options(opts) }
-            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                self.0.extract_value(matches).map(Into::into)
-            }
-        }
-
-        pub struct ImageSrcOpt;
-        impl CliArg for ImageSrcOpt {
-            type Value = Vec<PathBuf>;
-            fn add_to_options(&self, opts: &mut getopts::Options) {
-                opts.optmulti("i", "image-source", "", "GAME");
-            }
-            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                Ok(matches.opt_strs("image-source").into_iter().map(Into::into).collect())
-            }
-        }
-
-        pub struct GameOpt;
-        impl CliArg for GameOpt {
-            type Value = Game;
-            fn add_to_options(&self, opts: &mut getopts::Options) {
-                opts.reqopt("g", "game", "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.", "GAME");
-            }
-            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                matches.opt_get("game").map(Option::unwrap).map_err(|e| anyhow!("{}", e))
-            }
-        }
-
-        pub struct MaxColumnsOpt;
-        impl CliArg for MaxColumnsOpt {
-            type Value = usize;
-            fn add_to_options(&self, opts: &mut getopts::Options) {
-                opts.optopt("", "max-columns", "where possible, will attempt to break lines for < NUM columns", "NUM");
-            }
-            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                matches.opt_get("max-columns").map_err(|e| anyhow!("{}", e))
-                    .map(|opt| opt.unwrap_or(100))
             }
         }
     }

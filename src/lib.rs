@@ -130,3 +130,8 @@ pub fn setup_for_test_harness() {
     ::std::env::set_var("_TRUTH_DEBUG__TEST", "1");
     ::std::env::remove_var("TRUTH_MAP_PATH");
 }
+
+/// To let tests iterate over all main subcommands.
+pub fn all_main_commands() -> Vec<&'static str> {
+    vec!["thanm", "thstd"]
+}
