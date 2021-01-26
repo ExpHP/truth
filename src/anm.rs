@@ -223,6 +223,10 @@ fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem, decom
     let mut out = ast::Script {
         items,
         mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast(),
+        // NOTE: here, we *could* choose to populate this, causing a `#pragma image_source` line
+        //       to automatically be added to the file.  However, the big reason we do this for
+        //       mapfiles is to encourage people to check their mapfiles into VCS, and I do not
+        //       want to encourage people checking in vanilla ANM files.
         image_sources: vec![],
     };
     crate::passes::postprocess_decompiled(&mut out, ty_ctx, decompile_kind)?;
