@@ -6,25 +6,28 @@ use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
-use crate::llir::{Instr, InstrArg, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
+use crate::llir::{RawInstr, Instr, InstrArg, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
 use crate::var::{VarId, RegId};
 use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
 
 pub fn raise_instrs_to_sub_ast(
     instr_format: &dyn InstrFormat,
-    script: &[Instr],
+    raw_script: &[RawInstr],
     ty_ctx: &RegsAndInstrs,
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
-    let intrinsic_instrs = instr_format.intrinsic_instrs();
+    let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
-    let jump_data = gather_label_data(instr_format, script, ty_ctx)?;
-    let offset_labels = generate_offset_labels(script, &jump_data)?;
+    let script: Vec<Instr> = raw_script.iter().map(|raw_instr| decode_args(raw_instr, ty_ctx)).collect::<Result<_, _>>()?;
+
+    let jump_data = gather_jump_time_args(&script, ty_ctx, instr_format)?;
+    let offset_labels = generate_offset_labels(&script, &instr_offsets, &jump_data)?;
     let mut out = vec![sp!(ast::Stmt {
         time: script.get(0).map(|x| x.time).unwrap_or(0),
         body: ast::StmtBody::NoInstruction,
     })];
 
-    for (&offset, instr) in zip!(&jump_data.instr_offsets, script) {
+    let intrinsic_instrs = instr_format.intrinsic_instrs();
+    for (&offset, instr) in zip!(&instr_offsets, &script) {
         if let Some(label) = offset_labels.get(&offset) {
             out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
         }
@@ -35,7 +38,7 @@ pub fn raise_instrs_to_sub_ast(
 
     // possible label after last instruction
     let end_time = out.last().expect("there must be at least the other bookend!").time;
-    if let Some(label) = offset_labels.get(jump_data.instr_offsets.last().expect("n + 1 offsets so there's always at least one")) {
+    if let Some(label) = offset_labels.get(instr_offsets.last().expect("n + 1 offsets so there's always at least one")) {
         out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
     }
     out.push(sp!(ast::Stmt {
@@ -57,48 +60,56 @@ struct Label {
 struct JumpData {
     /// For each offset that has at least one jump to it, all of the time arguments for those jumps.
     all_offset_args: BTreeMap<u64, BTreeSet<Option<i32>>>,
-    /// The offsets for each instruction.
-    instr_offsets: Vec<u64>,
 }
 
-fn gather_label_data(
+fn gather_instr_offsets(
+    script: &[RawInstr],
     instr_format: &dyn InstrFormat,
-    script: &[Instr],
-    ty_ctx: &RegsAndInstrs,
-) -> Result<JumpData, SimpleError> {
-    let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
-    let mut instr_offsets = vec![0];
+) -> Vec<u64> {
+    let mut out = vec![0];
     let mut offset = 0;
 
     for instr in script {
         offset += instr_format.instr_size(instr) as u64;
-        instr_offsets.push(offset);
+        out.push(offset);
+    }
+    out
+}
 
+fn gather_jump_time_args(
+    script: &[Instr],
+    ty_ctx: &RegsAndInstrs,
+    instr_format: &dyn InstrFormat,
+) -> Result<JumpData, SimpleError> {
+    let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
+
+    for instr in script {
         if let Some((jump_offset, jump_time)) = extract_jump_args_by_signature(instr_format, instr, ty_ctx) {
             all_offset_args.entry(jump_offset).or_default().insert(jump_time);
         }
     }
 
-    Ok(JumpData { all_offset_args, instr_offsets })
+    Ok(JumpData { all_offset_args })
 }
 
 fn generate_offset_labels(
     script: &[Instr],
+    instr_offsets: &[u64],
     jump_data: &JumpData,
 ) -> Result<BTreeMap<u64, Label>, SimpleError> {
     let mut offset_labels = BTreeMap::new();
     for (&offset, time_args) in &jump_data.all_offset_args {
         let dest_index = {
-            jump_data.instr_offsets.binary_search(&offset)
+            instr_offsets.binary_search(&offset)
                 .map_err(|_| anyhow::anyhow!("an instruction has a bad jump offset!"))?
         };
         // Find out the time range between this instruction and the previous one
         // (the or_else triggers when dest_index == script.len() (label after last instruction))
         let dest_time = script.get(dest_index).unwrap_or_else(|| script.last().unwrap()).time;
-        let next = (jump_data.instr_offsets[dest_index], dest_time);
+        let next = (instr_offsets[dest_index], dest_time);
         let prev = match dest_index {
             0 => None,
-            i => Some((jump_data.instr_offsets[i - 1], script[i - 1].time)),
+            i => Some((instr_offsets[i - 1], script[i - 1].time)),
         };
         offset_labels.insert(offset, generate_label_at_offset(prev, next, time_args));
     }
@@ -360,4 +371,47 @@ fn raise_jump_args(
         destination: sp!(label.label.clone()),
         time: time_arg.map(|arg| arg.expect_immediate_int()).filter(|&t| t != label.time_label),
     }
+}
+
+// =============================================================================
+
+fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<Instr, SimpleError> {
+    use crate::binary_io::BinRead;
+
+    let siggy = {
+        ty_ctx.ins_signature(instr.opcode)
+            .expect("(bug!) wasn't this checked to exist earlier?")  // FIXME: actually not sure
+    };
+
+    let mut param_mask = instr.param_mask;
+    let mut args_blob = std::io::Cursor::new(&instr.args_blob);
+    let mut args = vec![];
+    for enc in siggy.arg_encodings() {
+        let is_reg = param_mask % 2 == 1;
+        param_mask /= 2;
+        match enc {
+            | ArgEncoding::Dword
+            | ArgEncoding::Color
+            | ArgEncoding::Float
+            | ArgEncoding::JumpOffset
+            | ArgEncoding::JumpTime
+            | ArgEncoding::Padding
+                => {
+                let bits = args_blob.read_u32()?;
+                args.push(InstrArg::Raw(RawArg { bits, is_reg }))
+            },
+        }
+    }
+
+    if param_mask != 0 {
+        fast_warning!(
+            "unused bits in param_mask! (arg {} is a variable, but there are only {} args!)",
+            param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
+        );
+    }
+    Ok(Instr {
+        time: instr.time,
+        opcode: instr.opcode,
+        args,
+    })
 }

@@ -1,13 +1,13 @@
 use std::collections::{HashMap};
 
 use super::unsupported;
-use crate::llir::{Instr, InstrFormat, InstrArg};
+use crate::llir::{RawInstr, Instr, InstrFormat, InstrArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::ident::Ident;
 use crate::var::{LocalId};
-use crate::type_system::{TypeSystem};
+use crate::type_system::{TypeSystem, ArgEncoding};
 
 mod stackless;
 
@@ -31,7 +31,7 @@ pub fn lower_sub_ast_to_instrs(
     instr_format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
     ty_ctx: &mut TypeSystem,
-) -> Result<Vec<Instr>, CompileError> {
+) -> Result<Vec<RawInstr>, CompileError> {
     use stackless::{get_used_regs, Lowerer, assign_registers};
 
     let used_regs = get_used_regs(code);
@@ -49,12 +49,12 @@ pub fn lower_sub_ast_to_instrs(
     encode_labels(&mut out, instr_format, 0)?;
     assign_registers(&mut out, &used_regs, instr_format, ty_ctx)?;
 
-    Ok(out.into_iter().filter_map(|x| match x {
-        LowLevelStmt::Instr(instr) => Some(instr),
+    out.into_iter().filter_map(|x| match x {
+        LowLevelStmt::Instr(instr) => Some(encode_args(&instr, ty_ctx)),
         LowLevelStmt::Label { .. } => None,
         LowLevelStmt::RegAlloc { .. } => None,
         LowLevelStmt::RegFree { .. } => None,
-    }).collect())
+    }).collect_with_recovery()
 }
 
 // =============================================================================
@@ -109,7 +109,8 @@ fn gather_label_info(
     code.iter().map(|thing| {
         match *thing {
             LowLevelStmt::Instr(ref instr) => {
-                offset += format.instr_size(instr) as u64;
+                unimplemented!();
+                // FIXME: offset += format.instr_size(instr) as u64;
             },
             LowLevelStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
@@ -131,4 +132,54 @@ fn gather_label_info(
     }).collect_with_recovery()?;
 
     Ok(out)
+}
+
+// =============================================================================
+
+fn encode_args(instr: &Instr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
+    use crate::binary_io::BinWrite;
+
+    let siggy = {
+        ty_ctx.regs_and_instrs.ins_signature(instr.opcode)
+            .expect("(bug!) wasn't this checked to exist earlier?")  // FIXME: actually not sure
+    };
+
+    let mut args_blob = std::io::Cursor::new(vec![]);
+    for (arg, enc) in zip!(&instr.args, siggy.arg_encodings()) {
+        match enc {
+            | ArgEncoding::Dword
+            | ArgEncoding::Color
+            | ArgEncoding::Float
+            | ArgEncoding::JumpOffset
+            | ArgEncoding::JumpTime
+            | ArgEncoding::Padding
+                => args_blob.write_u32(arg.expect_raw().bits)?,
+        }
+
+    }
+    Ok(RawInstr {
+        time: instr.time,
+        opcode: instr.opcode,
+        param_mask: compute_param_mask(&instr.args)?,
+        args_blob: args_blob.into_inner(),
+    })
+}
+
+fn compute_param_mask(args: &[InstrArg]) -> Result<u16, CompileError> {
+    if args.len() > 16 {
+        // FIXME need span info
+        return Err(anyhow::anyhow!("too many arguments in instruction!").into());
+    }
+    let mut mask = 0;
+    for arg in args.iter().rev(){
+        let bit = match *arg {
+            InstrArg::Raw(raw) => raw.is_reg as u16,
+            InstrArg::TimeOf { .. } |
+            InstrArg::Label { .. } => 0,
+            InstrArg::Local { .. } => 1,
+        };
+        mask *= 2;
+        mask += bit;
+    }
+    Ok(mask)
 }

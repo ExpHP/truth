@@ -27,6 +27,12 @@ pub trait BinRead: Read + Seek {
         Ok([self.read_f32()?, self.read_f32()?, self.read_f32()?])
     }
 
+    fn read_byte_vec(&mut self, len: usize) -> ReadResult<Vec<u8>> {
+        let mut buf = vec![0; len];
+        self.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
     /// Will consume blocks of the given size until a null terminator is found.
     fn read_cstring(&mut self, block_size: usize) -> ReadResult<BString> {
         assert_ne!(block_size, 0);

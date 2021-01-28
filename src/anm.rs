@@ -12,7 +12,7 @@ use crate::binary_io::{bail, BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::game::Game;
 use crate::ident::Ident;
-use crate::llir::{self, Instr, InstrFormat, IntrinsicInstrKind};
+use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::type_system::{ScalarType, TypeSystem};
@@ -72,7 +72,7 @@ pub struct Entry {
 #[derive(Debug, Clone)]
 pub struct Script {
     pub id: i32,
-    pub instrs: Vec<Instr>,
+    pub instrs: Vec<RawInstr>,
 }
 
 #[derive(Debug, Clone)]
@@ -871,7 +871,7 @@ impl InstrFormat for InstrFormat06 {
         ]
     }
 
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()? as i32;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
@@ -879,17 +879,15 @@ impl InstrFormat for InstrFormat06 {
             return Ok(None);
         }
 
-        let args = llir::read_dword_args_upto_size(f, argsize, 0)?;
-        Ok(Some(Instr { time, opcode: opcode as u16, args }))
+        let args_blob = f.read_byte_vec(argsize)?;
+        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8((self.instr_size(instr) - Self::HEADER_SIZE) as _)?;
-        for x in &instr.args {
-            f.write_u32(x.expect_raw().bits)?;
-        }
+        f.write_all(&instr.args_blob)?;
         Ok(())
     }
 
@@ -905,7 +903,7 @@ impl InstrFormat for InstrFormat06 {
         f.write_u32(0)
     }
 
-    fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
+    fn instr_size(&self, instr: &RawInstr) -> usize { Self::HEADER_SIZE + instr.args_blob.len() }
 }
 
 impl InstrFormat for InstrFormat07 {
@@ -977,7 +975,7 @@ impl InstrFormat for InstrFormat07 {
         }
     }
 
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
         if opcode == -1 {
@@ -986,19 +984,17 @@ impl InstrFormat for InstrFormat07 {
 
         let time = f.read_i16()? as i32;
         let param_mask = f.read_u16()?;
-        let args = llir::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, param_mask)?;
+        let args_blob = f.read_byte_vec(size - Self::HEADER_SIZE)?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
-        Ok(Some(Instr { time, opcode: opcode as u16, args }))
+        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
         f.write_i16(instr.time as i16)?;
-        f.write_u16(instr.compute_param_mask()?)?;
-        for x in &instr.args {
-            f.write_u32(x.expect_raw().bits)?;
-        }
+        f.write_u16(instr.param_mask as u16)?;
+        f.write_all(&instr.args_blob)?;
         Ok(())
     }
 
@@ -1014,5 +1010,5 @@ impl InstrFormat for InstrFormat07 {
         Game::Th14 <= self.game && opcode == 509
     }
 
-    fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
+    fn instr_size(&self, instr: &RawInstr) -> usize { Self::HEADER_SIZE + instr.args_blob.len() }
 }

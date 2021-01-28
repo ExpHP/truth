@@ -8,7 +8,7 @@ use crate::binary_io::{bail, BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
 use crate::ident::Ident;
-use crate::llir::{self, Instr, InstrFormat};
+use crate::llir::{self, RawInstr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::type_system::TypeSystem;
@@ -22,7 +22,7 @@ pub struct StdFile {
     pub unknown: u32,
     pub objects: IndexMap<Sp<Ident>, Object>,
     pub instances: Vec<Instance>,
-    pub script: Vec<Instr>,
+    pub script: Vec<RawInstr>,
     pub extra: StdExtra,
 }
 
@@ -710,7 +710,7 @@ impl InstrFormat10 {
 }
 
 impl InstrFormat for InstrFormat06 {
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let argsize = f.read_u16()?;
@@ -719,8 +719,8 @@ impl InstrFormat for InstrFormat06 {
         }
         assert_eq!(argsize, 12);
 
-        let args = llir::read_dword_args_upto_size(f, 12, 0)?;
-        Ok(Some(Instr { time, opcode: opcode as u16, args }))
+        let args_blob = f.read_byte_vec(12)?;
+        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
@@ -734,16 +734,12 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(12)?;  // this version writes argsize rather than instr size
-        for arg in &instr.args {
-            f.write_u32(arg.expect_raw().bits)?;
-        }
-        for _ in instr.args.len()..3 {
-            f.write_u32(0)?;  // padding args
-        }
+        assert_eq!(instr.args_blob.len(), 12);
+        f.write_all(&instr.args_blob)?;
         Ok(())
     }
 
@@ -754,7 +750,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn instr_size(&self, _instr: &Instr) -> usize { 20 }
+    fn instr_size(&self, _instr: &RawInstr) -> usize { 20 }
 
     fn encode_label(&self, offset: u64) -> u32 {
         assert_eq!(offset % 20, 0);
@@ -766,7 +762,7 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat10 {
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>> {
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
@@ -774,8 +770,8 @@ impl InstrFormat for InstrFormat10 {
             return Ok(None)
         }
 
-        let args = llir::read_dword_args_upto_size(f, size - Self::HEADER_SIZE, 0)?;
-        Ok(Some(Instr { time, opcode: opcode as u16, args }))
+        let args_blob = f.read_byte_vec(size - Self::HEADER_SIZE)?;
+        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
@@ -788,13 +784,11 @@ impl InstrFormat for InstrFormat10 {
         out
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
-        for x in &instr.args {
-            f.write_u32(x.expect_raw().bits)?;
-        }
+        f.write_all(&instr.args_blob)?;
         Ok(())
     }
 
@@ -805,5 +799,5 @@ impl InstrFormat for InstrFormat10 {
         Ok(())
     }
 
-    fn instr_size(&self, instr: &Instr) -> usize { Self::HEADER_SIZE + 4 * instr.args.len() }
+    fn instr_size(&self, instr: &RawInstr) -> usize { Self::HEADER_SIZE + instr.args_blob.len() }
 }

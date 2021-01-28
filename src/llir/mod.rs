@@ -5,7 +5,7 @@ use enum_map::EnumMap;
 
 use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
-use crate::error::{CompileError, SimpleError};
+use crate::error::{CompileError};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 use crate::var::{LocalId, RegId};
@@ -16,6 +16,14 @@ mod lower;
 
 pub use raise::raise_instrs_to_sub_ast;
 mod raise;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawInstr {
+    pub time: i32,
+    pub opcode: u16,
+    pub param_mask: u16,
+    pub args_blob: Vec<u8>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instr {
@@ -126,14 +134,14 @@ fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
 /// Though it primarily uses the `None` output of [`InstrFormat::read_instr`] to determine when to stop reading
 /// instructions, it also may be given an end offset. This will cause it to stop with a warning if it lands on this
 /// offset without receiving a `None` result, or to fail outright if it goes past this offset.  This enables the
-/// reading of TH095's `front.anm`, which contains the only ANM script in existence to have no end marker.  *Sigh.*
+/// reading of TH095's `front.anm`, which contains the only ANM scripts in existence to have no end marker.  *Sigh.*
 #[inline(never)]
 pub fn read_instrs(
     f: &mut dyn BinRead,
     format: &dyn InstrFormat,
     starting_offset: u64,
     end_offset: Option<u64>,
-) -> ReadResult<Vec<Instr>> {
+) -> ReadResult<Vec<RawInstr>> {
     let mut script = vec![];
     let mut offset = starting_offset;
     for index in 0.. {
@@ -165,7 +173,7 @@ pub fn read_instrs(
 pub fn write_instrs(
     f: &mut dyn BinWrite,
     format: &dyn InstrFormat,
-    instrs: &[Instr],
+    instrs: &[RawInstr],
 ) -> WriteResult {
     for (index, instr) in instrs.iter().enumerate() {
         format.write_instr(f, instr).with_context(|| format!("while writing instruction {}", index))?;
@@ -287,16 +295,16 @@ pub trait InstrFormat {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
 
     /// Get the number of bytes in the binary encoding of an instruction.
-    fn instr_size(&self, instr: &Instr) -> usize;
+    fn instr_size(&self, instr: &RawInstr) -> usize;
 
     /// Read a single script instruction from an input stream.
     ///
     /// Should return `None` when it reaches the marker that indicates the end of the script.
     /// When this occurs, it may leave the `Cursor` in an indeterminate state.
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<Instr>>;
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>>;
 
     /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &Instr) -> WriteResult;
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
@@ -332,57 +340,6 @@ pub trait InstrFormat {
     fn decode_label(&self, bits: u32) -> u64 { bits as _ }
 }
 
-/// Helper to help implement `InstrFormat::read_instr`.
-///
-/// Reads `size` bytes into `size/4` dword arguments and sets their `is_var` flags according to
-/// the parameter mask.  (it takes `size` instead of a count to help factor out divisibility checks,
-/// as a size is often what you have to work with given the format)
-pub fn read_dword_args_upto_size(
-    f: &mut dyn BinRead,
-    size: usize,
-    mut param_mask: u16,
-) -> ReadResult<Vec<InstrArg>> {
-    if size % 4 != 0 {
-        bail!("size not divisible by 4: {}", size);
-    }
-    let nargs = size/4;
-
-    let out = (0..nargs).map(|_| {
-        let bits = f.read_u32()?;
-        let is_reg = param_mask % 2 == 1;
-        param_mask /= 2;
-        Ok(InstrArg::Raw(RawArg { bits, is_reg }))
-    }).collect::<ReadResult<_>>()?;
-
-    if param_mask != 0 {
-        fast_warning!(
-            "unused bits in param_mask! (arg {} is a variable, but there are only {} args!)",
-            param_mask.trailing_zeros() + nargs as u32 + 1, nargs,
-        );
-    }
-    Ok(out)
-}
-
-impl Instr {
-    pub fn compute_param_mask(&self) -> Result<u16, SimpleError> {
-        if self.args.len() > 16 {
-            bail!("too many arguments in instruction!");
-        }
-        let mut mask = 0;
-        for arg in self.args.iter().rev(){
-            let bit = match *arg {
-                InstrArg::Raw(RawArg { is_reg, .. }) => is_reg as u16,
-                InstrArg::TimeOf { .. } |
-                InstrArg::Label { .. } => 0,
-                InstrArg::Local { .. } => 1,
-            };
-            mask *= 2;
-            mask += bit;
-        }
-        Ok(mask)
-    }
-}
-
 /// An implementation of InstrFormat for testing the raising and lowering phases of compilation.
 #[derive(Debug, Clone, Default)]
 pub struct TestFormat {
@@ -397,9 +354,9 @@ impl InstrFormat for TestFormat {
         self.intrinsic_opcode_pairs.clone()
     }
 
-    fn instr_size(&self, _: &Instr) -> usize { 4 }
-    fn read_instr(&self, _: &mut dyn BinRead) -> ReadResult<Option<Instr>> { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_instr(&self, _: &mut dyn BinWrite, _: &Instr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn instr_size(&self, _: &RawInstr) -> usize { 4 }
+    fn read_instr(&self, _: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_instr(&self, _: &mut dyn BinWrite, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
     fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
