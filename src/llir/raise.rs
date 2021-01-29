@@ -313,6 +313,7 @@ fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
             ArgEncoding::Float => ScalarType::Float,
             ArgEncoding::JumpTime => bail!("unexpected register used as jump time"),
             ArgEncoding::JumpOffset => bail!("unexpected register used as jump offset"),
+            ArgEncoding::Word => bail!("unexpected register used as word-sized argument"),
         };
         Ok(Expr::Var(sp!(raise_arg_to_var(raw, ty)?)))
     } else {
@@ -326,6 +327,7 @@ fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleEr
     }
     match enc {
         ArgEncoding::Padding |
+        ArgEncoding::Word |
         ArgEncoding::Dword => Ok(Expr::from(raw.bits as i32)),
         ArgEncoding::Color => Ok(Expr::LitInt { value: raw.bits as i32, hex: true }),
         ArgEncoding::Float => Ok(Expr::from(f32::from_bits(raw.bits))),
@@ -398,6 +400,12 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<Instr, Simple
             | ArgEncoding::Padding
                 => {
                 let bits = args_blob.read_u32()?;
+                args.push(InstrArg::Raw(RawArg { bits, is_reg }))
+            },
+
+            | ArgEncoding::Word
+            => {
+                let bits = args_blob.read_i16()? as i32 as u32;  // sign extend
                 args.push(InstrArg::Raw(RawArg { bits, is_reg }))
             },
         }

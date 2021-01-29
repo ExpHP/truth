@@ -162,7 +162,10 @@ fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: 
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
                 | ArgEncoding::Padding
-                => size += 4,
+                    => size += 4,
+
+                | ArgEncoding::Word
+                    => size += 2,
             },
             InstrArg::Local { .. } => size += 4,
             InstrArg::Label { .. } => size += 4,
@@ -196,6 +199,9 @@ fn encode_args(instr: &Instr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileEr
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
                 => args_blob.write_u32(arg.expect_raw().bits)?,
+
+            | ArgEncoding::Word
+                => args_blob.write_i16(arg.expect_raw().bits as _)?,
         }
     }
 

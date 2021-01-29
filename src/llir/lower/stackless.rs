@@ -156,6 +156,7 @@ impl Lowerer<'_> {
                     ArgEncoding::JumpTime |
                     ArgEncoding::Padding |
                     ArgEncoding::Color |
+                    ArgEncoding::Word |
                     ArgEncoding::Dword => ScalarType::Int,
                     ArgEncoding::Float => ScalarType::Float,
                 },

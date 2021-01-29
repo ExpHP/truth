@@ -245,6 +245,7 @@ impl Signature {
     pub fn arg_encodings(&self) -> impl crate::VeclikeIterator<Item=ArgEncoding> + '_ {
         self.arg_string.bytes().map(|c| match c {
             b'S' => ArgEncoding::Dword,
+            b's' => ArgEncoding::Word,
             b'C' => ArgEncoding::Color,
             b'o' => ArgEncoding::JumpOffset,
             b't' => ArgEncoding::JumpTime,
@@ -292,8 +293,10 @@ pub enum ScalarType { Int, Float }
 /// [`ScalarType`] tends to be more relevant for variables.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArgEncoding {
-    /// `S` in mapfile. Script argument encoded as a 4-byte integer.
+    /// `S` in mapfile. 4-byte integer immediate or register.  Displayed as signed.
     Dword,
+    /// `s` in mapfile. 2-byte integer immediate.  Displayed as signed.
+    Word,
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
