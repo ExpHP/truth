@@ -15,6 +15,7 @@ use truth::Game;
 use assert_cmd::prelude::*;
 
 fn bits_to_bits(
+    command: &str,
     game: Game,
     infile: impl AsRef<Path>,
     mapfile: impl AsRef<Path>,
@@ -25,7 +26,7 @@ fn bits_to_bits(
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
     let output = {
-        Command::cargo_bin("trustd").unwrap()
+        Command::cargo_bin(command).unwrap()
             .arg("decompile")
             .arg("-g").arg(format!("{}", game))
             .arg("-m").arg(mapfile.as_ref())
@@ -43,21 +44,21 @@ fn bits_to_bits(
 
     do_with_text(&String::from_utf8_lossy(&decompiled));
 
-    std::fs::write(temp.join("test.stdspec"), &decompiled).unwrap();
+    std::fs::write(temp.join("test.spec"), &decompiled).unwrap();
 
     assert!({
-        Command::cargo_bin("trustd").unwrap()
+        Command::cargo_bin(command).unwrap()
             .arg("compile")
             .arg("-g").arg(format!("{}", game))
             .arg("-m").arg(mapfile.as_ref())
-            .arg(temp.join("test.stdspec"))
-            .arg("-o").arg(temp.join("test.std"))
+            .arg(temp.join("test.spec"))
+            .arg("-o").arg(temp.join("test.bin"))
             .status().expect("failed to execute process")
             .success()
     });
 
     let original = std::fs::read(infile).unwrap();
-    let recompiled = std::fs::read(temp.join("test.std")).unwrap();
+    let recompiled = std::fs::read(temp.join("test.bin")).unwrap();
     assert_eq!(original, recompiled);
 }
 
@@ -69,12 +70,24 @@ fn file(fname: &str) -> std::path::PathBuf {
     path
 }
 
-macro_rules! std_b2b_test {
-    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
+macro_rules! b2b_test {
+    ($format:expr, $game:expr, $map:literal, $test_name:ident, $fname:literal) => {
         #[test]
         fn $test_name() {
-            bits_to_bits($game, file($fname), $map, |s| insta::assert_snapshot!(s));
+            bits_to_bits($format, $game, file($fname), $map, |s| insta::assert_snapshot!(s));
         }
+    }
+}
+
+macro_rules! std_b2b_test {
+    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
+        b2b_test!{"trustd", $game, $map, $test_name, $fname}
+    }
+}
+
+macro_rules! anm_b2b_test {
+    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
+        b2b_test!{"truanm", $game, $map, $test_name, $fname}
     }
 }
 
@@ -86,7 +99,7 @@ fn all_files_tested() {
     let this_file_src = std::fs::read_to_string(file!()).unwrap();
     for entry in std::fs::read_dir("tests/bits-2-bits").unwrap() {
         let path = entry.unwrap().path();
-        if path.is_file() && path.extension().unwrap() == "std" {
+        if path.is_file() && ["anm", "std"].iter().any(|&ext| path.extension().unwrap() == ext)  {
             let file_name = path.file_name().unwrap().to_str().unwrap();
 
             if !this_file_src.contains(file_name) {
@@ -107,3 +120,4 @@ std_b2b_test!(Game::Th08, "map/any.stdm", std08_nonzero_padding, "th08-nonzero-p
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_script, "th08-empty-script.std");
 std_b2b_test!(Game::Th06, "map/any.stdm", std06_general, "th06-general.std");
 std_b2b_test!(Game::Th12, "map/any.stdm", std12_general, "th12-general.std");
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");
