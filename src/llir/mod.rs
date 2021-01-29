@@ -295,7 +295,7 @@ pub trait InstrFormat {
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
 
     /// Get the number of bytes in the binary encoding of an instruction.
-    fn instr_size(&self, instr: &RawInstr) -> usize;
+    fn instr_header_size(&self) -> usize;
 
     /// Read a single script instruction from an input stream.
     ///
@@ -338,6 +338,9 @@ pub trait InstrFormat {
     // instruction *index* instead.
     fn encode_label(&self, offset: u64) -> u32 { offset as _ }
     fn decode_label(&self, bits: u32) -> u64 { bits as _ }
+
+    // FIXME: remove this
+    fn instr_size(&self, instr: &RawInstr) -> usize { self.instr_header_size() + instr.args_blob.len() }
 }
 
 /// An implementation of InstrFormat for testing the raising and lowering phases of compilation.
@@ -354,7 +357,7 @@ impl InstrFormat for TestFormat {
         self.intrinsic_opcode_pairs.clone()
     }
 
-    fn instr_size(&self, _: &RawInstr) -> usize { 4 }
+    fn instr_header_size(&self) -> usize { 4 }
     fn read_instr(&self, _: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_instr(&self, _: &mut dyn BinWrite, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }

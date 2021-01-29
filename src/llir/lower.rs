@@ -46,7 +46,7 @@ pub fn lower_sub_ast_to_instrs(
     let mut out = lowerer.out;
 
     // And now postprocess
-    encode_labels(&mut out, instr_format, 0)?;
+    encode_labels(&mut out, instr_format, 0, ty_ctx)?;
     assign_registers(&mut out, &used_regs, instr_format, ty_ctx)?;
 
     out.into_iter().filter_map(|x| match x {
@@ -64,8 +64,9 @@ fn encode_labels(
     code: &mut [LowLevelStmt],
     format: &dyn InstrFormat,
     initial_offset: u64,
+    ty_ctx: &TypeSystem,
 ) -> Result<(), CompileError> {
-    let label_info = gather_label_info(format, initial_offset, code)?;
+    let label_info = gather_label_info(format, initial_offset, code, ty_ctx)?;
 
     code.iter_mut().map(|thing| {
         match thing {
@@ -100,7 +101,8 @@ struct RawLabelInfo {
 fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: u64,
-    code: &[LowLevelStmt]
+    code: &[LowLevelStmt],
+    ty_ctx: &TypeSystem,
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
 
@@ -109,8 +111,7 @@ fn gather_label_info(
     code.iter().map(|thing| {
         match *thing {
             LowLevelStmt::Instr(ref instr) => {
-                unimplemented!();
-                // FIXME: offset += format.instr_size(instr) as u64;
+                offset += precompute_instr_size(instr, format, ty_ctx)? as u64;
             },
             LowLevelStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
@@ -136,12 +137,47 @@ fn gather_label_info(
 
 // =============================================================================
 
+// FIXME the existence of this still bothers me but I don't currently see a better solution
+//
+/// Determine what the final total size of the instruction will be based on the arguments and signature.
+///
+/// Typically we work with InstrRaw when we need to know the size of an instruction, but
+/// fixing jump labels requires us to know the size before the args are fully encoded.
+///
+/// Unlike [`encode_args`], this has to deal with variants of [`InstrArg`] that are not the raw argument.
+fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
+    let siggy = {
+        ty_ctx.regs_and_instrs.ins_signature(instr.opcode).ok_or_else(|| error!(
+            message("signature for opcode {} not known", instr.opcode),  // FIXME: span
+        ))?
+    };
+
+    let mut size = instr_format.instr_header_size();
+    for (arg, enc) in zip!(&instr.args, siggy.arg_encodings()) {
+        match arg {
+            InstrArg::Raw(_) => match enc {
+                | ArgEncoding::Dword
+                | ArgEncoding::Color
+                | ArgEncoding::Float
+                | ArgEncoding::JumpOffset
+                | ArgEncoding::JumpTime
+                | ArgEncoding::Padding
+                => size += 4,
+            },
+            InstrArg::Local { .. } => size += 4,
+            InstrArg::Label { .. } => size += 4,
+            InstrArg::TimeOf { .. } => size += 4,
+        }
+    }
+    Ok(size)
+}
+
 fn encode_args(instr: &Instr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
     use crate::binary_io::BinWrite;
 
     let siggy = {
         ty_ctx.regs_and_instrs.ins_signature(instr.opcode)
-            .expect("(bug!) wasn't this checked to exist earlier?")  // FIXME: actually not sure
+            .expect("(bug!) wasn't this checked to exist earlier?")
     };
 
     let mut args_blob = std::io::Cursor::new(vec![]);

@@ -723,9 +723,6 @@ struct FileFormat { version: Version, instr_format: Box<dyn InstrFormat> }
 struct InstrFormat06;
 struct InstrFormat07 { version: Version, game: Game }
 
-impl InstrFormat06 { const HEADER_SIZE: usize = 4; }
-impl InstrFormat07 { const HEADER_SIZE: usize = 8; }
-
 impl FileFormat {
     fn read_header(&self, f: &mut dyn BinRead) -> ReadResult<EntryHeaderData> {
         macro_rules! warn_if_nonzero {
@@ -871,6 +868,8 @@ impl InstrFormat for InstrFormat06 {
         ]
     }
 
+    fn instr_header_size(&self) -> usize { 4 }
+
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()? as i32;
         let opcode = f.read_i8()?;
@@ -886,7 +885,7 @@ impl InstrFormat for InstrFormat06 {
     fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
-        f.write_u8((self.instr_size(instr) - Self::HEADER_SIZE) as _)?;
+        f.write_u8(instr.args_blob.len() as _)?;
         f.write_all(&instr.args_blob)?;
         Ok(())
     }
@@ -902,8 +901,6 @@ impl InstrFormat for InstrFormat06 {
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
         f.write_u32(0)
     }
-
-    fn instr_size(&self, instr: &RawInstr) -> usize { Self::HEADER_SIZE + instr.args_blob.len() }
 }
 
 impl InstrFormat for InstrFormat07 {
@@ -975,6 +972,8 @@ impl InstrFormat for InstrFormat07 {
         }
     }
 
+    fn instr_header_size(&self) -> usize { 8 }
+
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
@@ -984,7 +983,7 @@ impl InstrFormat for InstrFormat07 {
 
         let time = f.read_i16()? as i32;
         let param_mask = f.read_u16()?;
-        let args_blob = f.read_byte_vec(size - Self::HEADER_SIZE)?;
+        let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
     }
@@ -1009,6 +1008,4 @@ impl InstrFormat for InstrFormat07 {
         // copyParentVars
         Game::Th14 <= self.game && opcode == 509
     }
-
-    fn instr_size(&self, instr: &RawInstr) -> usize { Self::HEADER_SIZE + instr.args_blob.len() }
 }

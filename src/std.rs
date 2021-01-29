@@ -705,11 +705,21 @@ impl FileFormat for FileFormat10 {
 
 pub struct InstrFormat06 { game: Game }
 pub struct InstrFormat10 { game: Game }
-impl InstrFormat10 {
-    const HEADER_SIZE: usize = 8;
-}
 
 impl InstrFormat for InstrFormat06 {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
+        if Game::Th07 <= self.game && self.game <= Game::Th09 {
+            vec![
+                (llir::IntrinsicInstrKind::Jmp, 4),
+                (llir::IntrinsicInstrKind::InterruptLabel, 31),
+            ]
+        } else {
+            vec![]  // lul
+        }
+    }
+
+    fn instr_header_size(&self) -> usize { 8 }
+
     fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
@@ -721,17 +731,6 @@ impl InstrFormat for InstrFormat06 {
 
         let args_blob = f.read_byte_vec(12)?;
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
-    }
-
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
-        if Game::Th07 <= self.game && self.game <= Game::Th09 {
-            vec![
-                (llir::IntrinsicInstrKind::Jmp, 4),
-                (llir::IntrinsicInstrKind::InterruptLabel, 31),
-            ]
-        } else {
-            vec![]  // lul
-        }
     }
 
     fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
@@ -750,8 +749,6 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn instr_size(&self, _instr: &RawInstr) -> usize { 20 }
-
     fn encode_label(&self, offset: u64) -> u32 {
         assert_eq!(offset % 20, 0);
         (offset / 20) as u32
@@ -762,18 +759,6 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat10 {
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
-        let time = f.read_i32()?;
-        let opcode = f.read_i16()?;
-        let size = f.read_u16()? as usize;
-        if opcode == -1 {
-            return Ok(None)
-        }
-
-        let args_blob = f.read_byte_vec(size - Self::HEADER_SIZE)?;
-        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
-    }
-
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         let mut out = vec![(llir::IntrinsicInstrKind::Jmp, 1)];
 
@@ -782,6 +767,20 @@ impl InstrFormat for InstrFormat10 {
             out.push((llir::IntrinsicInstrKind::InterruptLabel, 16));
         }
         out
+    }
+
+    fn instr_header_size(&self) -> usize { 8 }
+
+    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
+        let time = f.read_i32()?;
+        let opcode = f.read_i16()?;
+        let size = f.read_u16()? as usize;
+        if opcode == -1 {
+            return Ok(None)
+        }
+
+        let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
+        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
     fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
@@ -798,6 +797,4 @@ impl InstrFormat for InstrFormat10 {
         }
         Ok(())
     }
-
-    fn instr_size(&self, instr: &RawInstr) -> usize { Self::HEADER_SIZE + instr.args_blob.len() }
 }
