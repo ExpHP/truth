@@ -781,7 +781,7 @@ impl FileFormat {
             let next_offset = f.read_u32()? as _;
 
             for _ in 0..6 {  // header gets padded to 16 dwords
-            warn_if_nonzero!("header padding", f.read_u32()?);
+                warn_if_nonzero!("header padding", f.read_u32()?);
             }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,

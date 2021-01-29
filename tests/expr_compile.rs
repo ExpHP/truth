@@ -16,6 +16,17 @@ struct Var {
     in_mapfile: bool,
 }
 
+const JUMP_OPCODE: u16 = 1;
+const COUNT_JUMP_OPCODE: u16 = 2;
+const SINE_OPCODE: u16 = 3;
+const COSINE_OPCODE: u16 = 4;
+const ASSIGN_OPS_OPCODE: u16 = 10;
+const BINARY_OPS_OPCODE: u16 = 30;
+const COND_JUMPS_OPCODE: u16 = 40;
+const ANTI_SCRATCH_OPCODE: u16 = 99;
+const NOP_OPCODE: u16 = 70;
+const OTHER_OPCODE: u16 = 100;
+
 // Note: In these tests, instructions with opcodes < 100 are reserved for specially recognized instructions
 //       and instructions named in the mapfile.  Use opcodes >= 100 for arbitrary instructions in the text.
 fn make_eclmap(vars: &[Var]) -> Eclmap {
@@ -33,34 +44,90 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
             lines.push(format!("{} {}", var.reg, name));
         }
     }
+    let mut ins_names_lines = vec![
+        format!("{} nop", NOP_OPCODE),
+        format!("{} foo", OTHER_OPCODE),
+        format!("{} bar", OTHER_OPCODE + 1),
+    ];
+    let mut ins_signatures_lines = vec![
+        format!("{} ot", JUMP_OPCODE),
+        format!("{} Sot", COUNT_JUMP_OPCODE),
+        format!("{} ff", SINE_OPCODE),
+        format!("{} ff", COSINE_OPCODE),
+        format!("{}", ANTI_SCRATCH_OPCODE),
+        format!("{}", NOP_OPCODE),
+        format!("{}", OTHER_OPCODE),
+        format!("{}", OTHER_OPCODE + 1),
+    ];
+
+    let mut oper_opcodes = ASSIGN_OPS_OPCODE..;
+    for _ in 0..6 {
+        let s_opcode = oper_opcodes.next().unwrap();
+        let f_opcode = oper_opcodes.next().unwrap();
+        ins_signatures_lines.push(format!("{} SS", s_opcode));
+        ins_signatures_lines.push(format!("{} ff", f_opcode));
+    }
+
+    let mut oper_opcodes = BINARY_OPS_OPCODE..;
+    for _ in 0..5 {
+        let s_opcode = oper_opcodes.next().unwrap();
+        let f_opcode = oper_opcodes.next().unwrap();
+        ins_signatures_lines.push(format!("{} SSS", s_opcode));
+        ins_signatures_lines.push(format!("{} fff", f_opcode));
+    }
+
+    let mut oper_opcodes = COND_JUMPS_OPCODE..;
+    for _ in 0..6 {
+        let s_opcode = oper_opcodes.next().unwrap();
+        let f_opcode = oper_opcodes.next().unwrap();
+        ins_signatures_lines.push(format!("{} SSot", s_opcode));
+        ins_signatures_lines.push(format!("{} ffot", f_opcode));
+    }
+
+    let mut unused_opcodes = OTHER_OPCODE + 2..;
+    for base in vec!["foo", "bar"] {
+        for siggy_len in 1..=4 {
+            for siggy_chars in permutations_with_replacement(&["S", "f"], siggy_len) {
+                let siggy = siggy_chars.join("");
+                let opcode = unused_opcodes.next().unwrap();
+                ins_signatures_lines.push(format!("{} {}", opcode, siggy));
+                ins_names_lines.push(format!("{} {}_{}", opcode, base, siggy));
+            }
+        }
+    }
+
     lines.push(format!("!ins_names"));
-    lines.push(format!("70 nop"));
-    lines.push(format!("71 func_SSff"));
+    lines.extend(ins_names_lines);
     lines.push(format!("!ins_signatures"));
-    lines.push(format!("1 ot"));
-    lines.push(format!("2 Sot"));
-    lines.push(format!("40 SSot\n41ffot"));
-    lines.push(format!("42 SSot\n43ffot"));
-    lines.push(format!("44 SSot\n45ffot"));
-    lines.push(format!("46 SSot\n47ffot"));
-    lines.push(format!("48 SSot\n49ffot"));
-    lines.push(format!("50 SSot\n51ffot"));
-    lines.push(format!("70"));
-    lines.push(format!("71 SSff"));
+    lines.extend(ins_signatures_lines);
     Eclmap::parse(&lines.join("\n")).unwrap()
 }
 
-const ANTI_SCRATCH_OPCODE: u16 = 99;
+fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec<T>> {
+    if count == 0 {
+        return vec![vec![]];
+    }
+    let mut with_more = vec![];
+    let with_fewer = permutations_with_replacement(items, count - 1);
+    for fewer in with_fewer {
+        for item in items {
+            let mut more = fewer.clone();
+            more.push(item.clone());
+            with_more.push(more);
+        }
+    }
+    with_more
+}
 
 fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
     let mut format = llir::TestFormat::default();
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, 1));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, 2));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), 3));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Cos, Ty::Float), 4));
-    llir::register_assign_ops(&mut format.intrinsic_opcode_pairs, 10);
-    llir::register_binary_ops(&mut format.intrinsic_opcode_pairs, 30);
-    llir::register_cond_jumps(&mut format.intrinsic_opcode_pairs, 40);
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, JUMP_OPCODE));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, COUNT_JUMP_OPCODE));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), SINE_OPCODE));
+    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Cos, Ty::Float), COSINE_OPCODE));
+    llir::register_assign_ops(&mut format.intrinsic_opcode_pairs, ASSIGN_OPS_OPCODE);
+    llir::register_binary_ops(&mut format.intrinsic_opcode_pairs, BINARY_OPS_OPCODE);
+    llir::register_cond_jumps(&mut format.intrinsic_opcode_pairs, COND_JUMPS_OPCODE);
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();
@@ -322,13 +389,13 @@ fn local_scope() {
             do {
                 int a = 1, b = 2;
                 int c = 3;
-                ins_999(a, b, c);
+                foo_SSS(a, b, c);
             } while (lol == 0);
             lol = 1;
             do {
                 int d = 4, e = 5;
                 int f = 6;
-                ins_999(d, e, f);
+                foo_SSS(d, e, f);
             } while (lol == 0);
         }"#;
 
@@ -399,7 +466,7 @@ mod no_scratch {
                 if (A == B) goto hi;
                 if (A == $X) goto hi;
                 if (A == 2) goto hi;
-                ins_400();
+                foo();
             hi:
                 if (A != A) goto hi;
             }"#);
@@ -458,7 +525,7 @@ mod no_scratch {
             // `if (<expr>)` can automatically be reinterpreted as `if (<expr> != 0)`
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 if (A) goto hi;
-                ins_400();
+                foo();
             hi:
                 if (0) goto hi;
             }"#);
@@ -480,7 +547,7 @@ mod no_scratch {
     fn ins_call() {
         for _ in 0..5 {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
-                func_SSff(A, 2, 6.0, %B);
+                bar_SSff(A, 2, 6.0, %B);
             }"#);
         }
     }
@@ -511,13 +578,13 @@ fn check_bool(init: &str, cond: &str, expected: bool) -> CheckBoolVms {
     let (_, new_if_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
         {}
         if ({}) goto hi;
-        ins_700();
+        foo();
       hi:
     }}"#, init, cond));
     let (_, new_unless_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
         {}
         unless ({}) goto hi;
-        ins_700();
+        foo();
       hi:
     }}"#, init, cond));
 
@@ -615,7 +682,7 @@ fn careful_cast_temporaries() {
         let vars = SIMPLE_FOUR_VAR_SPEC;
         // None of these should create an integer temporary
         let (old_vm, new_vm) = run_randomized_test(vars, r#"{
-            ins_606(_S(%X + 4.0));
+            bar_S(_S(%X + 4.0));
             A = A + _S(%X + 4.0);
         }"#);
 
@@ -712,7 +779,7 @@ fn times() {
             A = 5;  // ensure positive
             times(2) {
                 times(3*A + 2) {
-                    ins_300(1 + 5);
+                    foo_S(1 + 5);
                 }
             }
         }"#);

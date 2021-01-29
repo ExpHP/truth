@@ -169,6 +169,12 @@ fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: 
             InstrArg::TimeOf { .. } => size += 4,
         }
     }
+
+    for enc in siggy.arg_encodings().skip(instr.args.len()) {
+        assert_eq!(enc, ArgEncoding::Padding);
+        size += 4;
+    }
+
     Ok(size)
 }
 
@@ -191,8 +197,13 @@ fn encode_args(instr: &Instr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileEr
             | ArgEncoding::Padding
                 => args_blob.write_u32(arg.expect_raw().bits)?,
         }
-
     }
+
+    for enc in siggy.arg_encodings().skip(instr.args.len()) {
+        assert_eq!(enc, ArgEncoding::Padding);
+        args_blob.write_u32(0)?;
+    }
+
     Ok(RawInstr {
         time: instr.time,
         opcode: instr.opcode,
