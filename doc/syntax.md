@@ -84,13 +84,13 @@ I0 = $F0;  // performs a truncating cast
 
 A call to a raw instruction looks like this.  The part after `ins_` is the opcode, which must be written in a canonical form (no leading zeroes!):
 
-```
+```C
 ins_420(69, I0);
 ```
 
 **All identifiers beginning with `ins_` are reserved for this purpose.** Much like thtk, mapfiles can also give names to instructions:
 
-```
+```C
 seti(23, I0);
 ```
 
@@ -116,7 +116,7 @@ Other things present in expressions:
 
 Unlike in C, assignments are **not** expressions.  They are anything of the form
 
-```
+```C
 <var> = <expr>;
 <var> += <expr>;
 <var> -= <expr>;
@@ -227,7 +227,7 @@ This example will call `foo()` on frames 4, 14, 24, 34, etc.
 
 The control flow structures desugar like this:
 
-```
+```C
 15:
     if (I0 == 0) {
         funny();
@@ -253,7 +253,7 @@ Here you see the syntax for raw jumps and labels.
 
 Notice that, unlike conditional blocks, *the conditional jump has no braces*; it is a special syntactic construct.
 
-```
+```C
 // this compiles to a single instruction in anm
 if (I0 != 0) goto else_label;
  
@@ -276,7 +276,7 @@ end_label:
 
 However, this is generally obsolete.  Normally, the only reason the game ever uses this feature is to set the time equal to the instruction before the jump target.  However, in `truth`, labels have their own time labels, so this can be accomplished simply by moving the label:
 
-```
+```C
 10:
     foo()
 +5:
@@ -298,7 +298,7 @@ One final thing:  You may have noticed that the desugaring of `if (...) { ... }`
 
 For this reason, there also exists **the `unless` keyword** for writing a negated `if`:
 
-```
+```C
 unless (var--) {
     boo();
 }
