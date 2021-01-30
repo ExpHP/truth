@@ -121,19 +121,17 @@ impl Lowerer<'_> {
         name: &Sp<Ident>,
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
-        // If a signature is in the mapfile, validate the args.
-        let encodings = match self.ty_ctx.regs_and_instrs.ins_signature(opcode) {
-            Some(siggy) => {
-                if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
-                    return Err(error!(
-                        message("wrong number of arguments to '{}'", name),
-                        primary(name, "expects {} to {} arguments, got {}", siggy.min_args(), siggy.max_args(), args.len()),
-                    ));
-                }
-                Some(siggy.arg_encodings().collect::<Vec<_>>())
-            },
-            None => None,
-        };
+        let siggy = self.ty_ctx.regs_and_instrs.ins_signature(opcode).ok_or_else(|| error!(
+            message("signature not known for opcode {}", opcode),
+            primary(name, "signature not in mapfiles"),
+        ))?;
+        if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
+            return Err(error!(
+                message("wrong number of arguments to '{}'", name),
+                primary(name, "expects {} to {} arguments, got {}", siggy.min_args(), siggy.max_args(), args.len()),
+            ));
+        }
+        let encodings = siggy.arg_encodings().collect::<Vec<_>>();
 
         let mut temp_local_ids = vec![];
         let low_level_args = args.iter().enumerate().map(|(arg_index, expr)| {
@@ -150,18 +148,14 @@ impl Lowerer<'_> {
                 },
             };
 
-            let expected_ty = match encodings.as_ref() {
-                Some(encodings) => match encodings[arg_index] {
-                    ArgEncoding::JumpOffset |
-                    ArgEncoding::JumpTime |
-                    ArgEncoding::Padding |
-                    ArgEncoding::Color |
-                    ArgEncoding::Word |
-                    ArgEncoding::Dword => ScalarType::Int,
-                    ArgEncoding::Float => ScalarType::Float,
-                },
-                // signature not in mapfile.  Just let it be whatever.
-                None => actual_ty,
+            let expected_ty = match encodings[arg_index] {
+                ArgEncoding::JumpOffset |
+                ArgEncoding::JumpTime |
+                ArgEncoding::Padding |
+                ArgEncoding::Color |
+                ArgEncoding::Word |
+                ArgEncoding::Dword => ScalarType::Int,
+                ArgEncoding::Float => ScalarType::Float,
             };
             if actual_ty != expected_ty {
                 return Err(error!(

@@ -164,15 +164,12 @@ fn extract_jump_args_by_signature(
     let mut jump_offset = None;
     let mut jump_time = None;
 
-    if let Some(siggy) = ty_ctx.ins_signature(instr.opcode) {
-        let encodings = siggy.arg_encodings();
-
-        for (arg, encoding) in zip!(&instr.args, encodings) {
-            match encoding {
-                ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_raw().bits)),
-                ArgEncoding::JumpTime => jump_time = Some(arg.expect_immediate_int()),
-                _ => {},
-            }
+    let siggy = expect_signature(instr, ty_ctx);
+    for (arg, encoding) in zip!(&instr.args, siggy.arg_encodings()) {
+        match encoding {
+            ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_raw().bits)),
+            ArgEncoding::JumpTime => jump_time = Some(arg.expect_immediate_int()),
+            _ => {},
         }
     }
 
@@ -269,14 +266,7 @@ fn raise_instr(
             };
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
-                args: match ty_ctx.ins_signature(opcode) {
-                    Some(siggy) => raise_args(args, siggy)?,
-                    None => {
-                        let siggy = Signature::auto(args.len());
-                        fast_warning!("don't know how to decompile opcode {}! (assuming signature '{}')", opcode, siggy.as_str());
-                        raise_args(args, &siggy)?
-                    },
-                },
+                args: raise_args(args, expect_signature(instr, ty_ctx))?,
                 func: sp!(ins_ident),
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
@@ -380,10 +370,7 @@ fn raise_jump_args(
 fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<Instr, SimpleError> {
     use crate::binary_io::BinRead;
 
-    let siggy = {
-        ty_ctx.ins_signature(instr.opcode)
-            .expect("(bug!) wasn't this checked to exist earlier?")  // FIXME: actually not sure
-    };
+    let siggy = require_signature_raw(instr, ty_ctx)?;
 
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
@@ -398,7 +385,7 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<Instr, Simple
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-                => {
+            => {
                 let bits = args_blob.read_u32()?;
                 args.push(InstrArg::Raw(RawArg { bits, is_reg }))
             },
@@ -421,5 +408,21 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<Instr, Simple
         time: instr.time,
         opcode: instr.opcode,
         args,
+    })
+}
+
+// truth requires all used opcodes to have signatures, so use this when needing the signature for a RawInstr
+fn require_signature_raw<'a>(instr: &RawInstr, ty_ctx: &'a RegsAndInstrs) -> Result<&'a Signature, SimpleError> {
+    ty_ctx.ins_signature(instr.opcode).ok_or_else(|| {
+        let bytes_str = instr.args_blob.iter().map(|&b| format!("{:02x}", b)).collect::<Vec<_>>().join("");
+        anyhow::anyhow!("signature not known for opcode {} (arg bytes: [{}])", instr.opcode, bytes_str)
+    })
+}
+
+fn expect_signature<'a>(instr: &Instr, ty_ctx: &'a RegsAndInstrs) -> &'a Signature {
+    // if we have Instr then we already must have used the signature earlier to decode the arg bytes,
+    // so we can just panic
+    ty_ctx.ins_signature(instr.opcode).unwrap_or_else(|| {
+        unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
     })
 }
