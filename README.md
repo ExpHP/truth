@@ -1,5 +1,7 @@
 # truth
 
+[![Build Status](https://travis-ci.org/ExpHP/truth.svg?branch=main)](https://travis-ci.org/ExpHP/truth)
+
 Multipass [THTK](https://github.com/thpatch/thtk/) alternative.
 
 ![Sexy error message example](./doc/img/sexy-error.png)
