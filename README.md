@@ -17,6 +17,13 @@ Supports **all danmaku titles TH06–TH17.**  That is:
 > 
 > Uwabami Breakers is also supported (use `-g alcostg` or `-g 103`)
 
+## Docs
+
+See these doc pages:
+
+* A primer on [script syntax](./doc/syntax.md).
+* A [comparison to thtk](./doc/comparison-to-thtk.md).
+
 ## Downloading
 
 Get the latest Windows releases [right here on GitHub](https://github.com/ExpHP/truth/tags)!
@@ -80,50 +87,6 @@ Note that there is no feature to extract images into PNG files, and it is doubtf
 An example of such a script be found at [th12-no-source-required.anm.spec](./tests/anm_compile/th12-no-source-required.anm.spec).
 
 To use the compiled file, make a thcrap patch which contains images in all of the right locations.  (for instance, if the script has a `has_data: false` entry with `path: "subdir/file.png"`, the thcrap patch should have an image at e.g. `<patch_root>/th17/subdir/file.png`)
-
-## Why use truth over thtk
-
-
-Some concrete benefits afforded by truth today are:
-
-* **Nice error messages.**  The compiler is on your side! Using the amazing [`codespan-reporting` crate](https://github.com/brendanzab/codespan), error messages display labeled snippets of the problematic code, providing useful context.
-
-* **No segfaults.**  Even if you encounter a bug in the program, it will always produce some sort of error message and optional stacktrace.
-
-* **[gamemaps](./map/any.stdm)** so you don't need to memorize the right mapfiles for each game.
-
-* **Tested.** Ever downloaded a new dev build of thecl to find that inline functions were accidentally broken again for the third time?  truth has a large suite of unit tests and integration tests to help prevent such mistakes before they ever happen.
-
-And specific to some of the binaries:
-
-#### Why use trustd over thstd?
-
-* trustd has thstd's most important missing features:
-  * Labels and `goto`!
-  * `stdmap`s for naming instructions!
-* Nicer formatting of metadata. (more like ANM)
-* Decompilation of loops.
-* Constant expression evaluation.  `(1 < 3) ? 4.0f : 2.0 + 0.5`
-* Correct treatment of "strip" quads in TH08, TH09.
-
-#### Why use truanm over thanm?
-
-**truanm** already has a number of features that are currently only available in thtk's experimental [`thanm-new-spec-format` branch](https://github.com/thpatch/thtk/tree/thanm-new-spec-format):
-
-* C-like syntax like thecl.  (in fact, `truanm` and `trustd` use *the same parser*)
-* Automatic allocation of temporary registers for complex expressions
-
-there are some new things as well:
-
-* Decompilation of loops and `if ... else ...`.
-
-#### On the roadmap for truanm
-
-truanm still needs these features before it can be considered "feature complete":
-
-* [ ] **compiling expressions that involve jumps.**  (e.g. `a == b` and `a || b` in arbitrary expressions; currently these are only supported inside `if (...)`)
-* [ ] **named sprite/script arguments,** e.g. `sprite(sprite30);` instead of `sprite(30);`.
-* [ ] **word-sized (2-byte) arguments,** for the `anchor` instruction.  (this will also help later with some MSG and ECL formats...)
 
 ## Building and installing from source
 

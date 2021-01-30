@@ -227,7 +227,7 @@ impl StmtBody {
     pub fn descr(&self) -> &'static str { match self {
         StmtBody::Jump { .. } => "goto",
         StmtBody::CondJump { .. } => "conditional goto",
-        StmtBody::Return { .. } => "return statment",
+        StmtBody::Return { .. } => "return statement",
         StmtBody::CondChain { .. } => "conditional chain",
         StmtBody::Loop { .. } => "loop",
         StmtBody::While { .. } => "while(..)",
