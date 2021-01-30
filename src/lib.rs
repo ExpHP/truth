@@ -20,11 +20,6 @@ pub mod fmt;
 
 pub mod parse;
 
-pub use anm::AnmFile;
-pub mod anm;
-pub use self::std::StdFile;
-pub mod std;
-
 // FIXME make this part of `ast`
 pub mod meta;
 
@@ -39,6 +34,11 @@ pub mod passes;
 
 pub use ident::{Ident, ParseIdentError};
 pub mod ident;
+
+pub use formats::anm::{self, AnmFile};
+pub use formats::msg::{self, MsgFile};
+pub use formats::std::{self, StdFile};
+mod formats;
 
 pub use game::Game;
 mod game;

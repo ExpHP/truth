@@ -2,13 +2,13 @@ use std::fmt;
 use std::io;
 use std::num::NonZeroU64;
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use bstr::BString;
 use enum_map::EnumMap;
 use indexmap::IndexMap;
 
 use crate::ast;
-use crate::binary_io::{bail, BinRead, BinWrite, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::game::Game;
 use crate::ident::Ident;
@@ -199,7 +199,12 @@ impl FromMeta for Sprite {
 
 // =============================================================================
 
-fn decompile(format: &FileFormat, anm_file: &AnmFile, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+fn decompile(
+    format: &FileFormat,
+    anm_file: &AnmFile,
+    ty_ctx: &TypeSystem,
+    decompile_kind: DecompileKind,
+) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -251,13 +256,10 @@ fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), 
 }
 
 fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Result<(), CompileError> {
-    let EntrySpecs {
-        width: dest_width, height: dest_height, format: dest_format,
-        colorkey: dest_colorkey, offset_x: dest_offset_x, offset_y: dest_offset_y,
-        memory_priority: dest_memory_priority, has_data: dest_has_data,
-        low_res_scale: dest_low_res_scale,
-    } = &mut dest_file.specs;
+    let dest_specs = &mut dest_file.specs;
 
+    // though it's tedious, we fully unpack this struct to that the compiler doesn't
+    // let us forget to update this function when we add a new field.
     let EntrySpecs {
         width: src_width, height: src_height, format: src_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
@@ -265,24 +267,33 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
         low_res_scale: src_low_res_scale,
     } = src_file.specs;
 
-    *dest_width = dest_width.or(src_width);
-    *dest_height = dest_height.or(src_height);
-    *dest_format = dest_format.or(src_format);
-    *dest_colorkey = dest_colorkey.or(src_colorkey);
-    *dest_offset_x = dest_offset_x.or(src_offset_x);
-    *dest_offset_y = dest_offset_y.or(src_offset_y);
-    *dest_memory_priority = dest_memory_priority.or(src_memory_priority);
-    *dest_has_data = dest_has_data.or(src_has_data);
-    *dest_low_res_scale = dest_low_res_scale.or(src_low_res_scale);
+    fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
+        *dest = dest.take().or(src);
+    }
 
-    if *dest_has_data != Some(false) && dest_file.texture.is_none() {
-        dest_file.texture = src_file.texture;
+    or_inplace(&mut dest_specs.width, src_width);
+    or_inplace(&mut dest_specs.height, src_height);
+    or_inplace(&mut dest_specs.format, src_format);
+    or_inplace(&mut dest_specs.colorkey, src_colorkey);
+    or_inplace(&mut dest_specs.offset_x, src_offset_x);
+    or_inplace(&mut dest_specs.offset_y, src_offset_y);
+    or_inplace(&mut dest_specs.memory_priority, src_memory_priority);
+    or_inplace(&mut dest_specs.has_data, src_has_data);
+    or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
+
+    if dest_specs.has_data != Some(false) {
+        or_inplace(&mut dest_file.texture, src_file.texture);
     }
 
     Ok(())
 }
 
-fn compile(format: &FileFormat, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<AnmFile, CompileError> {
+
+fn compile(
+    format: &FileFormat,
+    ast: &ast::Script,
+    ty_ctx: &mut TypeSystem,
+) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
     let ast = {
@@ -696,25 +707,13 @@ fn game_format(game: Game) -> FileFormat {
 }
 
 pub fn game_core_mapfile(game: Game) -> String {
-    match game {
-        Game::Th06 => include_str!("../map/core/v0.anmm").to_string(),
-        Game::Th07 => include_str!("../map/core/v2.anmm").to_string(),
-        Game::Th08 |
-        Game::Th09 => include_str!("../map/core/v3.anmm").to_string(),
-        Game::Th095 |
-        Game::Th10 |
-        Game::Alcostg |
-        Game::Th11 |
-        Game::Th12 |
-        Game::Th125 |
-        Game::Th128 => include_str!("../map/core/v4.anmm").to_string(),
-        Game::Th13 |
-        Game::Th14 |
-        Game::Th143 |
-        Game::Th15 |
-        Game::Th16 |
-        Game::Th165 |
-        Game::Th17 => include_str!("../map/core/v8.anmm").to_string(),
+    match Version::from_game(game) {
+        Version::V0 => include_str!("../../map/core/v0.anmm").to_string(),
+        Version::V2 => include_str!("../../map/core/v2.anmm").to_string(),
+        Version::V3 => include_str!("../../map/core/v3.anmm").to_string(),
+        Version::V4 |
+        Version::V7 => include_str!("../../map/core/v4.anmm").to_string(),
+        Version::V8 => include_str!("../../map/core/v8.anmm").to_string(),
     }
 }
 

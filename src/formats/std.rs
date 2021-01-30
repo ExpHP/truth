@@ -2,9 +2,10 @@ use std::io;
 
 use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
+use anyhow::bail;
 
 use crate::ast;
-use crate::binary_io::{bail, BinRead, BinWrite, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
 use crate::ident::Ident;
@@ -589,18 +590,18 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
 pub fn game_core_mapfile(game: Game) -> String {
     match game {
         Game::Th06
-            => include_str!("../map/core/th06.stdm").to_string(),
+            => include_str!("../../map/core/th06.stdm").to_string(),
 
         Game::Th07 | Game::Th08 | Game::Th09
-            => include_str!("../map/core/th07.stdm").to_string(),
+            => include_str!("../../map/core/th07.stdm").to_string(),
 
         Game::Th095 | Game::Th10 | Game::Alcostg | Game::Th11 |
         Game::Th12 | Game::Th125 | Game::Th128 | Game::Th13
-            => include_str!("../map/core/th095.stdm").to_string(),
+            => include_str!("../../map/core/th095.stdm").to_string(),
 
         Game::Th14 | Game::Th143 | Game::Th15 | Game::Th16 |
         Game::Th165 | Game::Th17
-            => include_str!("../map/core/th14.stdm").to_string(),
+            => include_str!("../../map/core/th14.stdm").to_string(),
     }
 }
 

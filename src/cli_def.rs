@@ -1,9 +1,3 @@
-// FIXME cleanup this file;
-//       for now I just made modules with the contents of the individual files that used to exist in bin/
-//       in order to speed up test compilation, without doing any cleanup.
-//       I want to change the structure of the commands to be 'truanm' and 'trustd' anyways so
-//       we'll have to do some refactoring then
-
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
@@ -31,6 +25,7 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
             SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
             SubcommandSpec { name: "ecl-reformat", entry: ecl_reformat::main, public: false },
+            SubcommandSpec { name: "msg-redump", entry: msg_redump::main, public: false },
         ],
     })
 }
@@ -96,15 +91,15 @@ pub mod anm_decompile {
         let stdout = io::stdout();
         wrap_fancy_errors(|_files| {
             let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(max_columns);
-            run(&mut f, game, &input, mapfile)
+            run(&mut f, game, input.as_ref(), mapfile.as_deref().map(AsRef::as_ref))
         });
     }
 
     pub(super) fn run(
         out: &mut crate::Formatter<impl io::Write>,
         game: Game,
-        path: impl AsRef<Path>,
-        map_path: Option<impl AsRef<Path>>,
+        path: &Path,
+        map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let ty_ctx = {
             use crate::Eclmap;
@@ -113,7 +108,7 @@ pub mod anm_decompile {
 
             ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::anm::game_core_mapfile(game))?);
 
-            let map_path = map_path.map(|p| p.as_ref().to_owned());
+            let map_path = map_path.map(|p| p.to_owned());
             if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".anmm")) {
                 let eclmap = Eclmap::load(&map_path, Some(game))?;
                 ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
@@ -126,7 +121,7 @@ pub mod anm_decompile {
             let reader = io::BufReader::with_capacity(64, fs_open(&path)?);
             crate::AnmFile::read_from_stream(reader, game, false)
                 .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
-                .with_context(|| format!("in file: {}", path.as_ref().display()))?
+                .with_context(|| format!("in file: {}", path.display()))?
         };
 
         out.fmt(&script)?;
@@ -213,18 +208,18 @@ pub mod anm_redump {
             options: (cli::input(), cli::required_output(), cli::game()),
         });
 
-        wrap_fancy_errors(|_| run(game, &input, output))
+        wrap_fancy_errors(|_| run(game, input.as_ref(), output.as_ref()))
     }
 
     fn run(
         game: Game,
-        path: impl AsRef<Path>,
-        outpath: impl AsRef<Path>,
+        path: &Path,
+        outpath: &Path,
     ) -> Result<(), CompileError> {
         let reader = io::BufReader::new(fs_open(&path)?);
         let anm_file = {
             crate::AnmFile::read_from_stream(reader, game, true)
-                .with_context(|| format!("in file: {}", path.as_ref().display()))?
+                .with_context(|| format!("in file: {}", path.display()))?
         };
 
         let mut buf = io::Cursor::new(vec![]);
@@ -329,14 +324,14 @@ pub mod std_decompile {
             usage_args: "FILE -g GAME [OPTIONS...]",
             options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
         });
-        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile))
+        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile.as_deref().map(AsRef::as_ref)))
     }
 
     fn run(
         game: Game,
-        path: impl AsRef<Path>,
+        path: &Path,
         ncol: usize,
-        map_path: Option<impl AsRef<Path>>,
+        map_path: Option<&Path>,
     ) -> Result<(), CompileError> {
         let ty_ctx = {
             use crate::Eclmap;
@@ -345,7 +340,7 @@ pub mod std_decompile {
 
             ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::std::game_core_mapfile(game))?);
 
-            let map_path = map_path.map(|p| p.as_ref().to_owned());
+            let map_path = map_path.map(|p| p.to_owned());
             if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".stdm")) {
                 let eclmap = Eclmap::load(&map_path, Some(game))?;
                 ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
@@ -354,10 +349,10 @@ pub mod std_decompile {
         };
 
         let script = {
-            let reader = io::Cursor::new(fs_read(path.as_ref())?);
+            let reader = io::Cursor::new(fs_read(path)?);
             crate::StdFile::read_from_stream(reader, game)
                 .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
-                .with_context(|| format!("in file: {}", path.as_ref().display()))?
+                .with_context(|| format!("in file: {}", path.display()))?
         };
 
         let stdout = io::stdout();
@@ -366,6 +361,39 @@ pub mod std_decompile {
         Ok(())
     }
 }
+
+pub mod msg_redump {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truth-core msg-redump",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::game()),
+        });
+
+        wrap_fancy_errors(|_| run(game, input.as_ref(), output.as_ref()))
+    }
+
+    fn run(
+        game: Game,
+        path: &Path,
+        outpath: &Path,
+    ) -> Result<(), CompileError> {
+        let reader = io::BufReader::new(fs_open(&path)?);
+        let msg_file = {
+            crate::MsgFile::read_from_stream(reader, game)
+                .with_context(|| format!("in file: {}", path.display()))?
+        };
+
+        let mut buf = io::Cursor::new(vec![]);
+        msg_file.write_to_stream(&mut buf, game)?;
+
+        fs::write(outpath, buf.into_inner())?;
+        Ok(())
+    }
+}
+
 
 // =============================================================================
 
