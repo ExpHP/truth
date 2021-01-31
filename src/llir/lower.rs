@@ -1,13 +1,13 @@
 use std::collections::{HashMap};
 
-use super::unsupported;
-use crate::llir::{RawInstr, Instr, InstrFormat, InstrArg};
+use super::{unsupported, RawArg};
+use crate::llir::{RawInstr, InstrFormat};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::ident::Ident;
 use crate::var::{LocalId};
-use crate::type_system::{TypeSystem, ArgEncoding};
+use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
 
 mod stackless;
 
@@ -16,15 +16,52 @@ mod stackless;
 /// In addition to instructions, it has a couple of extra things that are handled via
 /// some post-processing steps.
 #[derive(Debug, Clone, PartialEq)]
-enum LowLevelStmt {
+enum LowerStmt {
     /// Represents a single instruction in the compiled file.
-    Instr(Instr),
+    Instr(LowerInstr),
     /// An intrinsic that represents a label that can be jumped to.
     Label { time: i32, label: Sp<Ident> },
     /// An intrinsic that begins the scope of a register-allocated local.
     RegAlloc { local_id: LocalId, cause: Span },
     /// An intrinsic that ends the scope of a register-allocated local.
     RegFree { local_id: LocalId },
+}
+
+/// An instruction that needs just a bit more postprocessing to convert it into a [`RawInstr`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct LowerInstr {
+    pub time: i32,
+    pub opcode: u16,
+    pub args: Vec<LowerArg>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LowerArg {
+    /// A fully encoded argument (an immediate or a register).
+    ///
+    /// All arguments are eventually lowered to this form.
+    Raw(RawArg),
+    /// A reference to a register-allocated local.
+    Local { local_id: LocalId, read_ty: ScalarType },
+    /// A label that has not yet been converted to an integer argument.
+    Label(Sp<Ident>),
+    /// A `timeof(label)` that has not yet been converted to an integer argument.
+    TimeOf(Sp<Ident>),
+}
+
+impl LowerArg {
+    /// Call this at a time when the arg is known to have a fully resolved value.
+    ///
+    /// Such times are:
+    /// * During decompilation.
+    /// * Within [`InstrFormat::write_instr`].
+    #[track_caller]
+    pub fn expect_raw(&self) -> RawArg {
+        match *self {
+            LowerArg::Raw(x) => x,
+            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
+        }
+    }
 }
 
 pub fn lower_sub_ast_to_instrs(
@@ -50,18 +87,18 @@ pub fn lower_sub_ast_to_instrs(
     assign_registers(&mut out, &used_regs, instr_format, ty_ctx)?;
 
     out.into_iter().filter_map(|x| match x {
-        LowLevelStmt::Instr(instr) => Some(encode_args(&instr, ty_ctx)),
-        LowLevelStmt::Label { .. } => None,
-        LowLevelStmt::RegAlloc { .. } => None,
-        LowLevelStmt::RegFree { .. } => None,
+        LowerStmt::Instr(instr) => Some(encode_args(&instr, ty_ctx)),
+        LowerStmt::Label { .. } => None,
+        LowerStmt::RegAlloc { .. } => None,
+        LowerStmt::RegFree { .. } => None,
     }).collect_with_recovery()
 }
 
 // =============================================================================
 
-/// Eliminates all `InstrArg::Label`s by replacing them with their dword values.
+/// Eliminates all `LowerArg::Label`s by replacing them with their dword values.
 fn encode_labels(
-    code: &mut [LowLevelStmt],
+    code: &mut [LowerStmt],
     format: &dyn InstrFormat,
     initial_offset: u64,
     ty_ctx: &TypeSystem,
@@ -70,14 +107,14 @@ fn encode_labels(
 
     code.iter_mut().map(|thing| {
         match thing {
-            LowLevelStmt::Instr(instr) => for arg in &mut instr.args {
+            LowerStmt::Instr(instr) => for arg in &mut instr.args {
                 match *arg {
-                    | InstrArg::Label(ref label)
-                    | InstrArg::TimeOf(ref label)
+                    | LowerArg::Label(ref label)
+                    | LowerArg::TimeOf(ref label)
                     => match label_info.get(label) {
                         Some(info) => match arg {
-                            InstrArg::Label(_) => *arg = InstrArg::Raw(format.encode_label(info.offset).into()),
-                            InstrArg::TimeOf(_) => *arg = InstrArg::Raw(info.time.into()),
+                            LowerArg::Label(_) => *arg = LowerArg::Raw(format.encode_label(info.offset).into()),
+                            LowerArg::TimeOf(_) => *arg = LowerArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },
                         None => return Err(error!{
@@ -101,7 +138,7 @@ struct RawLabelInfo {
 fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: u64,
-    code: &[LowLevelStmt],
+    code: &[LowerStmt],
     ty_ctx: &TypeSystem,
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
@@ -110,10 +147,10 @@ fn gather_label_info(
     let mut out = HashMap::new();
     code.iter().map(|thing| {
         match *thing {
-            LowLevelStmt::Instr(ref instr) => {
+            LowerStmt::Instr(ref instr) => {
                 offset += precompute_instr_size(instr, format, ty_ctx)? as u64;
             },
-            LowLevelStmt::Label { time, ref label } => {
+            LowerStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
                     Entry::Vacant(e) => {
                         e.insert(RawLabelInfo { time, offset });
@@ -144,8 +181,8 @@ fn gather_label_info(
 /// Typically we work with InstrRaw when we need to know the size of an instruction, but
 /// fixing jump labels requires us to know the size before the args are fully encoded.
 ///
-/// Unlike [`encode_args`], this has to deal with variants of [`InstrArg`] that are not the raw argument.
-fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
+/// Unlike [`encode_args`], this has to deal with variants of [`LowerArg`] that are not the raw argument.
+fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
     let siggy = {
         ty_ctx.regs_and_instrs.ins_signature(instr.opcode).ok_or_else(|| error!(
             message("signature for opcode {} not known", instr.opcode),  // FIXME: span
@@ -155,7 +192,7 @@ fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: 
     let mut size = instr_format.instr_header_size();
     for (arg, enc) in zip!(&instr.args, siggy.arg_encodings()) {
         match arg {
-            InstrArg::Raw(_) => match enc {
+            LowerArg::Raw(_) => match enc {
                 | ArgEncoding::Dword
                 | ArgEncoding::Color
                 | ArgEncoding::Float
@@ -167,9 +204,9 @@ fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: 
                 | ArgEncoding::Word
                 => size += 2,
             },
-            InstrArg::Local { .. } => size += 4,
-            InstrArg::Label { .. } => size += 4,
-            InstrArg::TimeOf { .. } => size += 4,
+            LowerArg::Local { .. } => size += 4,
+            LowerArg::Label { .. } => size += 4,
+            LowerArg::TimeOf { .. } => size += 4,
         }
     }
 
@@ -181,7 +218,7 @@ fn precompute_instr_size(instr: &Instr, instr_format: &dyn InstrFormat, ty_ctx: 
     Ok(size)
 }
 
-fn encode_args(instr: &Instr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
+fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
     use crate::binary_io::BinWrite;
 
     let siggy = {
@@ -218,18 +255,18 @@ fn encode_args(instr: &Instr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileEr
     })
 }
 
-fn compute_param_mask(args: &[InstrArg]) -> Result<u16, CompileError> {
+fn compute_param_mask(args: &[LowerArg]) -> Result<u16, CompileError> {
     if args.len() > 16 {
         // FIXME need span info
-        return Err(anyhow::anyhow!("too many arguments in instruction!").into());
+        return Err(error!("too many arguments in instruction!"));
     }
     let mut mask = 0;
     for arg in args.iter().rev(){
         let bit = match *arg {
-            InstrArg::Raw(raw) => raw.is_reg as u16,
-            InstrArg::TimeOf { .. } |
-            InstrArg::Label { .. } => 0,
-            InstrArg::Local { .. } => 1,
+            LowerArg::Raw(raw) => raw.is_reg as u16,
+            LowerArg::TimeOf { .. } |
+            LowerArg::Label { .. } => 0,
+            LowerArg::Local { .. } => 1,
         };
         mask *= 2;
         mask += bit;

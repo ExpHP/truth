@@ -4,8 +4,8 @@
 
 use std::collections::{HashMap};
 
-use super::{unsupported, LowLevelStmt};
-use crate::llir::{Instr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, InstrArg, RawArg};
+use super::{unsupported, LowerStmt, LowerInstr, LowerArg};
+use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
@@ -17,7 +17,7 @@ use IntrinsicInstrKind as IKind;
 
 /// Helper responsible for converting an AST into [`LowLevelStmt`]s.
 pub (in crate::llir::lower) struct Lowerer<'ts> {
-    pub out: Vec<LowLevelStmt>,
+    pub out: Vec<LowerStmt>,
     pub intrinsic_instrs: IntrinsicInstrs,
     pub instr_format: &'ts dyn InstrFormat,
     pub ty_ctx: &'ts mut TypeSystem,
@@ -51,10 +51,10 @@ impl Lowerer<'_> {
 
 
                 ast::StmtBody::InterruptLabel(interrupt_id) => {
-                    self.out.push(LowLevelStmt::Instr(Instr {
+                    self.out.push(LowerStmt::Instr(LowerInstr {
                         time: stmt.time,
                         opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
-                        args: vec![InstrArg::Raw(interrupt_id.value.into())],
+                        args: vec![LowerArg::Raw(interrupt_id.value.into())],
                     }));
                 },
 
@@ -79,9 +79,9 @@ impl Lowerer<'_> {
                     _ => return Err(unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
                 }, // match expr
 
-                ast::StmtBody::Label(ident) => self.out.push(LowLevelStmt::Label { time: stmt.time, label: ident.clone() }),
+                ast::StmtBody::Label(ident) => self.out.push(LowerStmt::Label { time: stmt.time, label: ident.clone() }),
 
-                &ast::StmtBody::ScopeEnd(local_id) => self.out.push(LowLevelStmt::RegFree { local_id }),
+                &ast::StmtBody::ScopeEnd(local_id) => self.out.push(LowerStmt::RegFree { local_id }),
 
                 ast::StmtBody::NoInstruction => {}
 
@@ -140,7 +140,7 @@ impl Lowerer<'_> {
                 ExprClass::NeedsTemp(data) => {
                     // Save this expression to a temporary
                     let (local_id, _) = self.define_temporary(stmt.time, &data)?;
-                    let lowered = InstrArg::Local { local_id, read_ty: data.read_ty };
+                    let lowered = LowerArg::Local { local_id, read_ty: data.read_ty };
 
                     temp_local_ids.push(local_id); // so we can free the register later
 
@@ -168,7 +168,7 @@ impl Lowerer<'_> {
             Ok(lowered)
         }).collect_with_recovery()?;
 
-        self.out.push(LowLevelStmt::Instr(Instr {
+        self.out.push(LowerStmt::Instr(LowerInstr {
             time: stmt.time,
             opcode: opcode as _,
             args: low_level_args,
@@ -200,7 +200,7 @@ impl Lowerer<'_> {
                 VarId::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
             };
 
-            self.out.push(LowLevelStmt::RegAlloc { local_id, cause: var.span });
+            self.out.push(LowerStmt::RegAlloc { local_id, cause: var.span });
 
             if let Some(expr) = expr {
                 let assign_op = sp!(pair.span => token![=]);
@@ -226,7 +226,7 @@ impl Lowerer<'_> {
             // a += <atom>;
             ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
                 let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
-                self.out.push(LowLevelStmt::Instr(Instr {
+                self.out.push(LowerStmt::Instr(LowerInstr {
                     time,
                     opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty), span, "update assignment with this operation")?,
                     args: vec![lowered_var, lowered_rhs],
@@ -350,7 +350,7 @@ impl Lowerer<'_> {
         let ty_rhs = binop.result_type(simple_a.ty, simple_b.ty, (a.span, b.span))?;
         let ty = ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
 
-        self.out.push(LowLevelStmt::Instr(Instr {
+        self.out.push(LowerStmt::Instr(LowerInstr {
             time,
             opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "this binary operation")?,
             args: vec![lowered_var, simple_a.lowered, simple_b.lowered],
@@ -413,7 +413,7 @@ impl Lowerer<'_> {
 
                     token![sin] |
                     token![cos] |
-                    token![sqrt] => self.out.push(LowLevelStmt::Instr(Instr {
+                    token![sqrt] => self.out.push(LowerStmt::Instr(LowerInstr {
                         time,
                         opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
                         args: vec![lowered_var, data_b.lowered],
@@ -431,7 +431,7 @@ impl Lowerer<'_> {
 
         let (label_arg, time_arg) = lower_goto_args(goto);
 
-        self.out.push(LowLevelStmt::Instr(Instr {
+        self.out.push(LowerStmt::Instr(LowerInstr {
             time: stmt_time,
             opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
             args: vec![label_arg, time_arg],
@@ -475,7 +475,7 @@ impl Lowerer<'_> {
                     ));
                 }
 
-                self.out.push(LowLevelStmt::Instr(Instr {
+                self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?,
                     args: vec![arg_var, arg_label, arg_time],
@@ -497,7 +497,7 @@ impl Lowerer<'_> {
 
                 self.lower_cond_jump_predecrement(stmt_span, stmt_time, &if_keyword, var, &if_goto)?;
                 self.lower_uncond_jump(stmt_span, stmt_time, goto)?;
-                self.out.push(LowLevelStmt::Label { time: stmt_time, label: skip_label });
+                self.out.push(LowerStmt::Label { time: stmt_time, label: skip_label });
                 Ok(())
             },
         }
@@ -578,7 +578,7 @@ impl Lowerer<'_> {
 
                 let ty_arg = binop.result_type(data_a.ty, data_b.ty, (a.span, b.span))?;
                 let (lowered_label, lowered_time) = lower_goto_args(goto);
-                self.out.push(LowLevelStmt::Instr(Instr {
+                self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
                     args: vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time],
@@ -630,7 +630,7 @@ impl Lowerer<'_> {
             self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, a, &skip_goto)?;
             self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, b, &skip_goto)?;
             self.lower_uncond_jump(stmt_span, stmt_time, goto)?;
-            self.out.push(LowLevelStmt::Label { time: stmt_time, label: skip_label });
+            self.out.push(LowerStmt::Label { time: stmt_time, label: skip_label });
             Ok(())
         }
     }
@@ -672,7 +672,7 @@ impl Lowerer<'_> {
 
     /// Emits an intrinsic that cleans up a register-allocated temporary.
     fn undefine_temporary(&mut self, local_id: LocalId) -> Result<(), CompileError> {
-        self.out.push(LowLevelStmt::RegFree { local_id });
+        self.out.push(LowerStmt::RegFree { local_id });
         Ok(())
     }
 
@@ -688,7 +688,7 @@ impl Lowerer<'_> {
         let local_id = self.ty_ctx.variables.declare_temporary(Some(tmp_ty));
 
         let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(tmp_ty.into()), var_id: local_id.into() });
-        self.out.push(LowLevelStmt::RegAlloc { local_id, cause: span });
+        self.out.push(LowerStmt::RegAlloc { local_id, cause: span });
 
         (local_id, var)
     }
@@ -704,7 +704,7 @@ enum ExprClass<'a> {
 }
 
 struct SimpleExpr {
-    lowered: InstrArg,
+    lowered: LowerArg,
     ty: ScalarType,
 }
 
@@ -719,11 +719,11 @@ struct TemporaryExpr<'a> {
 fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<ExprClass<'a>, CompileError> {
     match arg.value {
         ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: InstrArg::Raw(value.into()),
+            lowered: LowerArg::Raw(value.into()),
             ty: ScalarType::Int,
         })),
         ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: InstrArg::Raw(value.into()),
+            lowered: LowerArg::Raw(value.into()),
             ty: ScalarType::Float,
         })),
         ast::Expr::Var(ref var) => {
@@ -758,21 +758,21 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
     }
 }
 
-fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(InstrArg, ScalarType), CompileError> {
+fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(LowerArg, ScalarType), CompileError> {
     let read_ty = ty_ctx.var_read_type_from_ast(var)?;
     let arg = match var.value {
         ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => InstrArg::Raw(RawArg::from_reg(reg, read_ty)),
-        ast::Var::Resolved { var_id: VarId::Local(local_id), .. } => InstrArg::Local { local_id, read_ty },
+        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => LowerArg::Raw(RawArg::from_reg(reg, read_ty)),
+        ast::Var::Resolved { var_id: VarId::Local(local_id), .. } => LowerArg::Local { local_id, read_ty },
     };
     Ok((arg, read_ty))
 }
 
-fn lower_goto_args(goto: &ast::StmtGoto) -> (InstrArg, InstrArg) {
-    let label_arg = InstrArg::Label(goto.destination.clone());
+fn lower_goto_args(goto: &ast::StmtGoto) -> (LowerArg, LowerArg) {
+    let label_arg = LowerArg::Label(goto.destination.clone());
     let time_arg = match goto.time {
-        Some(time) => InstrArg::Raw(time.into()),
-        None => InstrArg::TimeOf(goto.destination.clone()),
+        Some(time) => LowerArg::Raw(time.into()),
+        None => LowerArg::TimeOf(goto.destination.clone()),
     };
     (label_arg, time_arg)
 }
@@ -800,9 +800,9 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
 
 // =============================================================================
 
-/// Eliminates all `InstrArg::Local`s by allocating registers for them.
+/// Eliminates all `LowerArg::Local`s by allocating registers for them.
 pub (in crate::llir::lower) fn assign_registers(
-    code: &mut [LowLevelStmt],
+    code: &mut [LowerStmt],
     used_regs: &[RegId],
     format: &dyn InstrFormat,
     ty_ctx: &TypeSystem,
@@ -819,7 +819,7 @@ pub (in crate::llir::lower) fn assign_registers(
 
     for stmt in code {
         match stmt {
-            LowLevelStmt::RegAlloc { local_id, ref cause } => {
+            LowerStmt::RegAlloc { local_id, ref cause } => {
                 has_used_scratch.get_or_insert(*cause);
 
                 let ty = ty_ctx.variables.get_type(*local_id).expect("(bug!) this should have been type-checked!");
@@ -852,23 +852,23 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 assert!(local_regs.insert(*local_id, (reg, ty, *cause)).is_none());
             },
-            LowLevelStmt::RegFree { local_id } => {
+            LowerStmt::RegFree { local_id } => {
                 let inherent_ty = ty_ctx.variables.get_type(*local_id).expect("(bug!) this should have been type-checked!");
                 let (reg, _, _) = local_regs.remove(&local_id).expect("(bug!) RegFree without RegAlloc!");
                 unused_regs[inherent_ty].push(reg);
             },
-            LowLevelStmt::Instr(instr) => {
+            LowerStmt::Instr(instr) => {
                 if format.instr_disables_scratch_regs(instr.opcode) {
                     has_anti_scratch_ins = true;
                 }
 
                 for arg in &mut instr.args {
-                    if let InstrArg::Local { local_id, read_ty } = *arg {
-                        *arg = InstrArg::Raw(RawArg::from_reg(local_regs[&local_id].0, read_ty));
+                    if let LowerArg::Local { local_id, read_ty } = *arg {
+                        *arg = LowerArg::Raw(RawArg::from_reg(local_regs[&local_id].0, read_ty));
                     }
                 }
             },
-            LowLevelStmt::Label { .. } => {},
+            LowerStmt::Label { .. } => {},
         }
     }
 

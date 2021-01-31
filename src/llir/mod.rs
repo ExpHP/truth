@@ -5,11 +5,10 @@ use enum_map::EnumMap;
 
 use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
-use crate::error::{CompileError};
-use crate::ident::Ident;
-use crate::pos::{Sp, Span};
-use crate::var::{LocalId, RegId};
+use crate::error::CompileError;
+use crate::pos::{Span};
 use crate::type_system::ScalarType;
+use crate::var::{RegId};
 
 pub use lower::lower_sub_ast_to_instrs;
 mod lower;
@@ -17,39 +16,25 @@ mod lower;
 pub use raise::raise_instrs_to_sub_ast;
 mod raise;
 
+/// The lowest level representation of an instruction that is common between all games.
+///
+/// This is the type used to represent instructions in types like [`crate::formats::anm::AnmFile`].
+///
+/// The arguments to the instruction are fully encoded in a blob of bytes, exactly as they would
+/// appear in the binary file.  The reason for this is so that the functions that perform binary
+/// reading and writing of these files do not require access to type system information like
+/// instruction signatures.
+///
+/// * Compile the AST into these using [`lower_sub_ast_to_instrs`].
+/// * Decompile these into AST statements using [`raise_instrs_to_sub_ast`].
+/// * Read from a binary file using [`read_instrs`].
+/// * Write to a binary file using [`write_instrs`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawInstr {
     pub time: i32,
     pub opcode: u16,
     pub param_mask: u16,
     pub args_blob: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Instr {
-    pub time: i32,
-    pub opcode: u16,
-    pub args: Vec<InstrArg>,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub enum InstrArg {
-    /// A fully encoded argument (an immediate or a register).
-    Raw(RawArg),
-    /// A reference to a register-allocated local.
-    ///
-    /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
-    /// a raw dword before [`InstrFormat::write_instr`] is called.
-    Local { local_id: LocalId, read_ty: ScalarType },
-    /// A label that has not yet been converted to an integer argument.
-    ///
-    /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
-    /// a raw dword before [`InstrFormat::write_instr`] is called.
-    Label(Sp<Ident>),
-    /// A `timeof(label)` that has not yet been converted to an integer argument.
-    ///
-    /// This may be present in the input to [`InstrFormat::instr_size`], but will be replaced with
-    /// a raw dword before [`InstrFormat::write_instr`] is called.
-    TimeOf(Sp<Ident>),
 }
 
 /// An untyped dword argument, exactly as it will (or did) appear in the binary file.
@@ -61,40 +46,17 @@ pub struct RawArg {
     pub is_reg: bool,
 }
 
-impl InstrArg {
-    /// Call this at a time when the arg is known to have a fully resolved value.
-    ///
-    /// Such times are:
-    /// * During decompilation.
-    /// * Within [`InstrFormat::write_instr`].
-    #[track_caller]
-    pub fn expect_raw(&self) -> RawArg {
-        match *self {
-            InstrArg::Raw(x) => x,
-            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
-        }
-    }
-
+impl RawArg {
     #[track_caller]
     pub fn expect_immediate_int(&self) -> i32 {
-        match *self {
-            InstrArg::Raw(x) => {
-                assert!(!x.is_reg);
-                x.bits as i32
-            },
-            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
-        }
+        assert!(!self.is_reg);
+        self.bits as i32
     }
 
     #[track_caller]
     pub fn expect_immediate_float(&self) -> f32 {
-        match *self {
-            InstrArg::Raw(x) => {
-                assert!(!x.is_reg);
-                f32::from_bits(x.bits)
-            },
-            _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
-        }
+        assert!(!self.is_reg);
+        f32::from_bits(self.bits)
     }
 }
 
