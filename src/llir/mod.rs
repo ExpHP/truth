@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use bstr::BString;
 use anyhow::{bail, Context};
 use enum_map::EnumMap;
 
@@ -8,6 +9,7 @@ use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::CompileError;
 use crate::pos::{Span};
 use crate::type_system::ScalarType;
+use crate::value::ScalarValue;
 use crate::var::{RegId};
 
 pub use lower::lower_sub_ast_to_instrs;
@@ -37,50 +39,68 @@ pub struct RawInstr {
     pub args_blob: Vec<u8>,
 }
 
-/// An untyped dword argument, exactly as it will (or did) appear in the binary file.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RawArg {
-    /// The encoded value.  It contains the bits of either an `i32` or an `f32`.
-    pub bits: u32,
-    /// A single bit from the param mask.
+/// A simple argument, which is either an immediate or a register reference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimpleArg {
+    /// Immediate value or register ID.
+    pub value: ScalarValue,
+    /// The bit from the param mask that lets us tell whether it's a register ID.
     pub is_reg: bool,
 }
 
-impl RawArg {
+impl SimpleArg {
     #[track_caller]
     pub fn expect_immediate_int(&self) -> i32 {
         assert!(!self.is_reg);
-        self.bits as i32
+        self.expect_int()
     }
 
     #[track_caller]
-    pub fn expect_immediate_float(&self) -> f32 {
-        assert!(!self.is_reg);
-        f32::from_bits(self.bits)
+    pub fn expect_int(&self) -> i32 {
+        match self.value {
+            ScalarValue::Int(x) => x,
+            _ => panic!("{:?}", self),
+        }
+    }
+
+    #[track_caller]
+    pub fn expect_float(&self) -> f32 {
+        match self.value {
+            ScalarValue::Float(x) => x,
+            _ => panic!("{:?}", self),
+        }
+    }
+
+    #[track_caller]
+    pub fn expect_string(&self) -> &BString {
+        match self.value {
+            ScalarValue::String(ref x) => x,
+            _ => panic!("{:?}", self),
+        }
     }
 }
 
-impl RawArg {
-    pub fn from_reg(reg: RegId, ty: ScalarType) -> RawArg {
-        let bits = match ty {
-            ScalarType::Int => reg.0 as u32,
-            ScalarType::Float => (reg.0 as f32).to_bits(),
+impl SimpleArg {
+    pub fn from_reg(reg: RegId, ty: ScalarType) -> SimpleArg {
+        let value = match ty {
+            ScalarType::Int => ScalarValue::Int(reg.0),
+            ScalarType::Float => ScalarValue::Float(reg.0 as f32),
             _ => panic!("tried to compile register argument from {}", ty.descr())
         };
-        RawArg { bits, is_reg: true }
+        SimpleArg { value, is_reg: true }
     }
 }
 
-impl From<u32> for RawArg {
-    fn from(x: u32) -> RawArg { RawArg { bits: x, is_reg: false } }
+impl From<i32> for SimpleArg {
+    fn from(x: i32) -> SimpleArg { SimpleArg { value: ScalarValue::Int(x), is_reg: false } }
 }
 
-impl From<i32> for RawArg {
-    fn from(x: i32) -> RawArg { RawArg { bits: x as u32, is_reg: false } }
+impl From<f32> for SimpleArg {
+    fn from(x: f32) -> SimpleArg { SimpleArg { value: ScalarValue::Float(x), is_reg: false } }
 }
 
-impl From<f32> for RawArg {
-    fn from(x: f32) -> RawArg { RawArg { bits: x.to_bits(), is_reg: false } }
+impl From<BString> for SimpleArg {
+    fn from(x: BString) -> SimpleArg { SimpleArg { value: ScalarValue::String(x), is_reg: false } }
 }
 
 fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {

@@ -1,6 +1,6 @@
 use std::collections::{HashMap};
 
-use super::{unsupported, RawArg};
+use super::{unsupported, SimpleArg};
 use crate::llir::{RawInstr, InstrFormat};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
@@ -40,7 +40,7 @@ pub enum LowerArg {
     /// A fully encoded argument (an immediate or a register).
     ///
     /// All arguments are eventually lowered to this form.
-    Raw(RawArg),
+    Raw(SimpleArg),
     /// A reference to a register-allocated local.
     Local { local_id: LocalId, read_ty: ScalarType },
     /// A label that has not yet been converted to an integer argument.
@@ -56,8 +56,8 @@ impl LowerArg {
     /// * During decompilation.
     /// * Within [`InstrFormat::write_instr`].
     #[track_caller]
-    pub fn expect_raw(&self) -> RawArg {
-        match *self {
+    pub fn expect_raw(&self) -> &SimpleArg {
+        match self {
             LowerArg::Raw(x) => x,
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
         }
@@ -113,7 +113,7 @@ fn encode_labels(
                     | LowerArg::TimeOf(ref label)
                     => match label_info.get(label) {
                         Some(info) => match arg {
-                            LowerArg::Label(_) => *arg = LowerArg::Raw(format.encode_label(info.offset).into()),
+                            LowerArg::Label(_) => *arg = LowerArg::Raw((format.encode_label(info.offset) as i32).into()),
                             LowerArg::TimeOf(_) => *arg = LowerArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },
@@ -231,14 +231,16 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
         match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
-            | ArgEncoding::Float
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-            => args_blob.write_u32(arg.expect_raw().bits)?,
+            => args_blob.write_i32(arg.expect_raw().expect_int())?,
+
+            | ArgEncoding::Float
+            => args_blob.write_f32(arg.expect_raw().expect_float())?,
 
             | ArgEncoding::Word
-            => args_blob.write_i16(arg.expect_raw().bits as _)?,
+            => args_blob.write_i16(arg.expect_raw().expect_int() as _)?,
         }
     }
 
@@ -262,7 +264,7 @@ fn compute_param_mask(args: &[LowerArg]) -> Result<u16, CompileError> {
     }
     let mut mask = 0;
     for arg in args.iter().rev(){
-        let bit = match *arg {
+        let bit = match arg {
             LowerArg::Raw(raw) => raw.is_reg as u16,
             LowerArg::TimeOf { .. } |
             LowerArg::Label { .. } => 0,

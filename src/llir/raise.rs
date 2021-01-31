@@ -6,9 +6,10 @@ use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
-use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
+use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::var::{VarId, RegId};
 use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
+use crate::value::ScalarValue;
 
 /// Intermediate form of an instruction only used during decompilation.
 ///
@@ -16,7 +17,7 @@ use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
 pub struct RaiseInstr {
     pub time: i32,
     pub opcode: u16,
-    pub args: Vec<RawArg>,
+    pub args: Vec<SimpleArg>,
 }
 
 pub fn raise_instrs_to_sub_ast(
@@ -176,7 +177,7 @@ fn extract_jump_args_by_signature(
     let siggy = expect_signature(instr, ty_ctx);
     for (arg, encoding) in zip!(&instr.args, siggy.arg_encodings()) {
         match encoding {
-            ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.bits)),
+            ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_immediate_int() as u32)),
             ArgEncoding::JumpTime => jump_time = Some(arg.expect_immediate_int()),
             _ => {},
         }
@@ -202,7 +203,7 @@ fn raise_instr(
 
             // This one is >= because it exists in early STD where there can be padding args.
             ensure!(args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
-            ensure!(args[nargs..].iter().all(|a| a.bits == 0), "unsupported data in padding of intrinsic");
+            ensure!(args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
             let goto = raise_jump_args(&args[0], args.get(1), instr_format, offset_labels);
             Ok(stmt_goto!(rec_sp!(Span::NULL => goto #(goto.destination) #(goto.time))))
@@ -240,7 +241,7 @@ fn raise_instr(
         Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
             // This one is >= because it exists in STD where there can be padding args.
             ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
-            ensure!(args[1..].iter().all(|a| a.bits == 0), "unsupported data in padding of intrinsic");
+            ensure!(args[1..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
             Ok(stmt_interrupt!(rec_sp!(Span::NULL => #(args[0].expect_immediate_int()) )))
         }).with_context(|| format!("while decompiling an interrupt label")),
@@ -285,7 +286,7 @@ fn raise_instr(
 }
 
 
-fn raise_args(args: &[RawArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, SimpleError> {
+fn raise_args(args: &[SimpleArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, SimpleError> {
     if args.len() != siggy.arg_encodings().len() {
         bail!("provided arg count ({}) does not match mapfile ({})", args.len(), siggy.arg_encodings().len());
     }
@@ -298,14 +299,14 @@ fn raise_args(args: &[RawArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, Simpl
     // drop early STD padding args from the end as long as they're zero
     for (enc, arg) in siggy.arg_encodings().zip(args).rev() {
         match (enc, arg) {
-            (ArgEncoding::Padding, RawArg { bits: 0, .. }) => out.pop(),
+            (ArgEncoding::Padding, SimpleArg { value: ScalarValue::Int(0), .. }) => out.pop(),
             _ => break,
         };
     }
     Ok(out)
 }
 
-fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
+fn raise_arg(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
     if raw.is_reg {
         let ty = match enc {
             ArgEncoding::Padding |
@@ -322,16 +323,16 @@ fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
     }
 }
 
-fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
+fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
     if raw.is_reg {
         bail!("expected an immediate, got a variable");
     }
     match enc {
         ArgEncoding::Padding |
         ArgEncoding::Word |
-        ArgEncoding::Dword => Ok(Expr::from(raw.bits as i32)),
-        ArgEncoding::Color => Ok(Expr::LitInt { value: raw.bits as i32, hex: true }),
-        ArgEncoding::Float => Ok(Expr::from(f32::from_bits(raw.bits))),
+        ArgEncoding::Dword => Ok(Expr::from(raw.expect_int())),
+        ArgEncoding::Color => Ok(Expr::LitInt { value: raw.expect_int(), hex: true }),
+        ArgEncoding::Float => Ok(Expr::from(raw.expect_float())),
 
         // These only show up in intrinsics where they are handled by other code.
         //
@@ -342,15 +343,15 @@ fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleEr
     }
 }
 
-fn raise_arg_to_reg(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
+fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
     if !raw.is_reg {
         bail!("expected a variable, got an immediate");
     }
     let sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
     let reg = match sigil {
-        ast::VarReadType::Int => RegId(raw.bits as i32),
+        ast::VarReadType::Int => RegId(raw.expect_int()),
         ast::VarReadType::Float => {
-            let float_reg = f32::from_bits(raw.bits);
+            let float_reg = raw.expect_float();
             if float_reg != f32::round(float_reg) {
                 bail!("non-integer float variable [{}] in binary file!", float_reg);
             }
@@ -364,12 +365,12 @@ fn raise_arg_to_reg(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleErro
 }
 
 fn raise_jump_args(
-    offset_arg: &RawArg,
-    time_arg: Option<&RawArg>,  // None when the instruction signature has no time arg
+    offset_arg: &SimpleArg,
+    time_arg: Option<&SimpleArg>,  // None when the instruction signature has no time arg
     instr_format: &dyn InstrFormat,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> ast::StmtGoto {
-    let offset = instr_format.decode_label(offset_arg.bits);
+    let offset = instr_format.decode_label(offset_arg.expect_immediate_int() as u32);
     let label = &offset_labels[&offset];
     ast::StmtGoto {
         destination: sp!(label.label.clone()),
@@ -393,19 +394,24 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<RaiseInstr, S
         match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
-            | ArgEncoding::Float
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
             => {
-                let bits = args_blob.read_u32()?;
-                args.push(RawArg { bits, is_reg })
+                let value = ScalarValue::Int(args_blob.read_u32()? as i32);
+                args.push(SimpleArg { value, is_reg })
+            },
+
+            | ArgEncoding::Float
+            => {
+                let value = ScalarValue::Float(f32::from_bits(args_blob.read_u32()?));
+                args.push(SimpleArg { value, is_reg })
             },
 
             | ArgEncoding::Word
             => {
-                let bits = args_blob.read_i16()? as i32 as u32;  // sign extend
-                args.push(RawArg { bits, is_reg })
+                let value = ScalarValue::Int(args_blob.read_i16()? as i32);
+                args.push(SimpleArg { value, is_reg })
             },
         }
     }

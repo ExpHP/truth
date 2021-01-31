@@ -5,7 +5,7 @@
 use std::collections::{HashMap};
 
 use super::{unsupported, LowerStmt, LowerInstr, LowerArg};
-use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, RawArg};
+use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
@@ -764,7 +764,7 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(LowerArg
     let read_ty = ty_ctx.var_read_type_from_ast(var)?;
     let arg = match var.value {
         ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => LowerArg::Raw(RawArg::from_reg(reg, read_ty)),
+        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
         ast::Var::Resolved { var_id: VarId::Local(local_id), .. } => LowerArg::Local { local_id, read_ty },
     };
     Ok((arg, read_ty))
@@ -866,7 +866,7 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 for arg in &mut instr.args {
                     if let LowerArg::Local { local_id, read_ty } = *arg {
-                        *arg = LowerArg::Raw(RawArg::from_reg(local_regs[&local_id].0, read_ty));
+                        *arg = LowerArg::Raw(SimpleArg::from_reg(local_regs[&local_id].0, read_ty));
                     }
                 }
             },
@@ -889,7 +889,7 @@ pub (in crate::llir::lower) fn assign_registers(
 }
 
 // NOTE: at the time of writing, this has to be done to the ast (it can't be done to LowLevelStmts because
-//       there's no way to recover a register number from a RawArg in consideration of floats).
+//       there's no way to recover a register number from a SimpleArg in consideration of floats).
 pub (in crate::llir::lower) fn get_used_regs(func_body: &[Sp<ast::Stmt>]) -> Vec<RegId> {
     use ast::Visit;
 
