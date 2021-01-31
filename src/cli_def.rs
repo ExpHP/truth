@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
 use anyhow::Context;
+use crate::ast;
 use crate::game::Game;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::Files;
@@ -23,6 +24,7 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
         choices: &[
             SubcommandSpec { name: "truanm", entry: truanm_main, public: true },
             SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
+            SubcommandSpec { name: "trumsg", entry: trumsg_main, public: true },
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
             SubcommandSpec { name: "ecl-reformat", entry: ecl_reformat::main, public: false },
             SubcommandSpec { name: "msg-redump", entry: msg_redump::main, public: false },
@@ -46,10 +48,22 @@ pub fn truanm_main(version: &str, args: &[String]) -> ! {
 pub fn trustd_main(version: &str, args: &[String]) -> ! {
     cli::parse_subcommand(version, &args, Subcommands {
         abbreviations: cli::Abbreviations::Allow,
-        program: "trustdd",
+        program: "trustd",
         choices: &[
             SubcommandSpec { name: "decompile", entry: std_decompile::main, public: true },
             SubcommandSpec { name: "compile", entry: std_compile::main, public: true },
+        ],
+    })
+}
+
+
+pub fn trumsg_main(version: &str, args: &[String]) -> ! {
+    cli::parse_subcommand(version, &args, Subcommands {
+        abbreviations: cli::Abbreviations::Allow,
+        program: "trumsg",
+        choices: &[
+            SubcommandSpec { name: "decompile", entry: msg_decompile::main, public: true },
+            SubcommandSpec { name: "compile", entry: msg_compile::main, public: true },
         ],
     })
 }
@@ -69,7 +83,7 @@ pub mod ecl_reformat {
     }
 
     fn run(files: &mut Files, path: impl AsRef<Path>) -> Result<(), CompileError> {
-        let script = files.read_file::<crate::ast::Script>(path.as_ref())?;
+        let script = files.read_file::<ast::Script>(path.as_ref())?;
 
         let stdout = io::stdout();
         let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock()));
@@ -91,7 +105,7 @@ pub mod anm_decompile {
         let stdout = io::stdout();
         wrap_fancy_errors(|_files| {
             let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(max_columns);
-            run(&mut f, game, input.as_ref(), mapfile.as_deref().map(AsRef::as_ref))
+            run(&mut f, game, input.as_ref(), mapfile)
         });
     }
 
@@ -99,25 +113,15 @@ pub mod anm_decompile {
         out: &mut crate::Formatter<impl io::Write>,
         game: Game,
         path: &Path,
-        map_path: Option<&Path>,
+        map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let ty_ctx = {
-            use crate::Eclmap;
-
-            let mut ty_ctx = crate::type_system::TypeSystem::new();
-
-            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::anm::game_core_mapfile(game))?);
-
-            let map_path = map_path.map(|p| p.to_owned());
-            if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".anmm")) {
-                let eclmap = Eclmap::load(&map_path, Some(game))?;
-                ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
-            }
-            ty_ctx
-        };
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
+        let ty_ctx = init_ty_ctx(game, map_path, &crate::anm::game_core_mapfile(game))?;
 
         let script = {
-            // tiny buffer due to seeking
+            // Here we don't use fs_read because seeking can skip costly reads of megabytes of image data.
+            //
+            // Seeking drops the buffer though, so use a tiny buffer.
             let reader = io::BufReader::with_capacity(64, fs_open(&path)?);
             crate::AnmFile::read_from_stream(reader, game, false)
                 .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
@@ -142,7 +146,7 @@ pub mod anm_compile {
             ),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &script_path, &output, &image_sources, mapfile.as_ref().map(AsRef::as_ref)));
+        wrap_fancy_errors(|files| run(files, game, &script_path, &output, &image_sources, mapfile));
     }
 
     pub(super) fn run(
@@ -151,28 +155,13 @@ pub mod anm_compile {
         script_path: &Path,
         outpath: &Path,
         cli_image_source_paths: &[PathBuf],
-        map_path: Option<&Path>,
+        map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = crate::type_system::TypeSystem::new();
+        let mut ty_ctx = init_ty_ctx(game, map_path, &crate::anm::game_core_mapfile(game))?;
 
-        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::anm::game_core_mapfile(game))?);
+        let ast = files.read_file::<ast::Script>(&script_path)?;
 
-        if let Some(map_path) = map_path {
-            let eclmap = crate::Eclmap::load(&map_path, Some(game))?;
-            ty_ctx.extend_from_eclmap(Some(map_path.as_ref()), &eclmap);
-        }
-
-        let ast = files.read_file::<crate::ast::Script>(&script_path)?;
-
-        for path_literal in &ast.mapfiles {
-            let path = path_literal.as_path()?;
-            match crate::Eclmap::load(&path, Some(game)) {
-                Ok(eclmap) => ty_ctx.extend_from_eclmap(Some(path), &eclmap),
-                Err(e) => return Err(crate::error!(
-                    message("{}", e), primary(path_literal, "error loading file"),
-                )),
-            }
-        }
+        load_mapfiles_from_pragmas(game, &mut ty_ctx, &ast)?;
 
         let mut compiled = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
 
@@ -243,7 +232,7 @@ pub mod anm_benchmark {
             ),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &anm_path, &script_path, &output, mapfile.as_ref().map(AsRef::as_ref)))
+        wrap_fancy_errors(|files| run(files, game, &anm_path, &script_path, &output, mapfile))
     }
 
     fn run(
@@ -252,16 +241,16 @@ pub mod anm_benchmark {
         anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
-        map_path: Option<&Path>,
+        map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
             let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
             let mut f = crate::Formatter::new(io::BufWriter::new(script_out)).with_max_columns(100);
-            super::anm_decompile::run(&mut f, game, anm_path, map_path)?;
+            super::anm_decompile::run(&mut f, game, anm_path, map_path.clone())?;
             drop(f);
 
-            super::anm_compile::run(files, game, script_path, outpath, &image_source_paths, map_path)?;
+            super::anm_compile::run(files, game, script_path, outpath, &image_source_paths, map_path.clone())?;
         }
     }
 }
@@ -276,7 +265,7 @@ pub mod std_compile {
             options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &input, &output, mapfile.as_ref().map(AsRef::as_ref)));
+        wrap_fancy_errors(|files| run(files, game, &input, &output, mapfile));
     }
 
     fn run(
@@ -284,29 +273,14 @@ pub mod std_compile {
         game: Game,
         path: &Path,
         outpath: &Path,
-        map_path: Option<&Path>,
+        map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = crate::type_system::TypeSystem::new();
+        let mut ty_ctx = init_ty_ctx(game, map_path, &crate::std::game_core_mapfile(game))?;
 
-        ty_ctx.extend_from_eclmap(None, &crate::Eclmap::parse(&crate::std::game_core_mapfile(game))?);
-
-        if let Some(map_path) = map_path {
-            let eclmap = crate::Eclmap::load(&map_path, Some(game))?;
-            ty_ctx.extend_from_eclmap(Some(map_path.as_ref()), &eclmap);
-        }
-
-        let script = files.read_file::<crate::ast::Script>(&path)?;
+        let script = files.read_file::<ast::Script>(&path)?;
+        load_mapfiles_from_pragmas(game, &mut ty_ctx, &script)?;
         script.expect_no_image_sources()?;
 
-        for path_literal in &script.mapfiles {
-            let path = path_literal.as_path()?;
-            match crate::Eclmap::load(&path, Some(game)) {
-                Ok(eclmap) => ty_ctx.extend_from_eclmap(Some(path), &eclmap),
-                Err(e) => return Err(crate::error!(
-                    message("{}", e), primary(path_literal, "error loading file"),
-                )),
-            }
-        }
         let std = crate::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
 
         let out = fs_create(outpath)?;
@@ -324,29 +298,17 @@ pub mod std_decompile {
             usage_args: "FILE -g GAME [OPTIONS...]",
             options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
         });
-        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile.as_deref().map(AsRef::as_ref)))
+        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile))
     }
 
     fn run(
         game: Game,
         path: &Path,
         ncol: usize,
-        map_path: Option<&Path>,
+        map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let ty_ctx = {
-            use crate::Eclmap;
-
-            let mut ty_ctx = crate::type_system::TypeSystem::new();
-
-            ty_ctx.extend_from_eclmap(None, &Eclmap::parse(&crate::std::game_core_mapfile(game))?);
-
-            let map_path = map_path.map(|p| p.to_owned());
-            if let Some(map_path) = map_path.or_else(|| Eclmap::decomp_map_file_from_env(".stdm")) {
-                let eclmap = Eclmap::load(&map_path, Some(game))?;
-                ty_ctx.extend_from_eclmap(Some(&map_path), &eclmap);
-            }
-            ty_ctx
-        };
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
+        let ty_ctx = init_ty_ctx(game, map_path, &crate::std::game_core_mapfile(game))?;
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
@@ -394,6 +356,116 @@ pub mod msg_redump {
     }
 }
 
+pub mod msg_compile {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+            program: "trumsg compile",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+        });
+
+        wrap_fancy_errors(|files| run(files, game, &input, &output, mapfile));
+    }
+
+    fn run(
+        files: &mut Files,
+        game: Game,
+        path: &Path,
+        outpath: &Path,
+        map_path: Option<PathBuf>,
+    ) -> Result<(), CompileError> {
+        let mut ty_ctx = init_ty_ctx(game, map_path, &crate::msg::game_core_mapfile(game))?;
+
+        let script = files.read_file::<ast::Script>(&path)?;
+        load_mapfiles_from_pragmas(game, &mut ty_ctx, &script)?;
+        script.expect_no_image_sources()?;
+
+        let std = crate::MsgFile::compile_from_ast(game, &script, &mut ty_ctx)?;
+
+        let out = fs_create(outpath)?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game)?;
+        Ok(())
+    }
+}
+
+pub mod msg_decompile {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, max_columns, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+            program: "trumsg decompile",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
+        });
+        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile))
+    }
+
+    fn run(
+        game: Game,
+        path: &Path,
+        ncol: usize,
+        map_path: Option<PathBuf>,
+    ) -> Result<(), CompileError> {
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
+        let ty_ctx = init_ty_ctx(game, map_path, &crate::msg::game_core_mapfile(game))?;
+
+        let script = {
+            let reader = io::Cursor::new(fs_read(path)?);
+            crate::MsgFile::read_from_stream(reader, game)
+                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
+                .with_context(|| format!("in file: {}", path.display()))?
+        };
+
+        let stdout = io::stdout();
+        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        f.fmt(&script)?;
+        Ok(())
+    }
+}
+
+// =============================================================================
+
+/// Implements the automatic searching of the environment during decompilation when there's no `-m`.
+fn maybe_use_default_mapfile_for_decomp(
+    mapfile_arg: Option<PathBuf>,
+    mapfile_extension: &'static str,
+) -> Option<PathBuf> {
+    mapfile_arg.or_else(|| crate::Eclmap::decomp_map_file_from_env(mapfile_extension))
+}
+
+/// Loads the user's mapfile and the core mapfile.
+fn init_ty_ctx(
+    game: Game,
+    mapfile_arg: Option<PathBuf>,
+    core_mapfile_source: &str,
+) -> Result<crate::TypeSystem, CompileError> {
+    use crate::Eclmap;
+
+    let mut ty_ctx = crate::TypeSystem::new();
+    ty_ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source)?);
+
+    if let Some(mapfile_arg) = mapfile_arg {
+        let eclmap = Eclmap::load(&mapfile_arg, Some(game))?;
+        ty_ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap);
+    }
+    Ok(ty_ctx)
+}
+
+/// Loads mapfiles from a parsed script.
+fn load_mapfiles_from_pragmas(game: Game, ty_ctx: &mut crate::TypeSystem, script: &ast::Script) -> Result<(), CompileError> {
+    for path_literal in &script.mapfiles {
+        let path = path_literal.as_path()?;
+        match crate::Eclmap::load(&path, Some(game)) {
+            Ok(eclmap) => ty_ctx.extend_from_eclmap(Some(path), &eclmap),
+            Err(e) => return Err(crate::error!(
+                message("{}", e), primary(path_literal, "error loading file"),
+            )),
+        }
+    }
+    Ok(())
+}
 
 // =============================================================================
 

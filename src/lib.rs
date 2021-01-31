@@ -62,7 +62,7 @@ mod value {
     use crate::ast;
     use crate::type_system::ScalarType;
 
-    /// A value expression.
+    /// The value of an expression.
     #[derive(Debug, Clone, PartialEq, PartialOrd)]
     pub enum ScalarValue {
         Int(i32),

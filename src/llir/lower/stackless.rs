@@ -720,6 +720,10 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
             lowered: LowerArg::Raw(value.into()),
             ty: ScalarType::Float,
         })),
+        ast::Expr::LitString(ast::LitString { ref string, .. }) => Ok(ExprClass::Simple(SimpleExpr {
+            lowered: LowerArg::Raw(string.clone().into()),
+            ty: ScalarType::String,
+        })),
         ast::Expr::Var(ref var) => {
             let (lowered, ty) = lower_var_to_arg(var, ty_ctx)?;
             Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))

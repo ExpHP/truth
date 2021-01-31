@@ -23,16 +23,18 @@ impl Eclmap {
         let path = path.as_ref().canonicalize().with_context(|| format!("while resolving {}", path.as_ref().display()))?;
         let text = std::fs::read_to_string(&path).with_context(|| format!("while reading {}", path.display()))?;
 
-        let mut seqmap = parse_seqmap(&text)?;
-        if seqmap.magic == "!gamemap" {
-            let game = match game {
-                Some(game) => game,
-                None => bail!("can't use gamemap because no game was supplied!")
-            };
-            let base_dir = path.parent().expect("filename must have parent");
-            seqmap = Self::resolve_gamemap(base_dir, seqmap, game)?;
-        }
-        Self::from_seqmap(seqmap)
+        crate::error::group_anyhow(|| {
+            let mut seqmap = parse_seqmap(&text)?;
+            if seqmap.magic == "!gamemap" {
+                let game = match game {
+                    Some(game) => game,
+                    None => bail!("can't use gamemap because no game was supplied!")
+                };
+                let base_dir = path.parent().expect("filename must have parent");
+                seqmap = Self::resolve_gamemap(base_dir, seqmap, game)?;
+            }
+            Self::from_seqmap(seqmap)
+        }).with_context(|| format!("while parsing {}", path.display()))
     }
 
     pub fn parse(text: &str) -> Result<Self, SimpleError> {
@@ -78,6 +80,7 @@ impl Eclmap {
             "!eclmap" => Magic::Eclmap,
             "!anmmap" => Magic::Anmmap,
             "!stdmap" => Magic::Stdmap,
+            "!msgmap" => Magic::Stdmap,
             _ => bail!("{:?}: bad magic", magic),
         };
 

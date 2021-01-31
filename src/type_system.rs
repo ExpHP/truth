@@ -177,10 +177,7 @@ impl TypeSystem {
             ast::Expr::Unop(op, a) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
             ast::Expr::LitInt { .. } => Ok(ScalarType::Int),
             ast::Expr::LitFloat { .. } => Ok(ScalarType::Float),
-            ast::Expr::LitString(_) => Err(error!(
-                message("string used in expression"),
-                primary(expr, "string in expression"),
-            )),
+            ast::Expr::LitString(_) => Ok(ScalarType::String),
             ast::Expr::Var(var) => self.var_read_type_from_ast(var),
         }
     }
