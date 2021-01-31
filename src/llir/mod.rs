@@ -89,6 +89,19 @@ impl SimpleArg {
         };
         SimpleArg { value, is_reg: true }
     }
+
+    /// Recover the register id.  `None` for immediates.
+    pub fn get_reg_id(&self) -> Option<RegId> {
+        if !self.is_reg { return None; }
+        match self.value {
+            ScalarValue::Int(x) => Some(RegId(x)),
+            ScalarValue::Float(x) => {
+                assert!(x == x.round(), "{}", x);
+                Some(RegId(x as i32))
+            },
+            _ => panic!("{:?}", self)
+        }
+    }
 }
 
 impl From<i32> for SimpleArg {

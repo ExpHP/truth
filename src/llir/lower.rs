@@ -69,9 +69,7 @@ pub fn lower_sub_ast_to_instrs(
     code: &[Sp<ast::Stmt>],
     ty_ctx: &mut TypeSystem,
 ) -> Result<Vec<RawInstr>, CompileError> {
-    use stackless::{get_used_regs, Lowerer, assign_registers};
-
-    let used_regs = get_used_regs(code);
+    use stackless::{Lowerer, assign_registers};
 
     let mut lowerer = Lowerer {
         out: vec![],
@@ -84,7 +82,7 @@ pub fn lower_sub_ast_to_instrs(
 
     // And now postprocess
     encode_labels(&mut out, instr_format, 0, ty_ctx)?;
-    assign_registers(&mut out, &used_regs, instr_format, ty_ctx)?;
+    assign_registers(&mut out, instr_format, ty_ctx)?;
 
     out.into_iter().filter_map(|x| match x {
         LowerStmt::Instr(instr) => Some(encode_args(&instr, ty_ctx)),

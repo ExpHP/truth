@@ -2,7 +2,7 @@
 //!
 //! Responsible for compilation of expressions into instructions that use temporary registers.
 
-use std::collections::{HashMap};
+use std::collections::{HashMap, BTreeSet};
 
 use super::{unsupported, LowerStmt, LowerInstr, LowerArg};
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
@@ -805,10 +805,11 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
 /// Eliminates all `LowerArg::Local`s by allocating registers for them.
 pub (in crate::llir::lower) fn assign_registers(
     code: &mut [LowerStmt],
-    used_regs: &[RegId],
     format: &dyn InstrFormat,
     ty_ctx: &TypeSystem,
 ) -> Result<(), CompileError> {
+    let used_regs = get_used_regs(code);
+
     let mut unused_regs = format.general_use_regs();
     for vec in unused_regs.values_mut() {
         vec.retain(|id| !used_regs.contains(id));
@@ -888,24 +889,14 @@ pub (in crate::llir::lower) fn assign_registers(
     Ok(())
 }
 
-// NOTE: at the time of writing, this has to be done to the ast (it can't be done to LowLevelStmts because
-//       there's no way to recover a register number from a SimpleArg in consideration of floats).
-pub (in crate::llir::lower) fn get_used_regs(func_body: &[Sp<ast::Stmt>]) -> Vec<RegId> {
-    use ast::Visit;
-
-    struct UsedVisitor { used: Vec<RegId> }
-
-    impl Visit for UsedVisitor {
-        fn visit_var(&mut self, x: &Sp<ast::Var>) { match &x.value {
-            ast::Var::Named { ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-            ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => self.used.push(*reg),
-            ast::Var::Resolved { var_id: VarId::Local(_), .. } => {},
-        }}
-    }
-
-    let mut v = UsedVisitor { used: vec![] };
-    for stmt in func_body {
-        v.visit_stmt(stmt);
-    }
-    v.used
+// Gather all explicitly-used registers in the source. (so that we can avoid using them for scratch)
+fn get_used_regs(func_body: &[LowerStmt]) -> BTreeSet<RegId> {
+    func_body.iter()
+        .filter_map(|stmt| match stmt {
+            LowerStmt::Instr(LowerInstr { args, .. }) => Some(args),
+            _ => None
+        }).flat_map(|args| args.iter().filter_map(|arg| match arg {
+            LowerArg::Raw(arg) => arg.get_reg_id(),
+            _ => None,
+        })).collect()
 }
