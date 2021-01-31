@@ -230,7 +230,7 @@ mod siggy {
     /// can provide information on how to encode them in binary (e.g. integer width, string padding)
     /// and how to present them in a decompiled file (e.g. hexadecimal for colors).
     ///
-    /// Construct using [`std::str::FromStr`].
+    /// Like in thtk, signatures are derived from strings.  Parse a signature using [`std::str::FromStr`].
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Signature {
         encodings: Vec<ArgEncoding>,
@@ -262,8 +262,18 @@ mod siggy {
         Color,
         /// `f` in mapfile. Single-precision float.
         Float,
-        /// `#[0-9]` in mapfile. A null-terminated string argument padded to a multiple of the given block size.
-        String { block_size: usize },
+        /// `z` or `m` in mapfile.
+        ///
+        /// A null-terminated string argument which must be the last argument in the signature and
+        /// consists of all remaining bytes. When written, it is padded to a multiple of `block_size`
+        /// bytes.
+        ///
+        /// Using `m` results `mask: 0x77`.  This masks the string in the binary file by xor-ing
+        /// every byte (including the null terminator and padding) with the mask.
+        String {
+            block_size: usize,
+            mask: u8,
+        },
     }
 
     impl Signature {
@@ -325,6 +335,10 @@ mod siggy {
         if t_count == 1 && o_count == 0 {
             anyhow::bail!("signature has a 't' arg without an 'o' arg");
         }
+
+        if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { .. })) {
+            anyhow::bail!("'z' or 'm' arguments can only appear at the very end");
+        }
         Ok(())
     }
 
@@ -346,10 +360,8 @@ mod siggy {
                     b'_' => ArgEncoding::Padding,
                     b'n' => ArgEncoding::Dword, // FIXME sprite
                     b'N' => ArgEncoding::Dword, // FIXME script
-                    b'A' => {
-                        let block_size = read_positive_decimal_from_iter(&mut iter)? as usize;
-                        ArgEncoding::String { block_size }
-                    },
+                    b'z' => ArgEncoding::String { block_size: 4, mask: 0 },
+                    b'm' => ArgEncoding::String { block_size: 4, mask: 0x77 },
                     0x80..=0xff => anyhow::bail!("non-ascii byte in signature: {:#04x}", b),
                     _ => anyhow::bail!("bad signature character: {:?}", b as char)
                 };
@@ -359,30 +371,11 @@ mod siggy {
         }
     }
 
-    fn read_positive_decimal_from_iter(iter: &mut std::iter::Peekable<std::str::Bytes<'_>>) -> Result<u64, SimpleError> {
-        let mut digits = vec![];
-        while let Some(b'0'..=b'9') = iter.peek() {
-            digits.push(iter.next().unwrap());
-        }
-        std::str::from_utf8(&digits).unwrap().parse().map_err(Into::into)
-    }
-
     #[test]
     fn test_parse() {
         let parse = <str>::parse::<Signature>;
 
-        assert_eq!(parse("SSS").unwrap(), Signature::from_encodings(vec![Enc::Dword, Enc::Dword, Enc::Dword]).unwrap());
-
-        // fail at end of string
-        assert!(parse("SSA").is_err());
-        // fail with other content
-        assert!(parse("SSAf").is_err());
-        // succeed at end of string
-        assert_eq!(parse("SA04").unwrap(), Signature::from_encodings(vec![Enc::Dword, Enc::String { block_size: 4 }]).unwrap());
-        // succeed with other content
-        assert_eq!(parse("A4S").unwrap(), Signature::from_encodings(vec![Enc::String { block_size: 4 }, Enc::Dword]).unwrap());
-        // multiple digits
-        assert_eq!(parse("A16S").unwrap(), Signature::from_encodings(vec![Enc::String { block_size: 16 }, Enc::Dword]).unwrap());
+        assert_eq!(parse("SSf").unwrap(), Signature::from_encodings(vec![Enc::Dword, Enc::Dword, Enc::Float]).unwrap());
     }
 
     #[test]
@@ -394,6 +387,18 @@ mod siggy {
         assert!(parse("SSo").is_ok());
         assert!(parse("SSoto").is_err());
         assert!(parse("SSott").is_err());
+    }
+
+    #[test]
+    fn string_must_be_at_end() {
+        let parse = <str>::parse::<Signature>;
+
+        assert!(parse("z").is_ok());
+        assert!(parse("m").is_ok());
+        assert!(parse("SSz").is_ok());
+        assert!(parse("SSm").is_ok());
+        assert!(parse("SzS").is_err());
+        assert!(parse("SmS").is_err());
     }
 }
 

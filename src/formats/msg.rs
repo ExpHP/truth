@@ -223,7 +223,8 @@ fn write_msg(f: &mut dyn BinWrite, instr_format: &dyn InstrFormat, msg: &MsgFile
 
 fn game_format(game: Game) -> Box<dyn InstrFormat> {
     match game {
-        Game::Th06 => Box::new(InstrFormat06),
+        | Game::Th06 | Game::Th07 | Game::Th08
+        => Box::new(InstrFormat06),
 
         _ => unimplemented!("msg InstrFormat"),
     }
@@ -231,7 +232,11 @@ fn game_format(game: Game) -> Box<dyn InstrFormat> {
 
 pub fn game_core_mapfile(game: Game) -> String {
     match game {
-        Game::Th06 => include_str!("../../map/core/th06.msgm").to_string(),
+        | Game::Th06 | Game::Th07
+        => include_str!("../../map/core/th06.msgm").to_string(),
+
+        | Game::Th08
+        => include_str!("../../map/core/th08.msgm").to_string(),
 
         _ => unimplemented!("msg mapfiles"),
     }

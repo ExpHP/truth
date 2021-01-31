@@ -413,12 +413,12 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
         // eprintln!("{:?}", script_ids_and_offsets);
 
         reader.seek_to(entry_pos + header_data.name_offset)?;
-        let path = reader.read_cstring(16)?;
+        let path = reader.read_cstring_blockwise(16)?;
         let path_2 = match header_data.secondary_name_offset {
             None => None,
             Some(n) => {
                 reader.seek_to(entry_pos + n.get())?;
-                Some(reader.read_cstring(16)?)
+                Some(reader.read_cstring_blockwise(16)?)
             },
         };
 

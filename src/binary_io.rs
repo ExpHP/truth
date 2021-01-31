@@ -47,7 +47,7 @@ pub trait BinRead: Read + Seek {
     /// the output of [`BinWrite::write_cstring`]), so it only checks the last byte in each block
     /// for a null terminator.  Due to these properties, it is possible for the returned string
     /// to contain an interior null byte for maliciously crafted inputs.
-    fn read_cstring(&mut self, block_size: usize) -> ReadResult<BString> {
+    fn read_cstring_blockwise(&mut self, block_size: usize) -> ReadResult<BString> {
         assert_ne!(block_size, 0);
 
         let mut out = vec![];
@@ -58,6 +58,23 @@ pub trait BinRead: Read + Seek {
             self.read_exact(&mut out[old_end..])?;
         }
 
+        while out.last() == Some(&0) {
+            out.pop();
+        }
+        Ok(out.into())
+    }
+
+    /// Reads the given number of bytes as a masked string, where the null bytes are also masked.
+    ///
+    /// This reads exactly the given number of bytes, then xors every byte with a mask,
+    /// and finally trims trailing nulls.  The returned value may contain interior nulls.
+    ///
+    /// The returned string will be less than `num_bytes` long due to the trimming of nulls.
+    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: u8) -> WriteResult<BString> {
+        let mut out = self.read_byte_vec(num_bytes)?;
+        for byte in &mut out {
+            *byte ^= mask;
+        }
         while out.last() == Some(&0) {
             out.pop();
         }
@@ -83,7 +100,8 @@ pub trait BinRead: Read + Seek {
     }
 }
 
-/// Returns the number of bytes that would be read by [`BinRead::read_cstring`] or written by [`BinWrite::write_cstring`].
+/// Returns the number of bytes that would be read by [`BinRead::read_cstring`], or written by
+/// [`BinWrite::write_cstring`] and [`BinWrite::write_cstring_masked`].
 pub fn cstring_num_bytes(string_len: usize, block_size: usize) -> usize {
     let min_size = string_len + 1;  // NUL terminator
 
@@ -109,12 +127,20 @@ pub trait BinWrite: Write + Seek {
 
     /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`.
     fn write_cstring(&mut self, s: &[u8], block_size: usize) -> WriteResult<()> {
-        self.write_all(s)?;
-        self.write_u8(0)?;
-        let remainder = (s.len() + 1) % block_size;
-        if remainder != 0 {
-            self.write_all(&vec![0; block_size - remainder])?;
+        self.write_cstring_masked(s, block_size, 0)
+    }
+
+    /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`,
+    /// then xor-ing every byte (including the nulls) with a mask.
+    fn write_cstring_masked(&mut self, s: &[u8], block_size: usize, mask: u8) -> WriteResult<()> {
+        let mut to_write = s.to_vec();
+        let final_len = cstring_num_bytes(to_write.len(), block_size);
+        to_write.resize(final_len, 0);
+
+        for byte in &mut to_write {
+            *byte ^= mask;
         }
+        self.write_all(&to_write)?;
         Ok(())
     }
 
@@ -139,22 +165,22 @@ impl<R: Write + Seek> BinWrite for R {}
 
 #[test]
 fn test_cstring_io() {
-    fn check(block_size: usize, bytes: &[u8], padded: Vec<u8>) {
+    fn check(block_size: usize, bytes: &[u8], encoded: Vec<u8>) {
         // check length function
-        assert_eq!(cstring_num_bytes(bytes.len(), block_size), padded.len());
+        assert_eq!(cstring_num_bytes(bytes.len(), block_size), encoded.len());
 
         // check writing
         let mut w = std::io::Cursor::new(vec![]);
         w.write_cstring(bytes, block_size).unwrap();
-        assert_eq!(padded, w.into_inner());
+        assert_eq!(encoded, w.into_inner());
 
         // check reading
-        let mut longer_padded = padded.clone();  // have a longer vec so we can be sure it stops on its own
+        let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
         longer_padded.extend(vec![0; 10]);
 
         let mut r = std::io::Cursor::new(longer_padded);
-        assert_eq!(bytes, r.read_cstring(block_size).unwrap());  // make sure it dropped the nul bytes
-        assert_eq!(padded.len() as u64, BinRead::pos(&mut r).unwrap());  //
+        assert_eq!(bytes, r.read_cstring_blockwise(block_size).unwrap());  // make sure it dropped the nul bytes
+        assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
     }
 
     check(4, &[], vec![0, 0, 0, 0]);
@@ -163,4 +189,25 @@ fn test_cstring_io() {
     check(4, &[1, 2, 3], vec![1, 2, 3, 0]);
     check(4, &[1, 2, 3, 4], vec![1, 2, 3, 4, 0, 0, 0, 0]);
     check(4, &[1, 2, 3, 4, 5], vec![1, 2, 3, 4, 5, 0, 0, 0]);
+}
+
+#[test]
+fn test_masked_cstring() {
+    fn check(mask: u8, block_size: usize, bytes: &[u8], encoded: Vec<u8>) {
+        // check writing
+        let mut w = std::io::Cursor::new(vec![]);
+        w.write_cstring_masked(bytes, block_size, mask).unwrap();
+        assert_eq!(encoded, w.into_inner());
+
+        // check reading
+        let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
+        longer_padded.extend(vec![mask; 10]);
+
+        let mut r = std::io::Cursor::new(longer_padded);
+        assert_eq!(bytes, r.read_cstring_masked_exact(encoded.len(), mask).unwrap());
+        assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
+    }
+
+    check(0x77, 4, &[1, 2, 3], vec![0x76, 0x75, 0x74, 0x77]);
+    check(0x77, 4, &[1, 2, 3, 4], vec![0x76, 0x75, 0x74, 0x73, 0x77, 0x77, 0x77, 0x77]);
 }

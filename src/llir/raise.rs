@@ -401,33 +401,47 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<RaiseInstr, S
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];
-    for enc in siggy.arg_encodings() {
+    for (arg_index, enc) in siggy.arg_encodings().enumerate() {
         let is_reg = param_mask % 2 == 1;
         param_mask /= 2;
-        let value = match enc {
+
+        let value = crate::error::group_anyhow(|| match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-            => ScalarValue::Int(args_blob.read_u32()? as i32),
+            => Ok(ScalarValue::Int(args_blob.read_u32()? as i32)),
 
             | ArgEncoding::Float
-            => ScalarValue::Float(f32::from_bits(args_blob.read_u32()?)),
+            => Ok(ScalarValue::Float(f32::from_bits(args_blob.read_u32()?))),
 
             | ArgEncoding::Word
-            => ScalarValue::Int(args_blob.read_i16()? as i32),
+            => Ok(ScalarValue::Int(args_blob.read_i16()? as i32)),
 
-            | ArgEncoding::String { block_size }
-            => ScalarValue::String(args_blob.read_cstring(block_size)?),
-        };
+            | ArgEncoding::String { block_size: _, mask }
+            => {
+                // read to end
+                let read_len = args_blob.get_ref().len() - args_blob.pos()? as usize;
+                Ok(ScalarValue::String(args_blob.read_cstring_masked_exact(read_len, mask)?))
+            },
+        }).with_context(|| format!("in argument {} of ins_{}", arg_index + 1, instr.opcode))?;
+
         args.push(SimpleArg { value, is_reg })
+    }
+
+    if args_blob.position() != args_blob.get_ref().len() as u64 {
+        fast_warning!(
+            // this could mean the signature is incomplete
+            "unexpected leftover bytes in ins_{}! (read {} bytes out of {} in file!)",
+            instr.opcode, args_blob.position(), args_blob.get_ref().len(),
+        );
     }
 
     if param_mask != 0 {
         fast_warning!(
-            "unused bits in param_mask! (arg {} is a variable, but there are only {} args!)",
-            param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
+            "unused bits in ins_{}! (arg {} is a variable, but there are only {} args!)",
+            instr.opcode, param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
         );
     }
     Ok(RaiseInstr {
