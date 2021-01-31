@@ -370,7 +370,7 @@ fn cast() {
             float a = (3.0 + W) * (5.0 + W);  // this should use Y and Z for scratch, not X.
         }"#);
 
-        let x = old_vm.get_reg(REG_X).unwrap().read_as_float() as i32 * 3 + 4;
+        let x = old_vm.get_reg(REG_X).unwrap().read_as_float().unwrap() as i32 * 3 + 4;
         assert_eq!(old_vm.get_reg(REG_A), Some(ScalarValue::Int(x)), "{}", old_vm);
 
         assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A), "{}\n{}", old_vm, new_vm);

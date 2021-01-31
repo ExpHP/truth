@@ -511,6 +511,9 @@ impl From<i32> for Expr {
 impl From<f32> for Expr {
     fn from(value: f32) -> Expr { Expr::LitFloat { value } }
 }
+impl From<BString> for Expr {
+    fn from(string: BString) -> Expr { Expr::LitString(LitString { string }) }
+}
 
 impl From<Sp<i32>> for Sp<Expr> {
     fn from(num: Sp<i32>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
@@ -520,6 +523,9 @@ impl From<Sp<f32>> for Sp<Expr> {
 }
 impl From<Sp<Var>> for Sp<Expr> {
     fn from(var: Sp<Var>) -> Sp<Expr> { sp!(var.span => Expr::Var(var)) }
+}
+impl From<Sp<BString>> for Sp<Expr> {
+    fn from(string: Sp<BString>) -> Sp<Expr> { sp!(string.span => Expr::from(string.value)) }
 }
 
 // =============================================================================

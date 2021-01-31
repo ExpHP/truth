@@ -53,10 +53,10 @@ impl fmt::Display for AstVm {
 
         let mut locals = vec![];
         let mut regs = vec![];
-        for (&var_id, &value) in &self.var_values {
+        for (&var_id, value) in &self.var_values {
             match var_id {
-                VarId::Reg(reg) => regs.push((reg, value)),
-                VarId::Local(local) => locals.push((local, value)),
+                VarId::Reg(reg) => regs.push((reg, value.clone())),
+                VarId::Local(local) => locals.push((local, value.clone())),
             }
         }
         locals.sort_by_key(|&(id, _)| id);
@@ -224,10 +224,9 @@ impl AstVm {
 
                 ast::StmtBody::Times { clobber: None, count, block } => {
                     self.time = block.end_time();
-                    match self.eval(count) {
-                        ScalarValue::Float(x) => panic!("float count {}", x),
-                        ScalarValue::Int(0) => {},
-                        ScalarValue::Int(count) => {
+                    match self.eval_int(count) {
+                        0 => {},
+                        count => {
                             for _ in 0..count {
                                 self.time = block.start_time();
                                 handle_block!(&block.0);
@@ -239,28 +238,26 @@ impl AstVm {
                 // when a clobber is specified we have to treat it pretty differently
                 // as the loop counter now has an observable presence
                 ast::StmtBody::Times { clobber: Some(clobber), count, block } => {
-                    let count = self.eval(count);
-                    self.set_var_by_ast(clobber, count);
+                    let count = self.eval_int(count);
+                    self.set_var_by_ast(clobber, ScalarValue::Int(count));
 
                     self.time = block.end_time();
-                    match count {
-                        ScalarValue::Float(x) => panic!("float count {}", x),
-                        ScalarValue::Int(0) => {},
-                        ScalarValue::Int(_) => loop {
+                    if count != 0 {
+                        loop {
                             self.time = block.start_time();
                             handle_block!(&block.0);
 
                             match self.read_var_by_ast(clobber) {
                                 ScalarValue::Float(x) => panic!("float count {}", x),
+                                ScalarValue::String(x) => panic!("string count {}", x),
                                 ScalarValue::Int(x) => {
                                     let predecremented = x - 1;
                                     self.set_var_by_ast(clobber, ScalarValue::Int(predecremented));
                                     if predecremented == 0 { break; }
                                 },
                             }
-                        },
+                        } // loop
                     }
-
                 },
 
                 ast::StmtBody::Expr(expr) => {
@@ -319,18 +316,24 @@ impl AstVm {
     pub fn eval(&mut self, expr: &ast::Expr) -> ScalarValue {
         match expr {
             ast::Expr::Ternary { cond, left, right } => {
-                match self.eval(cond) {
-                    ScalarValue::Float(x) => panic!("type error: {:?}", x),
-                    ScalarValue::Int(0) => self.eval(right),
-                    ScalarValue::Int(_) => self.eval(left),
+                match self.eval_int(cond) {
+                    0 => self.eval(right),
+                    _ => self.eval(left),
                 }
             },
+
             ast::Expr::Binop(a, op, b) => op.const_eval(sp!(a.span => self.eval(a)), sp!(b.span => self.eval(b))).unwrap(),
+
             ast::Expr::Call { .. } => unimplemented!("func calls in VM exprs"),
+
             ast::Expr::Unop(op, x) => op.const_eval(sp!(x.span => self.eval(x))).unwrap(),
+
             ast::Expr::LitInt { value, .. } => ScalarValue::Int(*value),
+
             ast::Expr::LitFloat { value, .. } => ScalarValue::Float(*value),
-            ast::Expr::LitString(s) => panic!("unexpected string value: {:?}", s),
+
+            ast::Expr::LitString(ast::LitString { string, .. }) => ScalarValue::String(string.clone()),
+
             ast::Expr::Var(var) => self.read_var_by_ast(var),
         }
     }
@@ -343,10 +346,12 @@ impl AstVm {
         })
     }
 
+    #[track_caller]
     pub fn eval_cond(&mut self, cond: &ast::Cond) -> bool {
         match cond {
             ast::Cond::PreDecrement(var) => match self.read_var_by_ast(var) {
                 ScalarValue::Float(x) => panic!("type error: {:?}", x),
+                ScalarValue::String(x) => panic!("type error: {:?}", x),
                 ScalarValue::Int(value) => {
                     self.set_var_by_ast(var, ScalarValue::Int(value - 1));
                     value - 1 != 0
@@ -354,8 +359,18 @@ impl AstVm {
             },
             ast::Cond::Expr(expr) => match self.eval(expr) {
                 ScalarValue::Float(x) => panic!("type error: {:?}", x),
+                ScalarValue::String(x) => panic!("type error: {:?}", x),
                 ScalarValue::Int(value) => value != 0,
-            }
+            },
+        }
+    }
+
+    #[track_caller]
+    pub fn eval_int(&mut self, expr: &ast::Expr) -> i32 {
+        match self.eval(expr) {
+            ScalarValue::Int(x) => x,
+            ScalarValue::Float(x) => panic!("type error: {:?}", x),
+            ScalarValue::String(x) => panic!("type error: {:?}", x),
         }
     }
 
@@ -382,7 +397,7 @@ impl AstVm {
     fn read_var_by_ast(&self, var: &ast::Var) -> ScalarValue {
         let (var_id, ty_sigil) = self._var_data(var);
         self.get_var(var_id).unwrap_or_else(|| panic!("read of uninitialized var: {:?}", var))
-            .apply_sigil(ty_sigil)
+            .apply_sigil(ty_sigil).unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var, ty_sigil))
     }
 
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto) -> Option<usize> {
@@ -775,5 +790,20 @@ mod tests {
 
         assert_eq!(vm.get_reg(RegId(32)).unwrap(), Int((f * 7.0) as i32 - 2));
         assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((i + 3) as f32 + 0.5));
+    }
+
+    #[test]
+    fn string_arg() {
+        let ast = TestSpec {
+            globals: vec![],
+            source: r#"{
+                blargh(3, 2, "seashells");
+            }"#,
+        }.prepare();
+
+        let mut vm = new_test_vm();
+        vm.run(&ast.0);
+
+        assert_eq!(vm.call_log[0].args.last().unwrap(), &ScalarValue::String("seashells".into()));
     }
 }

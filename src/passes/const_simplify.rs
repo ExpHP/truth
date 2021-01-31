@@ -35,10 +35,13 @@ use crate::pos::Sp;
 
 impl Sp<UnopKind> {
     pub fn const_eval(&self, b: Sp<ScalarValue>) -> Result<ScalarValue, CompileError> {
+        // produce errors
         self.type_check(b.ty(), b.span)?;
+        // produce value
         match b.value {
             ScalarValue::Int(b) => Ok(self.const_eval_int(b).expect("(bug!) type_check should fail...")),
             ScalarValue::Float(b) => Ok(self.const_eval_float(b).expect("(bug!) type_check should fail...")),
+            ScalarValue::String(_) => unreachable!("(bug!) type_check should fail..."),
         }
     }
 }
