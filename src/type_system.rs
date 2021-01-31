@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::collections::HashMap;
 use crate::error::{CompileError, SimpleError};
 use crate::ident::{Ident, GensymContext};
@@ -196,19 +197,8 @@ impl RegsAndInstrs {
     }
 
     pub fn add_signature(&mut self, opcode: u16, str: &str) -> Result<(), SimpleError> {
-        let o_count = str.chars().filter(|&c| c == 'o').count();
-        let t_count = str.chars().filter(|&c| c == 't').count();
-
-        for &(restricted, count) in &[('o', o_count), ('t', t_count)][..] {
-            if count > 1 {
-                anyhow::bail!("signature for opcode {} has multiple '{}' args", opcode, restricted);
-            }
-        }
-        if t_count == 1 && o_count == 0 {
-            anyhow::bail!("signature for opcode {} has a 't' arg without an 'o' arg", opcode);
-        }
-
-        self.opcode_signatures.insert(opcode as u16, Signature { arg_string: str.to_string() });
+        let siggy = str.parse().with_context(|| format!("in signature for opcode {}", opcode))?;
+        self.opcode_signatures.insert(opcode as u16, siggy);
         Ok(())
     }
 
@@ -231,54 +221,182 @@ impl RegsAndInstrs {
     }
 }
 
+pub use siggy::{Signature, ArgEncoding};
+mod siggy {
+    use super::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Signature {
-    /// String representing the signature.
-    arg_string: String,
-}
+    use ArgEncoding as Enc;
 
-impl Signature {
-    /// Get an automatic signature for reading an unknown instruction with this many dwords.
-    pub fn auto(n: usize) -> Signature {
-        Signature { arg_string: String::from_utf8(vec![b'S'; n]).unwrap() }
+    /// A signature for an instruction. (typically parsed from a string in a mapfile)
+    ///
+    /// The signature of an instruction describes not only the types of its arguments, but also
+    /// can provide information on how to encode them in binary (e.g. integer width, string padding)
+    /// and how to present them in a decompiled file (e.g. hexadecimal for colors).
+    ///
+    /// Construct using [`std::str::FromStr`].
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Signature {
+        encodings: Vec<ArgEncoding>,
     }
 
-    pub fn as_str(&self) -> &str { &self.arg_string }
-
-    pub fn arg_encodings(&self) -> impl crate::VeclikeIterator<Item=ArgEncoding> + '_ {
-        self.arg_string.bytes().map(|c| match c {
-            b'S' => ArgEncoding::Dword,
-            b's' => ArgEncoding::Word,
-            b'C' => ArgEncoding::Color,
-            b'o' => ArgEncoding::JumpOffset,
-            b't' => ArgEncoding::JumpTime,
-            b'f' => ArgEncoding::Float,
-            b'_' => ArgEncoding::Padding,
-            b'n' => ArgEncoding::Dword, // FIXME sprite
-            b'N' => ArgEncoding::Dword, // FIXME script
-            _ => panic!("In mapfile: unknown signature character: {:?}", c as char)
-        })
+    /// Type of an argument to an instruction.
+    ///
+    /// This is a bit more nuanced compared to [`ScalarType`].  Arguments with the same type
+    /// may have different encodings based on how they are either stored in the file, or on how they
+    /// may be written in a source file.
+    ///
+    /// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
+    /// [`ScalarType`] tends to be more relevant for variables.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ArgEncoding {
+        /// `S` in mapfile. 4-byte integer immediate or register.  Displayed as signed.
+        Dword,
+        /// `s` in mapfile. 2-byte integer immediate.  Displayed as signed.
+        Word,
+        /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
+        JumpOffset,
+        /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
+        JumpTime,
+        /// `_` in mapfile. Unused 4-byte space after script arguments, optionally displayed as integer in text.
+        ///
+        /// Only exists in pre-StB STD where instructions have fixed sizes.
+        Padding,
+        /// `C` in mapfile. 4-byte integer immediate or register, printed as hex when immediate.
+        Color,
+        /// `f` in mapfile. Single-precision float.
+        Float,
+        /// `#[0-9]` in mapfile. A null-terminated string argument padded to a multiple of the given block size.
+        String { block_size: usize },
     }
 
-    /// Get the minimum number of args allowed in the AST.
-    pub fn min_args(&self) -> usize { self.count_args_incl_padding() - self.count_padding() }
-    /// Get the maximum number of args allowed in the AST.
-    pub fn max_args(&self) -> usize { self.count_args_incl_padding() }
+    impl Signature {
+        pub fn from_encodings(encodings: Vec<ArgEncoding>) -> Result<Self, SimpleError> {
+            validate(&encodings)?;
+            Ok(Signature { encodings })
+        }
 
-    fn count_args_incl_padding(&self) -> usize {
-        self.arg_string.len()
+        pub fn arg_encodings(&self) -> impl crate::VeclikeIterator<Item=ArgEncoding> + '_ {
+            self.encodings.iter().copied()
+        }
+
+        /// Get the minimum number of args allowed in the AST.
+        pub fn min_args(&self) -> usize { self.count_args_incl_padding() - self.count_padding() }
+        /// Get the maximum number of args allowed in the AST.
+        pub fn max_args(&self) -> usize { self.count_args_incl_padding() }
+
+        fn count_args_incl_padding(&self) -> usize {
+            self.encodings.len()
+        }
+
+        fn count_padding(&self) -> usize {
+            self.arg_encodings().rev().position(|c| c != Enc::Padding)
+                .unwrap_or(self.count_args_incl_padding())
+        }
+
+        pub fn split_padding<'a, T>(&self, args: &'a [T]) -> Option<(&'a [T], &'a [T])> {
+            let i = self.count_args_incl_padding() - self.count_padding();
+            if i <= args.len() {
+                Some(args.split_at(i))
+            } else { None }
+        }
     }
 
-    fn count_padding(&self) -> usize {
-        self.arg_string.bytes().rev().position(|c| c != b'_').unwrap_or(self.count_args_incl_padding())
+    impl ArgEncoding {
+        pub fn expr_type(self) -> ScalarType {
+            match self {
+                ArgEncoding::JumpOffset |
+                ArgEncoding::JumpTime |
+                ArgEncoding::Padding |
+                ArgEncoding::Color |
+                ArgEncoding::Word |
+                ArgEncoding::Dword => ScalarType::Int,
+                ArgEncoding::Float => ScalarType::Float,
+                ArgEncoding::String { .. } => ScalarType::String,
+            }
+        }
     }
 
-    pub fn split_padding<'a, T>(&self, args: &'a [T]) -> Option<(&'a [T], &'a [T])> {
-        let i = self.count_args_incl_padding() - self.count_padding();
-        if i <= args.len() {
-            Some(args.split_at(i))
-        } else { None }
+    fn validate(encodings: &[ArgEncoding]) -> Result<(), SimpleError> {
+        let o_count = encodings.iter().filter(|&&c| c == Enc::JumpOffset).count();
+        let t_count = encodings.iter().filter(|&&c| c == Enc::JumpTime).count();
+
+        for &(char, count) in &[('o', o_count), ('t', t_count)][..] {
+            if count > 1 {
+                anyhow::bail!("signature has multiple '{}' args", char);
+            }
+        }
+        if t_count == 1 && o_count == 0 {
+            anyhow::bail!("signature has a 't' arg without an 'o' arg");
+        }
+        Ok(())
+    }
+
+    impl std::str::FromStr for Signature {
+        type Err = SimpleError;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let mut iter = s.bytes().peekable();
+
+            let mut encodings = vec![];
+            while let Some(b) = iter.next() {
+                let enc = match b {
+                    b'S' => ArgEncoding::Dword,
+                    b's' => ArgEncoding::Word,
+                    b'C' => ArgEncoding::Color,
+                    b'o' => ArgEncoding::JumpOffset,
+                    b't' => ArgEncoding::JumpTime,
+                    b'f' => ArgEncoding::Float,
+                    b'_' => ArgEncoding::Padding,
+                    b'n' => ArgEncoding::Dword, // FIXME sprite
+                    b'N' => ArgEncoding::Dword, // FIXME script
+                    b'A' => {
+                        let block_size = read_positive_decimal_from_iter(&mut iter)? as usize;
+                        ArgEncoding::String { block_size }
+                    },
+                    0x80..=0xff => anyhow::bail!("non-ascii byte in signature: {:#04x}", b),
+                    _ => anyhow::bail!("bad signature character: {:?}", b as char)
+                };
+                encodings.push(enc);
+            }
+            Signature::from_encodings(encodings)
+        }
+    }
+
+    fn read_positive_decimal_from_iter(iter: &mut std::iter::Peekable<std::str::Bytes<'_>>) -> Result<u64, SimpleError> {
+        let mut digits = vec![];
+        while let Some(b'0'..=b'9') = iter.peek() {
+            digits.push(iter.next().unwrap());
+        }
+        std::str::from_utf8(&digits).unwrap().parse().map_err(Into::into)
+    }
+
+    #[test]
+    fn test_parse() {
+        let parse = <str>::parse::<Signature>;
+
+        assert_eq!(parse("SSS").unwrap(), Signature::from_encodings(vec![Enc::Dword, Enc::Dword, Enc::Dword]).unwrap());
+
+        // fail at end of string
+        assert!(parse("SSA").is_err());
+        // fail with other content
+        assert!(parse("SSAf").is_err());
+        // succeed at end of string
+        assert_eq!(parse("SA04").unwrap(), Signature::from_encodings(vec![Enc::Dword, Enc::String { block_size: 4 }]).unwrap());
+        // succeed with other content
+        assert_eq!(parse("A4S").unwrap(), Signature::from_encodings(vec![Enc::String { block_size: 4 }, Enc::Dword]).unwrap());
+        // multiple digits
+        assert_eq!(parse("A16S").unwrap(), Signature::from_encodings(vec![Enc::String { block_size: 16 }, Enc::Dword]).unwrap());
+    }
+
+    #[test]
+    fn offset_time_restrictions() {
+        let parse = <str>::parse::<Signature>;
+
+        assert!(parse("SSot").is_ok());
+        assert!(parse("SSt").is_err());
+        assert!(parse("SSo").is_ok());
+        assert!(parse("SSoto").is_err());
+        assert!(parse("SSott").is_err());
     }
 }
 
@@ -289,34 +407,6 @@ pub enum ScalarType {
     Int,
     Float,
     String,
-}
-
-/// Type of an argument to an instruction.
-///
-/// This is a bit more nuanced compared to [`ScalarType`].  Arguments with the same type
-/// may have different encodings based on how they are either stored in the file, or on how they
-/// may be written in a source file.
-///
-/// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
-/// [`ScalarType`] tends to be more relevant for variables.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ArgEncoding {
-    /// `S` in mapfile. 4-byte integer immediate or register.  Displayed as signed.
-    Dword,
-    /// `s` in mapfile. 2-byte integer immediate.  Displayed as signed.
-    Word,
-    /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
-    JumpOffset,
-    /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
-    JumpTime,
-    /// `_` in mapfile. Unused 4-byte space after script arguments, optionally displayed as integer in text.
-    ///
-    /// Only exists in pre-StB STD where instructions have fixed sizes.
-    Padding,
-    /// `C` in mapfile. Script argument encoded as a 4-byte integer, printed as hex.
-    Color,
-    /// `f` in mapfile. Script argument encoded as a 4-byte float.
-    Float,
 }
 
 impl ScalarType {

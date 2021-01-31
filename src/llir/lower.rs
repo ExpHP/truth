@@ -201,6 +201,12 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
 
                 | ArgEncoding::Word
                 => size += 2,
+
+                | ArgEncoding::String { block_size }
+                => {
+                    let string_len = arg.expect_raw().expect_string().len();
+                    size += crate::binary_io::cstring_num_bytes(string_len, block_size);
+                },
             },
             LowerArg::Local { .. } => size += 4,
             LowerArg::Label { .. } => size += 4,
@@ -239,6 +245,9 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
 
             | ArgEncoding::Word
             => args_blob.write_i16(arg.expect_raw().expect_int() as _)?,
+
+            | ArgEncoding::String { block_size }
+            => args_blob.write_cstring(arg.expect_raw().expect_string(), block_size)?,
         }
     }
 

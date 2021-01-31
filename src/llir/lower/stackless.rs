@@ -11,7 +11,7 @@ use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::ident::Ident;
 use crate::var::{LocalId, VarId, RegId};
-use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
+use crate::type_system::{TypeSystem, ScalarType};
 
 use IntrinsicInstrKind as IKind;
 
@@ -148,15 +148,7 @@ impl Lowerer<'_> {
                 },
             };
 
-            let expected_ty = match encodings[arg_index] {
-                ArgEncoding::JumpOffset |
-                ArgEncoding::JumpTime |
-                ArgEncoding::Padding |
-                ArgEncoding::Color |
-                ArgEncoding::Word |
-                ArgEncoding::Dword => ScalarType::Int,
-                ArgEncoding::Float => ScalarType::Float,
-            };
+            let expected_ty = encodings[arg_index].expr_type();
             if actual_ty != expected_ty {
                 return Err(error!(
                     message("type error"),

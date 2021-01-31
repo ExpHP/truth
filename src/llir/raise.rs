@@ -287,11 +287,13 @@ fn raise_instr(
 
 
 fn raise_args(args: &[SimpleArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, SimpleError> {
-    if args.len() != siggy.arg_encodings().len() {
-        bail!("provided arg count ({}) does not match mapfile ({})", args.len(), siggy.arg_encodings().len());
+    let encodings = siggy.arg_encodings().collect::<Vec<_>>();
+
+    if args.len() != encodings.len() {
+        bail!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
     }
 
-    let mut out = siggy.arg_encodings().zip(args).enumerate().map(|(i, (enc, arg))| {
+    let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
         let arg_ast = raise_arg(&arg, enc).with_context(|| format!("in argument {}", i + 1))?;
         Ok(sp!(arg_ast))
     }).collect::<Result<Vec<_>, SimpleError>>()?;
@@ -316,6 +318,7 @@ fn raise_arg(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
             ArgEncoding::JumpTime => bail!("unexpected register used as jump time"),
             ArgEncoding::JumpOffset => bail!("unexpected register used as jump offset"),
             ArgEncoding::Word => bail!("unexpected register used as word-sized argument"),
+            ArgEncoding::String { .. } => bail!("unexpected register used as string argument"),
         };
         Ok(Expr::Var(sp!(raise_arg_to_reg(raw, ty)?)))
     } else {
@@ -327,19 +330,29 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
     if raw.is_reg {
         bail!("expected an immediate, got a variable");
     }
+
     match enc {
-        ArgEncoding::Padding |
-        ArgEncoding::Word |
-        ArgEncoding::Dword => Ok(Expr::from(raw.expect_int())),
-        ArgEncoding::Color => Ok(Expr::LitInt { value: raw.expect_int(), hex: true }),
-        ArgEncoding::Float => Ok(Expr::from(raw.expect_float())),
+        | ArgEncoding::Padding
+        | ArgEncoding::Word
+        | ArgEncoding::Dword
+        => Ok(Expr::from(raw.expect_int())),
+
+        | ArgEncoding::Color
+        => Ok(Expr::LitInt { value: raw.expect_int(), hex: true }),
+
+        | ArgEncoding::Float
+        => Ok(Expr::from(raw.expect_float())),
+
+        | ArgEncoding::String { .. }
+        => Ok(Expr::from(raw.expect_string().clone())),
 
         // These only show up in intrinsics where they are handled by other code.
         //
         // We *could* eventually support them in user-added custom instructions, but then we'd probably
         // also need to add labels as expressions and `timeof(label)`.
-        ArgEncoding::JumpOffset |
-        ArgEncoding::JumpTime => bail!("unexpected jump-related arg in non-jump instruction"),
+        | ArgEncoding::JumpOffset
+        | ArgEncoding::JumpTime
+        => bail!("unexpected jump-related arg in non-jump instruction"),
     }
 }
 
@@ -391,29 +404,24 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<RaiseInstr, S
     for enc in siggy.arg_encodings() {
         let is_reg = param_mask % 2 == 1;
         param_mask /= 2;
-        match enc {
+        let value = match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-            => {
-                let value = ScalarValue::Int(args_blob.read_u32()? as i32);
-                args.push(SimpleArg { value, is_reg })
-            },
+            => ScalarValue::Int(args_blob.read_u32()? as i32),
 
             | ArgEncoding::Float
-            => {
-                let value = ScalarValue::Float(f32::from_bits(args_blob.read_u32()?));
-                args.push(SimpleArg { value, is_reg })
-            },
+            => ScalarValue::Float(f32::from_bits(args_blob.read_u32()?)),
 
             | ArgEncoding::Word
-            => {
-                let value = ScalarValue::Int(args_blob.read_i16()? as i32);
-                args.push(SimpleArg { value, is_reg })
-            },
-        }
+            => ScalarValue::Int(args_blob.read_i16()? as i32),
+
+            | ArgEncoding::String { block_size }
+            => ScalarValue::String(args_blob.read_cstring(block_size)?),
+        };
+        args.push(SimpleArg { value, is_reg })
     }
 
     if param_mask != 0 {
