@@ -91,6 +91,12 @@ macro_rules! anm_b2b_test {
     }
 }
 
+macro_rules! msg_b2b_test {
+    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
+        b2b_test!{"trumsg", $game, $map, $test_name, $fname}
+    }
+}
+
 // a dumb test to make sure that we don't just dump files in the input directory and
 // forget to add tests for them.
 #[test]
@@ -99,7 +105,7 @@ fn all_files_tested() {
     let this_file_src = std::fs::read_to_string(file!()).unwrap();
     for entry in std::fs::read_dir("tests/bits-2-bits").unwrap() {
         let path = entry.unwrap().path();
-        if path.is_file() && ["anm", "std"].iter().any(|&ext| path.extension().unwrap() == ext)  {
+        if path.is_file() && ["anm", "std", "msg"].iter().any(|&ext| path.extension().unwrap() == ext)  {
             let file_name = path.file_name().unwrap().to_str().unwrap();
 
             if !this_file_src.contains(file_name) {
@@ -120,4 +126,9 @@ std_b2b_test!(Game::Th08, "map/any.stdm", std08_nonzero_padding, "th08-nonzero-p
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_script, "th08-empty-script.std");
 std_b2b_test!(Game::Th06, "map/any.stdm", std06_general, "th06-general.std");
 std_b2b_test!(Game::Th12, "map/any.stdm", std12_general, "th12-general.std");
+
 anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");
+
+msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_multiple_scripts, "th06-multiple-scripts.msg");
+msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_z_string, "th06-z-string.msg");
+msg_b2b_test!(Game::Th08, "map/any.msgm", msg08_m_string, "th08-m-string.msg");

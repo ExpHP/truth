@@ -1,0 +1,15 @@
+---
+source: tests/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.msgm"
+
+script 0 main {
+    anmInterrupt(0, 1);
++60: // 60
+    textSet(0, 0, "�ł�...");
+    anmInterrupt(0, 0);
+    textSet(0, 0, "also here's an ascii string so it's not all mojibake");
+    textPause(300);
+}
+

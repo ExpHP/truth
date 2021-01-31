@@ -1,0 +1,25 @@
+!msgmap
+!ins_names
+0 end
+1 enter
+2 face
+3 textSet
+4 textPause
+5 anmInterrupt
+6 enemyAppear
+7 music
+8 intro  # introduction text
+9 stageResults
+10 stop  # wait(infinity)
+11 stageNext
+12 musicFadeout
+13 skippable
+14 screenFade
+# 15
+16 textAdd
+# 17  setActive
+# 18  only in TH08 msg4dm.dat
+19 optionA
+20 optionB
+21 optionPause
+22 option22
