@@ -194,6 +194,8 @@ fn raise_instr(
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
     let RaiseInstr { opcode, ref args, .. } = *instr;
+    let encodings = ty_ctx.ins_signature(opcode).expect("checked during reading").arg_encodings().collect::<Vec<_>>();
+
     match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
             let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
@@ -209,8 +211,8 @@ fn raise_instr(
 
         Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_var(&args[0], ty)?;
-            let value = raise_arg(&args[1], ty.default_encoding())?;
+            let var = raise_arg_to_reg(&args[0], ty)?;
+            let value = raise_arg(&args[1], encodings[1])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var #op #value)))
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
@@ -218,9 +220,9 @@ fn raise_instr(
 
         Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_var(&args[0], ty)?;
-            let a = raise_arg(&args[1], ty.default_encoding())?;
-            let b = raise_arg(&args[2], ty.default_encoding())?;
+            let var = raise_arg_to_reg(&args[0], ty)?;
+            let a = raise_arg(&args[1], encodings[1])?;
+            let b = raise_arg(&args[2], encodings[2])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_binop!(#a #op #b))))
         }).with_context(|| format!("while decompiling a '{}' operation", op)),
@@ -228,8 +230,8 @@ fn raise_instr(
 
         Some(IntrinsicInstrKind::Unop(op, ty)) => group_anyhow(|| {
             ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_var(&args[0], ty)?;
-            let b = raise_arg(&args[1], ty.default_encoding())?;
+            let var = raise_arg_to_reg(&args[0], ty)?;
+            let b = raise_arg(&args[1], encodings[1])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_unop!(#op #b))))
         }).with_context(|| format!("while decompiling a unary '{}' operation", op)),
@@ -246,7 +248,7 @@ fn raise_instr(
 
         Some(IntrinsicInstrKind::CountJmp) => group_anyhow(|| {
             ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_var(&args[0], ScalarType::Int)?;
+            let var = raise_arg_to_reg(&args[0], ScalarType::Int)?;
             let goto = raise_jump_args(&args[1], Some(&args[2]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
@@ -255,10 +257,10 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a decrement jump")),
 
 
-        Some(IntrinsicInstrKind::CondJmp(op, ty)) => group_anyhow(|| {
+        Some(IntrinsicInstrKind::CondJmp(op, _)) => group_anyhow(|| {
             ensure!(args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let a = raise_arg(&args[0], ty.default_encoding())?;
-            let b = raise_arg(&args[1], ty.default_encoding())?;
+            let a = raise_arg(&args[0], encodings[0])?;
+            let b = raise_arg(&args[1], encodings[1])?;
             let goto = raise_jump_args(&args[2], Some(&args[3]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
@@ -314,7 +316,7 @@ fn raise_arg(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
             ArgEncoding::JumpOffset => bail!("unexpected register used as jump offset"),
             ArgEncoding::Word => bail!("unexpected register used as word-sized argument"),
         };
-        Ok(Expr::Var(sp!(raise_arg_to_var(raw, ty)?)))
+        Ok(Expr::Var(sp!(raise_arg_to_reg(raw, ty)?)))
     } else {
         raise_arg_to_literal(raw, enc)
     }
@@ -340,13 +342,14 @@ fn raise_arg_to_literal(raw: &RawArg, enc: ArgEncoding) -> Result<Expr, SimpleEr
     }
 }
 
-fn raise_arg_to_var(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
+fn raise_arg_to_reg(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
     if !raw.is_reg {
         bail!("expected a variable, got an immediate");
     }
-    let reg = match ty {
-        ScalarType::Int => RegId(raw.bits as i32),
-        ScalarType::Float => {
+    let sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
+    let reg = match sigil {
+        ast::VarReadType::Int => RegId(raw.bits as i32),
+        ast::VarReadType::Float => {
             let float_reg = f32::from_bits(raw.bits);
             if float_reg != f32::round(float_reg) {
                 bail!("non-integer float variable [{}] in binary file!", float_reg);
@@ -356,7 +359,7 @@ fn raise_arg_to_var(raw: &RawArg, ty: ScalarType) -> Result<ast::Var, SimpleErro
     };
     Ok(ast::Var::Resolved {
         var_id: VarId::Reg(reg),
-        ty_sigil: Some(ty.into()),
+        ty_sigil: Some(sigil),
     })
 }
 

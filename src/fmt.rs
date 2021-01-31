@@ -783,8 +783,7 @@ impl Format for ast::Var {
         match *self {
             ast::Var::Named { ty_sigil, ref ident } => match ty_sigil {
                 None => out.fmt(ident),
-                Some(ast::VarReadType::Int) => out.fmt(("$", ident)),
-                Some(ast::VarReadType::Float) => out.fmt(("%", ident)),
+                Some(ty_sigil) => out.fmt((ty_sigil.sigil(), ident)),
             },
             ast::Var::Resolved { var_id: VarId::Local(local_id), ty_sigil } => {
                 let fake_var = ast::Var::Named { ty_sigil, ident: format!("__localvar_{}", local_id).parse().unwrap() };

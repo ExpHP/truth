@@ -666,7 +666,8 @@ impl Lowerer<'_> {
         self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
 
         let mut read_var = var.clone();
-        read_var.set_ty_sigil(Some(data.read_ty.into()));
+        let read_ty_sigil = data.read_ty.sigil().expect("(BUG!) tried to allocate temporary for non-numeric type");
+        read_var.set_ty_sigil(Some(read_ty_sigil));
         Ok(sp!(var.span => ast::Expr::Var(read_var)))
     }
 
@@ -686,8 +687,9 @@ impl Lowerer<'_> {
         tmp_ty: ScalarType,
     ) -> (LocalId, Sp<ast::Var>) {
         let local_id = self.ty_ctx.variables.declare_temporary(Some(tmp_ty));
+        let sigil = tmp_ty.sigil().expect("(BUG!) tried to allocate temporary for non-numeric type");
 
-        let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(tmp_ty.into()), var_id: local_id.into() });
+        let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(sigil), var_id: local_id.into() });
         self.out.push(LowerStmt::RegAlloc { local_id, cause: span });
 
         (local_id, var)

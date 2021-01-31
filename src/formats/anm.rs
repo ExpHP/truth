@@ -967,6 +967,7 @@ impl InstrFormat for InstrFormat07 {
             Version::V2 | Version::V3 | Version::V4 | Version::V7 | Version::V8 => enum_map::enum_map!{
                 ScalarType::Int => vec![R(10000), R(10001), R(10002), R(10003), R(10008), R(10009)],
                 ScalarType::Float => vec![R(10004), R(10005), R(10006), R(10007)],
+                ScalarType::String => vec![],
             },
         }
     }

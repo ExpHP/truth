@@ -34,8 +34,8 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
     lines.push(format!("!anmmap"));
     lines.push(format!("!gvar_types"));
     for var in vars.iter().filter(|x| x.in_mapfile) {
-        if let Some(ty) = var.ty {
-            lines.push(format!("{} {}", var.reg, ty.sigil()));
+        if let Some(ty_sigil) = var.ty.and_then(ast::VarReadType::from_ty) {
+            lines.push(format!("{} {}", var.reg, ty_sigil.sigil()));
         }
     }
     lines.push(format!("!gvar_names"));
@@ -146,6 +146,7 @@ fn make_randomized_vm(vars: &[Var]) -> AstVm {
                 let sign = rng.gen_range(0, 2) - 1;
                 sign as f32 * rng.gen_range(0.3, 1.7)
             })),
+            Some(Ty::String) => panic!("nonsense string register!"),
             None => vm.set_reg(var.reg, ScalarValue::Int(0)),
         }
     }

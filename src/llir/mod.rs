@@ -65,6 +65,7 @@ impl RawArg {
         let bits = match ty {
             ScalarType::Int => reg.0 as u32,
             ScalarType::Float => (reg.0 as f32).to_bits(),
+            _ => panic!("tried to compile register argument from {}", ty.descr())
         };
         RawArg { bits, is_reg: true }
     }
@@ -332,6 +333,7 @@ impl InstrFormat for TestFormat {
         enum_map::enum_map!{
             ScalarType::Int => self.general_use_int_regs.clone(),
             ScalarType::Float => self.general_use_float_regs.clone(),
+            ScalarType::String => vec![],
         }
     }
 }

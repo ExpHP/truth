@@ -82,7 +82,7 @@ mod value {
         pub fn ty(&self) -> ScalarType { match self {
             ScalarValue::Int(_) => ScalarType::Int,
             ScalarValue::Float(_) => ScalarType::Float,
-            ScalarValue::String(_) => unimplemented!("String"),
+            ScalarValue::String(_) => ScalarType::String,
         }}
 
         /// Allows simulating the effect of e.g. `%INT_VAR` or `$FLOAT_VAR`.
@@ -98,22 +98,22 @@ mod value {
         /// Obtain an integer value, as if read with a `$` prefix.  (i.e. casting if float)
         ///
         /// Returns `None` for e.g. string values.
-        pub fn read_as_int(self) -> Option<i32> {
+        pub fn read_as_int(&self) -> Option<i32> {
             match self {
-                ScalarValue::Int(x) => Some(x),
-                ScalarValue::Float(x) => Some(x as i32),
-                ScalarValue::String(_) => None,
+                &ScalarValue::Int(x) => Some(x),
+                &ScalarValue::Float(x) => Some(x as i32),
+                &ScalarValue::String(_) => None,
             }
         }
 
         /// Obtain a float value, as if read with a `%` prefix.  (i.e. casting if integer)
         ///
         /// Returns `None` for e.g. string values.
-        pub fn read_as_float(self) -> Option<f32> {
+        pub fn read_as_float(&self) -> Option<f32> {
             match self {
-                ScalarValue::Int(x) => Some(x as f32),
-                ScalarValue::Float(x) => Some(x),
-                ScalarValue::String(_) => None,
+                &ScalarValue::Int(x) => Some(x as f32),
+                &ScalarValue::Float(x) => Some(x),
+                &ScalarValue::String(_) => None,
             }
         }
     }

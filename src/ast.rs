@@ -398,6 +398,7 @@ impl Expr {
     pub fn zero(ty: crate::type_system::ScalarType) -> Self { match ty {
         crate::type_system::ScalarType::Int => 0.into(),
         crate::type_system::ScalarType::Float => 0.0.into(),
+        crate::type_system::ScalarType::String => panic!("Expr::zero() called on type String"),
     }}
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
@@ -549,11 +550,19 @@ pub enum VarReadType {
     Float,
 }
 
-impl From<type_system::ScalarType> for VarReadType {
-    fn from(x: type_system::ScalarType) -> VarReadType {
+impl VarReadType {
+    pub fn from_ty(x: type_system::ScalarType) -> Option<VarReadType> {
         match x {
-            type_system::ScalarType::Int => VarReadType::Int,
-            type_system::ScalarType::Float => VarReadType::Float,
+            type_system::ScalarType::Int => Some(VarReadType::Int),
+            type_system::ScalarType::Float => Some(VarReadType::Float),
+            type_system::ScalarType::String => None,
+        }
+    }
+
+    pub fn sigil(self) -> &'static str {
+        match self {
+            VarReadType::Int => "$",
+            VarReadType::Float => "%",
         }
     }
 }

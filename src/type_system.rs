@@ -134,10 +134,14 @@ impl TypeSystem {
     /// If `append_local_ids` is `true`, local variables will get their id numbers appended,
     /// making them distinct.  This is only for testing purposes.
     pub fn var_to_ast(&self, var_id: VarId, read_ty: ScalarType, append_local_ids: bool) -> ast::Var {
+        // const simplification should substitute any non-numeric type var reads (like string vars)
+        // before this function is ever called.  Probably.
+        let explicit_sigil = read_ty.sigil().expect("(bug!) tried to raise read of non-numeric type");
+
         let name = self.var_name(var_id);
         let name = match (name, var_id) {
-            // For registers with no alias, best we can do is emit `[10004]` syntax.
-            (None, VarId::Reg(_)) => return ast::Var::Resolved { var_id, ty_sigil: Some(read_ty.into()) },
+            // For registers with no alias, best we can do is emit `[10004]` syntax.  This requires ty_sigil.
+            (None, VarId::Reg(_)) => return ast::Var::Resolved { var_id, ty_sigil: Some(explicit_sigil) },
 
             (Some(name), VarId::Reg(_)) => name.clone(),
             (Some(name), VarId::Local(local_id)) => match append_local_ids {
@@ -153,7 +157,7 @@ impl TypeSystem {
         if self.var_default_type(var_id) == Some(read_ty) {
             ast::Var::Named { ident: name.clone(), ty_sigil: None }
         } else {
-            ast::Var::Named { ident: name.clone(), ty_sigil: Some(read_ty.into()) }
+            ast::Var::Named { ident: name.clone(), ty_sigil: Some(explicit_sigil) }
         }
     }
 
@@ -278,10 +282,14 @@ impl Signature {
     }
 }
 
-/// Type of a value that exists at runtime in the script.
+/// Type of an expression.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(enum_map::Enum)]
-pub enum ScalarType { Int, Float }
+pub enum ScalarType {
+    Int,
+    Float,
+    String,
+}
 
 /// Type of an argument to an instruction.
 ///
@@ -312,26 +320,20 @@ pub enum ArgEncoding {
 }
 
 impl ScalarType {
-    pub fn default_encoding(self) -> ArgEncoding {
-        match self {
-            ScalarType::Int => ArgEncoding::Dword,
-            ScalarType::Float => ArgEncoding::Float,
-        }
-    }
-
     /// Textual description, e.g. `"an integer"`.
     pub fn descr(self) -> &'static str {
         match self {
             ScalarType::Int => "an integer",
             ScalarType::Float => "a float",
+            ScalarType::String => "a string",
         }
     }
 
-    /// `$` or `%`.
-    pub fn sigil(self) -> &'static str {
+    pub fn sigil(self) -> Option<ast::VarReadType> {
         match self {
-            ScalarType::Int => "$",
-            ScalarType::Float => "%",
+            ScalarType::Int => Some(ast::VarReadType::Int),
+            ScalarType::Float => Some(ast::VarReadType::Float),
+            ScalarType::String => None,
         }
     }
 
