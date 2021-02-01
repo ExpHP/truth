@@ -4,14 +4,7 @@ use crate::parse::lexer::{Token};
 use crate::meta::{self, Meta};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
-use crate::ast::{
-    self,
-    Script, MetaKeyword,
-    Item, FuncKeyword, FuncReturnType, FileListKeyword, AssignOpKind,
-    Stmt, StmtBody, StmtGoto, StmtLabel, CondKeyword, CondBlock, Cond, Block,
-    Expr, BinopKind, UnopKind, Var, VarDeclKeyword, VarReadType, LitString,
-    DifficultyLabel,
-};
+use crate::ast;
 use crate::var::VarId;
 use super::lalrparser_util::{parse_ascii, u32_from_ascii_radix, push};
 
@@ -153,15 +146,15 @@ AnythingInner: crate::parse::AnythingValue = {
 // =================================================
 // Items
 
-Script: Script = {
+Script: ast::Script = {
     <items:Items> => {
         let mapfiles = state.mapfiles.clone();
         let image_sources = state.image_sources.clone();
-        Script { items, mapfiles, image_sources }
+        ast::Script { items, mapfiles, image_sources }
     }
 };
 
-Items: Vec<Sp<Item>> = {
+Items: Vec<Sp<ast::Item>> = {
     => vec![],
 
     <items:Items> <item:Sp<Item>> => push(items, item),
@@ -179,43 +172,43 @@ Items: Vec<Sp<Item>> = {
     },
 };
 
-Item: Item = {
+Item: ast::Item = {
     <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
         "(" <params:SeparatedTrailing<(<VarDeclKeyword> <Ident>), ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => Item::Func { inline: inline.is_some(), keyword, name, params, code },
+        => ast::Item::Func { inline: inline.is_some(), keyword, name, params, code },
 
     "script" <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
-        => Item::AnmScript { number, name, code },
+        => ast::Item::AnmScript { number, name, code },
 
     <keyword:Sp<MetaKeyword>> <name:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
-        => Item::Meta { keyword, name, fields },
+        => ast::Item::Meta { keyword, name, fields },
 
     <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
-        => Item::FileList { keyword, files },
+        => ast::Item::FileList { keyword, files },
 };
 
-FuncKeyword: FuncKeyword = {
-    "int" => FuncKeyword::Type(FuncReturnType::Int),
-    "float" => FuncKeyword::Type(FuncReturnType::Float),
-    "void" => FuncKeyword::Type(FuncReturnType::Void),
-    "sub" => FuncKeyword::Sub,
-    "timeline" => FuncKeyword::Timeline,
+FuncKeyword: ast::FuncKeyword = {
+    "int" => ast::FuncKeyword::Type(token![int]),
+    "float" => ast::FuncKeyword::Type(token![float]),
+    "void" => ast::FuncKeyword::Type(token![void]),
+    "sub" => ast::FuncKeyword::Sub,
+    "timeline" => ast::FuncKeyword::Timeline,
 };
 
-FuncBodyOrSemicolon: Option<Block> = {
+FuncBodyOrSemicolon: Option<ast::Block> = {
     ";" => None,
     <code:Block> => Some(code),
 };
 
-FileListKeyword: FileListKeyword = {
-    "anim" => FileListKeyword::Anim,
-    "ecli" => FileListKeyword::Ecli,
+FileListKeyword: ast::FileListKeyword = {
+    "anim" => ast::FileListKeyword::Anim,
+    "ecli" => ast::FileListKeyword::Ecli,
 };
 
-MetaKeyword: MetaKeyword = {
-    "entry" => MetaKeyword::Entry,
-    "meta" => MetaKeyword::Meta,
+MetaKeyword: ast::MetaKeyword = {
+    "entry" => ast::MetaKeyword::Entry,
+    "meta" => ast::MetaKeyword::Meta,
 };
 
 // NOTE: Working with state in LALRPOP is tricky as there are no midrules like bison.
@@ -269,50 +262,50 @@ MetaBracedFields: meta::Fields = {
 // ==================================================
 // Statements
 
-Stmt: Stmt = {
+Stmt: ast::Stmt = {
     <stuff:StmtLabelsWithTime> <body:StmtBody>
-        => Stmt { time: stuff.1, body },
+        => ast::Stmt { time: stuff.1, body },
 };
 
-StmtBody: StmtBody = {
+StmtBody: ast::StmtBody = {
     "return" <value:Sp<Expr>?> ";"
-        => StmtBody::Return { value },
+        => ast::StmtBody::Return { value },
 
     <chain: CondChain>
-        => StmtBody::CondChain(chain),
+        => ast::StmtBody::CondChain(chain),
 
     <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";"
-        => StmtBody::CondJump { keyword, cond, jump },
+        => ast::StmtBody::CondJump { keyword, cond, jump },
 
     "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Cond>> ")" ";"
-        => StmtBody::While { is_do_while: true, cond, block },
+        => ast::StmtBody::While { is_do_while: true, cond, block },
 
     "while" "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => StmtBody::While { is_do_while: false, cond, block },
+        => ast::StmtBody::While { is_do_while: false, cond, block },
 
     "times" "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
-        => StmtBody::Times { clobber, count, block },
+        => ast::StmtBody::Times { clobber, count, block },
 
     "loop" <block:StmtOrBlock>
-        => StmtBody::Loop { block },
+        => ast::StmtBody::Loop { block },
 
     <jump:StmtGoto> ";"
-        => StmtBody::Jump(jump),
+        => ast::StmtBody::Jump(jump),
 
     <e:Sp<Expr>> ";"
-        => StmtBody::Expr(e),
+        => ast::StmtBody::Expr(e),
 
     <name:Sp<Ident>> ":"
-        => StmtBody::Label(name),
+        => ast::StmtBody::Label(name),
 
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
-        => StmtBody::InterruptLabel(arg),
+        => ast::StmtBody::InterruptLabel(arg),
 
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
-        => StmtBody::Assignment { var, op, value },
+        => ast::StmtBody::Assignment { var, op, value },
 
     <keyword:Sp<VarDeclKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        => StmtBody::Declaration { keyword, vars },
+        => ast::StmtBody::Declaration { keyword, vars },
 
     StmtSpecialCall,
 }
@@ -327,33 +320,34 @@ StmtTimeLabel: () = {
 /// This exists because it is obscenely difficult to make unambiguous while getting the time read correctly.
 /// (though in retrospect, it does kind of make sense that the parser would have to speculatively check the
 ///  time after every label it parses)
-StmtLabelsWithTime: (Vec<Sp<StmtLabel>>, i32) = {
+StmtLabelsWithTime: (Vec<Sp<ast::StmtLabel>>, i32) = {
     <time: _TimeGetInline> => (vec![], time),
     <out:StmtLabels> StmtTimeLabel <time: _TimeGetInline> => (out, time),
     <out:StmtLabels> <label:Sp<StmtLabel>> <time: _TimeGetInline> => (push(out, label), time),
 };
 
 #[inline]
-StmtLabels: Vec<Sp<StmtLabel>> = <out:StmtLabelsWithTime> => out.0;
+StmtLabels: Vec<Sp<ast::StmtLabel>> = <out:StmtLabelsWithTime> => out.0;
 
-StmtLabel: StmtLabel = {
-    <flags:DifficultyLabel> => StmtLabel::Difficulty { flags, temporary: false },
-    <flags:DifficultyLabel> ":" => StmtLabel::Difficulty { flags, temporary: true },
+StmtLabel: ast::StmtLabel = {
+    <flags:DifficultyLabel> => ast::StmtLabel::Difficulty { flags, temporary: false },
+    <flags:DifficultyLabel> ":" => ast::StmtLabel::Difficulty { flags, temporary: true },
 };
 
-StmtGoto: StmtGoto = {
-    "goto" <destination:Sp<Ident>> <time:("@" <LitIntSigned>)?> => StmtGoto { destination, time },
+StmtGoto: ast::StmtGoto = {
+    "goto" <destination:Sp<Ident>> <time:("@" <LitIntSigned>)?>
+        => ast::StmtGoto { destination, time },
 };
 
-StmtSpecialCall: StmtBody = {
+StmtSpecialCall: ast::StmtBody = {
     // handle cases where at least one of the '@' or 'async' are present
     "@" <call_parts:ExprCallParts> <async_:CallAsyncKind?> ";" => {
         let (func, args) = call_parts;
-        StmtBody::CallSub { at_symbol: true, func, args, async_ }
+        ast::StmtBody::CallSub { at_symbol: true, func, args, async_ }
     },
     <call_parts:ExprCallParts> <async_:CallAsyncKind> ";" => {
         let (func, args) = call_parts;
-        StmtBody::CallSub { at_symbol: true, func, args, async_: Some(async_) }
+        ast::StmtBody::CallSub { at_symbol: true, func, args, async_: Some(async_) }
     },
 };
 
@@ -362,7 +356,7 @@ CallAsyncKind: ast::CallAsyncKind = {
     "async" <id:Box<Sp<Expr>>> => ast::CallAsyncKind::CallAsyncId(id),
 };
 
-StmtDeclarationListItem: (Sp<Var>, Option<Sp<Expr>>) = {
+StmtDeclarationListItem: (Sp<ast::Var>, Option<Sp<ast::Expr>>) = {
     <var:Sp<VarIdent>> => (var, None),
     <var:Sp<VarIdent>> "=" <value:Sp<Expr>> => (var, Some(value)),
 };
@@ -385,28 +379,29 @@ CondChainWithoutElse: ast::StmtCondChain = {
     },
 };
 
-CondBlock: CondBlock = {
-    <kind:CondKeyword> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock> => CondBlock { keyword:kind, cond, block },
+CondBlock: ast::CondBlock = {
+    <kind:CondKeyword> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
+        => ast::CondBlock { keyword:kind, cond, block },
 };
 
-Cond: Cond = {
-    "--" <var:Sp<Var>> => Cond::PreDecrement(var),
-    <expr:Sp<Expr>> => Cond::Expr(expr),
+Cond: ast::Cond = {
+    "--" <var:Sp<Var>> => ast::Cond::PreDecrement(var),
+    <expr:Sp<Expr>> => ast::Cond::Expr(expr),
 };
 
 // block for an 'if', 'while', etc.
-StmtOrBlock: Block = {
+StmtOrBlock: ast::Block = {
     // FIXME: Todo: single statement.  (creates ambiguous grammar, how to fix?)
 //    <st:Stmt> => vec![st],
     Block,
 };
 
-CondKeyword: CondKeyword = {
-    "if" => CondKeyword::If,
-    "unless" => CondKeyword::Unless,
+CondKeyword: ast::CondKeyword = {
+    "if" => token![if],
+    "unless" => token![unless],
 };
 
-DifficultyLabel: DifficultyLabel = {
+DifficultyLabel: ast::DifficultyLabel = {
     // TODO: Actually parse
     <l: @L> <s:DIFFICULTY> <r: @R> =>? Err(error!(
         message("unsupported syntax"),
@@ -414,20 +409,20 @@ DifficultyLabel: DifficultyLabel = {
     ).into()),
 };
 
-Block: Block = {
+Block: ast::Block = {
     "{" <start_span:Span> <start_time:_TimeGet> <mut code:Sp<Stmt>*>
         <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span> "}"
         => {
         // bookend with empty statements to simplify time and jump logic
-        code.insert(0, sp!(start_span => Stmt {
+        code.insert(0, sp!(start_span => ast::Stmt {
             time: start_time,
-            body: StmtBody::NoInstruction,
+            body: ast::StmtBody::NoInstruction,
         }));
-        code.push(sp!(end_labels.span => Stmt {
+        code.push(sp!(end_labels.span => ast::Stmt {
             time: end_time,
-            body: StmtBody::NoInstruction,
+            body: ast::StmtBody::NoInstruction,
         }));
-        Block(code)
+        ast::Block(code)
     },
 };
 
@@ -435,27 +430,27 @@ Block: Block = {
 // Expressions
 
 // Precedence is encoded in the use of these macros
-RightTernary<NextTier>: Expr = {
+RightTernary<NextTier>: ast::Expr = {
     <cond:Box<Sp<NextTier>>>
         "?" <left:Box<Sp<NextTier>>>
         ":" <right:Box<Sp<RightTernary<NextTier>>>>
-        => Expr::Ternary { cond, left, right },
+        => ast::Expr::Ternary { cond, left, right },
     NextTier,
 };
-LeftBinop<Op, NextTier>: Expr = {
+LeftBinop<Op, NextTier>: ast::Expr = {
     <a:Box<Sp<LeftBinop<Op, NextTier>>>>
         <op:Sp<Op>>
         <b:Box<Sp<NextTier>>>
-        => Expr::Binop(a, op, b),
+        => ast::Expr::Binop(a, op, b),
     NextTier,
 };
-LeftUnop<Op, NextTier>: Expr = {
+LeftUnop<Op, NextTier>: ast::Expr = {
     // no recursion; only allow one unary op
-    <op:Sp<Op>> <e:Box<Sp<NextTier>>> => Expr::Unop(op, e),
+    <op:Sp<Op>> <e:Box<Sp<NextTier>>> => ast::Expr::Unop(op, e),
     NextTier,
 };
 
-Expr: Expr = ExprWithOpers;
+Expr: ast::Expr = ExprWithOpers;
 
 // Operator precedence table
 ExprWithOpers = ExprTernary;
@@ -471,66 +466,73 @@ ExprBinopAddLike = LeftBinop<OpAddLike, ExprBinopMulLike>;
 ExprBinopMulLike = LeftBinop<OpMulLike, ExprUnop>;
 ExprUnop = LeftUnop<OpLeftUnary, ExprTerm>;
 
-OpOr: BinopKind = "||" => BinopKind::LogicOr;
-OpAnd: BinopKind = "&&" => BinopKind::LogicAnd;
-OpBitOr: BinopKind = "|" => BinopKind::BitOr;
-OpBitXor: BinopKind = "^" => BinopKind::BitXor;
-OpBitAnd: BinopKind = "&" => BinopKind::BitAnd;
-OpCmpEq: BinopKind = {
-    "==" => BinopKind::Eq,
-    "!=" => BinopKind::Ne,
+OpOr: ast::BinopKind = "||" => token![||];
+OpAnd: ast::BinopKind = "&&" => token![&&];
+OpBitOr: ast::BinopKind = "|" => token![|];
+OpBitXor: ast::BinopKind = "^" => token![^];
+OpBitAnd: ast::BinopKind = "&" => token![&];
+OpCmpEq: ast::BinopKind = {
+    "==" => token![==],
+    "!=" => token![!=],
 };
-OpCmpOrd: BinopKind = {
-    ">" => BinopKind::Gt,
-    "<" => BinopKind::Lt,
-    ">=" => BinopKind::Ge,
-    "<=" => BinopKind::Le,
+OpCmpOrd: ast::BinopKind = {
+    ">" => token![>],
+    "<" => token![<],
+    ">=" => token![>=],
+    "<=" => token![<=],
 };
-OpAddLike: BinopKind = {
-    "+" => BinopKind::Add,
-    "-" => BinopKind::Sub,
+OpAddLike: ast::BinopKind = {
+    "+" => token![+],
+    "-" => token![-],
 };
-OpMulLike: BinopKind = {
-    "*" => BinopKind::Mul,
-    "/" => BinopKind::Div,
-    "%" => BinopKind::Rem,
+OpMulLike: ast::BinopKind = {
+    "*" => token![*],
+    "/" => token![/],
+    "%" => token![%],
 };
-OpAssign: AssignOpKind = {
-    "=" => AssignOpKind::Assign,
-    "+=" => AssignOpKind::Add,
-    "-=" => AssignOpKind::Sub,
-    "*=" => AssignOpKind::Mul,
-    "/=" => AssignOpKind::Div,
-    "%=" => AssignOpKind::Rem,
-    "|=" => AssignOpKind::BitOr,
-    "^=" => AssignOpKind::BitXor,
-    "&=" => AssignOpKind::BitAnd,
+OpAssign: ast::AssignOpKind = {
+    "=" => token![=],
+    "+=" => token![+=],
+    "-=" => token![-=],
+    "*=" => token![*=],
+    "/=" => token![/=],
+    "%=" => token![%=],
+    "|=" => token![|=],
+    "^=" => token![^=],
+    "&=" => token![&=],
 };
-#[inline] OpLeftUnary: UnopKind = {
-    "-" => UnopKind::Neg,
-    "!" => UnopKind::Not,
+#[inline] OpLeftUnary: ast::UnopKind = {
+    "-" => token![-],
+    "!" => token![!],
 };
 
-FuncUnopKeyword: UnopKind = {
-    "sin" => UnopKind::Sin,
-    "cos" => UnopKind::Cos,
-    "sqrt" => UnopKind::Sqrt,
-    "_S" => UnopKind::CastI,
-    "_f" => UnopKind::CastF,
+FuncUnopKeyword: ast::UnopKind = {
+    "sin" => token![sin],
+    "cos" => token![cos],
+    "sqrt" => token![sqrt],
+    "_S" => token![_S],
+    "_f" => token![_f],
 };
 
 // Expressions that don't contain a toplevel operator
-ExprTerm: Expr = {
+ExprTerm: ast::Expr = {
     "(" <e:Expr> ")" => e,
-    <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")" => Expr::Unop(op, e),
+
+    <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")"
+        => ast::Expr::Unop(op, e),
+
     <call_parts:ExprCallParts> => {
         let (func, args) = call_parts;
-        Expr::Call { func, args }
+        ast::Expr::Call { func, args }
     },
-    <v:Sp<Var>> => Expr::Var(v),
-    <value:LitIntUnsigned> => Expr::LitInt { value, hex: false },
-    <value:LitFloatUnsigned> => Expr::LitFloat { value },
-    <x:LitString> => Expr::LitString(x),
+
+    <v:Sp<Var>> => ast::Expr::Var(v),
+
+    <value:LitIntUnsigned> => ast::Expr::LitInt { value, hex: false },
+
+    <value:LitFloatUnsigned> => ast::Expr::LitFloat { value },
+
+    <x:LitString> => ast::Expr::LitString(x),
 
     // This syntax is reserved.
     // The only reason we parse it right now is just to prove that adding it wouldn't make the grammar ambiguous.
@@ -540,13 +542,13 @@ ExprTerm: Expr = {
     ).into()),
 };
 
-ExprCallParts: (Sp<Ident>, Vec<Sp<Expr>>) = {
+ExprCallParts: (Sp<Ident>, Vec<Sp<ast::Expr>>) = {
     <Sp<Ident>> "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
 };
 
 // ==================================================
 
-LitString: LitString = {
+LitString: ast::LitString = {
     <l: @L> <s:STRING> <r: @R> =>? {
         let mut out = vec![];
         let mut escape = false;
@@ -577,7 +579,7 @@ LitString: LitString = {
             }
         }
         assert!(!escape);  // should be impossible due to the token's regex
-        Ok(LitString { string: out.into() })
+        Ok(ast::LitString { string: out.into() })
     },
 };
 
@@ -633,12 +635,12 @@ LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
 // ==================================================
 // Variables
 
-Var: Var = {
+Var: ast::Var = {
     VarIdent,
-    "$" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Int), ident },
-    "%" <ident:Ident> => Var::Named { ty_sigil: Some(VarReadType::Float), ident },
+    "$" <ident:Ident> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Int), ident },
+    "%" <ident:Ident> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign).into()) })
+        Ok(ast::Var::Resolved { ty_sigil: Some(ast::VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign).into()) })
     },
     <l: @L> "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" <r: @R> =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
@@ -654,16 +656,19 @@ Var: Var = {
                 primary(Span::from_locs(l, r), "non-integer register ID")
             ).into());
         }
-        Ok(Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: VarId::Reg(reg.into()) })
+        Ok(ast::Var::Resolved {
+            ty_sigil: Some(ast::VarReadType::Float),
+            var_id: VarId::Reg(reg.into())
+        })
     },
 };
 
-VarIdent: Var = <ident:Ident> => Var::Named { ty_sigil: None, ident };
+VarIdent: ast::Var = <ident:Ident> => ast::Var::Named { ty_sigil: None, ident };
 
-VarDeclKeyword: VarDeclKeyword = {
-    "int" => VarDeclKeyword::Int,
-    "float" => VarDeclKeyword::Float,
-    "var" => VarDeclKeyword::Var,
+VarDeclKeyword: ast::VarDeclKeyword = {
+    "int" => token![int],
+    "float" => token![float],
+    "var" => token![var],
 };
 
 OptionalMinus: i32 = {
