@@ -1,0 +1,13 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:18
+   │
+27 │       int x = _S(2);  
+   │               -- ^ an integer
+   │               │   
+   │               only defined on floats
+
+

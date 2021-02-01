@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: while resolving this/is/a/bad/path
+   ┌─ <input>:25:25
+   │
+25 │         #pragma mapfile "this/is/a/bad/path"
+   │                         ^^^^^^^^^^^^^^^^^^^^ error loading file
+
+

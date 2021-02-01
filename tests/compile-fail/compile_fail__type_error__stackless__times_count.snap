@@ -1,0 +1,15 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:13
+   │
+27 │       times(F0) {}  
+   │             ^^
+   │             │
+   │             a float
+   │             an integer
+   │             same types required due to this
+
+

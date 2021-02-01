@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: signature not known for opcode 6000
+   ┌─ <input>:27:7
+   │
+27 │       ins_6000(0, 0, 0);  
+   │       ^^^^^^^^ signature not in mapfiles
+
+

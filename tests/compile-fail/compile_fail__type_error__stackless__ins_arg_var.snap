@@ -1,0 +1,13 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:16
+   │
+27 │       pos(0.0, I0, 3.0);  
+   │       ---      ^^ wrong type for argument 2
+   │       │         
+   │       expects a float
+
+

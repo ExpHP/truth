@@ -1,0 +1,14 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: unexpected token `2.4`
+   ┌─ <input>:28:38
+   │
+28 │             if (2 == 2) goto label @ 2.4;
+   │                                      ^^^ unexpected token
+   │
+   = 
+     Expected one of "-", "false", "true", INT, INT_BIN or INT_HEX
+
+

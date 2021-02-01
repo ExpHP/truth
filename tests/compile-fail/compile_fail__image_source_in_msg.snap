@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: unexpected image_source
+  ┌─ <input>:5:30
+  │
+5 │         #pragma image_source "tests/anm-compile/th12-embedded-image-source.anm"
+  │                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ image_source not valid in this format
+
+

@@ -1,0 +1,14 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:28:22
+   │
+28 │             if (2 == 3.0) goto label;
+   │                 - -- ^^^ a float
+   │                 │ │   
+   │                 │ same types required due to this
+   │                 an integer
+
+

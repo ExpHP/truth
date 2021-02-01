@@ -1,0 +1,23 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:18
+   │
+27 │       times(F0 = 4) {}  
+   │             --   ^
+   │             │    │
+   │             │    an integer
+   │             │    same types required due to this
+   │             a float
+
+error: type error
+   ┌─ <input>:27:13
+   │
+27 │       times(F0 = 4) {}  
+   │             ^^   - required by this
+   │             │     
+   │             expected an int, got a float
+
+

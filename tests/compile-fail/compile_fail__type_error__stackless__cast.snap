@@ -1,0 +1,15 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:18
+   │
+27 │       int x = _S(I2);  
+   │                  ^^
+   │                  │
+   │                  an integer
+   │                  a float
+   │                  same types required due to this
+
+

@@ -1,0 +1,13 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:28:19
+   │
+28 │             if (--F0) goto label;
+   │             --    ^^ expected an int, got a float
+   │             │      
+   │             required by this
+
+

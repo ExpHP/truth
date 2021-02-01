@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: unknown variable 'y'
+   ┌─ <input>:27:15
+   │
+27 │       int x = y;  
+   │               ^ not found in this scope
+
+

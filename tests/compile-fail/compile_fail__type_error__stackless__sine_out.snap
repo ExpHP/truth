@@ -1,0 +1,15 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:15
+   │
+27 │       int x = sin(F0);  
+   │           ----^^^^^^^
+   │           │   │
+   │           │   a float
+   │           same types required due to this
+   │           an integer
+
+

@@ -332,7 +332,7 @@ mod resolve_vars {
                 match self.resolver.resolve(ident, &self.variables) {
                     Some(var_id) => var.value = ast::Var::Resolved { ty_sigil, var_id },
                     None => self.errors.append(error!(
-                        message("no such variable {}", ident),
+                        message("unknown variable '{}'", ident),
                         primary(var, "not found in this scope"),
                     )),
                 };

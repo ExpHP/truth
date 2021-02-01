@@ -1,0 +1,13 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: duplicate label 'label'
+   ┌─ <input>:22:5
+   │
+21 │     label:
+   │     ----- originally defined here
+22 │     label:
+   │     ^^^^^ redefined here
+
+

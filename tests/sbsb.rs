@@ -16,16 +16,10 @@
 use std::ffi::OsStr;
 use std::process::Command;
 
-use truth::Game;
+use common::source_gen::{Format, STD_08, ANM_10};
+mod common;
 
 use assert_cmd::prelude::*;
-
-struct Format {
-    cmd: &'static str,
-    game: Game,
-    /// Make a source file from the contents of a single script.
-    make_source: fn(&str) -> String,
-}
 
 impl Format {
     fn compile(&self, src: impl AsRef<OsStr>, out: impl AsRef<OsStr>) {
@@ -64,9 +58,9 @@ impl Format {
     fn sbsb_test(&self, script_text: &str, with_decompiled: impl FnOnce(&str)) {
         use std::fs::{read, write};
 
-        let full_source = (self.make_source)(script_text);
-
         truth::setup_for_test_harness();
+
+        let full_source = format!("{}\n{}", self.script_head, (self.make_main)(script_text));
 
         let temp = tempfile::tempdir().unwrap();
         let temp = temp.path();
@@ -86,65 +80,6 @@ impl Format {
         assert_eq!(read(temp.join("first.out")).unwrap(), read(temp.join("second.out")).unwrap());
     }
 }
-
-const ANM_10: Format = Format {
-    cmd: "truanm",
-    game: Game::Th10,
-    make_source: |body| format!(r#"
-#pragma mapfile "map/any.anmm"
-
-entry {{
-    path: "subdir/file.png",
-    has_data: false,
-    width: 512,
-    height: 512,
-    offset_x: 0,
-    offset_y: 0,
-    format: 3,
-    colorkey: 0,
-    memory_priority: 0,
-    low_res_scale: false,
-    sprites: {{
-        sprite0: {{id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-        sprite1: {{id: 1, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-        sprite2: {{id: 2, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-        sprite3: {{id: 3, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-        sprite4: {{id: 4, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-    }},
-}}
-
-
-script script0 {{
-    {}
-}}
-"#, body),
-};
-
-const STD_08: Format = Format {
-    cmd: "trustd",
-    game: Game::Th08,
-    make_source: |body| format!(r#"
-#pragma mapfile "map/any.stdm"
-
-meta {{
-    unknown: 0,
-    stage_name: "dm",
-    bgm: [
-        {{path: "bgm/th08_08.mid", name: "dm"}},
-        {{path: "bgm/th08_09.mid", name: "dm"}},
-        {{path: " ", name: " "}},
-        {{path: " ", name: " "}},
-    ],
-    objects: {{}},
-    instances: [],
-}}
-
-
-script main {{
-    {}
-}}
-"#, body),
-};
 
 // =============================================================================
 

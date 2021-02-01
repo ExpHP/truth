@@ -1,0 +1,14 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:17
+   │
+27 │       I0 = 1 && "lmao";  
+   │            - -- ^^^^^^ a string
+   │            │ │   
+   │            │ same types required due to this
+   │            an integer
+
+
