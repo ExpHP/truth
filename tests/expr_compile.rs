@@ -229,7 +229,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
     let eclmap = make_eclmap(vars);
     let instr_format = make_instr_format(vars);
     let base_vm = make_randomized_vm(vars);
-    ty_ctx.extend_from_eclmap(None, &eclmap);
+    ty_ctx.extend_from_eclmap(None, &eclmap).unwrap();
 
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
@@ -265,7 +265,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
 
     let eclmap = make_eclmap(vars);
     let instr_format = make_instr_format(vars);
-    ty_ctx.extend_from_eclmap(None, &eclmap);
+    ty_ctx.extend_from_eclmap(None, &eclmap).unwrap();
 
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;

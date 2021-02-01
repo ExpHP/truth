@@ -126,9 +126,13 @@ impl Lowerer<'_> {
             primary(name, "signature not in mapfiles"),
         ))?;
         if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
+            let range = match siggy.min_args() == siggy.max_args() {
+                true => format!("{}", siggy.min_args()),
+                false => format!("{} to {}", siggy.min_args(), siggy.max_args()),
+            };
             return Err(error!(
                 message("wrong number of arguments to '{}'", name),
-                primary(name, "expects {} to {} arguments, got {}", siggy.min_args(), siggy.max_args(), args.len()),
+                primary(name, "expects {} arguments, got {}", range, args.len()),
             ));
         }
         let encodings = siggy.arg_encodings().collect::<Vec<_>>();
@@ -173,14 +177,18 @@ impl Lowerer<'_> {
         Ok(opcode)
     }
 
-    /// Lowers `if (<cond>) goto label @ time;`
+    /// Lowers `int x, y = 3, z;`
     fn lower_var_declaration(
         &mut self,
         _stmt_span: Span,
         stmt_time: i32,
-        _keyword: &Sp<ast::VarDeclKeyword>,
+        keyword: &Sp<ast::VarDeclKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), CompileError>{
+        if keyword.value == token![var] {
+            return Err(unsupported(&keyword.span, "untyped variables"));
+        }
+
         for pair in vars {
             let (var, expr) = &pair.value;
             let var_id = match var.value {
@@ -350,7 +358,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Lowers `a = <B> * <C>;`
+    /// Lowers `a = -<B>;`
     fn lower_assign_direct_unop(
         &mut self,
         span: Span,
@@ -638,7 +646,7 @@ impl Lowerer<'_> {
         time: i32,
         data: &TemporaryExpr<'_>,
     ) -> Result<(LocalId, Sp<Expr>), CompileError> {
-        let (local_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty);
+        let (local_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty)?;
         let var_as_expr = self.compute_temporary_expr(time, &var, data)?;
 
         Ok((local_id, var_as_expr))
@@ -658,7 +666,7 @@ impl Lowerer<'_> {
         self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
 
         let mut read_var = var.clone();
-        let read_ty_sigil = data.read_ty.sigil().expect("(BUG!) tried to allocate temporary for non-numeric type");
+        let read_ty_sigil = get_temporary_read_ty(data.read_ty, var.span)?;
         read_var.set_ty_sigil(Some(read_ty_sigil));
         Ok(sp!(var.span => ast::Expr::Var(read_var)))
     }
@@ -677,19 +685,34 @@ impl Lowerer<'_> {
         &mut self,
         span: Span,
         tmp_ty: ScalarType,
-    ) -> (LocalId, Sp<ast::Var>) {
+    ) -> Result<(LocalId, Sp<ast::Var>), CompileError> {
         let local_id = self.ty_ctx.variables.declare_temporary(Some(tmp_ty));
-        let sigil = tmp_ty.sigil().expect("(BUG!) tried to allocate temporary for non-numeric type");
+        let sigil = get_temporary_read_ty(tmp_ty, span)?;
 
         let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(sigil), var_id: local_id.into() });
         self.out.push(LowerStmt::RegAlloc { local_id, cause: span });
 
-        (local_id, var)
+        Ok((local_id, var))
     }
 
     fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
         self.intrinsic_instrs.get_opcode(kind, span, descr)
     }
+}
+
+// This function makes sure string-typed temporaries produce errors.
+//
+// String-typed temporaries can legally occur as the result of expressions like `I0 ? "a" : "b"` which can't be
+// const-folded.  However, there are no string registers, so we must emit an error instead.
+//
+// Basically, this function performs this check at the time that we are trying to generate the Var expression
+// that would be used to read the temporary.  This does feel like an unusual time to perform this check,
+// but it works out this way because we need to go from a type with a string variant to a type that has none.
+fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarReadType, CompileError> {
+    ty.sigil().ok_or_else(|| error!(
+        message("runtime temporary of non-numeric type"),
+        primary(span, "temporary {} cannot be created", ty.descr_plural())
+    ))
 }
 
 enum ExprClass<'a> {

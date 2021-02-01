@@ -48,7 +48,7 @@ impl TypeSystem {
 
     /// Add info from an eclmap.  Its path (if one is provided) is recorded in order to emit
     /// import directives into a decompiled script file.
-    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) {
+    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) -> Result<(), SimpleError> {
         if let Some(path) = path {
             self.regs_and_instrs.mapfiles.push(path.to_owned());
         }
@@ -58,7 +58,7 @@ impl TypeSystem {
             self.regs_and_instrs.func_aliases.insert(name.clone(), Ident::new_ins(opcode as u16));
         }
         for (&opcode, value) in &eclmap.ins_signatures {
-            self.regs_and_instrs.add_signature(opcode as u16, value).unwrap(); // XXX XXX FIXME propagate to caller
+            self.regs_and_instrs.add_signature(opcode as u16, value)?;
         }
         for (&reg, name) in &eclmap.gvar_names {
             self.regs_and_instrs.reg_names.insert(RegId(reg), name.clone());
@@ -79,6 +79,7 @@ impl TypeSystem {
             };
             self.regs_and_instrs.reg_default_types.insert(RegId(id), ty);
         }
+        Ok(())
     }
 
     /// Get the effective type of a variable at a place where it is referenced.
@@ -421,6 +422,14 @@ impl ScalarType {
         }
     }
 
+    pub fn descr_plural(self) -> &'static str {
+        match self {
+            ScalarType::Int => "integers",
+            ScalarType::Float => "floats",
+            ScalarType::String => "strings",
+        }
+    }
+
     pub fn sigil(self) -> Option<ast::VarReadType> {
         match self {
             ScalarType::Int => Some(ast::VarReadType::Int),
@@ -463,6 +472,18 @@ impl ScalarType {
             )),
         }
     }
+
+    fn require_numeric(self, cause: Span, value_span: Span) -> Result<(), CompileError> {
+        match self {
+            ScalarType::Int => Ok(()),
+            ScalarType::Float => Ok(()),
+            _ => Err(error!(
+                message("type error"),
+                primary(value_span, "{}", self.descr()),
+                secondary(cause, "requires a numeric type"),
+            )),
+        }
+    }
 }
 
 impl Sp<ast::BinopKind> {
@@ -489,7 +510,10 @@ impl Sp<ast::BinopKind> {
         // they ALL require matching types
         let ty = a.check_same(b, self.span, arg_spans)?;
         match self.value {
-            B::Add | B::Sub | B::Mul | B::Div | B::Rem | B::LogicOr | B::LogicAnd => Ok(ty),
+            B::Add | B::Sub | B::Mul | B::Div | B::Rem | B::LogicOr | B::LogicAnd => {
+                ty.require_numeric(self.span, arg_spans.0)?;
+                Ok(ty)
+            },
             B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => Ok(ScalarType::Int),
             B::BitXor | B::BitAnd | B::BitOr => {
                 ty.require_int(self.span, arg_spans.0)?;
@@ -516,7 +540,7 @@ impl Sp<ast::UnopKind> {
     /// Perform type-checking.
     pub fn type_check(&self, ty: ScalarType, arg_span: Span) -> Result<(), CompileError> {
         match self.value {
-            token![unop -] => Ok(()),
+            token![unop -] => ty.require_numeric(self.span, arg_span),
             token![unop _f] |
             token![unop !] => ty.require_int(self.span, arg_span),
             token![unop _S] |

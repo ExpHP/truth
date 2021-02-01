@@ -398,7 +398,7 @@ mod tests {
     fn resolve(text: &str) -> Result<(TypeSystem, ast::Block), (Files, CompileError)> {
         let mut files = Files::new();
         let mut ty_ctx = TypeSystem::new();
-        ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap());
+        ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
 
         let mut parsed_block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
         match crate::passes::resolve_names::run(&mut parsed_block, &mut ty_ctx) {

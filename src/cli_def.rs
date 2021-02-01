@@ -444,11 +444,12 @@ fn init_ty_ctx(
     use crate::Eclmap;
 
     let mut ty_ctx = crate::TypeSystem::new();
-    ty_ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source)?);
+    ty_ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source)?).expect("failed to parse core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
         let eclmap = Eclmap::load(&mapfile_arg, Some(game))?;
-        ty_ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap);
+        ty_ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap)
+            .with_context(|| format!("while applying '{}'", mapfile_arg.display()))?;
     }
     Ok(ty_ctx)
 }
@@ -457,12 +458,14 @@ fn init_ty_ctx(
 fn load_mapfiles_from_pragmas(game: Game, ty_ctx: &mut crate::TypeSystem, script: &ast::Script) -> Result<(), CompileError> {
     for path_literal in &script.mapfiles {
         let path = path_literal.as_path()?;
-        match crate::Eclmap::load(&path, Some(game)) {
-            Ok(eclmap) => ty_ctx.extend_from_eclmap(Some(path), &eclmap),
-            Err(e) => return Err(crate::error!(
-                message("{}", e), primary(path_literal, "error loading file"),
-            )),
-        }
+
+        crate::error::group_anyhow(|| {
+            let eclmap = crate::Eclmap::load(&path, Some(game))?;
+            ty_ctx.extend_from_eclmap(Some(path), &eclmap)?;
+            Ok(())
+        }).map_err(|e| crate::error!(
+            message("{:#}", e), primary(path_literal, "error loading mapfile"),
+        ))?
     }
     Ok(())
 }
@@ -470,10 +473,10 @@ fn load_mapfiles_from_pragmas(game: Game, ty_ctx: &mut crate::TypeSystem, script
 // =============================================================================
 
 fn fs_open(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
-    fs::File::open(path.as_ref()).with_context(|| format!("while opening file: {}", path.as_ref().display()))
+    fs::File::open(path.as_ref()).with_context(|| format!("while opening file '{}'", path.as_ref().display()))
 }
 fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, SimpleError> {
-    fs::read(path.as_ref()).with_context(|| format!("while reading file: {}", path.as_ref().display()))
+    fs::read(path.as_ref()).with_context(|| format!("while reading file '{}'", path.as_ref().display()))
 }
 fn fs_create(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
     fs::File::create(path.as_ref()).with_context(|| format!("creating file '{}'", path.as_ref().display()))

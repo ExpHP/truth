@@ -106,7 +106,7 @@ compile_fail_test!(
         #pragma mapfile "this/is/a/bad/path"
     "#,
     main_body: "",
-    expected: "file",
+    expected: "loading mapfile",
 );
 
 compile_fail_test!(
@@ -115,7 +115,7 @@ compile_fail_test!(
         #pragma image_source "this/is/a/bad/path"
     "#,
     main_body: "",
-    expected: "file",
+    expected: "reading file",
 );
 
 compile_fail_test!(
@@ -143,7 +143,7 @@ compile_fail_test!(
         var x;
         $x = 4;
     "#,
-    expected: "FIXME",
+    expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,
 );
 
 compile_fail_test!(
@@ -160,7 +160,7 @@ compile_fail_test!(
         #pragma mapfile "tests/mapfile-with-bad-signature.anmm"
     "#,
     main_body: "",
-    expected: "FIXME",
+    expected: "opcode 1000",
 );
 
 // FIXME somehow group these image_source tests so that new formats are automatically tested?
@@ -203,7 +203,17 @@ compile_fail_test!(
     main_body: r#"
         int x = 4;
     "#,
-    expected: "FIXME",
+    expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,
+);
+
+compile_fail_test!(
+    // this is going to become grammatically correct soon; the test is here to make
+    // sure it fails gracefully from the getgo
+    ANM_10, local_string,
+    main_body: r#"
+        string x = "hi";
+    "#,
+    expected: EXPECTED_PARSE_ERROR,
 );
 
 compile_fail_test!(
@@ -276,6 +286,12 @@ mod type_error {
         ANM_10, stackless__binop_out,
         main_body: r#"  I0 = F1 + 2.0;  "#,
         expected: EXPECTED_TYPE_ERROR,
+    );
+
+    compile_fail_test!(
+        MSG_06, stackless__binop_two_strings,
+        main_body: r#"  textSet(0, 0, "F1" - "2.0");  "#,
+        expected: "string",
     );
 
     compile_fail_test!(
@@ -451,8 +467,13 @@ mod type_error {
     compile_fail_test!(
         MSG_06, stackless__func_arg_neg_str,
         main_body: r#"  textSet(0, 0, -"abc");  "#,
-        expected: EXPECTED_TYPE_ERROR,
+        expected: "string",
     );
+
+    // FIXME: Once we have ECL we should try `I0 ? "abc" : "def"` as an argument;
+    //        this is more or less the only way guaranteed to hit a "no runtime string temporaries"
+    //        check.  (at the time of writing, `-"abc"` and `"a" + "b"` currently hit it but, that's
+    //        only because it's not currently caught during in const folding or shallow typing)
 
     // =========================
     // short-circuited const expressions

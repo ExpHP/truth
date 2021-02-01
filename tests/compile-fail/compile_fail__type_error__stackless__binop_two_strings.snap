@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: runtime temporary of non-numeric type
+  ┌─ <input>:7:21
+  │
+7 │       textSet(0, 0, "F1" - "2.0");  
+  │                     ^^^^^^^^^^^^ temporary strings cannot be created
+
+

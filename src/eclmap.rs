@@ -20,8 +20,8 @@ pub struct Eclmap {
 impl Eclmap {
     pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>) -> Result<Self, SimpleError> {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
-        let path = path.as_ref().canonicalize().with_context(|| format!("while resolving {}", path.as_ref().display()))?;
-        let text = std::fs::read_to_string(&path).with_context(|| format!("while reading {}", path.display()))?;
+        let path = path.as_ref().canonicalize().with_context(|| format!("while resolving '{}'", path.as_ref().display()))?;
+        let text = std::fs::read_to_string(&path).with_context(|| format!("while reading '{}'", path.display()))?;
 
         crate::error::group_anyhow(|| {
             let mut seqmap = parse_seqmap(&text)?;
@@ -34,7 +34,7 @@ impl Eclmap {
                 seqmap = Self::resolve_gamemap(base_dir, seqmap, game)?;
             }
             Self::from_seqmap(seqmap)
-        }).with_context(|| format!("while parsing {}", path.display()))
+        }).with_context(|| format!("while parsing '{}'", path.display()))
     }
 
     pub fn parse(text: &str) -> Result<Self, SimpleError> {
@@ -70,7 +70,7 @@ impl Eclmap {
         };
         let final_path = base_dir.join(rel_path);
 
-        let text = std::fs::read_to_string(&final_path).with_context(|| format!("while reading {}", final_path.display()))?;
+        let text = std::fs::read_to_string(&final_path).with_context(|| format!("while reading '{}'", final_path.display()))?;
         parse_seqmap(&text)
     }
 
