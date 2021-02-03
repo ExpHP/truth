@@ -509,7 +509,7 @@ impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
             ast::Item::Func { inline, keyword, name, params, code, } => {
-                let inline_keyword = if *inline { "inline " } else { "" };
+                let inline_keyword = if inline.is_some() { "inline " } else { "" };
 
                 out.fmt((inline_keyword, keyword, " ", name))?;
                 out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
@@ -522,7 +522,7 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
-            ast::Item::AnmScript { number, name, code } => {
+            ast::Item::AnmScript { keyword: _, number, name, code } => {
                 out.fmt("script ")?;
                 if let Some(number) = number {
                     out.fmt((number, " "))?;
@@ -605,35 +605,51 @@ impl Format for ast::StmtBody {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
             ast::StmtBody::Jump(jump) => out.fmt((jump, ";")),
-            ast::StmtBody::Return { value } => {
+
+            ast::StmtBody::Return { value, keyword: _ } => {
                 out.fmt("return")?;
                 if let Some(value) = value {
                     out.fmt((" ", value))?;
                 }
                 out.fmt(";")
             },
+
             ast::StmtBody::CondJump { keyword, cond, jump } => {
                 out.fmt((keyword, " (", SuppressParens(cond), ") ", jump, ";"))
             },
-            ast::StmtBody::Loop { block } => out.fmt(("loop ", block)),
-            ast::StmtBody::CondChain(chain) => out.fmt(chain),
-            ast::StmtBody::While { is_do_while: true, cond, block } => {
+
+            ast::StmtBody::Loop { block, keyword: _ } => {
+                out.fmt(("loop ", block))
+            },
+
+            ast::StmtBody::CondChain(chain) => {
+                out.fmt(chain)
+            },
+
+            ast::StmtBody::While { do_keyword: Some(_), cond, block, while_keyword: _ } => {
                 out.fmt(("do ", block, " while (", SuppressParens(cond), ");"))
             },
-            ast::StmtBody::While { is_do_while: false, cond, block } => {
+
+            ast::StmtBody::While { do_keyword: None, cond, block, while_keyword: _ } => {
                 out.fmt(("while (", SuppressParens(cond), ") ", block))
             },
-            ast::StmtBody::Times { clobber, count, block } => {
+
+            ast::StmtBody::Times { clobber, count, block, keyword: _ } => {
                 out.fmt("times(")?;
                 if let Some(clobber) = clobber {
                     out.fmt((clobber, " = "))?;
                 }
                 out.fmt((SuppressParens(count), ") ", block))
             },
-            ast::StmtBody::Expr(e) => out.fmt((e, ";")),
+
+            ast::StmtBody::Expr(e) => {
+                out.fmt((e, ";"))
+            },
+
             ast::StmtBody::Assignment { var, op, value } => {
                 out.fmt((var, " ", op, " ", SuppressParens(value), ";"))
             },
+
             ast::StmtBody::Declaration { keyword: ty, vars } => {
                 out.fmt((ty, " "))?;
 
@@ -652,6 +668,7 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
+
             ast::StmtBody::CallSub { at_symbol, async_, func, args } => {
                 out.fmt(if *at_symbol { "@" } else { "" })?;
                 out.fmt(func)?;
@@ -661,17 +678,20 @@ impl Format for ast::StmtBody {
                 }
                 out.fmt(";")
             },
+
             ast::StmtBody::Label(ref ident) => {
                 out.fmt_label((ident, ":"))?;
                 out.suppress_blank_line();
                 Ok(())
             },
+
             ast::StmtBody::InterruptLabel(id) => {
                 out.next_line()?;
                 out.fmt_label(("interrupt[", id, "]:"))?;
                 out.suppress_blank_line();
                 Ok(())
             },
+
             ast::StmtBody::ScopeEnd(_) |
             ast::StmtBody::NoInstruction => {
                 out.suppress_blank_line();
@@ -754,7 +774,7 @@ impl Format for ast::Block {
 impl Format for ast::Expr {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::Expr::Ternary { cond, left, right } => {
+            ast::Expr::Ternary { cond, left, right, question: _, colon: _ } => {
                 out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
             ast::Expr::Binop(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),

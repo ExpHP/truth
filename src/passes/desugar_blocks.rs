@@ -42,23 +42,23 @@ impl<'a> Desugarer<'a> {
         for outer_stmt in outer_block.0.drain(..) {
             let outer_time = outer_stmt.time;
             match outer_stmt.value.body {
-                ast::StmtBody::Loop { block } => {
+                ast::StmtBody::Loop { block, .. } => {
                     self.desugar_loop_body(block, None)
                 },
 
-                ast::StmtBody::While { is_do_while: true, cond, block } => {
-                    let keyword = sp!(cond.span => token![if]);
-                    self.desugar_loop_body(block, Some((keyword, cond.value)))
+                ast::StmtBody::While { do_keyword: Some(_), while_keyword, cond, block } => {
+                    let if_keyword = sp!(while_keyword.span => token![if]);
+                    self.desugar_loop_body(block, Some((if_keyword, cond.value)))
                 },
 
-                ast::StmtBody::While { is_do_while: false, cond, block } => {
-                    let keyword = sp!(cond.span => token![if]);
-                    self.desugar_conditional_region(cond.span, outer_time, keyword, cond.clone(), |self_| {
-                        self_.desugar_loop_body(block, Some((keyword, cond.value)));
+                ast::StmtBody::While { do_keyword: None, while_keyword, cond, block } => {
+                    let if_keyword = sp!(while_keyword.span => token![if]);
+                    self.desugar_conditional_region(cond.span, outer_time, if_keyword, cond.clone(), |self_| {
+                        self_.desugar_loop_body(block, Some((if_keyword, cond.value)));
                     });
                 },
 
-                ast::StmtBody::Times { clobber, count, block } => {
+                ast::StmtBody::Times { clobber, count, block, .. } => {
                     let (clobber, local_id) = match clobber {
                         Some(var) => (var, None),
                         None => {
@@ -96,7 +96,7 @@ impl<'a> Desugarer<'a> {
                         let ast::CondBlock { keyword, cond, block } = cond_block.value;
 
                         let (end_span, end_time) = (block.end_span(), block.end_time());
-                        self.desugar_conditional_region(cond.span, prev_end_time, sp!(cond.span => keyword), cond, |self_| {
+                        self.desugar_conditional_region(cond.span, prev_end_time, keyword, cond, |self_| {
                             self_.desugar_block(block);
                             self_.make_goto(end_span, end_time, None, veryend.clone());
                         });

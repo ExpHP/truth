@@ -173,18 +173,18 @@ Items: Vec<Sp<ast::Item>> = {
 };
 
 Item: ast::Item = {
-    <inline:"inline"?> <keyword:FuncKeyword> <name:Ident>
-        "(" <params:SeparatedTrailing<(<VarDeclKeyword> <Ident>), ",">> ")"
+    <inline:TokenSpan<"inline">?> <keyword:Sp<FuncKeyword>> <name:Sp<Ident>>
+        "(" <params:SeparatedTrailing<(<Sp<VarDeclKeyword>> <Sp<Ident>>), ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => ast::Item::Func { inline: inline.is_some(), keyword, name, params, code },
+        => ast::Item::Func { inline, keyword, name, params, code },
 
-    "script" <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
-        => ast::Item::AnmScript { number, name, code },
+    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
+        => ast::Item::AnmScript { keyword, number, name, code },
 
     <keyword:Sp<MetaKeyword>> <name:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
         => ast::Item::Meta { keyword, name, fields },
 
-    <keyword:FileListKeyword> "{" <files:(<LitString> ";")*> "}"
+    <keyword:Sp<FileListKeyword>> "{" <files:(<Sp<LitString>> ";")*> "}"
         => ast::Item::FileList { keyword, files },
 };
 
@@ -268,8 +268,8 @@ Stmt: ast::Stmt = {
 };
 
 StmtBody: ast::StmtBody = {
-    "return" <value:Sp<Expr>?> ";"
-        => ast::StmtBody::Return { value },
+    <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
+        => ast::StmtBody::Return { keyword, value },
 
     <chain: CondChain>
         => ast::StmtBody::CondChain(chain),
@@ -277,17 +277,17 @@ StmtBody: ast::StmtBody = {
     <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";"
         => ast::StmtBody::CondJump { keyword, cond, jump },
 
-    "do" <block:StmtOrBlock> "while" "(" <cond:Sp<Cond>> ")" ";"
-        => ast::StmtBody::While { is_do_while: true, cond, block },
+    <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
+        => ast::StmtBody::While { do_keyword: Some(do_keyword), while_keyword, cond, block },
 
-    "while" "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => ast::StmtBody::While { is_do_while: false, cond, block },
+    <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
+        => ast::StmtBody::While { do_keyword: None, while_keyword, cond, block },
 
-    "times" "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
-        => ast::StmtBody::Times { clobber, count, block },
+    <keyword:TokenSpan<"times">> "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
+        => ast::StmtBody::Times { keyword, clobber, count, block },
 
-    "loop" <block:StmtOrBlock>
-        => ast::StmtBody::Loop { block },
+    <keyword:TokenSpan<"loop">> <block:StmtOrBlock>
+        => ast::StmtBody::Loop { keyword, block },
 
     <jump:StmtGoto> ";"
         => ast::StmtBody::Jump(jump),
@@ -380,8 +380,8 @@ CondChainWithoutElse: ast::StmtCondChain = {
 };
 
 CondBlock: ast::CondBlock = {
-    <kind:CondKeyword> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => ast::CondBlock { keyword:kind, cond, block },
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
+        => ast::CondBlock { keyword, cond, block },
 };
 
 Cond: ast::Cond = {
@@ -432,9 +432,9 @@ Block: ast::Block = {
 // Precedence is encoded in the use of these macros
 RightTernary<NextTier>: ast::Expr = {
     <cond:Box<Sp<NextTier>>>
-        "?" <left:Box<Sp<NextTier>>>
-        ":" <right:Box<Sp<RightTernary<NextTier>>>>
-        => ast::Expr::Ternary { cond, left, right },
+        <question:TokenSpan<"?">> <left:Box<Sp<NextTier>>>
+        <colon:TokenSpan<":">> <right:Box<Sp<RightTernary<NextTier>>>>
+        => ast::Expr::Ternary { cond, left, right, question, colon },
     NextTier,
 };
 LeftBinop<Op, NextTier>: ast::Expr = {
@@ -718,6 +718,8 @@ Sp<Rule>: Sp<Rule> = {
 }
 /// Get a zero-length span at the current position.
 Span: Span = <sp:Sp<()>> => sp.span;
+
+TokenSpan<Rule>: Sp<()> = <r:Sp<Rule>> => sp!(r.span => ());
 
 Box<Rule>: Box<Rule> = <r:Rule> => Box::new(r);
 

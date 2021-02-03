@@ -207,7 +207,7 @@ impl VisitMut for Visitor {
                 }
             },
 
-            Expr::Ternary { cond, left, right } => match cond.as_const() {
+            Expr::Ternary { cond, left, right, .. } => match cond.as_const() {
                 // FIXME it should be possible to move somehow instead of cloning here...
                 Some(ScalarValue::Int(0)) => e.value = (***right).clone(),
                 Some(ScalarValue::Int(_)) => e.value = (***left).clone(),

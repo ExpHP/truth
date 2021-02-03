@@ -171,7 +171,7 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Return { value } => {
+                ast::StmtBody::Return { value, .. } => {
                     return RunResult::Return(value.as_ref().map(|x| self.eval(x)));
                 },
 
@@ -198,15 +198,15 @@ impl AstVm {
                     self.time = chain.last_block().end_time();
                 },
 
-                ast::StmtBody::Loop { block } => {
+                ast::StmtBody::Loop { block, .. } => {
                     loop {
                         handle_block!(&block.0);
                         self.time = block.start_time();
                     }
                 },
 
-                ast::StmtBody::While { is_do_while, cond, block } => {
-                    if *is_do_while || self.eval_cond(cond) {
+                ast::StmtBody::While { do_keyword, cond, block, .. } => {
+                    if do_keyword.is_some() || self.eval_cond(cond) {
                         loop {
                             handle_block!(&block.0);
                             if self.eval_cond(cond) {
@@ -222,7 +222,7 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Times { clobber: None, count, block } => {
+                ast::StmtBody::Times { clobber: None, count, block, .. } => {
                     self.time = block.end_time();
                     match self.eval_int(count) {
                         0 => {},
@@ -237,7 +237,7 @@ impl AstVm {
 
                 // when a clobber is specified we have to treat it pretty differently
                 // as the loop counter now has an observable presence
-                ast::StmtBody::Times { clobber: Some(clobber), count, block } => {
+                ast::StmtBody::Times { clobber: Some(clobber), count, block, .. } => {
                     let count = self.eval_int(count);
                     self.set_var_by_ast(clobber, ScalarValue::Int(count));
 
@@ -315,7 +315,7 @@ impl AstVm {
 
     pub fn eval(&mut self, expr: &ast::Expr) -> ScalarValue {
         match expr {
-            ast::Expr::Ternary { cond, left, right } => {
+            ast::Expr::Ternary { cond, left, right, .. } => {
                 match self.eval_int(cond) {
                     0 => self.eval(right),
                     _ => self.eval(left),

@@ -57,6 +57,7 @@ fn decompile(
                 number: Some(sp!(id as _)),
                 name: sp!("main".parse().unwrap()),
                 code: ast::Block(code),
+                keyword: sp!(()),
             }))
         }).collect::<Result<_, SimpleError>>()?
     };
@@ -92,7 +93,7 @@ fn compile(
     let mut next_auto_id = 0_i32;
     for item in ast.items.iter() {
         match &item.value {
-            Item::AnmScript { number, name, code } => {
+            Item::AnmScript { number, name, code, .. } => {
                 // scripts with no number automatically use the next integer
                 let id = number.map(|sp| sp.value).unwrap_or(next_auto_id);
                 next_auto_id = id + 1;

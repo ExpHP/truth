@@ -222,6 +222,7 @@ fn decompile(
                 number: Some(sp!(id)),
                 name: name.clone(),
                 code: ast::Block(code),
+                keyword: sp!(()),
             }));
         }
     }
@@ -318,7 +319,7 @@ fn compile(
                 cur_entry = Some(fields);
                 cur_group = vec![];
             },
-            &ast::Item::AnmScript { number, ref name, ref code } => {
+            &ast::Item::AnmScript { number, ref name, ref code, .. } => {
                 if cur_entry.is_none() { return Err(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),

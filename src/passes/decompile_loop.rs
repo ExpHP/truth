@@ -78,7 +78,7 @@ impl VisitMut for IfElseVisitor {
                         inner_block.0[0].span = cond_block_span.end_span();
 
                         cond_block_asts.push(sp!(cond_block_span => ast::CondBlock {
-                            keyword: cond_block.keyword.value, // FIXME why does this not have a span
+                            keyword: cond_block.keyword,
                             cond: cond_block.cond,
                             block: inner_block,
                         }));
@@ -426,10 +426,12 @@ impl JmpKind {
 
     fn make_loop(&self, block: ast::Block) -> ast::StmtBody {
         match *self {
-            JmpKind::Uncond => ast::StmtBody::Loop { block },
+            JmpKind::Uncond => ast::StmtBody::Loop { block, keyword: sp!(()) },
+
             JmpKind::Cond { keyword: sp_pat![token![unless]], .. } => unimplemented!(),  // not present in decompiled code
-            JmpKind::Cond { keyword: sp_pat![token![if]], ref cond } => ast::StmtBody::While {
-                is_do_while: true,
+            JmpKind::Cond { keyword: sp_pat![kw_span => token![if]], ref cond } => ast::StmtBody::While {
+                do_keyword: Some(sp!(kw_span => ())),
+                while_keyword: sp!(kw_span => ()),
                 cond: cond.clone(),
                 block,
             },

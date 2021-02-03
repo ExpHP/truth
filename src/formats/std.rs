@@ -248,6 +248,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, de
                 number: None,
                 name: sp!("main".parse().unwrap()),
                 code: ast::Block(code),
+                keyword: sp!(()),
             }),
         ],
     };
@@ -303,7 +304,7 @@ fn compile_std(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
                 )),
-                Item::AnmScript { number: None, name, code } => {
+                Item::AnmScript { number: None, name, code, .. } => {
                     if name != "main" {
                         return Err(error!(
                             message("STD script must be called 'main'"),

@@ -42,6 +42,12 @@ macro_rules! string_enum {
 
 // =============================================================================
 
+/// Type used in the AST for the span of a single token with no useful data.
+///
+/// This can be used for things like keywords.  We use [`Sp`]`<()>` instead of [`Span`]
+/// because the latter would have an impact on equality tests.
+pub type TokenSpan = Sp<()>;
+
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Script {
@@ -64,14 +70,15 @@ impl Script {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Func {
-        inline: bool,
-        keyword: FuncKeyword,
-        name: Ident,
-        params: Vec<(VarDeclKeyword, Ident)>,
+        inline: Option<TokenSpan>,
+        keyword: Sp<FuncKeyword>,
+        name: Sp<Ident>,
+        params: Vec<(Sp<VarDeclKeyword>, Sp<Ident>)>,
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
     AnmScript {
+        keyword: TokenSpan,
         number: Option<Sp<i32>>,
         name: Sp<Ident>,
         code: Block,
@@ -82,8 +89,8 @@ pub enum Item {
         fields: Sp<meta::Fields>,
     },
     FileList {
-        keyword: FileListKeyword,
-        files: Vec<LitString>
+        keyword: Sp<FileListKeyword>,
+        files: Vec<Sp<LitString>>
     },
 }
 
@@ -149,18 +156,22 @@ pub enum StmtBody {
         jump: StmtGoto,
     },
     Return {
+        keyword: TokenSpan,
         value: Option<Sp<Expr>>,
     },
     CondChain(StmtCondChain),
     Loop {
+        keyword: TokenSpan,
         block: Block,
     },
     While {
-        is_do_while: bool,
+        while_keyword: TokenSpan,
+        do_keyword: Option<TokenSpan>,
         cond: Sp<Cond>,
         block: Block,
     },
     Times {
+        keyword: TokenSpan,
         clobber: Option<Sp<Var>>,
         count: Sp<Expr>,
         block: Block,
@@ -266,7 +277,7 @@ impl StmtCondChain {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
-    pub keyword: CondKeyword,
+    pub keyword: Sp<CondKeyword>,
     pub cond: Sp<Cond>,
     pub block: Block,
 }
@@ -374,7 +385,9 @@ impl Block {
 pub enum Expr {
     Ternary {
         cond: Box<Sp<Expr>>,
+        question: Sp<()>,
         left: Box<Sp<Expr>>,
+        colon: Sp<()>,
         right: Box<Sp<Expr>>,
     },
     Binop(Box<Sp<Expr>>, Sp<BinopKind>, Box<Sp<Expr>>),
@@ -666,7 +679,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_root_block(code);
                     }
                 },
-                Item::AnmScript { number: _, name: _, code } => {
+                Item::AnmScript { keyword: _, number: _, name: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { .. } => {},
@@ -689,13 +702,13 @@ macro_rules! generate_visitor_stuff {
                 StmtBody::Jump(goto) => {
                     v.visit_goto(goto);
                 },
-                StmtBody::Return { value } => {
+                StmtBody::Return { value, keyword: _ } => {
                     if let Some(value) = value {
                         v.visit_expr(value);
                     }
                 },
-                StmtBody::Loop { block } => v.visit_block(block),
-                StmtBody::CondJump { cond, keyword: _, jump } => {
+                StmtBody::Loop { block, keyword: _ } => v.visit_block(block),
+                StmtBody::CondJump { cond, jump, keyword: _ } => {
                     v.visit_cond(cond);
                     v.visit_goto(jump);
                 },
@@ -709,15 +722,15 @@ macro_rules! generate_visitor_stuff {
                         v.visit_block(block);
                     }
                 },
-                StmtBody::While { is_do_while: true, cond, block } => {
+                StmtBody::While { do_keyword: Some(_), while_keyword: _, cond, block } => {
                     v.visit_cond(cond);
                     v.visit_block(block);
                 },
-                StmtBody::While { is_do_while: false, cond, block } => {
+                StmtBody::While { do_keyword: None, while_keyword: _, cond, block } => {
                     v.visit_block(block);
                     v.visit_cond(cond);
                 },
-                StmtBody::Times { clobber, count, block } => {
+                StmtBody::Times { clobber, count, block, keyword: _ } => {
                     if let Some(clobber) = clobber {
                         v.visit_var(clobber);
                     }
@@ -769,7 +782,7 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? e.value {
-                Expr::Ternary { cond, left, right } => {
+                Expr::Ternary { cond, left, right, question: _, colon: _ } => {
                     v.visit_expr(cond);
                     v.visit_expr(left);
                     v.visit_expr(right);
