@@ -8,7 +8,7 @@ error: type error
 27 │       I0 = 1 + 2.0;  
    │            - - ^^^ a float
    │            │ │  
-   │            │ same types required due to this
+   │            │ same types required by this
    │            an integer
 
 

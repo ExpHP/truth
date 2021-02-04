@@ -8,6 +8,6 @@ error: type error
 27 │       int x = _S(2);  
    │               -- ^ an integer
    │               │   
-   │               only defined on floats
+   │               expects a float
 
 

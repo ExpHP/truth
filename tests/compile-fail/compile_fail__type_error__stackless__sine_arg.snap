@@ -8,6 +8,6 @@ error: type error
 27 │       float x = sin(I0);  
    │                 --- ^^ an integer
    │                 │    
-   │                 only defined on floats
+   │                 expects a float
 
 

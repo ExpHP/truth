@@ -8,6 +8,6 @@ error: type error
 27 │       F0 = sin(1);  
    │            --- ^ an integer
    │            │    
-   │            only defined on floats
+   │            expects a float
 
 

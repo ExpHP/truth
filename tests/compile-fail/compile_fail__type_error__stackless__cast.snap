@@ -6,10 +6,8 @@ error: type error
    ┌─ <input>:27:18
    │
 27 │       int x = _S(I2);  
-   │                  ^^
-   │                  │
-   │                  an integer
-   │                  a float
-   │                  same types required due to this
+   │               -- ^^ an integer
+   │               │   
+   │               expects a float
 
 

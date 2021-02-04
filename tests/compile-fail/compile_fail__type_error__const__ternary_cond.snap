@@ -6,6 +6,8 @@ error: type error
    ┌─ <input>:27:12
    │
 27 │       F0 = 1.5 ? 1.0 : 2.0;  
-   │            ^^^ ternary condition must be an integer
+   │            ^^^ - expects an integer
+   │            │    
+   │            a float
 
 

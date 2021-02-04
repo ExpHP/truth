@@ -3,12 +3,12 @@ source: tests/compile-fail.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:27:12
+   ┌─ <input>:27:24
    │
-27 │       F0 = 0 ? 1 : "lol";  
-   │       -- - ^^^^^^^^^^^^^ a string
-   │       │  │  
-   │       │  same types required due to this
-   │       a float
+27 │       F0 = 0 ? "lol" : 1.0;  
+   │                ----- - ^^^ a float
+   │                │     │  
+   │                │     same types required by this
+   │                a string
 
 

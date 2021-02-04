@@ -246,14 +246,18 @@ compile_fail_test!(
 mod type_error {
     use super::*;
 
-    // There's *lots* of different places where stackless compilation performs type checking,
-    // mostly in various types of expression assignments.
+    // NOTE: 'stackless__' is a prefix for things that used to be type-checked during lowering
+    //       (so they were special cases handled by the stackless lowerer), and 'const__' is a
+    //       prefix for things that used to be type-checked during const folding.
+    //
+    //       All of these things are now type-checked during the dedicated type-checking pass,
+    //       but we keep both of them in case that situation were to change again.
 
-    // The `const__` tests use literals, which may cause them to be evaluated during constant
-    // folding.  These tests can be particularly important for things like `&&` and ternaries,
-    // which may drop one of their branches without evaluating it (but we still want to typecheck it!).
-
-    // FIXME: I think this makes it pretty clear that we should have a dedicated type checking pass...
+    compile_fail_test!(
+        ANM_10, bad_declaration,
+        main_body: r#"  int %x;  "#,
+        expected: EXPECTED_PARSE_ERROR,  // currently 'int $x' is invalid too, but never say never...
+    );
 
     // =========================
     // Stackless expression assignments
@@ -320,20 +324,20 @@ mod type_error {
 
     compile_fail_test!(
         ANM_10, stackless__ternary_cond,
-        main_body: r#"  F0 = I0 ? 1.0 : 2.0;  "#,
-        expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,  // FIXME: should implement ternary in ANM
+        main_body: r#"  F0 = F2 ? 1.0 : 2.0;  "#,
+        expected: EXPECTED_TYPE_ERROR,
     );
 
     compile_fail_test!(
         ANM_10, stackless__ternary_arg,
         main_body: r#"  F0 = I1 ? F1 : I0;  "#,
-        expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,  // FIXME: should implement ternary in ANM
+        expected: EXPECTED_TYPE_ERROR,
     );
 
     compile_fail_test!(
         ANM_10, stackless__ternary_out,
         main_body: r#"  I0 = I0 ? F0 : F1;  "#,
-        expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,  // FIXME: should implement ternary in ANM
+        expected: EXPECTED_TYPE_ERROR,
     );
 
     compile_fail_test!(
@@ -357,7 +361,6 @@ mod type_error {
     );
 
     compile_fail_test!(
-        // FIXME this error has terrible spans.
         // ...hang on, should casting int to int really be an error?
         ANM_10, stackless__cast,
         main_body: r#"  int x = _S(I2);  "#,
@@ -470,6 +473,15 @@ mod type_error {
         expected: "string",
     );
 
+    // =========================
+    // expression statements
+
+    compile_fail_test!(
+        ANM_10, stackless__non_void_expr_statement,
+        main_body: r#"  3.0;  "#,
+        expected: EXPECTED_TYPE_ERROR,
+    );
+
     // FIXME: Once we have ECL we should try `I0 ? "abc" : "def"` as an argument;
     //        this is more or less the only way guaranteed to hit a "no runtime string temporaries"
     //        check.  (at the time of writing, `-"abc"` and `"a" + "b"` currently hit it but, that's
@@ -489,7 +501,7 @@ mod type_error {
 
     compile_fail_test!(
         ANM_10, const__short_circuit__ternary_right,
-        main_body: r#"  F0 = 0 ? 1 : "lol";  "#,
+        main_body: r#"  F0 = 0 ? "lol" : 1.0;  "#,
         expected: EXPECTED_TYPE_ERROR,
     );
 

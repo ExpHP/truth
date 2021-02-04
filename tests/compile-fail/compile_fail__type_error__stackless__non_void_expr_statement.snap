@@ -1,0 +1,13 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:7
+   │
+27 │       3.0;  
+   │       ^^^ a float
+   │
+   = expression statements must be of void type
+
+

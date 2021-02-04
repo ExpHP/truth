@@ -3,12 +3,11 @@ source: tests/compile-fail.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:27:19
+   ┌─ <input>:27:12
    │
 27 │       I0 = 0.0 || 1;  
-   │            --- -- ^ an integer
-   │            │   │   
-   │            │   same types required due to this
+   │            ^^^ -- expects an integer
+   │            │    
    │            a float
 
 

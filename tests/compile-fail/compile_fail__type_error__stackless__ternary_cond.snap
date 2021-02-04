@@ -2,10 +2,12 @@
 source: tests/compile-fail.rs
 expression: stderr
 ---
-error: feature not supported by format
+error: type error
    ┌─ <input>:27:12
    │
-27 │       F0 = I0 ? 1.0 : 2.0;  
-   │            ^^^^^^^^^^^^^^ this expression not supported by format
+27 │       F0 = F2 ? 1.0 : 2.0;  
+   │            ^^ - expects an integer
+   │            │   
+   │            a float
 
 

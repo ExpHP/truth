@@ -6,10 +6,8 @@ error: type error
    ┌─ <input>:27:13
    │
 27 │       times(F0) {}  
-   │             ^^
-   │             │
-   │             a float
-   │             an integer
-   │             same types required due to this
+   │             ^^ a float
+   │
+   = an integer is required
 
 

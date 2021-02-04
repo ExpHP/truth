@@ -8,7 +8,7 @@ error: type error
 27 │       F0 = F1 + 4;  
    │            -- - ^ an integer
    │            │  │  
-   │            │  same types required due to this
+   │            │  same types required by this
    │            a float
 
 
