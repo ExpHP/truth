@@ -17,6 +17,21 @@ pub struct CompileError {
     diagnostics: Vec<Diagnostic>
 }
 
+impl CompileError {
+    /// Zips two CompileError results, combining the errors if the both fail.
+    pub fn join<A, B>(a: Result<A, CompileError>, b: Result<B, CompileError>) -> Result<(A, B), CompileError> {
+        match (a, b) {
+            (Ok(a), Ok(b)) => Ok((a, b)),
+            (Err(e), Ok(_)) => Err(e),
+            (Ok(_), Err(e)) => Err(e),
+            (Err(mut a), Err(b)) => {
+                a.append(b);
+                Err(a)
+            },
+        }
+    }
+}
+
 /// A single error in a [`CompileError`].  You can still add more labels to it.
 ///
 /// It converts into [`CompileError`] using [`From`], so a `?` should suffice.

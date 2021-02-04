@@ -273,8 +273,9 @@ fn compile_std(
     let script = {
         let mut script = script.clone();
 
-        crate::passes::const_simplify::run(&mut script)?;
         crate::passes::resolve_names::run(&mut script, ty_ctx)?;
+        crate::passes::type_check::run(&script, ty_ctx)?;
+        crate::passes::const_simplify::run(&mut script)?;
         crate::passes::desugar_blocks::run(&mut script, ty_ctx)?;
         script
     };

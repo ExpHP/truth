@@ -225,10 +225,10 @@ impl Lowerer<'_> {
             // a = <atom>;
             // a += <atom>;
             ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
-                let ty = ty_var.check_same(ty_rhs, assign_op.span, (var.span, rhs.span))?;
+                assert_eq!(ty_var, ty_rhs, "already type-checked");
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time,
-                    opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty), span, "update assignment with this operation")?,
+                    opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?,
                     args: vec![lowered_var, lowered_rhs],
                 }));
                 return Ok(());
@@ -347,12 +347,12 @@ impl Lowerer<'_> {
 
         // They're both simple.  Emit a primitive instruction.
         let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-        let ty_rhs = binop.result_type(simple_a.ty, simple_b.ty, (a.span, b.span))?;
-        let ty = ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
+        let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ty_ctx);
+        assert_eq!(ty_var, ty_rhs, "already type-checked");
 
         self.out.push(LowerStmt::Instr(LowerInstr {
             time,
-            opcode: self.get_opcode(IKind::Binop(binop.value, ty), span, "this binary operation")?,
+            opcode: self.get_opcode(IKind::Binop(binop.value, ty_var), span, "this binary operation")?,
             args: vec![lowered_var, simple_a.lowered, simple_b.lowered],
         }));
         Ok(())
@@ -371,7 +371,7 @@ impl Lowerer<'_> {
     ) -> Result<(), CompileError> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == token![-] {
-            let ty = self.ty_ctx.compute_type_shallow(b)?;
+            let ty = b.compute_ty(self.ty_ctx).expect("type-checked so not void");
             let zero = sp!(unop.span => ast::Expr::zero(ty));
             let minus = sp!(unop.span => token![-]);
             self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
@@ -398,8 +398,8 @@ impl Lowerer<'_> {
 
             ExprClass::Simple(data_b) => {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-                let ty_rhs = unop.result_type(data_b.ty, b.span)?;
-                ty_var.check_same(ty_rhs, eq_sign.span, (var.span, rhs_span))?;
+                let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ty_ctx);
+                assert_eq!(ty_var, ty_rhs, "already type-checked");
                 let ty = ty_var;
 
                 match unop.value {
@@ -533,7 +533,7 @@ impl Lowerer<'_> {
 
             // other arbitrary expressions: use `<if|unless> (<expr> != 0)`
             _ => {
-                let ty = self.ty_ctx.compute_type_shallow(expr)?;
+                let ty = expr.compute_ty(self.ty_ctx).expect("type-checked so not void");
                 let zero = sp!(expr.span => ast::Expr::zero(ty));
                 let ne_sign = sp!(expr.span => token![!=]);
                 self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
@@ -576,7 +576,7 @@ impl Lowerer<'_> {
                     token![unless] => binop.negate_comparison().expect("lower_cond_jump_comparison called with non-comparison operator"),
                 });
 
-                let ty_arg = binop.result_type(data_a.ty, data_b.ty, (a.span, b.span))?;
+                let ty_arg = ast::Expr::binop_ty(binop.value, &a.value, self.ty_ctx);
                 let (lowered_label, lowered_time) = lower_goto_args(goto);
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
@@ -773,7 +773,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
 
         // Anything else needs a temporary of the same type, consisting of the whole expression.
         _ => Ok(ExprClass::NeedsTemp({
-            let ty = ty_ctx.compute_type_shallow(arg)?;
+            let ty = arg.compute_ty(ty_ctx).expect("shouldn't be void");
             TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
         })),
     }

@@ -5,7 +5,7 @@ use crate::ident::{Ident, GensymContext};
 use crate::eclmap::Eclmap;
 use crate::ast;
 use crate::var::{Variables, VarId, RegId};
-use crate::pos::{Span, Sp};
+use crate::pos::{Sp};
 
 // FIXME: The overall design of this is messy and kind of dumb.
 //  * `RegsAndInstrs` was the original TypeSystem, which only deals with global stuff.
@@ -86,6 +86,8 @@ impl TypeSystem {
     ///
     /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be
     /// cast as a float using `%I0`.
+    ///
+    /// This returns [`ScalarType`] instead of [`ast::VarReadType`] because const vars could be strings.
     pub fn var_read_type_from_ast(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
         match var.value {
             ast::Var::Named { .. } => panic!("this method requires name resolution! (got: {:?})", var),
@@ -160,26 +162,6 @@ impl TypeSystem {
             ast::Var::Named { ident: name.clone(), ty_sigil: None }
         } else {
             ast::Var::Named { ident: name.clone(), ty_sigil: Some(explicit_sigil) }
-        }
-    }
-
-    /// Compute the type of an expression through introspection.
-    ///
-    /// This will not fully typecheck everything.
-    pub fn compute_type_shallow(&self, expr: &Sp<ast::Expr>) -> Result<ScalarType, CompileError> {
-        match &expr.value {
-            ast::Expr::Ternary { left, .. } => self.compute_type_shallow(left),
-            ast::Expr::Binop(a, op, _) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
-            ast::Expr::Call { func, .. } => Err(error!(
-                message("function used in expression"),
-                primary(func, "function call in expression"),
-                note("currently, the only kind of function implemented is raw instructions"),
-            )),
-            ast::Expr::Unop(op, a) => Ok(op.result_type_shallow(self.compute_type_shallow(a)?)),
-            ast::Expr::LitInt { .. } => Ok(ScalarType::Int),
-            ast::Expr::LitFloat { .. } => Ok(ScalarType::Float),
-            ast::Expr::LitString(_) => Ok(ScalarType::String),
-            ast::Expr::Var(var) => self.var_read_type_from_ast(var),
         }
     }
 }
@@ -436,123 +418,5 @@ impl ScalarType {
             ScalarType::Float => Some(ast::VarReadType::Float),
             ScalarType::String => None,
         }
-    }
-
-    pub fn check_same(self, other: ScalarType, cause: Span, spans: (Span, Span)) -> Result<ScalarType, CompileError> {
-        if self == other {
-            Ok(self)
-        } else {
-            Err(error!(
-                message("type error"),
-                primary(spans.1, "{}", other.descr()),
-                secondary(cause, "same types required due to this"),
-                secondary(spans.0, "{}", self.descr()),
-            ))
-        }
-    }
-
-    fn require_int(self, cause: Span, value_span: Span) -> Result<(), CompileError> {
-        match self {
-            ScalarType::Int => Ok(()),
-            _ => Err(error!(
-                message("type error"),
-                primary(value_span, "{}", self.descr()),
-                secondary(cause, "only defined on integers"),
-            )),
-        }
-    }
-
-    fn require_float(self, cause: Span, value_span: Span) -> Result<(), CompileError> {
-        match self {
-            ScalarType::Float => Ok(()),
-            _ => Err(error!(
-                message("type error"),
-                primary(value_span, "{}", self.descr()),
-                secondary(cause, "only defined on floats"),
-            )),
-        }
-    }
-
-    fn require_numeric(self, cause: Span, value_span: Span) -> Result<(), CompileError> {
-        match self {
-            ScalarType::Int => Ok(()),
-            ScalarType::Float => Ok(()),
-            _ => Err(error!(
-                message("type error"),
-                primary(value_span, "{}", self.descr()),
-                secondary(cause, "requires a numeric type"),
-            )),
-        }
-    }
-}
-
-impl Sp<ast::BinopKind> {
-    /// Get the result type assuming both args are the same type and without any further validation.
-    pub fn result_type_shallow(&self, arg_ty: ScalarType) -> ScalarType {
-        use ast::BinopKind as B;
-
-        match self.value {
-            B::Add | B::Sub | B::Mul | B::Div | B::Rem | B::LogicOr | B::LogicAnd => arg_ty,
-            B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => ScalarType::Int,
-            B::BitXor | B::BitAnd | B::BitOr => ScalarType::Int,
-        }
-    }
-
-    /// Perform type-checking.
-    pub fn type_check(&self, a: ScalarType, b: ScalarType, arg_spans: (Span, Span)) -> Result<(), CompileError> {
-        self.result_type(a, b, arg_spans).map(|_| ())
-    }
-
-    /// Get the output type, performing type-checking.
-    pub fn result_type(&self, a: ScalarType, b: ScalarType, arg_spans: (Span, Span)) -> Result<ScalarType, CompileError> {
-        use ast::BinopKind as B;
-
-        // they ALL require matching types
-        let ty = a.check_same(b, self.span, arg_spans)?;
-        match self.value {
-            B::Add | B::Sub | B::Mul | B::Div | B::Rem | B::LogicOr | B::LogicAnd => {
-                ty.require_numeric(self.span, arg_spans.0)?;
-                Ok(ty)
-            },
-            B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => Ok(ScalarType::Int),
-            B::BitXor | B::BitAnd | B::BitOr => {
-                ty.require_int(self.span, arg_spans.0)?;
-                Ok(ScalarType::Int)
-            },
-        }
-    }
-}
-
-impl Sp<ast::UnopKind> {
-    /// Figure out the output type without full type-checking.
-    pub fn result_type_shallow(&self, arg_ty: ScalarType) -> ScalarType {
-        match self.value {
-            token![unop -] => arg_ty,
-            token![unop !] => ScalarType::Int,
-            token![unop sin] |
-            token![unop cos] |
-            token![unop sqrt] => ScalarType::Float,
-            token![unop _S] => ScalarType::Int,
-            token![unop _f] => ScalarType::Float,
-        }
-    }
-
-    /// Perform type-checking.
-    pub fn type_check(&self, ty: ScalarType, arg_span: Span) -> Result<(), CompileError> {
-        match self.value {
-            token![unop -] => ty.require_numeric(self.span, arg_span),
-            token![unop _f] |
-            token![unop !] => ty.require_int(self.span, arg_span),
-            token![unop _S] |
-            token![unop sin] |
-            token![unop cos] |
-            token![unop sqrt] => ty.require_float(self.span, arg_span),
-        }
-    }
-
-    /// Get the output type, performing type-checking.
-    pub fn result_type(&self, ty: ScalarType, arg_span: Span) -> Result<ScalarType, CompileError> {
-        self.type_check(ty, arg_span)?;
-        Ok(self.result_type_shallow(ty))
     }
 }

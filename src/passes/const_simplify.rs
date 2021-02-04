@@ -7,9 +7,8 @@
 //! This is a crucial part of STD compilation, as STD has no mechanism for using variables at
 //! runtime.  For other formats, it is moreso just an optimization.
 //!
-//! Use [`Visitor`]'s implementation of [`VisitMut`] to apply the pass. Call [`Visitor::finish`]
-//! at the end to obtain errors; These will mostly be type errors that prevent evaluation of an
-//! operation that could otherwise be computed at compile-time.
+//! This pass expects that [type checking](`crate::passes::type_check`) has already been performed,
+//! and may panic or misbehave if a type error is encountered.
 //!
 //! # Example
 //! ```
@@ -33,96 +32,81 @@ use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
 use crate::error::{CompileError};
 use crate::pos::Sp;
 
-impl Sp<UnopKind> {
-    pub fn const_eval(&self, b: Sp<ScalarValue>) -> Result<ScalarValue, CompileError> {
-        // produce errors
-        self.type_check(b.ty(), b.span)?;
-        // produce value
-        match b.value {
-            ScalarValue::Int(b) => Ok(self.const_eval_int(b).expect("(bug!) type_check should fail...")),
-            ScalarValue::Float(b) => Ok(self.const_eval_float(b).expect("(bug!) type_check should fail...")),
-            ScalarValue::String(_) => unreachable!("(bug!) type_check should fail..."),
-        }
-    }
+#[track_caller]
+fn uncaught_type_error() -> ! {
+    panic!("(bug!) type_check should fail...")
 }
 
 impl UnopKind {
-    pub fn const_eval_int(&self, x: i32) -> Option<ScalarValue> {
-        match self {
-            token![unop -] => Some(ScalarValue::Int(i32::wrapping_neg(x))),
-            token![unop !] => Some(ScalarValue::Int((x == 0) as i32)),
-            token![unop sin] |
-            token![unop cos] |
-            token![unop sqrt] => None,
-            token![unop _S] => None,
-            token![unop _f] => Some(ScalarValue::Float(x as f32)),
-        }
-    }
+    pub fn const_eval(&self, b: ScalarValue) -> ScalarValue {
+        match b {
+            ScalarValue::Int(x) => match self {
+                token![unop -] => ScalarValue::Int(i32::wrapping_neg(x)),
+                token![unop !] => ScalarValue::Int((x == 0) as i32),
+                token![unop sin] |
+                token![unop cos] |
+                token![unop sqrt] => uncaught_type_error(),
+                token![unop _S] => uncaught_type_error(),
+                token![unop _f] => ScalarValue::Float(x as f32),
+            },
 
-    pub fn const_eval_float(&self, x: f32) -> Option<ScalarValue> {
-        match self {
-            token![unop -] => Some(ScalarValue::Float(-x)),
-            token![unop !] => None,
-            token![unop sin] => Some(ScalarValue::Float(x.sin())),
-            token![unop cos] => Some(ScalarValue::Float(x.cos())),
-            token![unop sqrt] => Some(ScalarValue::Float(x.sqrt())),
-            token![unop _S] => Some(ScalarValue::Int(x as i32)),
-            token![unop _f] => None,
-        }
-    }
-}
+            ScalarValue::Float(x) => match self {
+                token![unop -] => ScalarValue::Float(-x),
+                token![unop !] => uncaught_type_error(),
+                token![unop sin] => ScalarValue::Float(x.sin()),
+                token![unop cos] => ScalarValue::Float(x.cos()),
+                token![unop sqrt] => ScalarValue::Float(x.sqrt()),
+                token![unop _S] => ScalarValue::Int(x as i32),
+                token![unop _f] => uncaught_type_error(),
+            },
 
-impl Sp<BinopKind> {
-    pub fn const_eval(&self, a: Sp<ScalarValue>, b: Sp<ScalarValue>) -> Result<ScalarValue, CompileError> {
-        self.type_check(a.ty(), b.ty(), (a.span, b.span))?;
-        match (a.value, b.value) {
-            (ScalarValue::Int(a), ScalarValue::Int(b)) => Ok(ScalarValue::Int(self.const_eval_int(a, b))),
-            (ScalarValue::Float(a), ScalarValue::Float(b)) => Ok(self.const_eval_float(a, b).expect("(bug!) type_check should fail...")),
-            _ => unreachable!("(bug!) type_check should fail..."),
+            ScalarValue::String(_) => uncaught_type_error(),
         }
     }
 }
 
 impl BinopKind {
-    pub fn const_eval_int(&self, a: i32, b: i32) -> i32 {
-        match self {
-            token![binop +] => i32::wrapping_add(a, b),
-            token![binop -] => i32::wrapping_sub(a, b),
-            token![binop *] => i32::wrapping_mul(a, b),
-            token![binop /] => i32::wrapping_div(a, b),
-            token![binop %] => i32::wrapping_rem(a, b),
-            token![binop ==] => (a == b) as i32,
-            token![binop !=] => (a != b) as i32,
-            token![binop <] => (a < b) as i32,
-            token![binop <=] => (a <= b) as i32,
-            token![binop >] => (a > b) as i32,
-            token![binop >=] => (a >= b) as i32,
-            token![binop ||] => if a == 0 { b } else { a },
-            token![binop &&] => if a == 0 { 0 } else { b },
-            token![binop ^] => a ^ b,
-            token![binop &] => a & b,
-            token![binop |] => a | b,
-        }
-    }
+    pub fn const_eval(&self, a: ScalarValue, b: ScalarValue) -> ScalarValue {
+        match (a, b) {
+            (ScalarValue::Int(a), ScalarValue::Int(b)) => match self {
+                token![binop +] => ScalarValue::Int(i32::wrapping_add(a, b)),
+                token![binop -] => ScalarValue::Int(i32::wrapping_sub(a, b)),
+                token![binop *] => ScalarValue::Int(i32::wrapping_mul(a, b)),
+                token![binop /] => ScalarValue::Int(i32::wrapping_div(a, b)),
+                token![binop %] => ScalarValue::Int(i32::wrapping_rem(a, b)),
+                token![binop ==] => ScalarValue::Int((a == b) as i32),
+                token![binop !=] => ScalarValue::Int((a != b) as i32),
+                token![binop <] => ScalarValue::Int((a < b) as i32),
+                token![binop <=] =>ScalarValue::Int( (a <= b) as i32),
+                token![binop >] => ScalarValue::Int((a > b) as i32),
+                token![binop >=] =>ScalarValue::Int( (a >= b) as i32),
+                token![binop ||] => ScalarValue::Int(if a == 0 { b } else { a }),
+                token![binop &&] => ScalarValue::Int(if a == 0 { 0 } else { b }),
+                token![binop ^] => ScalarValue::Int(a ^ b),
+                token![binop &] => ScalarValue::Int(a & b),
+                token![binop |] => ScalarValue::Int(a | b),
+            },
 
-    pub fn const_eval_float(&self, a: f32, b: f32) -> Option<ScalarValue> {
-        match self {
-            token![binop +] => Some(ScalarValue::Float(a + b)),
-            token![binop -] => Some(ScalarValue::Float(a - b)),
-            token![binop *] => Some(ScalarValue::Float(a * b)),
-            token![binop /] => Some(ScalarValue::Float(a / b)),
-            token![binop %] => Some(ScalarValue::Float(a % b)),
-            token![binop ==] => Some(ScalarValue::Int((a == b) as i32)),
-            token![binop !=] => Some(ScalarValue::Int((a != b) as i32)),
-            token![binop <] => Some(ScalarValue::Int((a < b) as i32)),
-            token![binop <=] => Some(ScalarValue::Int((a <= b) as i32)),
-            token![binop >] => Some(ScalarValue::Int((a > b) as i32)),
-            token![binop >=] => Some(ScalarValue::Int((a >= b) as i32)),
-            token![binop ||] => None,
-            token![binop &&] => None,
-            token![binop ^] => None,
-            token![binop &] => None,
-            token![binop |] => None,
+            (ScalarValue::Float(a), ScalarValue::Float(b)) => match self {
+                token![binop +] => ScalarValue::Float(a + b),
+                token![binop -] => ScalarValue::Float(a - b),
+                token![binop *] => ScalarValue::Float(a * b),
+                token![binop /] => ScalarValue::Float(a / b),
+                token![binop %] => ScalarValue::Float(a % b),
+                token![binop ==] => ScalarValue::Int((a == b) as i32),
+                token![binop !=] => ScalarValue::Int((a != b) as i32),
+                token![binop <] => ScalarValue::Int((a < b) as i32),
+                token![binop <=] => ScalarValue::Int((a <= b) as i32),
+                token![binop >] => ScalarValue::Int((a > b) as i32),
+                token![binop >=] => ScalarValue::Int((a >= b) as i32),
+                token![binop ||] => uncaught_type_error(),
+                token![binop &&] => uncaught_type_error(),
+                token![binop ^] => uncaught_type_error(),
+                token![binop &] => uncaught_type_error(),
+                token![binop |] => uncaught_type_error(),
+            },
+
+            _ => uncaught_type_error(),
         }
     }
 }
@@ -149,15 +133,16 @@ impl Expr {
     /// Get the expression's value, if it is a literal.
     ///
     /// Because const simplification turns expressions into literals, this is the quickest way to
-    /// inspect the final, evaluated result of a constant float expression.
-    pub fn as_const(&self) -> Option<ScalarValue> { match *self {
+    /// inspect the final, evaluated result of a constant expression.
+    pub fn to_const(&self) -> Option<ScalarValue> { match *self {
         Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
         Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
+        Expr::LitString(ast::LitString { ref string, .. }) => Some(ScalarValue::String(string.clone())),
         _ => None,
     }}
 }
 
-/// Visitor for const simplification.
+/// Performs const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.
 pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), CompileError> {
@@ -178,46 +163,22 @@ impl VisitMut for Visitor {
         // now inspect this expression
         match &e.value {
             Expr::Unop(op, b) => {
-                let b_const = match b.as_const() {
-                    Some(b_value) => sp!(b.span => b_value),
-                    _ => return, // can't simplify if subexpr is not const
-                };
-
-                match op.const_eval(b_const) {
-                    Ok(new_value) => *e = sp!(e.span => new_value.into()),
-                    Err(e) => {
-                        self.errors.append(e);
-                        return;
-                    }
+                if let Some(b_value) = b.to_const() {
+                    e.value = op.const_eval(b_value).into();
                 }
             },
 
             Expr::Binop(a, op, b) => {
-                let (a_const, b_const) = match (a.as_const(), b.as_const()) {
-                    (Some(a_value), Some(b_value)) => (sp!(a.span => a_value), sp!(b.span => b_value)),
-                    _ => return, // can't simplify if any subexpr is not const
+                if let (Some(a_value), Some(b_value)) = (a.to_const(), b.to_const()) {
+                    e.value = op.const_eval(a_value, b_value).into();
                 };
-
-                match op.const_eval(a_const, b_const) {
-                    Ok(new_value) => *e = sp!(e.span => new_value.into()),
-                    Err(e) => {
-                        self.errors.append(e);
-                        return;
-                    }
-                }
             },
 
-            Expr::Ternary { cond, left, right, .. } => match cond.as_const() {
+            Expr::Ternary { cond, left, right, .. } => match cond.to_const() {
                 // FIXME it should be possible to move somehow instead of cloning here...
                 Some(ScalarValue::Int(0)) => e.value = (***right).clone(),
                 Some(ScalarValue::Int(_)) => e.value = (***left).clone(),
-                Some(_) => {
-                    self.errors.append(error!(
-                        message("type error"),
-                        primary(cond, "ternary condition must be an integer")
-                    ));
-                    return;
-                },
+                Some(_) => uncaught_type_error(),
                 _ => return, // can't simplify if subexpr is not const
             },
             _ => return, // can't simplify other expressions

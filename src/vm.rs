@@ -279,9 +279,9 @@ impl AstVm {
                         _ => {
                             let binop = op.corresponding_binop().expect("only Assign has no binop");
                             let value = sp!(op.span => binop).const_eval(
-                                sp!(var.span => self.read_var_by_ast(var)),
-                                sp!(value.span => self.eval(value)),
-                            ).unwrap();
+                                self.read_var_by_ast(var),
+                                self.eval(value),
+                            );
                             self.set_var_by_ast(var, value);
                         },
                     }
@@ -322,11 +322,11 @@ impl AstVm {
                 }
             },
 
-            ast::Expr::Binop(a, op, b) => op.const_eval(sp!(a.span => self.eval(a)), sp!(b.span => self.eval(b))).unwrap(),
+            ast::Expr::Binop(a, op, b) => op.const_eval(self.eval(a), self.eval(b)),
 
             ast::Expr::Call { .. } => unimplemented!("func calls in VM exprs"),
 
-            ast::Expr::Unop(op, x) => op.const_eval(sp!(x.span => self.eval(x))).unwrap(),
+            ast::Expr::Unop(op, x) => op.const_eval(self.eval(x)),
 
             ast::Expr::LitInt { value, .. } => ScalarValue::Int(*value),
 

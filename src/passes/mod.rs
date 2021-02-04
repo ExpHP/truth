@@ -7,6 +7,7 @@ pub mod unused_labels;
 pub mod desugar_blocks;
 pub mod decompile_loop;
 pub mod resolve_names;
+pub mod type_check;
 
 pub enum DecompileKind { Simple, Fancy }
 
