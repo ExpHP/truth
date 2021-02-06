@@ -216,7 +216,7 @@ fn decompile(
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, &ty_ctx.regs_and_instrs)?;
+            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -228,7 +228,7 @@ fn decompile(
     }
     let mut out = ast::Script {
         items,
-        mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast(),
+        mapfiles: ty_ctx.mapfiles_to_ast(),
         // NOTE: here, we *could* choose to populate this, causing a `#pragma image_source` line
         //       to automatically be added to the file.  However, the big reason we do this for
         //       mapfiles is to encourage people to check their mapfiles into VCS, and I do not

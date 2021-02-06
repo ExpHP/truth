@@ -27,7 +27,7 @@ impl Ident {
 }
 
 impl Ident {
-    pub fn as_ins(&self) -> Option<u32> {
+    pub fn as_ins(&self) -> Option<u16> {
         if let Some(remainder) = self.ident.strip_prefix("ins_") {
             Some(remainder.parse().expect("invalid instr ident, this is a bug!"))
         } else {

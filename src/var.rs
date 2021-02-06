@@ -2,7 +2,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::collections::HashMap;
 use crate::ident::Ident;
-use crate::type_system::ScalarType;
+use crate::type_system::{ScalarType, TypeSystem, NameId};
 
 /// Uniquely identifies a variable (which may be a local or a register).
 ///
@@ -16,12 +16,8 @@ use crate::type_system::ScalarType;
 pub enum VarId {
     /// A global register.  Use [`crate::type_system::RegsAndInstrs`] to obtain more information about it.
     Reg(RegId),
-    /// A local variable, uniquely resolved by its scope.
-    Local(LocalId),
-}
-
-impl From<LocalId> for VarId {
-    fn from(x: LocalId) -> Self { VarId::Local(x) }
+    /// A local variable.  The [`NameId`] always corresponds to a local. ([`TypeSystem::add_local`])
+    Local(NameId),
 }
 
 impl From<RegId> for VarId {
@@ -30,7 +26,7 @@ impl From<RegId> for VarId {
 
 /// The number used to access a register as an instruction argument.  This uniquely identifies a register.
 ///
-/// For instance, in TH17 ECL, the `TIME` register has an ID of `-9988`.
+/// For instance, in TH17 ECL, the `TIME` register has an id of `-9988`.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RegId(pub i32);
 
@@ -40,13 +36,13 @@ impl From<i32> for RegId {
 
 /// Uniquely identifies a scoped local variable.
 ///
-/// Information about the variable like its name and type can be retrieved from [`Variables`].
+/// Information about the variable like its name and type can be retrieved from [`TypeSystem`].
 ///
 /// Technically, all named variables have [`LocalId`]s; this includes global aliases of registers,
 /// but those [`LocalId`]s will never be seen in the AST, as they will always be resolved to
 /// [`VarId::Reg`] instead.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LocalId(NonZeroUsize);
+struct LocalId(NonZeroUsize);
 
 /// Identifies a scope in which a set of names are visible.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
@@ -58,98 +54,89 @@ struct ScopeId(
 /// Scope containing no variables.
 const EMPTY_SCOPE: ScopeId = ScopeId(None);
 
-/// Provides data for all [`VarId`]s in the script being compiled.
-#[derive(Debug, Clone)]
-pub struct Variables {
-    scopes: Vec<Scope>,
-    /// Scope of toplevel code, containing all globals.
-    root_scope: ScopeId,
-    has_declared_locals: bool,
-}
+use scope_tree::ScopeTree;
+mod scope_tree {
+    use super::*;
 
-#[derive(Debug, Clone)]
-struct Scope {
-    /// Name of the variable defined in this scope.
-    ident: Ident,
-    /// Type of the variable defined in this scope, if fixed.
-    ty: Option<ScalarType>,
-    /// If the variable is a register alias (i.e. from a mapfile), the register it references.
-    reg: Option<RegId>,
-    /// Scope where the rest of the visible variables are defined.
-    parent: ScopeId,
-}
-
-impl Default for Variables {
-    fn default() -> Self { Self::new() }
-}
-
-impl Variables {
-    /// Create one with no variables defined.
-    pub fn new() -> Self {
-        // a dummy that is never used for anything because we number variables starting from 1.
-        // (so that zero can refer to the scope with no variables)
-        let dummy_scope = Scope {
-            ident: "!!_DUMMY_IDENT_!!".parse().unwrap(),
-            ty: None,
-            reg: None,
-            parent: EMPTY_SCOPE,
-        };
-        Variables {
-            scopes: vec![dummy_scope],
-            root_scope: EMPTY_SCOPE,
-            has_declared_locals: false,
-        }
-    }
-
-    pub fn get_name(&self, id: LocalId) -> &Ident { &self.scopes[id.0.get()].ident }
-    pub fn get_type(&self, id: LocalId) -> Option<ScalarType> { self.scopes[id.0.get()].ty }
-
-    fn get_parent_scope(&self, id: LocalId) -> ScopeId { self.scopes[id.0.get()].parent }
-    fn get_scope(&self, id: LocalId) -> ScopeId { ScopeId(Some(id)) }
-
-    /// Get the register mapped to this variable, if it is a register alias from a mapfile.
+    // NOTE: Do we really need a tree structure, or would a simple stack suffice ()?
+    //        I.e. could we get away with adding the following to NameResolver:
+    //             names_in_scope: Vec<NameId>,
+    //             block_scope_indices: Vec<usize>,
+    //        As long as that will still work for other namespaces and globals, we should use that.
+    //
+    /// A treelike structure describing the relationships between all scopes during name resolution.
     ///
-    /// IMPORTANT:  In some formats like ANM and old ECL, local variables are also ultimately
-    /// allocated to registers, but that is unrelated to this and this function will return `None`
-    /// for them.
-    fn get_mapped_register(&self, id: LocalId) -> Option<RegId> { self.scopes[id.0.get()].reg }
-
-    /// Declare a new local variable with a unique [`LocalId`].
-    pub fn declare_temporary(&mut self, ty: Option<ScalarType>) -> LocalId {
-        self.has_declared_locals = true;
-
-        // This function is only used by code outside this module, after name resolution has already been performed.
-        // Hence, scope is no longer important for any purpose, and we can use anything.
-        self.declare(EMPTY_SCOPE, "_tmp".parse().unwrap(), ty)
+    /// The root node of the tree is the scope with no names.  Then, each new name definition creates a
+    /// new child scope based off an existing scope.  During name resolution, [`NameResolver`] travels
+    /// up and down this tree in order to learn which definitions are entering or leaving scope at any
+    /// given time.
+    ///
+    /// # Note on necessity (FIXME: Remove once irrelevant)
+    ///
+    /// One might wonder, since the only operations we use seem to be descending to a brand new
+    /// child or ascending to an arbitrary ancestor, why not just add the following fields to [`NameResolver`]?:
+    ///
+    /// ```text
+    ///     names_in_scope: Vec<NameId>,
+    ///     block_scope_indices: Vec<usize>,  // indices to truncate names_in_scope to on block exit
+    /// ```
+    ///
+    /// Indeed, we probably could.  The reason we haven't YET is partly laziness (the tree is how it was
+    /// originally implemented), and partly that I'm not yet convinced that we won't need the tree
+    /// structure in the near future. (e.g. for inline functions maybe?)
+    #[derive(Debug, Clone)]
+    pub(super) struct ScopeTree {
+        scopes: Vec<Scope>,
+        /// Scope containing all global names.
+        global_scope: ScopeId,
     }
 
-    /// Declares a variable.  This will create a new scope, which will be a child of the given scope.
-    fn declare(&mut self, parent: ScopeId, ident: Ident, ty: Option<ScalarType>) -> LocalId {
-
-        let id = LocalId(NonZeroUsize::new(self.scopes.len()).unwrap());
-        self.scopes.push(Scope { ident, ty, parent, reg: None });
-        id
+    #[derive(Debug, Clone)]
+    struct Scope {
+        /// Id in [`TypeSystem`] of the name introduced by this scope.
+        ///
+        /// `None` for the empty scope.
+        name_id: Option<NameId>,
+        /// Scope where the rest of the visible variables are defined.
+        parent: ScopeId,
     }
 
-    /// Declares a global variable as an alias for a register, adding it to the global scope for future name resolution.
-    pub fn declare_global_register_alias(&mut self, ident: Ident, reg: RegId) {
-        // NOTE: This panic is here because, under the current design, declaring globals after declaring locals could
-        //       have a weird effect that all of the previously declared locals will still be using the scope without
-        //       the new globals.
-        //       (more importantly, it means that those variables were resolved without these globals in scope!)
-        //
-        //       Generally speaking, the design of truth is supposed to be such that global things are declarative
-        //       and allowed to be written in any order.  So if something triggers this error, it probably goes counter
-        //       to this principle and should be reconsidered thoughtfully.
-        assert!(!self.has_declared_locals, "called declare_register_alias after calling declare_temporary!");
+    impl ScopeTree {
+        /// Create one with all names from the global scope.
+        ///
+        /// (the initial shape of the tree will be a string of nodes each with one child, ending at the
+        ///  node containing all global names)
+        pub(super) fn from_ty_ctx(ty_ctx: &TypeSystem) -> Self {
+            // a dummy that is never used for anything because we number variables starting from 1.
+            // (so that zero can refer to the scope with no variables)
+            let dummy_scope = Scope {
+                name_id: None,
+                parent: EMPTY_SCOPE,
+            };
+            let mut scopes = vec![dummy_scope];
+            let mut global_scope = EMPTY_SCOPE;
+            for name_id in ty_ctx.globals() {
+                scopes.push(Scope { name_id: Some(name_id), parent: global_scope });
+                global_scope = ScopeId(NonZeroUsize::new(scopes.len() - 1).map(LocalId));
+            }
+            ScopeTree { scopes, global_scope }
+        }
 
-        // NOTE: we *could* store types from mapfiles here, but we don't because anything using `Self::get_type` on
-        //       the LocalId for a register is almost certainly bugged, and doing this would just mask that bug.
-        let ty = None;
-        let id = self.declare(self.root_scope, ident, ty);
-        self.scopes[id.0.get()].reg = Some(reg);
+        pub(super) fn get_global_scope(&self) -> ScopeId { self.global_scope }
 
-        self.root_scope = self.get_scope(id);
+        pub(super) fn get_name_id(&self, local_id: LocalId) -> NameId {
+            self.scopes[local_id.0.get()].name_id.expect("only None for dummy scope")
+        }
+
+        pub(super) fn get_parent_scope(&self, local_id: LocalId) -> ScopeId { self.scopes[local_id.0.get()].parent }
+        pub(super) fn get_scope(&self, local_id: LocalId) -> ScopeId { ScopeId(Some(local_id)) }
+
+        /// Declares a variable.  This will create a new scope, which will be a child of the given scope.
+        pub(super) fn insert_child(&mut self, parent: ScopeId, name_id: NameId) -> LocalId {
+            let local_id = LocalId(NonZeroUsize::new(self.scopes.len()).unwrap());
+            self.scopes.push(Scope { name_id: Some(name_id), parent });
+            local_id
+        }
     }
 }
 
@@ -157,7 +144,7 @@ use name_resolver::NameResolver;
 mod name_resolver {
     use super::*;
 
-    /// A helper for resolving identifiers into [`VarId`s](VarId) based on scope.
+    /// A helper for resolving identifiers into [`VarId`s][`VarId`] based on scope.
     #[derive(Debug, Clone)]
     pub(super) struct NameResolver {
         current_scope: ScopeId,
@@ -176,29 +163,40 @@ mod name_resolver {
         /// Get the scope at which this [`NameResolver`] is currently resolving names.
         pub fn current_scope(&self) -> ScopeId { self.current_scope }
 
+        // FIXME FIXME FIXME FIXME     I want to get rid of VarId, but there is a reason that this function
+        // FIXME FIXME FIXME FIXME     always resolves aliases to RegIds. (stackless lowerer requires it)
+        // FIXME FIXME FIXME FIXME
+        // FIXME FIXME FIXME FIXME     However, we should be able to do that in the lowerer instead, and
+        // FIXME FIXME FIXME FIXME     keep the NameId for the alias here.
+        //
         /// Resolve an identifier at the current scope.
-        pub fn resolve(&self, ident: &Ident, variables: &Variables) -> Option<VarId> {
+        pub fn resolve(&self, ident: &Ident, variables: &ScopeTree, ty_ctx: &TypeSystem) -> Option<VarId> {
             self.active_vars.get(ident)
                 .and_then(|vec| vec.last().copied())  // the one that isn't shadowed
-                .map(|var_id| match variables.get_mapped_register(var_id) {
-                    Some(reg) => VarId::Reg(reg),  // always emit Reg for register aliases
-                    None => VarId::Local(var_id),
+                .map(|local_id| {
+                    let name_id = variables.get_name_id(local_id);
+                    match ty_ctx.var_reg(name_id) {
+                        Some(reg) => VarId::Reg(reg),  // always emit Reg for register aliases
+                        None => VarId::Local(name_id),
+                    }
                 })
         }
 
         /// Travel from the current scope into one that is lower down the tree.
         ///
         /// (note: the case where `current_scope == descendant` will trivially succeed)
-        pub fn enter_descendant(&mut self, descendant: ScopeId, variables: &Variables) {
+        pub fn enter_descendant(&mut self, descendant: ScopeId, variables: &ScopeTree, ty_ctx: &TypeSystem) {
             let mut vars_to_add = vec![];
 
             // travel from descendant back up to current position to gather tree edges in reverse
             let mut scope_iter = descendant;
             while self.current_scope != scope_iter {
-                if let ScopeId(Some(var_id)) = scope_iter {
-                    let name = variables.get_name(var_id);
-                    vars_to_add.push((name, var_id));
-                    scope_iter = variables.get_parent_scope(var_id);
+                if let ScopeId(Some(local_id)) = scope_iter {
+                    let name_id = variables.get_name_id(local_id);
+                    if let Some(ident) = ty_ctx.var_resolvable_ident(name_id) {
+                        vars_to_add.push((ident, local_id));
+                        scope_iter = variables.get_parent_scope(local_id);
+                    }
                 } else {
                     panic!("scope was not a descendant!");
                 }
@@ -206,23 +204,25 @@ mod name_resolver {
 
             self.current_scope = descendant;
 
-            for (name, var_id) in vars_to_add.into_iter().rev() {
-                self.active_vars.entry(name.clone()).or_default().push(var_id);
+            for (ident, local_id) in vars_to_add.into_iter().rev() {
+                self.active_vars.entry(ident.clone()).or_default().push(local_id);
             }
         }
 
         /// Travel from the current scope into one that is anywhere above it in the tree.
         ///
         /// (note: the case where `current_scope == ancestor` will trivially succeed)
-        pub fn return_to_ancestor(&mut self, ancestor: ScopeId, variables: &Variables) {
+        pub fn return_to_ancestor(&mut self, ancestor: ScopeId, variables: &ScopeTree, ty_ctx: &TypeSystem) {
             while self.current_scope != ancestor {
                 // Travel up the tree, deleting one variable from `active_vars` at a time.
-                if let ScopeId(Some(var_id)) = self.current_scope {
-                    let name = variables.get_name(var_id);
-                    let popped_var_id = self.active_vars.get_mut(name).unwrap().pop().unwrap();
-                    assert_eq!(var_id, popped_var_id);
+                if let ScopeId(Some(local_id)) = self.current_scope {
+                    let name_id = variables.get_name_id(local_id);
+                    if let Some(ident) = ty_ctx.var_resolvable_ident(name_id) {
+                        let popped_local_id = self.active_vars.get_mut(ident).unwrap().pop().unwrap();
+                        assert_eq!(local_id, popped_local_id);
+                    }
 
-                    self.current_scope = variables.get_parent_scope(var_id);
+                    self.current_scope = variables.get_parent_scope(local_id);
                 } else {
                     // we reached the root scope and never found our ancestor
                     panic!("scope was not an ancestor!");
@@ -243,9 +243,10 @@ mod resolve_vars {
     /// but instead call [`crate::passes::resolve_names::run`].
     pub struct Visitor<'ts> {
         resolver: NameResolver,
+        variables: ScopeTree,
         stack: Vec<BlockState>,
-        variables: &'ts mut Variables,
         errors: CompileError,
+        ty_ctx: &'ts mut TypeSystem,
     }
 
     pub struct BlockState {
@@ -254,13 +255,16 @@ mod resolve_vars {
     }
 
     impl<'ts> Visitor<'ts> {
-        pub fn new(variables: &'ts mut Variables) -> Self {
+        pub fn new(ty_ctx: &'ts mut TypeSystem) -> Self {
             let mut resolver = NameResolver::new();
-            resolver.enter_descendant(variables.root_scope, variables);
+            let variables = ScopeTree::from_ty_ctx(ty_ctx);
+            resolver.enter_descendant(variables.get_global_scope(), &variables, ty_ctx);
             Visitor {
-                resolver, variables,
+                resolver,
+                variables,
                 stack: vec![],
                 errors: CompileError::new_empty(),
+                ty_ctx,
             }
         }
 
@@ -281,14 +285,15 @@ mod resolve_vars {
             let popped = self.stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
 
             for local_id in popped.locals_declared_at_this_level {
+                let name_id = self.variables.get_name_id(local_id);
                 let span = x.last_stmt().span.end_span();
                 x.0.push(sp!(span => ast::Stmt {
                     time: x.end_time(),
-                    body: ast::StmtBody::ScopeEnd(local_id),
+                    body: ast::StmtBody::ScopeEnd(name_id),
                 }))
             }
 
-            self.resolver.return_to_ancestor(popped.outer_scope, &self.variables);
+            self.resolver.return_to_ancestor(popped.outer_scope, &self.variables, self.ty_ctx);
         }
 
         fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
@@ -310,15 +315,17 @@ mod resolve_vars {
                                 self.visit_expr(init_value);
                             }
 
+                            let name_id = self.ty_ctx.add_local(sp!(var.span => ident.clone()), ty);
+
                             // now declare the variable and enter its scope so that it can be used in future expressions
-                            let local_id = self.variables.declare(self.resolver.current_scope(), ident.clone(), ty);
-                            self.resolver.enter_descendant(self.variables.get_scope(local_id), &self.variables);
+                            let local_id = self.variables.insert_child(self.resolver.current_scope(), name_id);
+                            self.resolver.enter_descendant(self.variables.get_scope(local_id), &self.variables, self.ty_ctx);
 
                             self.stack.last_mut().expect("(bug?) empty stack?")
                                 .locals_declared_at_this_level.push(local_id);
 
                             // swap out the AST node
-                            let var_id = VarId::Local(local_id);
+                            let var_id = VarId::Local(name_id);
                             var.value = ast::Var::Resolved { ty_sigil: None, var_id };
                         }
                     }
@@ -329,7 +336,7 @@ mod resolve_vars {
 
         fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
             if let ast::Var::Named { ty_sigil, ref ident } = var.value {
-                match self.resolver.resolve(ident, &self.variables) {
+                match self.resolver.resolve(ident, &self.variables, self.ty_ctx) {
                     Some(var_id) => var.value = ast::Var::Resolved { ty_sigil, var_id },
                     None => self.errors.append(error!(
                         message("unknown variable '{}'", ident),

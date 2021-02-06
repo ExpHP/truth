@@ -48,10 +48,10 @@ fn decompile(
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
     let mut script = ast::Script {
-        mapfiles: ty_ctx.regs_and_instrs.mapfiles_to_ast(),
+        mapfiles: ty_ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items: msg.scripts.iter().map(|(&id, instrs)| {
-            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, &ty_ctx.regs_and_instrs)?;
+            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
 
             Ok(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id as _)),

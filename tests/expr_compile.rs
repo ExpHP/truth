@@ -241,7 +241,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
 
     let old_code = parsed_block.0;
     let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_code, &mut ty_ctx)?;
-    let new_code = llir::raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx.regs_and_instrs)?;
+    let new_code = llir::raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx)?;
 
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();

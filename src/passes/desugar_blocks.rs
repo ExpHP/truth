@@ -5,6 +5,7 @@
 use crate::error::CompileError;
 use crate::ast::{self, VisitMut};
 use crate::pos::{Sp, Span};
+use crate::var::VarId;
 use crate::ident::{Ident};
 use crate::type_system::{ScalarType, TypeSystem};
 
@@ -59,11 +60,11 @@ impl<'a> Desugarer<'a> {
                 },
 
                 ast::StmtBody::Times { clobber, count, block, .. } => {
-                    let (clobber, local_id) = match clobber {
+                    let (clobber, name_id) = match clobber {
                         Some(var) => (var, None),
                         None => {
-                            let local_id = self.ty_ctx.variables.declare_temporary(Some(ScalarType::Int));
-                            let var = sp!(count.span => ast::Var::Resolved { var_id: local_id.into(), ty_sigil: None });
+                            let name_id = self.ty_ctx.add_temporary(count.span, ScalarType::Int);
+                            let var = sp!(count.span => ast::Var::Resolved { var_id: VarId::Local(name_id), ty_sigil: None });
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
@@ -73,23 +74,23 @@ impl<'a> Desugarer<'a> {
                                 },
                             }));
 
-                            (var, Some(local_id))
+                            (var, Some(name_id))
                         },
                     };
                     let (end_span, end_time) = (block.end_span(), block.end_time());
 
                     self.desugar_times(outer_time, clobber, count, block);
 
-                    if let Some(local_id) = local_id {
+                    if let Some(name_id) = name_id {
                         self.out.push(sp!(end_span => ast::Stmt {
                             time: end_time,
-                            body: ast::StmtBody::ScopeEnd(local_id),
+                            body: ast::StmtBody::ScopeEnd(name_id),
                         }));
                     }
                 },
 
                 ast::StmtBody::CondChain(chain) => {
-                    let veryend = self.ty_ctx.gensym.gensym("@cond_veryend#");
+                    let veryend = self.ty_ctx.gensym("@cond_veryend#");
 
                     let mut prev_end_time = outer_time;
                     for cond_block in chain.cond_blocks {
@@ -130,7 +131,7 @@ impl<'a> Desugarer<'a> {
         cond: Sp<ast::Cond>,
         inner: impl FnOnce(&mut Self),
     ) {
-        let skip_label = self.ty_ctx.gensym.gensym("@cond#");
+        let skip_label = self.ty_ctx.gensym("@cond#");
         self.out.push(rec_sp!(condjmp_span =>
             stmt_cond_goto!(at #condjmp_time, #(keyword.negate()) #cond goto #(skip_label.clone()))
         ));
@@ -149,7 +150,7 @@ impl<'a> Desugarer<'a> {
         ));
 
         // unless count is statically known to be nonzero, we need an initial zero test
-        let skip_label = self.ty_ctx.gensym.gensym("@times_zero#");
+        let skip_label = self.ty_ctx.gensym("@times_zero#");
         if let None | Some(0) = count_as_const {
             self.out.push(rec_sp!(span =>
                 stmt_cond_goto!(at #init_time, if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone()))
@@ -165,7 +166,7 @@ impl<'a> Desugarer<'a> {
 
     // desugars a `loop { .. }` or `do { ... } while (<cond>);`
     fn desugar_loop_body(&mut self, block: ast::Block, cond: JumpInfo) {
-        let label = self.ty_ctx.gensym.gensym("@loop#");
+        let label = self.ty_ctx.gensym("@loop#");
         self.make_label(block.start_span(), block.start_time(), label.clone());
         self.desugar_block(block);
         self.make_goto_after_block(cond, label);
@@ -226,7 +227,7 @@ mod tests {
 
             let mut ty_ctx = TypeSystem::new();
             for &(name, reg) in &self.globals {
-                ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), reg);
+                ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
             }
             crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
 

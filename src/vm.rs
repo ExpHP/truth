@@ -439,7 +439,7 @@ mod tests {
 
             let mut ty_ctx = TypeSystem::new();
             for &(name, reg) in &self.globals {
-                ty_ctx.variables.declare_global_register_alias(name.parse().unwrap(), reg);
+                ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
             }
             crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
             ast.value

@@ -6,8 +6,7 @@ use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::ident::Ident;
-use crate::var::{LocalId};
-use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
+use crate::type_system::{TypeSystem, ArgEncoding, ScalarType, NameId};
 
 mod stackless;
 
@@ -22,9 +21,9 @@ enum LowerStmt {
     /// An intrinsic that represents a label that can be jumped to.
     Label { time: i32, label: Sp<Ident> },
     /// An intrinsic that begins the scope of a register-allocated local.
-    RegAlloc { local_id: LocalId, cause: Span },
+    RegAlloc { name_id: NameId, cause: Span },
     /// An intrinsic that ends the scope of a register-allocated local.
-    RegFree { local_id: LocalId },
+    RegFree { name_id: NameId },
 }
 
 /// An instruction that needs just a bit more postprocessing to convert it into a [`RawInstr`].
@@ -42,7 +41,7 @@ pub enum LowerArg {
     /// All arguments are eventually lowered to this form.
     Raw(SimpleArg),
     /// A reference to a register-allocated local.
-    Local { local_id: LocalId, read_ty: ScalarType },
+    Local { name_id: NameId, read_ty: ScalarType },
     /// A label that has not yet been converted to an integer argument.
     Label(Sp<Ident>),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
@@ -181,14 +180,10 @@ fn gather_label_info(
 ///
 /// Unlike [`encode_args`], this has to deal with variants of [`LowerArg`] that are not the raw argument.
 fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
-    let siggy = {
-        ty_ctx.regs_and_instrs.ins_signature(instr.opcode).ok_or_else(|| error!(
-            message("signature for opcode {} not known", instr.opcode),  // FIXME: span
-        ))?
-    };
+    let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) how did this typecheck with no signature?");
 
     let mut size = instr_format.instr_header_size();
-    for (arg, enc) in zip!(&instr.args, siggy.arg_encodings()) {
+    for (arg, enc) in zip!(&instr.args, abi.arg_encodings()) {
         match arg {
             LowerArg::Raw(_) => match enc {
                 | ArgEncoding::Dword
@@ -214,7 +209,7 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
         }
     }
 
-    for enc in siggy.arg_encodings().skip(instr.args.len()) {
+    for enc in abi.arg_encodings().skip(instr.args.len()) {
         assert_eq!(enc, ArgEncoding::Padding);
         size += 4;
     }
@@ -225,13 +220,10 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
 fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
     use crate::binary_io::BinWrite;
 
-    let siggy = {
-        ty_ctx.regs_and_instrs.ins_signature(instr.opcode)
-            .expect("(bug!) wasn't this checked to exist earlier?")
-    };
+    let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) we already checked this");
 
     let mut args_blob = std::io::Cursor::new(vec![]);
-    for (arg, enc) in zip!(&instr.args, siggy.arg_encodings()) {
+    for (arg, enc) in zip!(&instr.args, abi.arg_encodings()) {
         match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
@@ -251,7 +243,7 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
         }
     }
 
-    for enc in siggy.arg_encodings().skip(instr.args.len()) {
+    for enc in abi.arg_encodings().skip(instr.args.len()) {
         assert_eq!(enc, ArgEncoding::Padding);
         args_blob.write_u32(0)?;
     }
