@@ -43,15 +43,17 @@ fn compile(game: Game, infile: impl AsRef<Path>) -> AnmFile {
 
     let temp = tempfile::tempdir().unwrap();
     let temp = temp.path();
-    let status = {
+    let output = {
         Command::cargo_bin("truanm").unwrap()
             .arg("compile")
             .arg(infile.as_ref())
             .arg("-g").arg(game.to_string())
             .arg("-o").arg(temp.join("test.anm"))
-            .status().expect("failed to execute process")
+            .output().expect("failed to execute process")
     };
-    assert!(status.success());
+    print!("{}", std::str::from_utf8(&output.stdout).unwrap());
+    eprint!("{}", std::str::from_utf8(&output.stderr).unwrap());
+    assert!(output.status.success());
 
     let reader = std::io::Cursor::new(std::fs::read(&temp.join("test.anm")).unwrap());
     AnmFile::read_from_stream(reader, game, false).unwrap()
@@ -70,6 +72,8 @@ fn compile_fail_stderr(game: Game, infile: impl AsRef<Path>) -> String {
             .arg("-o").arg(temp.join("test.anm"))
             .output().expect("failed to execute process")
     };
+    print!("{}", std::str::from_utf8(&output.stdout).unwrap());
+    eprint!("{}", std::str::from_utf8(&output.stderr).unwrap());
     assert!(!output.status.success());
     String::from_utf8_lossy(&output.stderr).into_owned()
 }

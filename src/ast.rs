@@ -1,11 +1,11 @@
 use bstr::{BString};
 
 use crate::meta;
-use crate::var::{VarId, LocalId};
+use crate::var::{VarId};
 use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
-use crate::type_system;
+use crate::type_system::{self, NameId};
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {
@@ -217,7 +217,7 @@ pub enum StmtBody {
     /// Blocks are eliminated during early compilation passes, leaving behind these as the only
     /// remaining way of identifying the end of a variable's scope.  They are used during lowering
     /// to determine when to release resources (like registers) held by locals.
-    ScopeEnd(LocalId),
+    ScopeEnd(NameId),
 
     /// A virtual instruction that completely disappears during compilation.
     ///
@@ -408,10 +408,10 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn zero(ty: crate::type_system::ScalarType) -> Self { match ty {
-        crate::type_system::ScalarType::Int => 0.into(),
-        crate::type_system::ScalarType::Float => 0.0.into(),
-        crate::type_system::ScalarType::String => panic!("Expr::zero() called on type String"),
+    pub fn zero(ty: type_system::ScalarType) -> Self { match ty {
+        type_system::ScalarType::Int => 0.into(),
+        type_system::ScalarType::Float => 0.0.into(),
+        type_system::ScalarType::String => panic!("Expr::zero() called on type String"),
     }}
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",

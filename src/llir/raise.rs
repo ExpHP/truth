@@ -8,7 +8,7 @@ use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::var::{VarId, RegId};
-use crate::type_system::{ArgEncoding, RegsAndInstrs, ScalarType, Signature};
+use crate::type_system::{ArgEncoding, TypeSystem, ScalarType, InstrAbi};
 use crate::value::ScalarValue;
 
 /// Intermediate form of an instruction only used during decompilation.
@@ -23,7 +23,7 @@ pub struct RaiseInstr {
 pub fn raise_instrs_to_sub_ast(
     instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
-    ty_ctx: &RegsAndInstrs,
+    ty_ctx: &TypeSystem,
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
@@ -88,7 +88,7 @@ fn gather_instr_offsets(
 
 fn gather_jump_time_args(
     script: &[RaiseInstr],
-    ty_ctx: &RegsAndInstrs,
+    ty_ctx: &TypeSystem,
     instr_format: &dyn InstrFormat,
 ) -> Result<JumpData, SimpleError> {
     let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
@@ -169,13 +169,13 @@ fn test_generate_label_at_offset() {
 fn extract_jump_args_by_signature(
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
-    ty_ctx: &RegsAndInstrs,
+    ty_ctx: &TypeSystem,
 ) -> Option<(u64, Option<i32>)> {
     let mut jump_offset = None;
     let mut jump_time = None;
 
-    let siggy = expect_signature(instr, ty_ctx);
-    for (arg, encoding) in zip!(&instr.args, siggy.arg_encodings()) {
+    let abi = expect_abi(instr, ty_ctx);
+    for (arg, encoding) in zip!(&instr.args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_immediate_int() as u32)),
             ArgEncoding::JumpTime => jump_time = Some(arg.expect_immediate_int()),
@@ -190,12 +190,12 @@ fn extract_jump_args_by_signature(
 fn raise_instr(
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
-    ty_ctx: &RegsAndInstrs,
+    ty_ctx: &TypeSystem,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
     let RaiseInstr { opcode, ref args, .. } = *instr;
-    let encodings = ty_ctx.ins_signature(opcode).expect("checked during reading").arg_encodings().collect::<Vec<_>>();
+    let encodings = ty_ctx.ins_abi(opcode).expect("checked during reading").arg_encodings().collect::<Vec<_>>();
 
     match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
@@ -273,12 +273,12 @@ fn raise_instr(
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {
-                ty_ctx.opcode_names.get(&opcode).cloned()
+                ty_ctx.ins_name(opcode).cloned()
                     .unwrap_or_else(|| Ident::new_ins(opcode))
             };
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
-                args: raise_args(args, expect_signature(instr, ty_ctx))?,
+                args: raise_args(args, expect_abi(instr, ty_ctx))?,
                 func: sp!(ins_ident),
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
@@ -286,8 +286,8 @@ fn raise_instr(
 }
 
 
-fn raise_args(args: &[SimpleArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, SimpleError> {
-    let encodings = siggy.arg_encodings().collect::<Vec<_>>();
+fn raise_args(args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, SimpleError> {
+    let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
         bail!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
@@ -299,7 +299,7 @@ fn raise_args(args: &[SimpleArg], siggy: &Signature) -> Result<Vec<Sp<Expr>>, Si
     }).collect::<Result<Vec<_>, SimpleError>>()?;
 
     // drop early STD padding args from the end as long as they're zero
-    for (enc, arg) in siggy.arg_encodings().zip(args).rev() {
+    for (enc, arg) in abi.arg_encodings().zip(args).rev() {
         match (enc, arg) {
             (ArgEncoding::Padding, SimpleArg { value: ScalarValue::Int(0), .. }) => out.pop(),
             _ => break,
@@ -393,10 +393,10 @@ fn raise_jump_args(
 
 // =============================================================================
 
-fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<RaiseInstr, SimpleError> {
+fn decode_args(instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, SimpleError> {
     use crate::binary_io::BinRead;
 
-    let siggy = require_signature_raw(instr, ty_ctx)?;
+    let siggy = require_abi_raw(instr, ty_ctx)?;
 
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
@@ -452,17 +452,17 @@ fn decode_args(instr: &RawInstr, ty_ctx: &RegsAndInstrs) -> Result<RaiseInstr, S
 }
 
 // truth requires all used opcodes to have signatures, so use this when needing the signature for a RawInstr
-fn require_signature_raw<'a>(instr: &RawInstr, ty_ctx: &'a RegsAndInstrs) -> Result<&'a Signature, SimpleError> {
-    ty_ctx.ins_signature(instr.opcode).ok_or_else(|| {
+fn require_abi_raw<'a>(instr: &RawInstr, ty_ctx: &'a TypeSystem) -> Result<&'a InstrAbi, SimpleError> {
+    ty_ctx.ins_abi(instr.opcode).ok_or_else(|| {
         let bytes_str = instr.args_blob.iter().map(|&b| format!("{:02x}", b)).collect::<Vec<_>>().join("");
         anyhow::anyhow!("signature not known for opcode {} (arg bytes: [{}])", instr.opcode, bytes_str)
     })
 }
 
-fn expect_signature<'a>(instr: &RaiseInstr, ty_ctx: &'a RegsAndInstrs) -> &'a Signature {
+fn expect_abi<'a>(instr: &RaiseInstr, ty_ctx: &'a TypeSystem) -> &'a InstrAbi {
     // if we have Instr then we already must have used the signature earlier to decode the arg bytes,
     // so we can just panic
-    ty_ctx.ins_signature(instr.opcode).unwrap_or_else(|| {
+    ty_ctx.ins_abi(instr.opcode).unwrap_or_else(|| {
         unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
     })
 }

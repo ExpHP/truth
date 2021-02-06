@@ -255,8 +255,32 @@ impl<'a> Visitor<'a> {
                 Some(left_ty)
             },
 
-            ast::Expr::Call { .. } => {
+            ast::Expr::Call { ref args, .. } => {
                 // FIXME: Type check args!
+
+                // if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
+                //     let range = match siggy.min_args() == siggy.max_args() {
+                //         true => format!("{}", siggy.min_args()),
+                //         false => format!("{} to {}", siggy.min_args(), siggy.max_args()),
+                //     };
+                //     return Err(error!(
+                //         message("wrong number of arguments to '{}'", name),
+                //         primary(name, "expects {} arguments, got {}", range, args.len()),
+                //     ));
+                // }
+
+                // let expected_ty = encodings[arg_index].expr_type();
+                // if actual_ty != expected_ty {
+                //     return Err(error!(
+                //         message("type error"),
+                //         primary(expr, "wrong type for argument {}", arg_index+1),
+                //         secondary(name, "expects {}", expected_ty.descr()),
+                //         // TODO: note ECL file or pragma that gives signature?
+                //     ));
+                // }
+
+                // HACK: for now just recurse on the args without validating against signature params
+                args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery()?;
 
                 // all calls are currently void-type
                 None

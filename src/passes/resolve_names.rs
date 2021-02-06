@@ -8,7 +8,7 @@ use crate::error::CompileError;
 /// After calling this, information containing the names and declared types of all variables
 /// will be stored on the [`crate::var::Variables`] type.
 pub fn run<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    let mut v = crate::var::ResolveVarsVisitor::new(&mut ty_ctx.variables);
+    let mut v = crate::var::ResolveVarsVisitor::new(ty_ctx);
     ast.visit_mut_with(&mut v);
     v.finish()
 }
