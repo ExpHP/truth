@@ -392,7 +392,7 @@ pub enum Expr {
     },
     Binop(Box<Sp<Expr>>, Sp<BinopKind>, Box<Sp<Expr>>),
     Call {
-        func: Sp<Ident>,
+        ident: Sp<Ident>,
         args: Vec<Sp<Expr>>,
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
@@ -791,7 +791,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(a);
                     v.visit_expr(b);
                 },
-                Expr::Call { func: _, args } => {
+                Expr::Call { ident: _, args } => {
                     for arg in args {
                         v.visit_expr(arg);
                     }

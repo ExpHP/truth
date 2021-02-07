@@ -522,8 +522,8 @@ ExprTerm: ast::Expr = {
         => ast::Expr::Unop(op, e),
 
     <call_parts:ExprCallParts> => {
-        let (func, args) = call_parts;
-        ast::Expr::Call { func, args }
+        let (ident, args) = call_parts;
+        ast::Expr::Call { ident, args }
     },
 
     <v:Sp<Var>> => ast::Expr::Var(v),

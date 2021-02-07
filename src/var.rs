@@ -345,6 +345,17 @@ mod resolve_vars {
                 };
             }
         }
+
+        fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
+            // FIXME XXX  this is just a hack to get tests working,
+            //            name resolution will be getting an update very soon
+            if let ast::Expr::Call { ident, .. } = &expr.value {
+                // currently ins_XXX names never get added, so add the ones that get called
+                if let Some(opcode) = ident.as_ins() {
+                    self.ty_ctx.add_global_ins_alias(opcode, crate::ident::ResIdent::from(ident.value.clone()));
+                }
+            }
+        }
     }
 }
 

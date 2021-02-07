@@ -601,4 +601,14 @@ impl Signature {
         }
         Ok(())
     }
+
+    /// Minimum number of arguments accepted.
+    pub fn min_args(&self) -> usize {
+        self.params.iter().take_while(|param| param.default.is_none()).count()
+    }
+
+    /// Maximum number of arguments accepted.
+    pub fn max_args(&self) -> usize {
+        self.params.len()
+    }
 }

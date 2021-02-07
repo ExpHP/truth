@@ -280,7 +280,7 @@ fn raise_instr(
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 args: raise_args(args, expect_abi(instr, ty_ctx))?,
-                func: sp!(ins_ident),
+                ident: sp!(ins_ident),
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
     }
