@@ -9,9 +9,9 @@ use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
-use crate::ident::Ident;
+use crate::ident::{Ident, ResolveId};
 use crate::var::{VarId, RegId};
-use crate::type_system::{TypeSystem, ScalarType, NameId};
+use crate::type_system::{TypeSystem, ScalarType};
 
 use IntrinsicInstrKind as IKind;
 
@@ -81,7 +81,7 @@ impl Lowerer<'_> {
 
                 ast::StmtBody::Label(ident) => self.out.push(LowerStmt::Label { time: stmt.time, label: ident.clone() }),
 
-                &ast::StmtBody::ScopeEnd(name_id) => self.out.push(LowerStmt::RegFree { name_id }),
+                &ast::StmtBody::ScopeEnd(res) => self.out.push(LowerStmt::RegFree { res }),
 
                 ast::StmtBody::NoInstruction => {}
 
@@ -103,8 +103,8 @@ impl Lowerer<'_> {
     ) -> Result<u16, CompileError> {
         // all function statements currently refer to single instructions
         let opcode = func.as_ins().or_else(|| {
-            let name_id = self.ty_ctx.func_ident_id(func);
-            self.ty_ctx.ins_opcode(name_id)
+            let res = self.ty_ctx.func_ident_id(func);
+            self.ty_ctx.ins_opcode(res)
         });
 
         let opcode = match opcode {
@@ -125,16 +125,16 @@ impl Lowerer<'_> {
         opcode: u16,
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
-        let mut temp_name_ids = vec![];
+        let mut temp_reses = vec![];
         let low_level_args = args.iter().map(|expr| {
             let lowered = match classify_expr(expr, self.ty_ctx)? {
                 ExprClass::Simple(data) => data.lowered,
                 ExprClass::NeedsTemp(data) => {
                     // Save this expression to a temporary
-                    let (name_id, _) = self.define_temporary(stmt.time, &data)?;
-                    let lowered = LowerArg::Local { name_id, read_ty: data.read_ty };
+                    let (res, _) = self.define_temporary(stmt.time, &data)?;
+                    let lowered = LowerArg::Local { res, read_ty: data.read_ty };
 
-                    temp_name_ids.push(name_id); // so we can free the register later
+                    temp_reses.push(res); // so we can free the register later
                     lowered
                 },
             };
@@ -147,7 +147,7 @@ impl Lowerer<'_> {
             args: low_level_args,
         }));
 
-        for id in temp_name_ids.into_iter().rev() {
+        for id in temp_reses.into_iter().rev() {
             self.undefine_temporary(id)?;
         }
 
@@ -172,12 +172,12 @@ impl Lowerer<'_> {
                 ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
                 ast::Var::Resolved { var_id, .. } => var_id,
             };
-            let name_id = match var_id {
-                VarId::Local(name_id) => name_id,
+            let res = match var_id {
+                VarId::Local(res) => res,
                 VarId::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
             };
 
-            self.out.push(LowerStmt::RegAlloc { name_id, cause: var.span });
+            self.out.push(LowerStmt::RegAlloc { res, cause: var.span });
 
             if let Some(expr) = expr {
                 let assign_op = sp!(pair.span => token![=]);
@@ -218,9 +218,9 @@ impl Lowerer<'_> {
         if data_rhs.read_ty != data_rhs.tmp_ty {
             // Regardless of what the expression contains, assign it to a temporary.
             // (i.e.:    `float tmp = <expr>;  a = $tmp;`
-            let (tmp_name_id, tmp_as_expr) = self.define_temporary(time, &data_rhs)?;
+            let (tmp_res, tmp_as_expr) = self.define_temporary(time, &data_rhs)?;
             self.lower_assign_op(span, time, var, assign_op, &tmp_as_expr)?;
-            self.undefine_temporary(tmp_name_id)?;
+            self.undefine_temporary(tmp_res)?;
             return Ok(());
         }
 
@@ -248,9 +248,9 @@ impl Lowerer<'_> {
                     // a += <expr>;
                     // split out to: `tmp = <expr>;  a += tmp;`
                     _ => {
-                        let (tmp_name_id, tmp_var_expr) = self.define_temporary(time, &data_rhs)?;
+                        let (tmp_res, tmp_var_expr) = self.define_temporary(time, &data_rhs)?;
                         self.lower_assign_op(span, time, var, assign_op, &tmp_var_expr)?;
-                        self.undefine_temporary(tmp_name_id)?;
+                        self.undefine_temporary(tmp_res)?;
                         Ok(())
                     },
                 }
@@ -292,9 +292,9 @@ impl Lowerer<'_> {
                     self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &var_as_expr, binop, b)?;
                 } else {
                     // we need a temporary, either due to the type cast or to avoid invalidating the other subexpression
-                    let (tmp_name_id, tmp_as_expr) = self.define_temporary(time, &data_a)?;
+                    let (tmp_res, tmp_as_expr) = self.define_temporary(time, &data_a)?;
                     self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &tmp_as_expr, binop, b)?;
-                    self.undefine_temporary(tmp_name_id)?;
+                    self.undefine_temporary(tmp_res)?;
                 }
                 return Ok(());
             },
@@ -313,9 +313,9 @@ impl Lowerer<'_> {
                     self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, a, binop, &var_as_expr)?;
                 } else {
                     // we need a temporary, either due to the type cast or to avoid invalidating the other subexpression
-                    let (tmp_name_id, tmp_as_expr) = self.define_temporary(time, &data_b)?;
+                    let (tmp_res, tmp_as_expr) = self.define_temporary(time, &data_b)?;
                     self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, a, binop, &tmp_as_expr)?;
-                    self.undefine_temporary(tmp_name_id)?;
+                    self.undefine_temporary(tmp_res)?;
                 }
                 return Ok(());
             },
@@ -366,9 +366,9 @@ impl Lowerer<'_> {
                 } else {
                     // compile to:   temp = <B>;
                     //               a = sin(temp);
-                    let (tmp_name_id, tmp_as_expr) = self.define_temporary(time, &data_b)?;
+                    let (tmp_res, tmp_as_expr) = self.define_temporary(time, &data_b)?;
                     self.lower_assign_direct_unop(span, time, var, eq_sign, rhs_span, unop, &tmp_as_expr)?;
-                    self.undefine_temporary(tmp_name_id)?;
+                    self.undefine_temporary(tmp_res)?;
                 }
                 Ok(())
             },
@@ -622,11 +622,11 @@ impl Lowerer<'_> {
         &mut self,
         time: i32,
         data: &TemporaryExpr<'_>,
-    ) -> Result<(NameId, Sp<Expr>), CompileError> {
-        let (name_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty)?;
+    ) -> Result<(ResolveId, Sp<Expr>), CompileError> {
+        let (res, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty)?;
         let var_as_expr = self.compute_temporary_expr(time, &var, data)?;
 
-        Ok((name_id, var_as_expr))
+        Ok((res, var_as_expr))
     }
 
     /// Evaluate a temporary expression into an existing variable by emitting the instructions that compute it.
@@ -649,8 +649,8 @@ impl Lowerer<'_> {
     }
 
     /// Emits an intrinsic that cleans up a register-allocated temporary.
-    fn undefine_temporary(&mut self, name_id: NameId) -> Result<(), CompileError> {
-        self.out.push(LowerStmt::RegFree { name_id });
+    fn undefine_temporary(&mut self, res: ResolveId) -> Result<(), CompileError> {
+        self.out.push(LowerStmt::RegFree { res });
         Ok(())
     }
 
@@ -662,14 +662,14 @@ impl Lowerer<'_> {
         &mut self,
         span: Span,
         tmp_ty: ScalarType,
-    ) -> Result<(NameId, Sp<ast::Var>), CompileError> {
-        let name_id = self.ty_ctx.add_temporary(span, tmp_ty);
+    ) -> Result<(ResolveId, Sp<ast::Var>), CompileError> {
+        let res = self.ty_ctx.add_temporary(span, tmp_ty);
         let sigil = get_temporary_read_ty(tmp_ty, span)?;
 
-        let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(sigil), var_id: VarId::Local(name_id) });
-        self.out.push(LowerStmt::RegAlloc { name_id, cause: span });
+        let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(sigil), var_id: VarId::Local(res) });
+        self.out.push(LowerStmt::RegAlloc { res, cause: span });
 
-        Ok((name_id, var))
+        Ok((res, var))
     }
 
     fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
@@ -761,7 +761,7 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(LowerArg
     let arg = match var.value {
         ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
         ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
-        ast::Var::Resolved { var_id: VarId::Local(name_id), .. } => LowerArg::Local { name_id, read_ty },
+        ast::Var::Resolved { var_id: VarId::Local(res), .. } => LowerArg::Local { res, read_ty },
     };
     Ok((arg, read_ty))
 }
@@ -812,16 +812,16 @@ pub (in crate::llir::lower) fn assign_registers(
         vec.reverse();  // since we'll be popping from these lists
     }
 
-    let mut local_regs = HashMap::<NameId, (RegId, ScalarType, Span)>::new();
+    let mut local_regs = HashMap::<ResolveId, (RegId, ScalarType, Span)>::new();
     let mut has_used_scratch: Option<Span> = None;
     let mut has_anti_scratch_ins = false;
 
     for stmt in code {
         match stmt {
-            LowerStmt::RegAlloc { name_id, ref cause } => {
+            LowerStmt::RegAlloc { res, ref cause } => {
                 has_used_scratch.get_or_insert(*cause);
 
-                let ty = ty_ctx.var_inherent_ty(*name_id).expect("(bug!) this should have been type-checked!");
+                let ty = ty_ctx.var_inherent_ty(*res).expect("(bug!) this should have been type-checked!");
 
                 let reg = unused_regs[ty].pop().ok_or_else(|| {
                     let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.var_to_ast(VarId::Reg(reg), ty, false));
@@ -849,11 +849,11 @@ pub (in crate::llir::lower) fn assign_registers(
                     error
                 })?;
 
-                assert!(local_regs.insert(*name_id, (reg, ty, *cause)).is_none());
+                assert!(local_regs.insert(*res, (reg, ty, *cause)).is_none());
             },
-            LowerStmt::RegFree { name_id } => {
-                let inherent_ty = ty_ctx.var_inherent_ty(*name_id).expect("(bug!) we allocated a reg so it must have a type");
-                let (reg, _, _) = local_regs.remove(&name_id).expect("(bug!) RegFree without RegAlloc!");
+            LowerStmt::RegFree { res } => {
+                let inherent_ty = ty_ctx.var_inherent_ty(*res).expect("(bug!) we allocated a reg so it must have a type");
+                let (reg, _, _) = local_regs.remove(&res).expect("(bug!) RegFree without RegAlloc!");
                 unused_regs[inherent_ty].push(reg);
             },
             LowerStmt::Instr(instr) => {
@@ -862,8 +862,8 @@ pub (in crate::llir::lower) fn assign_registers(
                 }
 
                 for arg in &mut instr.args {
-                    if let LowerArg::Local { name_id, read_ty } = *arg {
-                        *arg = LowerArg::Raw(SimpleArg::from_reg(local_regs[&name_id].0, read_ty));
+                    if let LowerArg::Local { res, read_ty } = *arg {
+                        *arg = LowerArg::Raw(SimpleArg::from_reg(local_regs[&res].0, read_ty));
                     }
                 }
             },
