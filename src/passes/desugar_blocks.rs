@@ -60,11 +60,11 @@ impl<'a> Desugarer<'a> {
                 },
 
                 ast::StmtBody::Times { clobber, count, block, .. } => {
-                    let (clobber, name_id) = match clobber {
+                    let (clobber, temp_res) = match clobber {
                         Some(var) => (var, None),
                         None => {
-                            let name_id = self.ty_ctx.add_temporary(count.span, ScalarType::Int);
-                            let var = sp!(count.span => ast::Var::Resolved { var_id: VarId::Local(name_id), ty_sigil: None });
+                            let res = self.ty_ctx.add_temporary(count.span, ScalarType::Int);
+                            let var = sp!(count.span => ast::Var::Resolved { var_id: VarId::Local(res), ty_sigil: None });
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
@@ -74,17 +74,17 @@ impl<'a> Desugarer<'a> {
                                 },
                             }));
 
-                            (var, Some(name_id))
+                            (var, Some(res))
                         },
                     };
                     let (end_span, end_time) = (block.end_span(), block.end_time());
 
                     self.desugar_times(outer_time, clobber, count, block);
 
-                    if let Some(name_id) = name_id {
+                    if let Some(res) = temp_res {
                         self.out.push(sp!(end_span => ast::Stmt {
                             time: end_time,
-                            body: ast::StmtBody::ScopeEnd(name_id),
+                            body: ast::StmtBody::ScopeEnd(res),
                         }));
                     }
                 },

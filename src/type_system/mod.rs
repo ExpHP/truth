@@ -1,6 +1,6 @@
 use crate::ast;
 
-pub use high::{TypeSystem, Signature, SignatureParam, NameId};
+pub use high::{TypeSystem, Signature, SignatureParam};
 pub use low::{InstrAbi, ArgEncoding};
 mod low;
 mod high;

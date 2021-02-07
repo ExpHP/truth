@@ -2,10 +2,10 @@ use bstr::{BString};
 
 use crate::meta;
 use crate::var::{VarId};
-use crate::ident::Ident;
+use crate::ident::{Ident, ResolveId};
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
-use crate::type_system::{self, NameId};
+use crate::type_system;
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {
@@ -217,7 +217,7 @@ pub enum StmtBody {
     /// Blocks are eliminated during early compilation passes, leaving behind these as the only
     /// remaining way of identifying the end of a variable's scope.  They are used during lowering
     /// to determine when to release resources (like registers) held by locals.
-    ScopeEnd(NameId),
+    ScopeEnd(ResolveId),
 
     /// A virtual instruction that completely disappears during compilation.
     ///

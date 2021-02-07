@@ -5,8 +5,8 @@ use crate::llir::{RawInstr, InstrFormat};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast;
-use crate::ident::Ident;
-use crate::type_system::{TypeSystem, ArgEncoding, ScalarType, NameId};
+use crate::ident::{Ident, ResolveId};
+use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
 
 mod stackless;
 
@@ -21,9 +21,9 @@ enum LowerStmt {
     /// An intrinsic that represents a label that can be jumped to.
     Label { time: i32, label: Sp<Ident> },
     /// An intrinsic that begins the scope of a register-allocated local.
-    RegAlloc { name_id: NameId, cause: Span },
+    RegAlloc { res: ResolveId, cause: Span },
     /// An intrinsic that ends the scope of a register-allocated local.
-    RegFree { name_id: NameId },
+    RegFree { res: ResolveId },
 }
 
 /// An instruction that needs just a bit more postprocessing to convert it into a [`RawInstr`].
@@ -41,7 +41,7 @@ pub enum LowerArg {
     /// All arguments are eventually lowered to this form.
     Raw(SimpleArg),
     /// A reference to a register-allocated local.
-    Local { name_id: NameId, read_ty: ScalarType },
+    Local { res: ResolveId, read_ty: ScalarType },
     /// A label that has not yet been converted to an integer argument.
     Label(Sp<Ident>),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
