@@ -778,8 +778,8 @@ impl Format for ast::Expr {
                 out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
             ast::Expr::Binop(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
-            ast::Expr::Call { func, args } => {
-                out.fmt(func)?;
+            ast::Expr::Call { ident, args } => {
+                out.fmt(ident)?;
                 out.fmt_comma_separated("(", ")", args)
             },
             ast::Expr::Unop(op, x) => match op.value {

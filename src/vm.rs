@@ -262,9 +262,9 @@ impl AstVm {
 
                 ast::StmtBody::Expr(expr) => {
                     match &expr.value {
-                        ast::Expr::Call { func, args } => {
+                        ast::Expr::Call { ident, args } => {
                             let arg_values = args.iter().map(|arg| self.eval(arg)).collect::<Vec<_>>();
-                            self.log_instruction(func, &arg_values);
+                            self.log_instruction(ident, &arg_values);
                         },
                         _ => unimplemented!("VM statement expression: {:?}", expr)
                     }

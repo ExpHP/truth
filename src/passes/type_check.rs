@@ -255,29 +255,41 @@ impl<'a> Visitor<'a> {
                 Some(left_ty)
             },
 
-            ast::Expr::Call { ref args, .. } => {
-                // FIXME: Type check args!
+            ast::Expr::Call { ref args, ref ident } => {
+                let func_res_id = self.ty_ctx.func_ident_id(ident);
+                let siggy = match self.ty_ctx.func_signature(func_res_id) {
+                    Ok(siggy) => siggy,
+                    Err(crate::type_system::MissingSigError { opcode }) => return Err(error!(
+                        message("signature not known for opcode {}", opcode),
+                        primary(ident, "signature not known"),
+                        note("try adding this instruction's signature to your mapfiles"),
+                    )),
+                };
 
-                // if !(siggy.min_args() <= args.len() && args.len() <= siggy.max_args()) {
-                //     let range = match siggy.min_args() == siggy.max_args() {
-                //         true => format!("{}", siggy.min_args()),
-                //         false => format!("{} to {}", siggy.min_args(), siggy.max_args()),
-                //     };
-                //     return Err(error!(
-                //         message("wrong number of arguments to '{}'", name),
-                //         primary(name, "expects {} arguments, got {}", range, args.len()),
-                //     ));
-                // }
+                let (min_args, max_args) = (siggy.min_args(), siggy.max_args());
+                if !(min_args <= args.len() && args.len() <= max_args) {
+                    let range_str = match min_args == max_args {
+                        true => format!("{}", min_args),
+                        false => format!("{} to {}", min_args, max_args),
+                    };
+                    return Err(error!(
+                        message("wrong number of arguments to '{}'", ident),
+                        primary(ident, "expects {} arguments, got {}", range_str, args.len()),
+                    ));
+                }
 
-                // let expected_ty = encodings[arg_index].expr_type();
-                // if actual_ty != expected_ty {
-                //     return Err(error!(
-                //         message("type error"),
-                //         primary(expr, "wrong type for argument {}", arg_index+1),
-                //         secondary(name, "expects {}", expected_ty.descr()),
-                //         // TODO: note ECL file or pragma that gives signature?
-                //     ));
-                // }
+                zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
+                    let arg_ty = self.check_expr(arg)?;
+                    let arg_ty = require_value(arg_ty, ident.span, arg.span)?;
+                    if arg_ty != param.ty.value {
+                        return Err(error!(
+                            message("type error"),
+                            primary(arg.span, "{}", arg_ty.descr()),
+                            secondary(ident, "expects {} for parameter {}", param.ty.descr(), param_num),
+                        ));
+                    }
+                    Ok::<_, CompileError>(())
+                }).collect_with_recovery()?;
 
                 // HACK: for now just recurse on the args without validating against signature params
                 args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery()?;

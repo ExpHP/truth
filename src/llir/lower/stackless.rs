@@ -70,10 +70,10 @@ impl Lowerer<'_> {
 
 
                 ast::StmtBody::Expr(expr) => match &expr.value {
-                    ast::Expr::Call { func, args } => {
-                        let opcode = self.lower_func_stmt(stmt, func, args)?;
+                    ast::Expr::Call { ident, args } => {
+                        let opcode = self.lower_func_stmt(stmt, ident, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
-                            th06_anm_end_span = Some(func);
+                            th06_anm_end_span = Some(ident);
                         }
                     },
                     _ => return Err(unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
@@ -102,10 +102,8 @@ impl Lowerer<'_> {
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
         // all function statements currently refer to single instructions
-        let opcode = func.as_ins().or_else(|| {
-            let res = self.ty_ctx.func_ident_id(func);
-            self.ty_ctx.ins_opcode(res)
-        });
+        let res = self.ty_ctx.func_ident_id(func);
+        let opcode = self.ty_ctx.ins_opcode(res);
 
         let opcode = match opcode {
             Some(opcode) => opcode,
