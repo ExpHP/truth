@@ -7,7 +7,7 @@ use anyhow::Context;
 use crate::ast;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
-use crate::ident::{Ident, ResolveId, GensymContext};
+use crate::ident::{Ident, ResIdent, ResolveId, GensymContext};
 use crate::var::{RegId, VarId};
 use crate::eclmap::Eclmap;
 use crate::type_system::{ScalarType, InstrAbi};
@@ -64,9 +64,9 @@ impl TypeSystem {
 
 /// # General modification and adding new entries
 impl TypeSystem {
-    /// Takes an [`Ident`] that has no name resolution id, and assigns it a new one.
+    /// Takes an [`ResIdent`] that has no name resolution id, and assigns it a new one.
     #[track_caller]
-    fn make_resolvable(&mut self, mut ident: Ident) -> Ident {
+    fn make_resolvable(&mut self, mut ident: ResIdent) -> ResIdent {
         assert!(ident.res().is_none(), "tried to assign multiple ids to {}", ident);
         ident.set_id(self.unused_ids.next());
         ident
@@ -106,7 +106,7 @@ impl TypeSystem {
     ///
     /// (this ID is different from the one produced by [`Self::ensure_reg`], and refers to the identifier
     ///  as opposed to raw register syntax)
-    pub fn add_global_reg_alias(&mut self, reg: RegId, ident: Ident) -> Ident {
+    pub fn add_global_reg_alias(&mut self, reg: RegId, ident: ResIdent) -> ResIdent {
         let ident = self.make_resolvable(ident);
         let res = ident.expect_res();
 
@@ -120,7 +120,7 @@ impl TypeSystem {
     }
 
     /// Declare a local variable, attaching a brand new ID to the ident.
-    pub fn add_local(&mut self, ident: Sp<Ident>, ty: VarType) -> Sp<Ident> {
+    pub fn add_local(&mut self, ident: Sp<ResIdent>, ty: VarType) -> Sp<ResIdent> {
         let ident = sp!(ident.span => self.make_resolvable(ident.value));
         let res = ident.expect_res();
 
@@ -167,11 +167,11 @@ impl TypeSystem {
     ///
     /// (this ID is different from the one produced by [`Self::ensure_ins`], and refers to the alias
     ///  as opposed to raw `ins_` syntax)
-    pub fn add_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> Ident {
+    pub fn add_global_ins_alias(&mut self, opcode: u16, ident: ResIdent) -> ResIdent {
         let ident = self.make_resolvable(ident);
         let res = ident.expect_res();
 
-        self.func_ident_ids.insert(ident.clone(), res);
+        self.func_ident_ids.insert(ident.as_raw().clone(), res);
         self.funcs.insert(res, FuncData {
             sig: None,
             kind: FuncKind::InstructionAlias { opcode, ident: ident.clone() },
@@ -345,14 +345,14 @@ impl TypeSystem {
         }
 
         for (&opcode, ident) in &eclmap.ins_names {
-            self.add_global_ins_alias(opcode as u16, ident.clone());
+            self.add_global_ins_alias(opcode as u16, ResIdent::from(ident.clone()));
         }
         for (&opcode, abi_str) in &eclmap.ins_signatures {
             let abi = abi_str.parse().with_context(|| format!("in signature for opcode {}", opcode))?;
             self.set_ins_abi(opcode as u16, abi);
         }
         for (&reg, ident) in &eclmap.gvar_names {
-            self.add_global_reg_alias(RegId(reg), ident.clone());
+            self.add_global_reg_alias(RegId(reg), ResIdent::from(ident.clone()));
         }
         for (&reg, value) in &eclmap.gvar_types {
             let ty = match &value[..] {
@@ -401,12 +401,12 @@ enum VarKind {
         // TODO: location where type is specified, if any
     },
     RegisterAlias {
-        ident: Ident,
+        ident: ResIdent,
         reg: RegId,
         // TODO: location where alias is defined
     },
     Local {
-        ident: Sp<Ident>,
+        ident: Sp<ResIdent>,
     },
     Temporary {
         expr: Sp<()>,
@@ -427,7 +427,7 @@ pub enum FuncKind {
         // TODO: location where signature is provided
     },
     InstructionAlias {
-        ident: Ident,
+        ident: ResIdent,
         opcode: u16,
         // TODO: location where alias is defined
     },
@@ -474,7 +474,7 @@ impl TypeSystem {
     // FIXME FIXME FIXME FIXME
     // FIXME FIXME FIXME FIXME
     // FIXME FIXME FIXME FIXME
-    fn var_name(&self, var_id: VarId) -> Option<&Ident> {
+    fn var_name(&self, var_id: VarId) -> Option<&ResIdent> {
         match var_id {
             VarId::Local(local) => match &self.vars[&local] {
                 VarData { kind: VarKind::Local { ident, .. }, .. } => Some(&ident.value),
@@ -489,7 +489,7 @@ impl TypeSystem {
         }
     }
 
-    pub fn ins_name(&self, opcode: u16) -> Option<&Ident> {
+    pub fn ins_name(&self, opcode: u16) -> Option<&ResIdent> {
         self.ins_aliases.get(&opcode).map(|&id| match &self.funcs[&id] {
             FuncData { kind: FuncKind::InstructionAlias { ident, .. }, .. } => ident,
             _ => unreachable!(),
@@ -575,7 +575,7 @@ pub struct Signature {
 #[derive(Debug, Clone)]
 pub struct SignatureParam {
     pub ty: Sp<ScalarType>,
-    pub name: Ident,
+    pub name: ResIdent,
     pub default: Option<Sp<ast::Expr>>,
 }
 

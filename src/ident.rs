@@ -8,13 +8,38 @@ use regex::Regex;
 
 use crate::pos::Sp;
 
-// FIXME:  The recommendation that you can use EITHER Ident OR ResolveId after name resolution
-//         is probably not wise, but for now I don't know which is a better recommendation.
-//         We can revisit this later when we have more experience with it.
-//
-/// An identifier.
+/// An identifier subject to name resolution.
 ///
-/// # Syntax
+/// This is a wrapper around [`Ident`] which additionally has room for a [`ResolveId`].  While this id
+/// will initially be null after parsing the ident, the [name resolution][`crate::passes::resolve_names`]
+/// pass will fill it in.
+///
+/// # Identifier syntax
+///
+/// See the documentation of [`Ident`].
+///
+/// # Comparison and equality
+///
+/// The impl of [`PartialEq`] for [`ResIdent`] is implemented to always compare the [`ResolveId`]s.
+/// Accordingly, if name resolution has not been performed, **these comparisons will panic!**
+/// (there is deliberately no fallback to comparing the identifier text, as this could mask bugs
+/// where name resolution is skipped!)
+///
+/// This is perhaps not the most ideal situation, but these comparisons are mostly only provided for
+/// the sake of `#[derive(PartialEq)]` on certain AST types, which in turn have little utility outside
+/// of tests.
+///
+/// To compare the text part of the identifier, obtain a reference to an [`Ident`] by using
+/// [`Deref<Target=Ident>`][`std::ops::Deref`] or [`Self::as_raw`].
+#[derive(Clone)]
+pub struct ResIdent {
+    ident: Ident,
+    disambig: Option<ResolveId>,
+}
+
+/// A raw identifier.
+///
+/// # Identifier syntax
 ///
 /// Identifiers must contain ASCII text.  Furthermore, if it begins with `ins_`, it is
 /// considered to be an **instruction identifier**, and the remaining part is required to be
@@ -25,24 +50,10 @@ use crate::pos::Sp;
 /// There are no other restrictions.  Notably, identifiers constructed for internal use are
 /// permitted to clash with keywords and/or use characters that would not normally be valid
 /// in a user-supplied identifier.
-///
-/// # Uniqueness and comparison
-///
-/// During [name resolution][`crate::passes::resolve_names`], disambiguating [ID numbers][`ResolveId`]
-/// are embedded into the [`Ident`]s to resolve them by scope.  When these ID numbers are set, they
-/// are used for hashing and equality instead of the ident text itself.
-///
-/// These properties make [`Ident`] a reasonable sort of "id type" for things that require
-/// name resolution.  That said, you can also call [`Ident::expect_resolved`] to use these IDs
-/// directly.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident {
-    ident: RawIdent,
-    disambig: Option<ResolveId>,
+    ident: Rc<str>,
 }
-
-/// Type of an ident without name resolution info.
-pub(crate) type RawIdent = Rc<str>;
 
 /// Represents an identifier that has been uniquely resolved according to its scope.
 ///
@@ -52,23 +63,12 @@ pub(crate) type RawIdent = Rc<str>;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResolveId(pub NonZeroU64);
 
-impl Ident {
+impl ResIdent {
     pub fn new_ins(opcode: u16) -> Self {
-        Ident {
-            ident: format!("ins_{}", opcode).into(),
-            disambig: None,
-        }
+        Ident::new_ins(opcode).into()
     }
 
-    pub fn as_ins(&self) -> Option<u16> {
-        if let Some(remainder) = self.ident.strip_prefix("ins_") {
-            Some(remainder.parse().expect("(bug!) invalid instr ident!"))
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn as_raw(&self) -> &RawIdent {
+    pub fn as_raw(&self) -> &Ident {
         &self.ident
     }
 
@@ -89,7 +89,24 @@ impl Ident {
     /// thing.
     #[track_caller]
     pub fn expect_res(&self) -> ResolveId {
-        self.disambig.unwrap_or_else(|| panic!("(bug!) ident {} was not resolved!", self.ident))
+        match self.disambig {
+            Some(res) => res,
+            None => panic!("(bug!) ident {} was not resolved!", self.ident),
+        }
+    }
+}
+
+impl Ident {
+    pub fn new_ins(opcode: u16) -> Self {
+        Ident { ident: format!("ins_{}", opcode).into() }
+    }
+
+    pub fn as_ins(&self) -> Option<u16> {
+        if let Some(remainder) = self.ident.strip_prefix("ins_") {
+            Some(remainder.parse().expect("(bug!) invalid instr ident!"))
+        } else {
+            None
+        }
     }
 }
 
@@ -99,6 +116,14 @@ pub enum ParseIdentError {
     InvalidIns,
     #[error("non-ascii byte '\\x{:02x}'", .0)]
     NonAsciiByte(u8),
+}
+
+impl std::str::FromStr for ResIdent {
+    type Err = ParseIdentError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ResIdent { ident: s.parse()?, disambig: None })
+    }
 }
 
 // FIXME need separate ways to parse system idents and user idents
@@ -118,35 +143,29 @@ impl std::str::FromStr for Ident {
         if s.starts_with("ins_") && !VALID_INS_RE.is_match(s) {
             return Err(ParseIdentError::InvalidIns);
         }
-        Ok(Ident { ident: s.into(), disambig: None })
+        Ok(Ident { ident: s.into() })
     }
 }
 
-/// A type that is used as the basis for Eq and Hash impls of [`Ident`].
-type Comparable<'a> = Result<ResolveId, &'a str>;
+impl From<Ident> for ResIdent {
+    fn from(ident: Ident) -> Self { ResIdent { ident, disambig: None }}
+}
 
-impl Ident {
-    fn as_comparable(&self) -> Comparable<'_> {
-        match self.disambig {
-            Some(disambig) => Ok(disambig),
-            None => Err(&self.ident),
-        }
+impl std::ops::Deref for ResIdent {
+    type Target = Ident;
+
+    fn deref(&self) -> &Self::Target { &self.ident }
+}
+
+// =============================================================================
+
+impl PartialEq for ResIdent {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.expect_res() == rhs.expect_res()
     }
 }
 
-impl PartialEq for Ident {
-    fn eq(&self, rhs: &Ident) -> bool {
-        self.as_comparable() == rhs.as_comparable()
-    }
-}
-
-impl Eq for Ident {}
-
-impl std::hash::Hash for Ident {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_comparable().hash(state)
-    }
-}
+// =============================================================================
 
 impl PartialEq<str> for Ident {
     fn eq(&self, s: &str) -> bool { &self.ident[..] == s }
@@ -188,10 +207,32 @@ impl AsRef<[u8]> for Ident {
     fn as_ref(&self) -> &[u8] { self.ident.as_bytes() }
 }
 
-impl fmt::Debug for Ident {
+impl std::borrow::Borrow<str> for Ident {
+    fn borrow(&self) -> &str { &self.ident }
+}
+
+impl std::borrow::Borrow<str> for Sp<Ident> {
+    fn borrow(&self) -> &str { &self.ident }
+}
+
+// =============================================================================
+
+impl fmt::Debug for ResIdent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // NOTE: Deliberately using write! to disable :# formatting
         write!(f, "Ident({:?}, {})", &self.ident, self.disambig.map(|x| x.0.get()).unwrap_or(0))
+    }
+}
+
+impl fmt::Display for ResIdent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.ident, f)
+    }
+}
+
+impl fmt::Debug for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.ident, f)
     }
 }
 
@@ -200,6 +241,8 @@ impl fmt::Display for Ident {
         fmt::Display::fmt(&self.ident, f)
     }
 }
+
+// =============================================================================
 
 impl fmt::Debug for ResolveId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

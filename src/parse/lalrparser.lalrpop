@@ -2,7 +2,7 @@ use bstr::{BStr, ByteSlice};
 use crate::error::CompileError;
 use crate::parse::lexer::{Token};
 use crate::meta::{self, Meta};
-use crate::ident::Ident;
+use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::var::VarId;
@@ -637,8 +637,8 @@ LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
 
 Var: ast::Var = {
     VarIdent,
-    "$" <ident:Ident> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Int), ident },
-    "%" <ident:Ident> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Float), ident },
+    "$" <ident:ResIdent> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Int), ident },
+    "%" <ident:ResIdent> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
         Ok(ast::Var::Resolved { ty_sigil: Some(ast::VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign).into()) })
     },
@@ -663,7 +663,7 @@ Var: ast::Var = {
     },
 };
 
-VarIdent: ast::Var = <ident:Ident> => ast::Var::Named { ty_sigil: None, ident };
+VarIdent: ast::Var = <ident:ResIdent> => ast::Var::Named { ty_sigil: None, ident };
 
 VarDeclKeyword: ast::VarDeclKeyword = {
     "int" => token![int],
@@ -675,6 +675,8 @@ OptionalMinus: i32 = {
     "-" => -1,
     => 1,
 };
+
+ResIdent: ResIdent = <ident:Ident> => ident.into();
 
 Ident: Ident = {
     <l: @L> <tok:IdentStr> <r: @R> =>? {

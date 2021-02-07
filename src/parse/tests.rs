@@ -134,9 +134,9 @@ fn var_parse() {
     assert_eq!(Var::parse("[-99998.0]").unwrap(), Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: RegId(-99998).into() });
     assert!(Var::parse("[-99998.5]").is_err());
     assert!(Var::parse("[-99998e5]").is_err());
-    assert_eq!(Var::parse("lmao").unwrap(), Var::Named { ty_sigil: None, ident: "lmao".parse().unwrap() });
-    assert_eq!(Var::parse("$lmao").unwrap(), Var::Named { ty_sigil: Some(VarReadType::Int), ident: "lmao".parse().unwrap() });
-    assert_eq!(Var::parse("%lmao").unwrap(), Var::Named { ty_sigil: Some(VarReadType::Float), ident: "lmao".parse().unwrap() });
+    assert!(matches!(Var::parse("lmao").unwrap(), Var::Named { ty_sigil: None, .. }));
+    assert!(matches!(Var::parse("$lmao").unwrap(), Var::Named { ty_sigil: Some(VarReadType::Int), .. }));
+    assert!(matches!(Var::parse("%lmao").unwrap(), Var::Named { ty_sigil: Some(VarReadType::Float), .. }));
 }
 
 #[test]
