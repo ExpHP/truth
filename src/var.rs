@@ -1,7 +1,7 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::collections::HashMap;
-use crate::ident::{Ident, RawIdent, ResolveId};
+use crate::ident::{Ident, ResolveId};
 use crate::type_system::{ScalarType, TypeSystem};
 
 /// Uniquely identifies a variable (which may be a local or a register).
@@ -151,7 +151,7 @@ mod name_resolver {
 
         /// Variables that have each name. The last id in each vec is the active variable
         /// with that name; any earlier ones are shadowed.
-        active_vars: HashMap<RawIdent, Vec<LocalId>>,
+        active_vars: HashMap<Ident, Vec<LocalId>>,
     }
 
     impl NameResolver {
@@ -171,7 +171,7 @@ mod name_resolver {
         //
         /// Resolve an identifier at the current scope.
         pub fn resolve(&self, ident: &Ident, variables: &ScopeTree, ty_ctx: &TypeSystem) -> Option<VarId> {
-            self.active_vars.get(ident.as_raw())
+            self.active_vars.get(ident)
                 .and_then(|vec| vec.last().copied())  // the one that isn't shadowed
                 .map(|local_id| {
                     let res = variables.get_res(local_id);
@@ -205,7 +205,7 @@ mod name_resolver {
             self.current_scope = descendant;
 
             for (ident, local_id) in vars_to_add.into_iter().rev() {
-                self.active_vars.entry(ident.as_raw().clone()).or_default().push(local_id);
+                self.active_vars.entry(ident.clone()).or_default().push(local_id);
             }
         }
 
@@ -218,7 +218,7 @@ mod name_resolver {
                 if let ScopeId(Some(local_id)) = self.current_scope {
                     let res = variables.get_res(local_id);
                     if let Some(ident) = ty_ctx.var_resolvable_ident(res) {
-                        let popped_local_id = self.active_vars.get_mut(ident.as_raw()).unwrap().pop().unwrap();
+                        let popped_local_id = self.active_vars.get_mut(ident).unwrap().pop().unwrap();
                         assert_eq!(local_id, popped_local_id);
                     }
 

@@ -2,7 +2,7 @@ use bstr::{BString};
 
 use crate::meta;
 use crate::var::{VarId};
-use crate::ident::{Ident, ResolveId};
+use crate::ident::{Ident, ResIdent, ResolveId};
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
 use crate::type_system;
@@ -432,7 +432,7 @@ pub enum Var {
     /// There should be none of these left in the AST after name resolution.
     Named {
         ty_sigil: Option<VarReadType>,
-        ident: Ident,
+        ident: ResIdent,
     },
     /// A resolved variable.
     ///
@@ -448,7 +448,7 @@ pub enum Var {
 impl Var {
     pub fn eq_upto_ty(&self, other: &Var) -> bool {
         match (self, other) {
-            (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a == b,
+            (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a.expect_res() == b.expect_res(),
             (Var::Resolved { var_id: a, .. }, Var::Resolved { var_id: b, .. }) => a == b,
             _ => false,
         }

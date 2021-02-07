@@ -3,6 +3,6 @@ source: src/var.rs
 expression: "resolve_reformat(r#\"{\n        int a = 3;\n        int b = a + a;\n    }\"#).trim()"
 ---
 {
-    int a_4 = 3;
-    int b_5 = (a_4 + a_4);
+    int a_5 = 3;
+    int b_6 = (a_5 + a_5);
 }

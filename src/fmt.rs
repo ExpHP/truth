@@ -3,7 +3,7 @@ use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast;
 use crate::meta::{self, Meta};
-use crate::ident::Ident;
+use crate::ident::{Ident, ResIdent};
 use crate::pos::Sp;
 
 // NOTE: We can't impl Display because that's UTF-8 based.
@@ -823,6 +823,12 @@ impl Format for ast::Var {
 
 // =============================================================================
 // Basic tokens
+
+impl Format for ResIdent {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        out.fmt(format_args!("{}", self))
+    }
+}
 
 impl Format for Ident {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {

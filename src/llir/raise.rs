@@ -273,7 +273,8 @@ fn raise_instr(
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let ins_ident = {
-                ty_ctx.ins_name(opcode).cloned()
+                ty_ctx.ins_name(opcode)
+                    .map(|x| x.as_raw().clone())
                     .unwrap_or_else(|| Ident::new_ins(opcode))
             };
 
