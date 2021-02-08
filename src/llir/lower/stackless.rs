@@ -9,8 +9,8 @@ use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
-use crate::ident::{Ident, ResolveId};
-use crate::var::{VarId, RegId};
+use crate::ident::{Ident};
+use crate::var::{ResolveId, RegId};
 use crate::type_system::{TypeSystem, ScalarType};
 
 use IntrinsicInstrKind as IKind;
@@ -166,21 +166,18 @@ impl Lowerer<'_> {
 
         for pair in vars {
             let (var, expr) = &pair.value;
-            let var_id = match var.value {
-                ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-                ast::Var::Resolved { var_id, .. } => var_id,
-            };
-            let res = match var_id {
-                VarId::Local(res) => res,
-                VarId::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
-            };
+            match var.value {
+                ast::Var::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
+                ast::Var::Named { ref ident, .. } => {
+                    let res = ident.expect_res();
+                    self.out.push(LowerStmt::RegAlloc { res, cause: var.span });
 
-            self.out.push(LowerStmt::RegAlloc { res, cause: var.span });
-
-            if let Some(expr) = expr {
-                let assign_op = sp!(pair.span => token![=]);
-                self.lower_assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
-            }
+                    if let Some(expr) = expr {
+                        let assign_op = sp!(pair.span => token![=]);
+                        self.lower_assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
+                    }
+                },
+            };
         }
         Ok(())
     }
@@ -661,10 +658,13 @@ impl Lowerer<'_> {
         span: Span,
         tmp_ty: ScalarType,
     ) -> Result<(ResolveId, Sp<ast::Var>), CompileError> {
-        let res = self.ty_ctx.add_temporary(span, tmp_ty);
+        // FIXME: It bothers me that we have to actually allocate an identifier here.
+        let ident = sp!(span => self.ty_ctx.gensym("temp").into());
+        let ident = self.ty_ctx.add_local(ident, Some(tmp_ty));
         let sigil = get_temporary_read_ty(tmp_ty, span)?;
+        let res = ident.expect_res();
 
-        let var = sp!(span => ast::Var::Resolved { ty_sigil: Some(sigil), var_id: VarId::Local(res) });
+        let var = sp!(span => ast::Var::Named { ty_sigil: Some(sigil), ident: ident.value });
         self.out.push(LowerStmt::RegAlloc { res, cause: span });
 
         Ok((res, var))
@@ -755,11 +755,13 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
 }
 
 fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(LowerArg, ScalarType), CompileError> {
-    let read_ty = ty_ctx.var_read_type_from_ast(var)?;
-    let arg = match var.value {
-        ast::Var::Named { ref ident, .. } => panic!("(bug!) unresolved var during lowering: {}", ident),
-        ast::Var::Resolved { var_id: VarId::Reg(reg), .. } => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
-        ast::Var::Resolved { var_id: VarId::Local(res), .. } => LowerArg::Local { res, read_ty },
+    let read_ty = ty_ctx.var_read_ty_from_ast(var).expect("shoulda been type-checked");
+
+    // Up to this point in compilation, register aliases use Var::Named.
+    // But now, we want both registers and their aliases to be resolved to a register
+    let arg = match ty_ctx.var_reg_from_ast(var) {
+        Ok(reg) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
+        Err(res) => LowerArg::Local { res, read_ty },
     };
     Ok((arg, read_ty))
 }
@@ -819,20 +821,21 @@ pub (in crate::llir::lower) fn assign_registers(
             LowerStmt::RegAlloc { res, ref cause } => {
                 has_used_scratch.get_or_insert(*cause);
 
-                let ty = ty_ctx.var_inherent_ty(*res).expect("(bug!) this should have been type-checked!");
+                let required_ty = ty_ctx.var_inherent_ty(*res).expect("(bug!) this should have been type-checked!");
 
-                let reg = unused_regs[ty].pop().ok_or_else(|| {
-                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.var_to_ast(VarId::Reg(reg), ty, false));
+                let reg = unused_regs[required_ty].pop().ok_or_else(|| {
+                    let ty_as_sigil = ast::VarReadType::from_ty(required_ty).expect("reg ty is always numeric");
+                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.reg_to_ast(reg, ty_as_sigil));
 
                     let mut error = crate::error::Diagnostic::error();
                     error.message(format!("script too complex to compile"));
                     error.primary(cause, format!("no more registers of this type!"));
                     for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
-                        if scratch_ty == ty {
+                        if scratch_ty == required_ty {
                             error.secondary(scratch_span, format!("{} holds this", stringify_reg(scratch_reg)));
                         }
                     }
-                    let regs_of_ty = format.general_use_regs()[ty].clone();
+                    let regs_of_ty = format.general_use_regs()[required_ty].clone();
                     let unavailable_strs = regs_of_ty.iter().copied()
                         .filter(|reg| used_regs.contains(reg))
                         .map(stringify_reg)
@@ -847,7 +850,7 @@ pub (in crate::llir::lower) fn assign_registers(
                     error
                 })?;
 
-                assert!(local_regs.insert(*res, (reg, ty, *cause)).is_none());
+                assert!(local_regs.insert(*res, (reg, required_ty, *cause)).is_none());
             },
             LowerStmt::RegFree { res } => {
                 let inherent_ty = ty_ctx.var_inherent_ty(*res).expect("(bug!) we allocated a reg so it must have a type");

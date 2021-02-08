@@ -3,5 +3,5 @@ source: src/var.rs
 expression: "resolve_reformat(r#\"{\n        ins_21(A, X);\n    }\"#).trim()"
 ---
 {
-    ins_21(A, X);
+    ins_21(A_1, X_2);
 }

@@ -7,8 +7,8 @@ use anyhow::Context;
 use crate::ast;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
-use crate::ident::{Ident, ResIdent, ResolveId, GensymContext};
-use crate::var::{RegId, VarId};
+use crate::ident::{Ident, ResIdent, GensymContext};
+use crate::var::{RegId, Namespace, ResolveId};
 use crate::eclmap::Eclmap;
 use crate::type_system::{ScalarType, InstrAbi};
 
@@ -35,7 +35,7 @@ pub struct TypeSystem {
 
     /// Ids for names available in the global scope.  These form the baseline set of names
     /// available to name resolution.
-    global_ids: Vec<ResolveId>,
+    global_ids: Vec<(Namespace, ResolveId)>,
 
     unused_ids: UnusedIds,
     gensym: GensymContext,
@@ -68,7 +68,7 @@ impl TypeSystem {
     #[track_caller]
     fn make_resolvable(&mut self, mut ident: ResIdent) -> ResIdent {
         assert!(ident.res().is_none(), "tried to assign multiple ids to {}", ident);
-        ident.set_id(self.unused_ids.next());
+        ident.set_res(self.unused_ids.next());
         ident
     }
 
@@ -115,7 +115,7 @@ impl TypeSystem {
             kind: VarKind::RegisterAlias { reg, ident: ident.clone() },
         });
         self.reg_aliases.insert(reg, res);
-        self.global_ids.push(res);
+        self.global_ids.push((Namespace::Vars, res));
         ident
     }
 
@@ -129,16 +129,6 @@ impl TypeSystem {
             kind: VarKind::Local { ident: ident.clone() },
         });
         ident
-    }
-
-    /// Declare an automatically-generated variable, generating a new ID.
-    pub fn add_temporary(&mut self, cause: Span, ty: ScalarType) -> ResolveId {
-        let res = self.unused_ids.next();
-        self.vars.insert(res, VarData {
-            ty: Some(Some(ty)),
-            kind: VarKind::Temporary { expr: sp!(cause => ()) },
-        });
-        res
     }
 
     /// Set the low-level ABI of an instruction.
@@ -186,7 +176,7 @@ impl TypeSystem {
 impl TypeSystem {
     /// Iterate over all things that are available to the initial (global) scope during
     /// name resolution.
-    pub fn globals(&self) -> impl Iterator<Item=ResolveId> + '_ {
+    pub fn globals(&self) -> impl Iterator<Item=(Namespace, ResolveId)> + '_ {
         self.global_ids.iter().copied()
     }
 }
@@ -245,6 +235,20 @@ impl TypeSystem {
 
 /// # Accessing high-level information
 impl TypeSystem {
+    /// If the given id has an identifier that makes it a candidate for name resolution, return that identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the namespace is wrong.
+    ///
+    /// (FIXME: this is silly because TypeSystem ought to know what namespace each
+    ///         id belongs to without having to be reminded...)
+    pub fn resolvable_ident(&self, ns: Namespace, res: ResolveId) -> Option<&Ident> {
+        match ns {
+            Namespace::Vars => self.var_resolvable_ident(res),
+        }
+    }
+
     /// If the variable has an identifier makes it a candidate for name resolution, returns that identifier.
     ///
     /// # Panics
@@ -254,9 +258,22 @@ impl TypeSystem {
         match self.vars[&res] {
             VarData { kind: VarKind::RegisterAlias { ref ident, .. }, .. } => Some(ident),
             VarData { kind: VarKind::Local { ref ident, .. }, .. } => Some(ident),
-            VarData { kind: VarKind::Temporary { .. }, .. } => None,
             VarData { kind: VarKind::Register { .. }, .. } => None,
         }
+    }
+
+    /// If the variable has a name, return that name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID does not correspond to a variable.
+    pub fn var_name(&self, res: ResolveId) -> Option<ResIdent> {
+        self.var_resolvable_ident(res)
+            .map(|ident| {
+                let mut ident = ResIdent::from(ident.clone());
+                ident.set_res(res);
+                ident
+            })
     }
 
     /// Get the inherent type of any kind of variable. (registers, locals, temporaries, consts)
@@ -307,7 +324,6 @@ impl TypeSystem {
         match &self.vars[&res] {
             VarData { kind: VarKind::RegisterAlias { .. }, .. } => None,
             VarData { kind: VarKind::Register { .. }, .. } => None,
-            VarData { kind: VarKind::Temporary { expr, .. }, .. } => Some(expr.span),
             VarData { kind: VarKind::Local { ident, .. }, .. } => Some(ident.span),
         }
     }
@@ -406,10 +422,8 @@ enum VarKind {
         // TODO: location where alias is defined
     },
     Local {
+        /// NOTE: For auto-generated temporaries, the span may point to their expression instead.
         ident: Sp<ResIdent>,
-    },
-    Temporary {
-        expr: Sp<()>,
     },
 }
 
@@ -448,43 +462,58 @@ impl TypeSystem {
     /// cast as a float using `%I0`.
     ///
     /// This returns [`ScalarType`] instead of [`ast::VarReadType`] because const vars could be strings.
-    pub fn var_read_type_from_ast(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
+    pub fn var_read_ty_from_ast(&self, var: &Sp<ast::Var>) -> Option<ScalarType> {
         match var.value {
-            ast::Var::Named { .. } => panic!("this method requires name resolution! (got: {:?})", var),
+            ast::Var::Reg { ty_sigil, .. } => Some(ty_sigil.into()),
+            ast::Var::Named { ty_sigil: Some(ty_sigil), .. } => Some(ty_sigil.into()),
+            ast::Var::Named { ty_sigil: None, ref ident } => self.var_inherent_ty(ident.expect_res()),
+        }
+    }
 
-            ast::Var::Resolved { ty_sigil, var_id } => {
-                if let Some(ty_sigil) = ty_sigil {
-                    return Ok(ty_sigil.into()); // explicit type from user
+    pub fn var_inherent_ty_from_ast(&self, var: &Sp<ast::Var>) -> Option<ScalarType> {
+        let res = match var.value {
+            ast::Var::Reg { reg, .. } => match self.reg_reses.get(&reg) {
+                None => return None,  // not in mapfile
+                Some(&res) => res,
+            },
+            ast::Var::Named { ref ident, .. } => ident.expect_res(),
+        };
+        self.var_inherent_ty(res)
+    }
+
+    /// If the variable is a register or register alias, gets the associated register id.
+    ///
+    /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
+    /// name resolution id is returned.
+    pub fn var_reg_from_ast(&self, var: &ast::Var) -> Result<RegId, ResolveId> {
+        match var {
+            &ast::Var::Reg { reg, .. } => Ok(reg),  // register
+            ast::Var::Named { ident, .. } => {
+                match self.var_reg(ident.expect_res()) {
+                    Some(reg) => Ok(reg),  // register alias
+                    None => Err(ident.expect_res()),  // something else
                 }
-                self.var_default_type(var_id).ok_or({
-                    let mut err = crate::error::Diagnostic::error();
-                    err.message(format!("variable requires a type prefix"));
-                    err.primary(var, format!("needs a '$' or '%' prefix"));
-                    match var_id {
-                        VarId::Local(_) => err.note(format!("consider adding an explicit type to its declaration")),
-                        VarId::Reg(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
-                    };
-                    err.into()
-                })
             },
         }
     }
 
-    // FIXME FIXME FIXME FIXME
-    // FIXME FIXME FIXME FIXME
-    // FIXME FIXME FIXME FIXME
-    // FIXME FIXME FIXME FIXME
-    fn var_name(&self, var_id: VarId) -> Option<&ResIdent> {
-        match var_id {
-            VarId::Local(local) => match &self.vars[&local] {
-                VarData { kind: VarKind::Local { ident, .. }, .. } => Some(&ident.value),
-                _ => unreachable!(),
-            },
-            VarId::Reg(reg) => {
-                self.reg_aliases.get(&reg).map(|id| match &self.vars[&id] {
-                    VarData { kind: VarKind::RegisterAlias { ident, .. }, .. } => ident,
-                    _ => unreachable!(),
-                })
+    /// Produces a var from a name-resolved ident, suppressing the type sigil if it is unnecessary.
+    fn nice_ident_to_var(&self, ident: ResIdent, read_ty: ast::VarReadType) -> ast::Var {
+        let inherent_ty = self.var_inherent_ty(ident.expect_res());
+        match inherent_ty == Some(ScalarType::from(read_ty)) {
+            true => ast::Var::Named { ident, ty_sigil: None },
+            false => ast::Var::Named { ident, ty_sigil: Some(read_ty) },
+        }
+    }
+
+    /// Generate an AST node with the ideal appearance for a register, automatically using
+    /// an alias if one exists.
+    pub fn reg_to_ast(&self, reg: RegId, read_ty: ast::VarReadType) -> ast::Var {
+        match self.reg_aliases.get(&reg) {
+            None => ast::Var::Reg { reg, ty_sigil: read_ty },
+            Some(&res) => {
+                let ident = self.var_name(res).expect("aliases have idents").clone();
+                self.nice_ident_to_var(ident, read_ty)
             },
         }
     }
@@ -496,51 +525,38 @@ impl TypeSystem {
         })
     }
 
-    /// Get the innate type of a variable.  This comes into play when a variable is referenced by name
-    /// without a type sigil.
-    pub fn var_default_type(&self, var_id: VarId) -> Option<ScalarType> {
-        // NOTE: one might think, "hey, can't we just track LocalIds for regs so that we don't
-        //       have two different places that track default types of things?"
-        //
-        //       ...no, we cannot.  If a register has a type in the mapfile but no name, then
-        //       Variables won't know about it.
-        match var_id {
-            VarId::Local(res) => self.var_inherent_ty(res),
-            VarId::Reg(reg) => self.reg_reses.get(&reg).and_then(|&id| self.var_inherent_ty(id)),
-        }
-    }
-
-    /// Generate an AST node with the ideal appearance for a variable.
-    ///
-    /// If `append_res_ids` is `true`, local variables will get their id numbers appended,
-    /// making them distinct.  This is only for testing purposes.
-    pub fn var_to_ast(&self, var_id: VarId, read_ty: ScalarType, append_res_ids: bool) -> ast::Var {
-        // const simplification should substitute any non-numeric type var reads (like string vars)
-        // before this function is ever called.  Probably.
-        let explicit_sigil = read_ty.sigil().expect("(bug!) tried to raise read of non-numeric type");
-
-        let name = self.var_name(var_id);
-        let name = match (name, var_id) {
-            // For registers with no alias, best we can do is emit `[10004]` syntax.  This requires ty_sigil.
-            (None, VarId::Reg(_)) => return ast::Var::Resolved { var_id, ty_sigil: Some(explicit_sigil) },
-
-            (Some(name), VarId::Reg(_)) => name.clone(),
-            (Some(name), VarId::Local(res)) => match append_res_ids {
-                true => format!("{}_{}", name, res),
-                false => format!("{}", name),
-            }.parse().unwrap(),
-
-            // NOTE: I don't think this should ever show because locals always have names...
-            (None, VarId::Local(res)) => format!("__localvar_{}", res).parse().unwrap(),
-        };
-
-        // Suppress the type prefix if it matches the default
-        if self.var_default_type(var_id) == Some(read_ty) {
-            ast::Var::Named { ident: name.clone(), ty_sigil: None }
-        } else {
-            ast::Var::Named { ident: name.clone(), ty_sigil: Some(explicit_sigil) }
-        }
-    }
+    // FIXME delete
+    // /// Generate an AST node with the ideal appearance for a variable.
+    // ///
+    // /// If `append_res_ids` is `true`, local variables will get their id numbers appended,
+    // /// making them distinct.  This is only for testing purposes.
+    // pub fn var_to_ast(&self, var_id: VarId, read_ty: ScalarType, append_res_ids: bool) -> ast::Var {
+    //     // const simplification should substitute any non-numeric type var reads (like string vars)
+    //     // before this function is ever called.  Probably.
+    //     let explicit_sigil = read_ty.sigil().expect("(bug!) tried to raise read of non-numeric type");
+    //
+    //     let name = self.var_name(var_id);
+    //     let name = match (name, var_id) {
+    //         // For registers with no alias, best we can do is emit `[10004]` syntax.  This requires ty_sigil.
+    //         (None, VarId::Reg(_)) => return ast::fVar::Resolved { var_id, ty_sigil: Some(explicit_sigil) },
+    //
+    //         (Some(name), VarId::Reg(_)) => name.clone(),
+    //         (Some(name), VarId::Local(res)) => match append_res_ids {
+    //             true => format!("{}_{}", name, res),
+    //             false => format!("{}", name),
+    //         }.parse().unwrap(),
+    //
+    //         // NOTE: I don't think this should ever show because locals always have names...
+    //         (None, VarId::Local(res)) => format!("__localvar_{}", res).parse().unwrap(),
+    //     };
+    //
+    //     // Suppress the type prefix if it matches the default
+    //     if self.var_default_type(var_id) == Some(read_ty) {
+    //         ast::Var::Named { ident: name.clone(), ty_sigil: None }
+    //     } else {
+    //         ast::Var::Named { ident: name.clone(), ty_sigil: Some(explicit_sigil) }
+    //     }
+    // }
 
     // FIXME: all uses of gensym should enventually be replaced by ResolveIds, no?
     pub fn gensym(&mut self, prefix: &str) -> Ident {

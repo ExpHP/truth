@@ -23,7 +23,6 @@ pub fn postprocess_decompiled_fancy<V: ast::Visitable + std::fmt::Debug>(script:
         return postprocess_decompiled_simple(script, ty_ctx);
     }
 
-    resolve_names::unresolve(script, false, ty_ctx)?;
     decompile_loop::decompile_if_else(script)?;
     decompile_loop::decompile_loop(script)?;
     unused_labels::run(script)?;
@@ -31,8 +30,6 @@ pub fn postprocess_decompiled_fancy<V: ast::Visitable + std::fmt::Debug>(script:
     Ok(())
 }
 
-pub fn postprocess_decompiled_simple<V: ast::Visitable>(script: &mut V, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
-    resolve_names::unresolve(script, false, ty_ctx)?;
-
+pub fn postprocess_decompiled_simple<V: ast::Visitable>(_script: &mut V, _ty_ctx: &TypeSystem) -> Result<(), CompileError> {
     Ok(())
 }

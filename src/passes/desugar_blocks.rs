@@ -5,7 +5,6 @@
 use crate::error::CompileError;
 use crate::ast::{self, VisitMut};
 use crate::pos::{Sp, Span};
-use crate::var::VarId;
 use crate::ident::{Ident};
 use crate::type_system::{ScalarType, TypeSystem};
 
@@ -63,8 +62,10 @@ impl<'a> Desugarer<'a> {
                     let (clobber, temp_res) = match clobber {
                         Some(var) => (var, None),
                         None => {
-                            let res = self.ty_ctx.add_temporary(count.span, ScalarType::Int);
-                            let var = sp!(count.span => ast::Var::Resolved { var_id: VarId::Local(res), ty_sigil: None });
+                            let ident = sp!(count.span => self.ty_ctx.gensym("count").into());
+                            let ident = self.ty_ctx.add_local(ident, Some(ScalarType::Int)).value;
+                            let res = ident.expect_res();
+                            let var = sp!(count.span => ast::Var::Named { ident, ty_sigil: None });
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
@@ -214,9 +215,10 @@ mod tests {
     use crate::var::RegId;
     use crate::vm::{AstVm, LoggedCall};
     use crate::value::ScalarValue::{Int};
+    use crate::type_system::ScalarType as Ty;
 
     struct TestSpec<S> {
-        globals: Vec<(&'static str, RegId)>,
+        globals: Vec<(&'static str, RegId, Ty)>,
         source: S,
     }
 
@@ -226,10 +228,12 @@ mod tests {
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ty_ctx = TypeSystem::new();
-            for &(name, reg) in &self.globals {
+            for &(name, reg, ty) in &self.globals {
                 ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
+                ty_ctx.set_reg_ty(reg, Some(ty));
             }
             crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::aliases_to_regs(&mut ast.value, &mut ty_ctx).unwrap();
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
             vm_before.run(&ast.0);
@@ -242,7 +246,7 @@ mod tests {
             assert_eq!(vm_before.time, vm_after.time, "{}\n{}", vm_before, vm_after);
             assert_eq!(vm_before.real_time, vm_after.real_time, "{}\n{}", vm_before, vm_after);
             assert_eq!(vm_before.call_log, vm_after.call_log, "{}\n{}", vm_before, vm_after);
-            for &(_, reg) in &self.globals {
+            for &(_, reg, _) in &self.globals {
                 assert_eq!(vm_before.get_reg(reg), vm_after.get_reg(reg), "{}\n{}", vm_before, vm_after);
             }
             vm_after
@@ -252,7 +256,7 @@ mod tests {
     #[test]
     fn r#loop() {
         TestSpec {
-            globals: vec![("X", RegId(20))],
+            globals: vec![("X", RegId(20), Ty::Int)],
             source: r#"{
                 X = 1;
                 loop {
@@ -270,7 +274,7 @@ mod tests {
     fn times() {
         for ntimes in vec![11, 1, 0] {
             let vm = TestSpec {
-                globals: vec![("X", RegId(20))],
+                globals: vec![("X", RegId(20), Ty::Int)],
                 source: format!(r#"{{
                     X = 1;
                     times({ntimes}) {{
@@ -289,7 +293,7 @@ mod tests {
     fn times_clobber() {
         for ntimes in vec![11, 1, 0] {
             let vm = TestSpec {
-                globals: vec![("X", RegId(20))],
+                globals: vec![("X", RegId(20), Ty::Int)],
                 source: format!(r#"{{
                     times(X = {ntimes}) {{
                       +2:
@@ -309,7 +313,7 @@ mod tests {
     fn do_while() {
         for mult in vec![4, 1, 0] {
             let vm = TestSpec {
-                globals: vec![("X", RegId(20))],
+                globals: vec![("X", RegId(20), Ty::Float)],
                 source: format!(r#"{{
                     X = 0.33333333333333333333;
                     do {{
@@ -335,7 +339,7 @@ mod tests {
     fn r#while() {
         for niter in vec![4, 1, 0] {
             let vm = TestSpec {
-                globals: vec![("X", RegId(20))],
+                globals: vec![("X", RegId(20), Ty::Float)],
                 source: format!(r#"{{
                     X = 0.33333333333333333333;
                     while (X < {stop_val}) {{
@@ -356,7 +360,7 @@ mod tests {
     #[test]
     fn cond_chain() {
         let get_vm = |x| TestSpec {
-            globals: vec![("X", RegId(20))],
+            globals: vec![("X", RegId(20), Ty::Int)],
             source: format!(r#"{{
                 X = {x};
                 if (X == 2) {{

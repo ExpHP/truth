@@ -217,6 +217,18 @@ compile_fail_test!(
 );
 
 compile_fail_test!(
+    ANM_10, const_string_to_int,
+    main_body: r#"
+        const string x = "hi";
+        const int y = $x;
+    "#,
+    // FIXME: this test might not be ready for a while.  Ultimately, the desired result
+    //        is that it should parse successfully, and then get a type error at $x
+    //        for being unable to cast a string to int.
+    expected: EXPECTED_PARSE_ERROR,
+);
+
+compile_fail_test!(
     ANM_06, eosd_anm_early_end,
     main_body: r#"
         ins_0();

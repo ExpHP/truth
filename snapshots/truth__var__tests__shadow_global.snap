@@ -3,10 +3,10 @@ source: src/var.rs
 expression: "resolve_reformat(r#\"{\n        ins_21(A, X);\n        if (true) {\n            float A = 4.0;\n            float b = A;\n        }\n        ins_21(A, X);\n    }\"#).trim()"
 ---
 {
-    ins_21(A, X);
+    ins_21(A_1, X_2);
     if (1) {
-        float A_5 = 4.0;
-        float b_6 = A_5;
+        float A_6 = 4.0;
+        float b_7 = A_6;
     }
-    ins_21(A, X);
+    ins_21(A_1, X_2);
 }

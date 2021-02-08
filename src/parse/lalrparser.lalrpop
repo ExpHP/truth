@@ -5,7 +5,6 @@ use crate::meta::{self, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast;
-use crate::var::VarId;
 use super::lalrparser_util::{parse_ascii, u32_from_ascii_radix, push};
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
@@ -640,7 +639,7 @@ Var: ast::Var = {
     "$" <ident:ResIdent> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Int), ident },
     "%" <ident:ResIdent> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Float), ident },
     "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(ast::Var::Resolved { ty_sigil: Some(ast::VarReadType::Int), var_id: VarId::Reg(i32::wrapping_mul(x, sign).into()) })
+        Ok(ast::Var::Reg { ty_sigil: ast::VarReadType::Int, reg: i32::wrapping_mul(x, sign).into() })
     },
     <l: @L> "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" <r: @R> =>? {
         if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
@@ -656,9 +655,9 @@ Var: ast::Var = {
                 primary(Span::from_locs(l, r), "non-integer register ID")
             ).into());
         }
-        Ok(ast::Var::Resolved {
-            ty_sigil: Some(ast::VarReadType::Float),
-            var_id: VarId::Reg(reg.into())
+        Ok(ast::Var::Reg {
+            ty_sigil: ast::VarReadType::Float,
+            reg: reg.into(),
         })
     },
 };

@@ -1,8 +1,8 @@
 use bstr::{BString};
 
 use crate::meta;
-use crate::var::{VarId};
-use crate::ident::{Ident, ResIdent, ResolveId};
+use crate::var::{ResolveId, RegId};
+use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
 use crate::type_system;
@@ -428,20 +428,14 @@ impl Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Var {
     /// A variable mentioned by name, possibly with a type sigil.
-    ///
-    /// There should be none of these left in the AST after name resolution.
     Named {
         ty_sigil: Option<VarReadType>,
         ident: ResIdent,
     },
-    /// A resolved variable.
-    ///
-    /// It can be created by performing [name resolution](crate::type_system::TypeSystem::resolve_names).
-    /// Additionally, variable accesses written in raw notation (e.g. `[10004.0]`)
-    /// parse directly to this form.
-    Resolved {
-        ty_sigil: Option<VarReadType>,
-        var_id: VarId,
+    /// A raw register access. (e.g. `[10004.0]`)
+    Reg {
+        ty_sigil: VarReadType,
+        reg: RegId,
     },
 }
 
@@ -449,15 +443,22 @@ impl Var {
     pub fn eq_upto_ty(&self, other: &Var) -> bool {
         match (self, other) {
             (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a.expect_res() == b.expect_res(),
-            (Var::Resolved { var_id: a, .. }, Var::Resolved { var_id: b, .. }) => a == b,
+            (Var::Reg { reg: a, .. }, Var::Reg { reg: b, .. }) => a == b,
             _ => false,
+        }
+    }
+
+    pub fn read_ty(&self) -> Option<VarReadType> {
+        match *self {
+            Var::Named { ty_sigil, .. } => ty_sigil,
+            Var::Reg { ty_sigil, .. } => Some(ty_sigil),
         }
     }
 
     pub fn set_ty_sigil(&mut self, ty_sigil: Option<VarReadType>) {
         match self {
             Var::Named { ty_sigil: ptr, .. } => *ptr = ty_sigil,
-            Var::Resolved { ty_sigil: ptr, .. } => *ptr = ty_sigil,
+            Var::Reg { ty_sigil: ptr, .. } => *ptr = ty_sigil.expect("can't erase type sigil of register"),
         }
     }
 }
@@ -809,7 +810,7 @@ macro_rules! generate_visitor_stuff {
         {
             match & $($mut)? x.value {
                 Var::Named { ty_sigil: _, ident: _ } => {},
-                Var::Resolved { ty_sigil: _, var_id: _ } => {},
+                Var::Reg { ty_sigil: _, reg: _ } => {},
             }
         }
     };
