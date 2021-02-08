@@ -16,9 +16,17 @@ pub trait Format {
 }
 
 /// Lossily write a value to string, for `eprintln` debugging.
+///
+/// Defaults to a fairly large max width, mostly to reduce console spam for `eprintln`.
 #[doc(hidden)]
 pub fn stringify<T: Format>(value: &T) -> String {
-    let mut f = Formatter::new(vec![]).with_max_columns(1000);
+    stringify_with(value, Config::new().max_columns(1000))
+}
+
+/// Lossily write a value to string, for `eprintln` debugging and `insta` tests.
+#[doc(hidden)]
+pub fn stringify_with<T: Format>(value: &T, config: Config) -> String {
+    let mut f = Formatter::with_config(vec![], config);
     f.fmt(value).expect("failed to write to vec!?");
     String::from_utf8_lossy(&f.into_inner().unwrap()).into_owned()
 }
@@ -49,8 +57,52 @@ impl From<io::Error> for Error {
 
 //==============================================================================
 
+#[derive(Debug, Clone)]
+pub struct Config {
+    target_width: usize,
+    show_res: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            target_width: 99,
+            show_res: false,
+        }
+    }
+}
+
+impl Config {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set the target maximum line length for formatting.
+    ///
+    /// The formatter will generally try to break lines to be within this length,
+    /// though there is no guarantee.
+    pub fn max_columns(mut self, width: usize) -> Self {
+        // FIXME: The -1 is to work around a known bug where, if something is in
+        //        block mode and one of its items exactly hits the target_width in
+        //        inline mode, then the comma after the item will surpass the width
+        //        without triggering backtracking on the item.
+        self.target_width = width - 1; self
+    }
+
+    /// Causes any identifiers subject to name resolution to have their [`ResolveId`]s appended,
+    /// (e.g. showing `foo_24` instead of `foo`), allowing the reader to visually inspect how they
+    /// have been differentiated by scope.
+    ///
+    /// This can be useful for testing or debugging name resolution, though the output can be
+    /// fairly unstable.
+    pub fn show_res(mut self, show_res: bool) -> Self {
+        self.show_res = show_res; self
+    }
+}
+
+//==============================================================================
+
 pub use formatter::{Formatter, SuppressParens};
-use crate::var::VarId;
 
 mod formatter {
     use super::*;
@@ -63,10 +115,11 @@ mod formatter {
     pub struct Formatter<W: io::Write> {
         // This is an Option only so that `into_inner` can remove it.
         writer: Option<W>,
-        pending_data: bool,
+        // User config
+        pub(super) config: Config,
         // Block- and line- formatting state
+        pending_data: bool,
         line_buffer: Vec<u8>,
-        target_width: usize,
         indent: usize,
         is_label: bool,
         inline_depth: u32,
@@ -88,9 +141,14 @@ mod formatter {
     impl<W: io::Write> Formatter<W> {
         /// Construct a new [`Formatter`] for writing at an initial indent level of 0.
         pub fn new(writer: W) -> Self {
+            Self::with_config(writer, Config::new())
+        }
+
+        /// Construct a new [`Formatter`] for writing at an initial indent level of 0.
+        pub fn with_config(writer: W, config: Config) -> Self {
             Self {
                 writer: Some(writer),
-                target_width: 99,
+                config,
                 indent: 0,
                 is_label: false,
                 inline_depth: 0,
@@ -104,14 +162,13 @@ mod formatter {
             }
         }
 
-        // FIXME: Replace with an `Options` builder-pattern struct so that it
-        //        can't be used mid-formatting.
+        // FIXME: Remove
         pub fn with_max_columns(mut self, width: usize) -> Self {
             // FIXME: The -1 is to work around a known bug where, if something is in
             //        block mode and one of its items exactly exactly reaches target_width
             //        in inline mode, then the comma after the item will surpass the width
             //        without triggering backtracking on the item.
-            self.target_width = width - 1; self
+            self.config.target_width = width - 1; self
         }
 
         /// Recover the wrapped `io::Write` object.
@@ -305,7 +362,7 @@ mod formatter {
         /// If we're in inline mode and the line is too long, backtrack to the
         /// outermost [`Formatter::try_inline`].
         fn backtrack_inline_if_long(&mut self) -> Result {
-            if self.inline_depth > 0 && self.line_buffer.len() > self.target_width {
+            if self.inline_depth > 0 && self.line_buffer.len() > self.config.target_width {
                 return Err(Error(ErrorKind::LineBreakRequired));
             }
             Ok(())
@@ -805,17 +862,9 @@ impl Format for ast::Var {
                 None => out.fmt(ident),
                 Some(ty_sigil) => out.fmt((ty_sigil.sigil(), ident)),
             },
-            ast::Var::Resolved { var_id: VarId::Local(local_id), ty_sigil } => {
-                let fake_var = ast::Var::Named { ty_sigil, ident: format!("__localvar_{}", local_id).parse().unwrap() };
-                out.fmt(&fake_var)
-            },
-            ast::Var::Resolved { var_id: VarId::Reg(reg), ty_sigil } => match ty_sigil {
-                Some(ast::VarReadType::Int) => out.fmt(("[", reg.0, "]")),
-                Some(ast::VarReadType::Float) => out.fmt(("[", reg.0 as f32, "]")),
-                // The only way this is possible is if a register alias was resolved to a register, and not unresolved
-                // before printing.  Since `Format` is also used for debugging we don't want to panic, just print
-                // something illegal.
-                None => out.fmt(("[?_", reg.0, "_?]")),  // register access with unknown type
+            ast::Var::Reg { reg, ty_sigil } => match ty_sigil {
+                ast::VarReadType::Int => out.fmt(("[", reg.0, "]")),
+                ast::VarReadType::Float => out.fmt(("[", reg.0 as f32, "]")),
             },
         }
     }
@@ -826,7 +875,10 @@ impl Format for ast::Var {
 
 impl Format for ResIdent {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt(format_args!("{}", self))
+        match out.config.show_res {
+            true => out.fmt(format_args!("{}_{}", self.as_raw(), self.expect_res())),
+            false => out.fmt(format_args!("{}", self.as_raw())),
+        }
     }
 }
 

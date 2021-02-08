@@ -7,7 +7,7 @@ use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
-use crate::var::{VarId, RegId};
+use crate::var::{RegId};
 use crate::type_system::{ArgEncoding, TypeSystem, ScalarType, InstrAbi};
 use crate::value::ScalarValue;
 
@@ -361,8 +361,8 @@ fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleE
     if !raw.is_reg {
         bail!("expected a variable, got an immediate");
     }
-    let sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
-    let reg = match sigil {
+    let ty_sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
+    let reg = match ty_sigil {
         ast::VarReadType::Int => RegId(raw.expect_int()),
         ast::VarReadType::Float => {
             let float_reg = raw.expect_float();
@@ -372,10 +372,7 @@ fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleE
             RegId(float_reg as i32)
         },
     };
-    Ok(ast::Var::Resolved {
-        var_id: VarId::Reg(reg),
-        ty_sigil: Some(sigil),
-    })
+    Ok(ast::Var::Reg { reg, ty_sigil })
 }
 
 fn raise_jump_args(

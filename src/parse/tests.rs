@@ -128,10 +128,10 @@ fn var_parse() {
     use ast::{Var, VarReadType};
     use crate::var::RegId;
 
-    assert_eq!(Var::parse("[244]").unwrap(), Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: RegId(244).into() });
-    assert_eq!(Var::parse("[-99998]").unwrap(), Var::Resolved { ty_sigil: Some(VarReadType::Int), var_id: RegId(-99998).into() });
-    assert_eq!(Var::parse("[244f]").unwrap(), Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: RegId(244).into() });
-    assert_eq!(Var::parse("[-99998.0]").unwrap(), Var::Resolved { ty_sigil: Some(VarReadType::Float), var_id: RegId(-99998).into() });
+    assert_eq!(Var::parse("[244]").unwrap(), Var::Reg { ty_sigil: VarReadType::Int, reg: RegId(244) });
+    assert_eq!(Var::parse("[-99998]").unwrap(), Var::Reg { ty_sigil: VarReadType::Int, reg: RegId(-99998) });
+    assert_eq!(Var::parse("[244f]").unwrap(), Var::Reg { ty_sigil: VarReadType::Float, reg: RegId(244) });
+    assert_eq!(Var::parse("[-99998.0]").unwrap(), Var::Reg { ty_sigil: VarReadType::Float, reg: RegId(-99998) });
     assert!(Var::parse("[-99998.5]").is_err());
     assert!(Var::parse("[-99998e5]").is_err());
     assert!(matches!(Var::parse("lmao").unwrap(), Var::Named { ty_sigil: None, .. }));

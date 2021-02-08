@@ -307,7 +307,36 @@ impl<'a> Visitor<'a> {
 
     /// Get the type that a variable is being used as.
     fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
-        self.ty_ctx.var_read_type_from_ast(var)
+        let inherent_ty = self.ty_ctx.var_inherent_ty_from_ast(var);
+        let read_ty = var.read_ty();
+        match inherent_ty {
+            // no restrictions on these
+            | None
+            | Some(ScalarType::Int)
+            | Some(ScalarType::Float)
+            => {},
+
+            // these can't have sigils
+            | Some(ScalarType::String)
+            => match read_ty {
+                None => {},  // good; no sigil
+                Some(read_ty) => return Err(error!(
+                    message("type error"),
+                    primary(var, "attempt to read {} as {}", inherent_ty.unwrap().descr(), ScalarType::from(read_ty).descr()),
+                )),
+            }
+        };
+
+        self.ty_ctx.var_read_ty_from_ast(var).ok_or_else(|| {
+            let mut err = crate::error::Diagnostic::error();
+            err.message(format!("variable requires a type prefix"));
+            err.primary(var, format!("needs a '$' or '%' prefix"));
+            match self.ty_ctx.var_reg_from_ast(var) {
+                Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
+                Ok(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
+            };
+            err.into()
+        })
     }
 }
 
@@ -326,7 +355,7 @@ impl ast::Expr {
             ast::Expr::LitString { .. } => Some(ScalarType::String),
 
             ast::Expr::Var(ref var)
-            => Some(ty_ctx.var_read_type_from_ast(var).expect("already type-checked")),
+            => Some(ty_ctx.var_read_ty_from_ast(var).expect("already type-checked")),
 
             ast::Expr::Binop(ref a, op, _)
             => Some(ast::Expr::binop_ty(op.value, &a.value, ty_ctx)),

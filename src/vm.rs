@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
-use crate::ident::Ident;
-use crate::var::{VarId, RegId};
+use crate::ident::{Ident};
+use crate::var::{ResolveId, RegId};
 use crate::value::ScalarValue;
 
 /// A VM that runs on the AST, which can be used to help verify the validity of AST transforms
@@ -12,6 +12,10 @@ use crate::value::ScalarValue;
 /// Because it runs on a nested datastructure, it has no concept of a persistent instruction
 /// pointer and cannot be paused or resumed.  It will always run the code until it falls off
 /// past the last statement or hits a return.
+///
+/// **Important:** The VM has no interaction with the type system.  This means that it cannot resolve
+/// aliases of registers; you should [convert them to raw registers](`crate::passes::resolve_names::aliases_to_regs`)
+/// as a preprocessing step before using the VM.
 #[derive(Debug, Clone)]
 pub struct AstVm {
     /// Current script time in the VM.
@@ -29,6 +33,13 @@ pub struct AstVm {
     iterations: u32,
     max_iterations: Option<u32>,
     var_values: HashMap<VarId, ScalarValue>,
+}
+
+/// Hashable type representing a register or a named variable.
+#[derive(Copy, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VarId {
+    Reg(RegId),
+    Other(ResolveId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,15 +62,15 @@ impl fmt::Display for AstVm {
             }
         }
 
-        let mut locals = vec![];
+        let mut others = vec![];
         let mut regs = vec![];
         for (&var_id, value) in &self.var_values {
             match var_id {
                 VarId::Reg(reg) => regs.push((reg, value.clone())),
-                VarId::Local(local) => locals.push((local, value.clone())),
+                VarId::Other(res) => others.push((res, value.clone())),
             }
         }
-        locals.sort_by_key(|&(id, _)| id);
+        others.sort_by_key(|&(id, _)| id);
         regs.sort_by_key(|&(id, _)| id);
 
         if !regs.is_empty() {
@@ -68,9 +79,9 @@ impl fmt::Display for AstVm {
                 writeln!(f, "  {:>5}  {}", reg, value)?;
             }
         }
-        if !locals.is_empty() {
-            writeln!(f, "  LOCALS")?;
-            for (local_id, value) in locals {
+        if !others.is_empty() {
+            writeln!(f, "  OTHER VARS")?;
+            for (local_id, value) in others {
                 writeln!(f, "  {:>5}  {}", local_id, value)?;
             }
         }
@@ -108,6 +119,9 @@ impl AstVm {
     }
 
     /// Run the statements until it hits the end or a `return`.  Returns the `return`ed value.
+    ///
+    /// **Important reminder:** Please be certain that name resolution has been performed, and that
+    /// additionally all register aliases have been [converted to raw registers](`crate::passes::resolve_names::aliases_to_regs`).
     pub fn run(&mut self, stmts: &[Sp<ast::Stmt>]) -> Option<ScalarValue> {
         match self._run(stmts) {
             RunResult::Nominal => None,
@@ -376,8 +390,8 @@ impl AstVm {
 
     fn _var_data(&self, var: &ast::Var) -> (VarId, Option<ast::VarReadType>) {
         match *var {
-            ast::Var::Named { ref ident, .. } => panic!("AST VM requires name resolution (found {})", ident),
-            ast::Var::Resolved { var_id, ty_sigil } => (var_id, ty_sigil),
+            ast::Var::Named { ref ident, ty_sigil } => (VarId::Other(ident.expect_res()), ty_sigil),
+            ast::Var::Reg { reg, ty_sigil } => (VarId::Reg(reg), Some(ty_sigil)),
         }
     }
 
@@ -422,9 +436,10 @@ mod tests {
     use crate::pos::Files;
     use crate::type_system::TypeSystem;
     use crate::value::ScalarValue::{Int, Float};
+    use crate::type_system::ScalarType as Ty;
 
     struct TestSpec<S> {
-        globals: Vec<(&'static str, RegId)>,
+        globals: Vec<(&'static str, RegId, Ty)>,
         source: S,
     }
 
@@ -438,10 +453,12 @@ mod tests {
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ty_ctx = TypeSystem::new();
-            for &(name, reg) in &self.globals {
+            for &(name, reg, ty) in &self.globals {
                 ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
+                ty_ctx.set_reg_ty(reg, Some(ty));
             }
             crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::aliases_to_regs(&mut ast.value, &mut ty_ctx).unwrap();
             ast.value
         }
     }
@@ -449,7 +466,7 @@ mod tests {
     #[test]
     fn basic_variables() {
         let ast = TestSpec {
-            globals: vec![("Y", RegId(-999))],
+            globals: vec![("Y", RegId(-999), Ty::Int)],
             source: r#"{
                 int x = 3;
                 x = 2 + 3 * x + $Y;
@@ -466,7 +483,7 @@ mod tests {
     #[test]
     fn basic_instrs_and_time() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(100)), ("Y", RegId(101))],
+            globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Float)],
             source: r#"{
                 ins_345(0, 6);
             +10:
@@ -488,7 +505,7 @@ mod tests {
     #[test]
     fn while_do_while() {
         let while_ast = TestSpec {
-            globals: vec![("X", RegId(100)), ("Y", RegId(101))],
+            globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
                 while (X < Y) {
@@ -503,7 +520,7 @@ mod tests {
         }.prepare();
 
         let do_while_ast = TestSpec {
-            globals: vec![("X", RegId(100)), ("Y", RegId(101))],
+            globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
                 do {
@@ -545,7 +562,7 @@ mod tests {
     #[test]
     fn goto() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(100))],
+            globals: vec![("X", RegId(100), Ty::Int)],
             source: r#"{
                 X = 0;
                 loop {
@@ -578,7 +595,7 @@ mod tests {
     fn times() {
         for possible_clobber in vec!["", "C = "] {
             let ast = TestSpec {
-                globals: vec![("X", RegId(100)), ("C", RegId(101))],
+                globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
                 source: format!(r#"{{
                     times({}X) {{
                         a();
@@ -603,7 +620,7 @@ mod tests {
     #[test]
     fn predecrement_jmp() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(100)), ("C", RegId(101))],
+            globals: vec![("C", RegId(101), Ty::Int)],
             source: r#"{
                 C = 2;
             label:
@@ -627,7 +644,7 @@ mod tests {
     #[test]
     fn times_clobber_nice() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(100)), ("C", RegId(101))],
+            globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 2;
                 times(C = X) {
@@ -651,7 +668,7 @@ mod tests {
     #[test]
     fn times_clobber_naughty() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(100)), ("C", RegId(101))],
+            globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 4;
                 times(C = X) {
@@ -678,7 +695,7 @@ mod tests {
         macro_rules! gen_spec {
             ($last_clause:literal) => {
                 TestSpec {
-                    globals: vec![("X", RegId(100))],
+                    globals: vec![("X", RegId(100), Ty::Int)],
                     source: concat!(r#"{
                         if (X == 1) {
                             a(1);
@@ -718,7 +735,7 @@ mod tests {
     #[test]
     fn type_cast() {
         let ast = TestSpec {
-            globals: vec![("X", RegId(30)), ("Y", RegId(31))],
+            globals: vec![("X", RegId(30), Ty::Int), ("Y", RegId(31), Ty::Int)],
             source: r#"{
                 Y = 6.78;
                 X = $Y * 2;
@@ -748,8 +765,8 @@ mod tests {
     fn math_funcs() {
         let ast = TestSpec {
             globals: vec![
-                ("X", RegId(30)),
-                ("SIN", RegId(31)), ("COS", RegId(32)), ("SQRT", RegId(33)),
+                ("X", RegId(30), Ty::Float),
+                ("SIN", RegId(31), Ty::Float), ("COS", RegId(32), Ty::Float), ("SQRT", RegId(33), Ty::Float),
             ],
             source: r#"{
                 SIN = sin(X);
@@ -772,8 +789,8 @@ mod tests {
     fn cast() {
         let ast = TestSpec {
             globals: vec![
-                ("I", RegId(30)), ("F", RegId(31)),
-                ("F_TO_I", RegId(32)), ("I_TO_F", RegId(33)),
+                ("I", RegId(30), Ty::Int), ("F", RegId(31), Ty::Float),
+                ("F_TO_I", RegId(32), Ty::Int), ("I_TO_F", RegId(33), Ty::Float),
             ],
             source: r#"{
                 F_TO_I = _S(F * 7.0) - 2;

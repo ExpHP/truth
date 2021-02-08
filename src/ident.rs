@@ -1,11 +1,11 @@
 use std::fmt;
-use std::num::NonZeroU64;
 use std::rc::Rc;
 
 use thiserror::Error;
 use lazy_static::lazy_static;
 use regex::Regex;
 
+use crate::var::ResolveId;
 use crate::pos::Sp;
 
 /// An identifier subject to name resolution.
@@ -55,14 +55,6 @@ pub struct Ident {
     ident: Rc<str>,
 }
 
-/// Represents an identifier that has been uniquely resolved according to its scope.
-///
-/// Strictly speaking, most code shouldn't *need* this, as directly comparing [`Ident`] will already
-/// take advantage of these when available.  That said, if a pass requires name resolution in order
-/// to be correct, obtaining these is at least a good excuse to panic when they're missing.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ResolveId(pub NonZeroU64);
-
 impl ResIdent {
     pub fn new_ins(opcode: u16) -> Self {
         Ident::new_ins(opcode).into()
@@ -72,8 +64,8 @@ impl ResIdent {
         &self.ident
     }
 
-    pub(crate) fn set_id(&mut self, id: ResolveId) {
-        self.disambig = Some(id);
+    pub(crate) fn set_res(&mut self, res: ResolveId) {
+        self.disambig = Some(res);
     }
 
     #[track_caller]
@@ -239,20 +231,6 @@ impl fmt::Debug for Ident {
 impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.ident, f)
-    }
-}
-
-// =============================================================================
-
-impl fmt::Debug for ResolveId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Display for ResolveId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
     }
 }
 
