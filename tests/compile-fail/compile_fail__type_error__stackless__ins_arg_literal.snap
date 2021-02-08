@@ -6,8 +6,8 @@ error: type error
    ┌─ <input>:27:16
    │
 27 │       pos(0.0, 5, 3.0);  
-   │       ---      ^ wrong type for argument 2
+   │       ---      ^ an integer
    │       │         
-   │       expects a float
+   │       expects a float for parameter 2
 
 

@@ -2,10 +2,12 @@
 source: tests/compile-fail.rs
 expression: stderr
 ---
-error: runtime temporary of non-numeric type
-  ┌─ <input>:7:21
+error: type error
+  ┌─ <input>:7:22
   │
 7 │       textSet(0, 0, -"abc");  
-  │                     ^^^^^^ temporary strings cannot be created
+  │                     -^^^^^ a string
+  │                     │ 
+  │                     requires a numeric type
 
 
