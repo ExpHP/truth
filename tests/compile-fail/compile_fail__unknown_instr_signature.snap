@@ -6,6 +6,8 @@ error: signature not known for opcode 6000
    ┌─ <input>:27:7
    │
 27 │       ins_6000(0, 0, 0);  
-   │       ^^^^^^^^ signature not in mapfiles
+   │       ^^^^^^^^ signature not known
+   │
+   = try adding this instruction's signature to your mapfiles
 
 
