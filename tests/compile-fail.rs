@@ -127,7 +127,7 @@ compile_fail_test!(
 compile_fail_test!(
     ANM_10, unknown_instr_name,
     main_body: r#"  iMadeThisUpYesterday(0, 0, 0);  "#,
-    expected: "unknown instruction",
+    expected: "unknown function",
 );
 
 compile_fail_test!(
@@ -232,7 +232,7 @@ compile_fail_test!(
     ANM_06, eosd_anm_early_end,
     main_body: r#"
         ins_0();
-        posKeyframe(0f, 0f, 0f);
+        pos(0f, 0f, 0f);
     "#,
     expected: "after end",
 );

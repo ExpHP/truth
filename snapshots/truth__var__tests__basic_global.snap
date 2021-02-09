@@ -1,7 +1,7 @@
 ---
 source: src/var.rs
-expression: "resolve_reformat(r#\"{\n        ins_21(A, X);\n    }\"#).trim()"
+expression: "resolve_reformat::<ast::Block>(r#\"{\n        ins_21(A, X);\n    }\"#).trim()"
 ---
 {
-    ins_21(A_1, X_2);
+    ins_21_2(A_3, X_4);
 }

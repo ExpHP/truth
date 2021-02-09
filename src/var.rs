@@ -2,7 +2,7 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::collections::HashMap;
 use crate::ident::{Ident, ResIdent};
-use crate::type_system::{ScalarType, TypeSystem};
+use crate::type_system::{TypeSystem};
 
 // FIXME rename to crate::resolve
 
@@ -43,9 +43,12 @@ struct ScopeId(
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[derive(enum_map::Enum)]
-pub enum Namespace { Vars }
+pub enum Namespace {
+    Vars,
+    Funcs,
+}
 
-use name_resolver::{NameResolver, ResolutionError, Depth};
+use name_resolver::{NameResolver, ResolutionError};
 mod name_resolver {
     use super::*;
 
@@ -96,8 +99,8 @@ mod name_resolver {
         pub fn init_from_ty_ctx(ty_ctx: &TypeSystem) -> Self {
             let mut this = Self::new();
             for (ns, res) in ty_ctx.globals() {
-                if let Some(ident) = ty_ctx.resolvable_ident(ns, res) {
-                    this.enter_child(ident.clone(), ns, res);
+                if let Some(ident) = ty_ctx.name(ns, res) {
+                    this.enter_child(ident.as_raw().clone(), ns, res);
                 }
             }
             this
@@ -146,7 +149,7 @@ pub use resolve_vars::Visitor as ResolveVarsVisitor;
 mod resolve_vars {
     use super::*;
     use crate::ast::{self, VisitMut};
-    use crate::pos::Sp;
+    use crate::pos::{Sp};
     use crate::error::CompileError;
 
     /// Visitor for name resolution. Please don't use this directly,
@@ -159,9 +162,6 @@ mod resolve_vars {
     }
 
     pub struct BlockState {
-        /// Depth in the scope tree that we will ascend back to upon leaving the block.
-        outer_scope_depth: Depth,
-
         /// List of local variables whose scope end at the end of this block.
         ///
         /// We track this actually not for name resolution purposes, but so that "ScopeEnd"
@@ -186,9 +186,62 @@ mod resolve_vars {
     }
 
     impl VisitMut for Visitor<'_> {
+        fn visit_script(&mut self, x: &mut ast::Script) {
+            // scan ahead for all function definitions
+            let mut funcs_at_this_level = HashMap::new();
+            for item in &mut x.items {
+                if let ast::Item::Func { ident, .. } = &mut item.value {
+                    // check for redefinitions
+                    if let Some(old_span) = funcs_at_this_level.get(ident.as_raw()) {
+                        self.errors.append(error!(
+                            message("redefinition of func '{}'", ident),
+                            primary(ident.span, "redefinition of function"),
+                            secondary(old_span, "originally defined here"),
+                        ));
+                        // keep going; this is relatively harmless
+                    }
+                    funcs_at_this_level.insert(ident.as_raw().clone(), ident.span);
+
+                    // give it a name resolution id
+                    *ident = self.ty_ctx.add_user_func(ident.clone());
+
+                    // add it to the current scope
+                    self.resolver.enter_child(ident.as_raw().clone(), Namespace::Funcs, ident.expect_res());
+                }
+            }
+
+            ast::walk_script_mut(self, x);
+        }
+
+        fn visit_item(&mut self, x: &mut Sp<ast::Item>) {
+            match &mut x.value {
+                | ast::Item::Func { params, code, .. }
+                => {
+                    if let Some(code) = code {
+                        // we have to put the parameters in scope
+                        let outer_scope_depth = self.resolver.current_depth();
+                        for (ty_keyword, ident) in params {
+                            *ident = self.ty_ctx.add_local(ident.clone(), ty_keyword.ty());
+
+                            self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, ident.expect_res());
+                        }
+                        ast::walk_block_mut(self, code);
+
+                        self.resolver.return_to_ancestor(outer_scope_depth);
+                    }
+                },
+
+                | ast::Item::AnmScript { .. }
+                | ast::Item::Meta { .. }
+                | ast::Item::FileList { .. }
+                => ast::walk_item_mut(self, x),
+            }
+        }
+
         fn visit_block(&mut self, x: &mut ast::Block) {
+            let outer_scope_depth = self.resolver.current_depth();
+
             self.stack.push(BlockState {
-                outer_scope_depth: self.resolver.current_depth(),
                 locals_declared_at_this_level: vec![],
             });
 
@@ -206,17 +259,13 @@ mod resolve_vars {
             }
 
             // make names defined within the block no longer resolvable
-            self.resolver.return_to_ancestor(popped.outer_scope_depth);
+            self.resolver.return_to_ancestor(outer_scope_depth);
         }
 
         fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
             match &mut x.body {
                 ast::StmtBody::Declaration { keyword, vars } => {
-                    let ty = match keyword.value {
-                        ast::VarDeclKeyword::Int => Some(ScalarType::Int),
-                        ast::VarDeclKeyword::Float => Some(ScalarType::Float),
-                        ast::VarDeclKeyword::Var => None,
-                    };
+                    let ty = keyword.ty();
 
                     for pair in vars {
                         let (var, init_value) = &mut pair.value;
@@ -239,7 +288,7 @@ mod resolve_vars {
                                 .locals_declared_at_this_level.push(ident.expect_res());
                         }
                     }
-                }
+                },
                 _ => ast::walk_stmt_mut(self, x),
             }
         }
@@ -257,13 +306,14 @@ mod resolve_vars {
         }
 
         fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
-            // FIXME XXX  this is just a hack to get tests working,
-            //            name resolution will be getting an update very soon
-            if let ast::Expr::Call { ident, .. } = &expr.value {
-                // currently ins_XXX names never get added, so add the ones that get called
-                if let Some(opcode) = ident.as_ins() {
-                    self.ty_ctx.add_global_ins_alias(opcode, crate::ident::ResIdent::from(ident.value.clone()));
-                }
+            if let ast::Expr::Call { ident, .. } = &mut expr.value {
+                match self.resolver.resolve(ident, Namespace::Funcs) {
+                    Err(ResolutionError) => self.errors.append(error!(
+                        message("unknown function '{}'", ident),
+                        primary(ident, "not found in this scope"),
+                    )),
+                    Ok(()) => {},
+                };
             }
             ast::walk_expr_mut(self, expr)
         }
@@ -313,6 +363,8 @@ impl fmt::Display for ResolveId {
 #[cfg(test)]
 mod tests {
     use crate::pos::Files;
+    use crate::parse::Parse;
+    use crate::fmt::Format;
     use crate::error::CompileError;
     use crate::eclmap::Eclmap;
     use crate::type_system::TypeSystem;
@@ -325,88 +377,124 @@ mod tests {
 !gvar_types
 100 $
 101 %
+!ins_names
+21 func21
 "#;
 
-    fn resolve(text: &str) -> Result<ast::Block, (Files, CompileError)> {
+    fn resolve<A: ast::Visitable + for<'a> Parse<'a>>(text: &str) -> Result<A, (Files, CompileError)> {
         let mut files = Files::new();
         let mut ty_ctx = TypeSystem::new();
         ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
 
-        let mut parsed_block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
-        match crate::passes::resolve_names::run(&mut parsed_block, &mut ty_ctx) {
-            Ok(()) => Ok(parsed_block),
+        let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
+        match crate::passes::resolve_names::run(&mut parsed, &mut ty_ctx) {
+            Ok(()) => Ok(parsed),
             Err(e) => Err((files, e)),
         }
     }
 
-    fn resolve_reformat(text: &str) -> String {
-        let parsed_block = resolve(text).unwrap();
-        crate::fmt::stringify_with(&parsed_block, crate::fmt::Config::new().show_res(true))
+    fn resolve_reformat<A: ast::Visitable + Format + for<'a> Parse<'a>>(text: &str) -> String {
+        let parsed = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
+
+        crate::fmt::stringify_with(&parsed, crate::fmt::Config::new().show_res(true))
     }
 
-    fn resolve_expect_err(text: &str) -> String {
-        let (files, err) = resolve(text).unwrap_err();
-        err.to_string(&files).unwrap()
+    fn resolve_expect_err<A: ast::Visitable + for<'a> Parse<'a>>(text: &str, expected: &str) -> String {
+        let (files, err) = resolve::<A>(text).err().unwrap();
+        let err_msg = err.to_string(&files).unwrap();
+        assert!(err_msg.contains(expected), "{}", err_msg);
+        err_msg
     }
 
     macro_rules! snapshot_test {
-        ($name:ident = $source:literal) => {
+        ($name:ident = <$ty:ty> $source:literal) => {
             #[test]
-            fn $name() { assert_snapshot!(resolve_reformat($source).trim()); }
+            fn $name() { assert_snapshot!(resolve_reformat::<$ty>($source).trim()); }
         };
-        ([expect_fail] $name:ident = $source:literal) => {
+        ([expect_fail($expected:expr)] $name:ident = <$ty:ty> $source:literal) => {
             #[test]
-            fn $name() { assert_snapshot!(resolve_expect_err($source).trim()); }
+            fn $name() { assert_snapshot!(resolve_expect_err::<$ty>($source, $expected).trim()); }
         };
     }
 
-    snapshot_test!(basic_local = r#"{
+    snapshot_test!(basic_local = <ast::Block> r#"{
         int a = 3;
-        int b = a + a;
+        int b = a + a;  // should use same `a`
     }"#);
 
-    snapshot_test!(shadow_local = r#"{
+    snapshot_test!(shadow_local = <ast::Block> r#"{
         int a = 3;
         if (true) {
             int a = 4;
-            int b = a * a;
+            int b = a * a;  // should use inner `a`
         }
-        int c = a * a;
+        int c = a * a;  // should use outer `a`
         if (true) {
-            int a = 4;
-            int b = a * a;
+            int a = 4;  // should be different from other inner `a`
+            int b = a * a;  // should use new inner `a`
         }
     }"#);
 
-    snapshot_test!([expect_fail] err_adjacent_scope = r#"{
+    snapshot_test!([expect_fail("in this scope")] err_adjacent_scope = <ast::Block> r#"{
         if (true) {
             int a = 4;
             int b = a * 3;
         }
         if (true) {
-            int b = a * 3;
+            int b = a * 3;  // should fail at `a`
         }
     }"#);
 
-    snapshot_test!([expect_fail] err_after_scope_end = r#"{
+    snapshot_test!([expect_fail("in this scope")] err_after_scope_end = <ast::Block> r#"{
         if (true) {
             int a = 4;
             int b = a * 3;
         }
-        int b = a;
+        int b = a;  // should fail at `a`
     }"#);
 
     // FIXME rename to basic_reg_alias
-    snapshot_test!(basic_global = r#"{
+    snapshot_test!(basic_global = <ast::Block> r#"{
         ins_21(A, X);
     }"#);
 
-    snapshot_test!(shadow_global = r#"{
+    snapshot_test!(shadow_global = <ast::Block> r#"{
         ins_21(A, X);
         if (true) {
-            float A = 4.0;
+            float A = 4.0;  // should be different `A`
             float b = A;
         }
-        ins_21(A, X);
+        ins_21(A, X);  // should be original `A`
     }"#);
+
+    snapshot_test!(basic_func = <ast::Script> r#"
+    int foo(int x) {
+        return x;
+    }
+
+    script script0 {
+        int x = 3;
+        foo(x);  // should match `foo` definition
+    }"#);
+
+    snapshot_test!(basic_func_out_of_order = <ast::Script> r#"
+    script script0 {
+        int x = 3;
+        foo(x);  // should match `foo` definition
+    }
+
+    int foo(int x) {
+        return x;
+    }
+    "#);
+
+    snapshot_test!([expect_fail("redefinition")] err_func_redefinition = <ast::Script> r#"
+    int foo(int x) {
+        return x;
+    }
+
+    int foo(float y) {
+        return y;
+    }
+    "#);
 }

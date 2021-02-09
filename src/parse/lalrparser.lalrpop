@@ -172,10 +172,10 @@ Items: Vec<Sp<ast::Item>> = {
 };
 
 Item: ast::Item = {
-    <inline:TokenSpan<"inline">?> <keyword:Sp<FuncKeyword>> <name:Sp<Ident>>
-        "(" <params:SeparatedTrailing<(<Sp<VarDeclKeyword>> <Sp<Ident>>), ",">> ")"
+    <inline:TokenSpan<"inline">?> <keyword:Sp<FuncKeyword>> <ident:Sp<ResIdent>>
+        "(" <params:SeparatedTrailing<(<Sp<VarDeclKeyword>> <Sp<ResIdent>>), ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => ast::Item::Func { inline, keyword, name, params, code },
+        => ast::Item::Func { inline, keyword, ident, params, code },
 
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
         => ast::Item::AnmScript { keyword, number, name, code },
@@ -340,12 +340,10 @@ StmtGoto: ast::StmtGoto = {
 
 StmtSpecialCall: ast::StmtBody = {
     // handle cases where at least one of the '@' or 'async' are present
-    "@" <call_parts:ExprCallParts> <async_:CallAsyncKind?> ";" => {
-        let (func, args) = call_parts;
+    "@" <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind?> ";" => {
         ast::StmtBody::CallSub { at_symbol: true, func, args, async_ }
     },
-    <call_parts:ExprCallParts> <async_:CallAsyncKind> ";" => {
-        let (func, args) = call_parts;
+    <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind> ";" => {
         ast::StmtBody::CallSub { at_symbol: true, func, args, async_: Some(async_) }
     },
 };
@@ -520,10 +518,8 @@ ExprTerm: ast::Expr = {
     <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")"
         => ast::Expr::Unop(op, e),
 
-    <call_parts:ExprCallParts> => {
-        let (ident, args) = call_parts;
-        ast::Expr::Call { ident, args }
-    },
+    <ident:Sp<ResIdent>> <args:ExprCallParenArgs>
+        => ast::Expr::Call { ident, args },
 
     <v:Sp<Var>> => ast::Expr::Var(v),
 
@@ -541,8 +537,8 @@ ExprTerm: ast::Expr = {
     ).into()),
 };
 
-ExprCallParts: (Sp<Ident>, Vec<Sp<ast::Expr>>) = {
-    <Sp<Ident>> "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
+ExprCallParenArgs: Vec<Sp<ast::Expr>> = {
+    "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
 };
 
 // ==================================================
@@ -675,6 +671,7 @@ OptionalMinus: i32 = {
     => 1,
 };
 
+#[inline]
 ResIdent: ResIdent = <ident:Ident> => ident.into();
 
 Ident: Ident = {
