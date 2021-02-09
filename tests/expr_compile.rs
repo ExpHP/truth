@@ -251,7 +251,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
 
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");
-    assert_eq!(old_vm.call_log, new_vm.call_log);
+    assert_eq!(old_vm.instr_log, new_vm.instr_log);
     Ok((old_vm, new_vm))
 }
 
@@ -590,8 +590,8 @@ fn check_bool(init: &str, cond: &str, expected: bool) -> CheckBoolVms {
     }}"#, init, cond));
 
     // For 'if', the call should be skipped if the condition is true.
-    assert_eq!(new_if_vm.call_log.len(), 1 - (expected as usize));
-    assert_eq!(new_unless_vm.call_log.len(), expected as usize);
+    assert_eq!(new_if_vm.instr_log.len(), 1 - (expected as usize));
+    assert_eq!(new_unless_vm.instr_log.len(), expected as usize);
     CheckBoolVms { new_if_vm, new_unless_vm }
 }
 

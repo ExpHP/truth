@@ -35,7 +35,6 @@ fn expr_parse() {
         2,
     );
     check_exprs_same!("1 + [1]", "1 + [1]");
-    check_exprs_same!("boo(1, 2, 3)", "boo(1, 2, 3,)");
 }
 
 #[test]
@@ -109,14 +108,10 @@ fn block_outer_time_label() {
 fn parse_trailing_comma() {
     use ast::Expr;
 
-    assert_eq!(
-        Expr::parse("foo(1)").unwrap(),
-        Expr::parse("foo(1,)").unwrap(),
-    );
-    assert_eq!(
-        Expr::parse("foo(1, 2, 3)").unwrap(),
-        Expr::parse("foo(1, 2, 3,)").unwrap(),
-    );
+    assert!(Expr::parse("foo(1)").is_ok());
+    assert!(Expr::parse("foo(1,)").is_ok());
+    assert!(Expr::parse("foo(1, 2, 3)").is_ok());
+    assert!(Expr::parse("foo(1, 2, 3,)").is_ok());
     assert!(Expr::parse("foo(1, 2, ,)").is_err());
     assert!(Expr::parse("foo(,1, 2)").is_err());
     assert!(Expr::parse("foo(,)").is_err());

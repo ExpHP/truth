@@ -2,10 +2,10 @@
 source: tests/compile-fail.rs
 expression: stderr
 ---
-error: unknown instruction 'iMadeThisUpYesterday'
+error: unknown function 'iMadeThisUpYesterday'
    ┌─ <input>:27:7
    │
 27 │       iMadeThisUpYesterday(0, 0, 0);  
-   │       ^^^^^^^^^^^^^^^^^^^^ not an instruction
+   │       ^^^^^^^^^^^^^^^^^^^^ not found in this scope
 
 

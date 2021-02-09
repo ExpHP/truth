@@ -1,16 +1,16 @@
 ---
 source: src/var.rs
-expression: "resolve_reformat(r#\"{\n        int a = 3;\n        if (true) {\n            int a = 4;\n            int b = a * a;\n        }\n        int c = a * a;\n        if (true) {\n            int a = 4;\n            int b = a * a;\n        }\n    }\"#).trim()"
+expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        if (true) {\n            int a = 4;\n            int b = a * a;  // should use inner `a`\n        }\n        int c = a * a;  // should use outer `a`\n        if (true) {\n            int a = 4;  // should be different from other inner `a`\n            int b = a * a;  // should use new inner `a`\n        }\n    }\"#).trim()"
 ---
 {
-    int a_5 = 3;
+    int a_7 = 3;
     if (1) {
-        int a_6 = 4;
-        int b_7 = (a_6 * a_6);
+        int a_8 = 4;
+        int b_9 = (a_8 * a_8);
     }
-    int c_8 = (a_5 * a_5);
+    int c_10 = (a_7 * a_7);
     if (1) {
-        int a_9 = 4;
-        int b_10 = (a_9 * a_9);
+        int a_11 = 4;
+        int b_12 = (a_11 * a_11);
     }
 }

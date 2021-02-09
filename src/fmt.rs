@@ -565,10 +565,10 @@ impl Format for meta::Fields {
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
-            ast::Item::Func { inline, keyword, name, params, code, } => {
+            ast::Item::Func { inline, keyword, ident, params, code, } => {
                 let inline_keyword = if inline.is_some() { "inline " } else { "" };
 
-                out.fmt((inline_keyword, keyword, " ", name))?;
+                out.fmt((inline_keyword, keyword, " ", ident))?;
                 out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
 
                 out.state.time_stack.push(0);

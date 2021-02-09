@@ -1,8 +1,8 @@
 ---
 source: src/var.rs
-expression: "resolve_reformat(r#\"{\n        int a = 3;\n        int b = a + a;\n    }\"#).trim()"
+expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        int b = a + a;  // should use same `a`\n    }\"#).trim()"
 ---
 {
-    int a_5 = 3;
-    int b_6 = (a_5 + a_5);
+    int a_7 = 3;
+    int b_8 = (a_7 + a_7);
 }

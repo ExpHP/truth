@@ -9,7 +9,7 @@ use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
-use crate::ident::{Ident};
+use crate::ident::{ResIdent};
 use crate::var::{ResolveId, RegId};
 use crate::type_system::{TypeSystem, ScalarType};
 
@@ -98,12 +98,11 @@ impl Lowerer<'_> {
     fn lower_func_stmt<'a>(
         &mut self,
         stmt: &Sp<ast::Stmt>,
-        func: &Sp<Ident>,
+        func: &Sp<ResIdent>,
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
         // all function statements currently refer to single instructions
-        let res = self.ty_ctx.func_ident_id(func);
-        let opcode = self.ty_ctx.ins_opcode(res);
+        let opcode = self.ty_ctx.ins_opcode(func.expect_res());
 
         let opcode = match opcode {
             Some(opcode) => opcode,

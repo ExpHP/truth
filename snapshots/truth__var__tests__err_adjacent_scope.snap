@@ -1,9 +1,9 @@
 ---
 source: src/var.rs
-expression: "resolve_expect_err(r#\"{\n        if (true) {\n            int a = 4;\n            int b = a * 3;\n        }\n        if (true) {\n            int b = a * 3;\n        }\n    }\"#).trim()"
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n        if (true) {\n            int a = 4;\n            int b = a * 3;\n        }\n        if (true) {\n            int b = a * 3;  // should fail at `a`\n        }\n    }\"#,\n                                 \"in this scope\").trim()"
 ---
 error: unknown variable 'a'
   ┌─ <input>:7:21
   │
-7 │             int b = a * 3;
+7 │             int b = a * 3;  // should fail at `a`
   │                     ^ not found in this scope

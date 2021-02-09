@@ -7,8 +7,8 @@ error: statement after end of script
    │
 28 │         ins_0();
    │         ----- marks the end of the script
-29 │         posKeyframe(0f, 0f, 0f);
-   │         ^^^^^^^^^^^^^^^^^^^^^^^^ forbidden statement
+29 │         pos(0f, 0f, 0f);
+   │         ^^^^^^^^^^^^^^^^ forbidden statement
    │
    = In EoSD ANM, every script must have a single exit point (opcode 0 or 15), as the final instruction.
 

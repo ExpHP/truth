@@ -218,6 +218,7 @@ mod tests {
     use crate::type_system::ScalarType as Ty;
 
     struct TestSpec<S> {
+        instrs: Vec<(u16, Option<&'static str>, &'static str)>,
         globals: Vec<(&'static str, RegId, Ty)>,
         source: S,
     }
@@ -228,12 +229,18 @@ mod tests {
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ty_ctx = TypeSystem::new();
+            for &(opcode, alias, abi_str) in &self.instrs {
+                ty_ctx.set_ins_abi(opcode, abi_str.parse().unwrap());
+                if let Some(alias) = alias {
+                    ty_ctx.add_global_ins_alias(opcode, alias.parse().unwrap());
+                }
+            }
             for &(name, reg, ty) in &self.globals {
                 ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
             }
             crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
-            crate::passes::resolve_names::aliases_to_regs(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ty_ctx).unwrap();
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
             vm_before.run(&ast.0);
@@ -245,7 +252,7 @@ mod tests {
 
             assert_eq!(vm_before.time, vm_after.time, "{}\n{}", vm_before, vm_after);
             assert_eq!(vm_before.real_time, vm_after.real_time, "{}\n{}", vm_before, vm_after);
-            assert_eq!(vm_before.call_log, vm_after.call_log, "{}\n{}", vm_before, vm_after);
+            assert_eq!(vm_before.instr_log, vm_after.instr_log, "{}\n{}", vm_before, vm_after);
             for &(_, reg, _) in &self.globals {
                 assert_eq!(vm_before.get_reg(reg), vm_after.get_reg(reg), "{}\n{}", vm_before, vm_after);
             }
@@ -256,6 +263,7 @@ mod tests {
     #[test]
     fn r#loop() {
         TestSpec {
+            instrs: vec![],
             globals: vec![("X", RegId(20), Ty::Int)],
             source: r#"{
                 X = 1;
@@ -274,6 +282,7 @@ mod tests {
     fn times() {
         for ntimes in vec![11, 1, 0] {
             let vm = TestSpec {
+                instrs: vec![(10, Some("foo"), "S")],
                 globals: vec![("X", RegId(20), Ty::Int)],
                 source: format!(r#"{{
                     X = 1;
@@ -293,6 +302,7 @@ mod tests {
     fn times_clobber() {
         for ntimes in vec![11, 1, 0] {
             let vm = TestSpec {
+                instrs: vec![(10, Some("foo"), "S"), (20, Some("final"), "S")],
                 globals: vec![("X", RegId(20), Ty::Int)],
                 source: format!(r#"{{
                     times(X = {ntimes}) {{
@@ -313,6 +323,7 @@ mod tests {
     fn do_while() {
         for mult in vec![4, 1, 0] {
             let vm = TestSpec {
+                instrs: vec![(10, Some("foo"), "f"), (20, Some("final"), "f")],
                 globals: vec![("X", RegId(20), Ty::Float)],
                 source: format!(r#"{{
                     X = 0.33333333333333333333;
@@ -331,7 +342,7 @@ mod tests {
                 n => n,
             };
             assert_eq!(vm.time, 4);
-            assert_eq!(vm.call_log.len(), expected_niter + 1);
+            assert_eq!(vm.instr_log.len(), expected_niter + 1);
         }
     }
 
@@ -339,6 +350,7 @@ mod tests {
     fn r#while() {
         for niter in vec![4, 1, 0] {
             let vm = TestSpec {
+                instrs: vec![(10, Some("foo"), "f"), (20, Some("final"), "f")],
                 globals: vec![("X", RegId(20), Ty::Float)],
                 source: format!(r#"{{
                     X = 0.33333333333333333333;
@@ -353,13 +365,19 @@ mod tests {
             }.run();
 
             assert_eq!(vm.time, 4);
-            assert_eq!(vm.call_log.len(), niter + 1);
+            assert_eq!(vm.instr_log.len(), niter + 1);
         }
     }
 
     #[test]
     fn cond_chain() {
         let get_vm = |x| TestSpec {
+            instrs: vec![
+                (2, Some("two"), "S"),
+                (22, Some("two_digit"), "S"),
+                (6, Some("other"), "S"),
+                (44, Some("final"), "S"),
+            ],
             globals: vec![("X", RegId(20), Ty::Int)],
             source: format!(r#"{{
                 X = {x};
@@ -383,23 +401,23 @@ mod tests {
 
         let vm = get_vm(2);
         assert_eq!(vm.time, 25);
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 2, name: "two".parse().unwrap(), args: vec![Int(2)] },
-            LoggedCall { real_time: 10, name: "final".parse().unwrap(), args: vec![Int(2)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 2, opcode: 2, args: vec![Int(2)] },
+            LoggedCall { real_time: 10, opcode: 44, args: vec![Int(2)] },
         ]);
 
         let vm = get_vm(12);
         assert_eq!(vm.time, 25);
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 4, name: "two_digit".parse().unwrap(), args: vec![Int(12)] },
-            LoggedCall { real_time: 15, name: "final".parse().unwrap(), args: vec![Int(12)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 4, opcode: 22, args: vec![Int(12)] },
+            LoggedCall { real_time: 15, opcode: 44, args: vec![Int(12)] },
         ]);
 
         let vm = get_vm(8);
         assert_eq!(vm.time, 25);
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 1, name: "other".parse().unwrap(), args: vec![Int(8)] },
-            LoggedCall { real_time: 10, name: "final".parse().unwrap(), args: vec![Int(8)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 1, opcode: 6, args: vec![Int(8)] },
+            LoggedCall { real_time: 10, opcode: 44, args: vec![Int(8)] },
         ]);
     }
 }

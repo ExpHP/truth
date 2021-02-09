@@ -13,29 +13,30 @@ pub fn run<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<()
     v.finish()
 }
 
-/// Convert any register aliases to raw register reference syntax.
+/// Convert any register aliases and instruction aliases to `[10000]` and `ins_32` syntax.
 ///
 /// Requires name resolution to have been performed.
-pub fn aliases_to_regs<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
-    let mut v = AliasesToRegsVisitor { ty_ctx };
+pub fn aliases_to_raw<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
+    let mut v = AliasesToRawVisitor { ty_ctx };
     ast.visit_mut_with(&mut v);
     Ok(())
 }
 
-/// Convert raw register references to aliases when they are available.
-pub fn regs_to_aliases<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
-    let mut v = RegsToAliasesVisitor { ty_ctx };
+/// Convert any raw register references (e.g. `[10000]`) and raw instructions (`ins_32`) to aliases
+/// when they are available.
+pub fn raw_to_aliases<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
+    let mut v = RawToAliasesVisitor { ty_ctx };
     ast.visit_mut_with(&mut v);
     Ok(())
 }
 
 // =============================================================================
 
-struct AliasesToRegsVisitor<'a> {
+struct AliasesToRawVisitor<'a> {
     ty_ctx: &'a TypeSystem,
 }
 
-impl ast::VisitMut for AliasesToRegsVisitor<'_> {
+impl ast::VisitMut for AliasesToRawVisitor<'_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
         if let ast::Var::Named { .. } = &var.value {
             if let Ok(reg) = self.ty_ctx.var_reg_from_ast(var) {
@@ -45,16 +46,35 @@ impl ast::VisitMut for AliasesToRegsVisitor<'_> {
             }
         }
     }
+
+    fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
+        if let ast::Expr::Call { ident, .. } = &mut expr.value {
+            if let Some(opcode) = self.ty_ctx.ins_opcode(ident.expect_res()) {
+                let res = self.ty_ctx.get_ins(opcode).expect("alias had res but ins_ name didn't?!");
+                ident.value = self.ty_ctx.func_name(res).clone();
+            }
+        }
+        ast::walk_expr_mut(self, expr);
+    }
 }
 
-struct RegsToAliasesVisitor<'a> {
+struct RawToAliasesVisitor<'a> {
     ty_ctx: &'a TypeSystem,
 }
 
-impl ast::VisitMut for RegsToAliasesVisitor<'_> {
+impl ast::VisitMut for RawToAliasesVisitor<'_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
         if let ast::Var::Reg { ty_sigil, reg } = var.value {
             var.value = self.ty_ctx.reg_to_ast(reg, ty_sigil);
         }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
+        if let ast::Expr::Call { ident, .. } = &mut expr.value {
+            if let Some(opcode) = self.ty_ctx.ins_opcode(ident.expect_res()) {
+                ident.value = self.ty_ctx.ins_name(opcode).expect("ins is recorded so it must have name").clone();
+            }
+        }
+        ast::walk_expr_mut(self, expr);
     }
 }

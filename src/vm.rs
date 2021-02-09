@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
-use crate::ident::{Ident};
 use crate::var::{ResolveId, RegId};
 use crate::value::ScalarValue;
 
@@ -29,7 +28,7 @@ pub struct AstVm {
     pub real_time: i32,
     /// Log of all opaque instructions that have executed.
     /// (anything using special syntax like operators, assignments and control flow are NOT logged)
-    pub call_log: Vec<LoggedCall>,
+    pub instr_log: Vec<LoggedCall>,
     iterations: u32,
     max_iterations: Option<u32>,
     var_values: HashMap<VarId, ScalarValue>,
@@ -45,7 +44,7 @@ pub enum VarId {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoggedCall {
     pub real_time: i32,
-    pub name: Ident,
+    pub opcode: u16,
     pub args: Vec<ScalarValue>,
 }
 
@@ -54,11 +53,11 @@ impl fmt::Display for AstVm {
         writeln!(f, "-----------------------------------------")?;
         writeln!(f, " Time {:>7}    RealTime {:>7}", self.time, self.real_time)?;
         writeln!(f, "-----------------------------------------")?;
-        if !self.call_log.is_empty() {
+        if !self.instr_log.is_empty() {
             writeln!(f, "   CALL LOG")?;
-            for call in &self.call_log {
+            for call in &self.instr_log {
                 let arg_strs = call.args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-                writeln!(f, "  {:>5}: {}({})", call.real_time, call.name, arg_strs.join(", "))?;
+                writeln!(f, "  {:>5}: ins_{}({})", call.real_time, call.opcode, arg_strs.join(", "))?;
             }
         }
 
@@ -106,7 +105,7 @@ impl AstVm {
         AstVm {
             time: 0,
             real_time: 0,
-            call_log: vec![],
+            instr_log: vec![],
             var_values: Default::default(),
             iterations: 0,
             max_iterations: None,
@@ -278,7 +277,8 @@ impl AstVm {
                     match &expr.value {
                         ast::Expr::Call { ident, args } => {
                             let arg_values = args.iter().map(|arg| self.eval(arg)).collect::<Vec<_>>();
-                            self.log_instruction(ident, &arg_values);
+                            let opcode = ident.as_ins().unwrap_or_else(|| unimplemented!("non-instr function in VM"));
+                            self.log_instruction(opcode, &arg_values);
                         },
                         _ => unimplemented!("VM statement expression: {:?}", expr)
                     }
@@ -352,9 +352,9 @@ impl AstVm {
         }
     }
 
-    pub fn log_instruction(&mut self, name: &Ident, args: &[ScalarValue]) {
-        self.call_log.push(LoggedCall {
-            name: name.clone(),
+    pub fn log_instruction(&mut self, opcode: u16, args: &[ScalarValue]) {
+        self.instr_log.push(LoggedCall {
+            opcode,
             args: args.to_vec(),
             real_time: self.real_time,
         })
@@ -434,11 +434,12 @@ impl AstVm {
 mod tests {
     use super::*;
     use crate::pos::Files;
-    use crate::type_system::TypeSystem;
+    use crate::type_system::{TypeSystem};
     use crate::value::ScalarValue::{Int, Float};
     use crate::type_system::ScalarType as Ty;
 
     struct TestSpec<S> {
+        instrs: Vec<(u16, Option<&'static str>, &'static str)>,
         globals: Vec<(&'static str, RegId, Ty)>,
         source: S,
     }
@@ -453,12 +454,18 @@ mod tests {
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ty_ctx = TypeSystem::new();
-            for &(name, reg, ty) in &self.globals {
-                ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
+            for &(opcode, alias, abi_str) in &self.instrs {
+                ty_ctx.set_ins_abi(opcode, abi_str.parse().unwrap());
+                if let Some(alias) = alias {
+                    ty_ctx.add_global_ins_alias(opcode, alias.parse().unwrap());
+                }
+            }
+            for &(alias, reg, ty) in &self.globals {
+                ty_ctx.add_global_reg_alias(reg, alias.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
             }
             crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
-            crate::passes::resolve_names::aliases_to_regs(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ty_ctx).unwrap();
             ast.value
         }
     }
@@ -466,6 +473,7 @@ mod tests {
     #[test]
     fn basic_variables() {
         let ast = TestSpec {
+            instrs: vec![],
             globals: vec![("Y", RegId(-999), Ty::Int)],
             source: r#"{
                 int x = 3;
@@ -483,6 +491,10 @@ mod tests {
     #[test]
     fn basic_instrs_and_time() {
         let ast = TestSpec {
+            instrs: vec![
+                (345, None, "SS"),
+                (12, Some("foo"), "Sf"),
+            ],
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Float)],
             source: r#"{
                 ins_345(0, 6);
@@ -496,15 +508,16 @@ mod tests {
         vm.set_reg(RegId(101), Float(7.0));
         vm.run(&ast.0);
 
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 0, name: "ins_345".parse().unwrap(), args: vec![Int(0), Int(6)] },
-            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(3), Float(8.0)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 0, opcode: 345, args: vec![Int(0), Int(6)] },
+            LoggedCall { real_time: 10, opcode: 12, args: vec![Int(3), Float(8.0)] },
         ]);
     }
 
     #[test]
     fn while_do_while() {
         let while_ast = TestSpec {
+            instrs: vec![(1, Some("lmao"), ""), (44, Some("end"), "")],
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
@@ -520,6 +533,7 @@ mod tests {
         }.prepare();
 
         let do_while_ast = TestSpec {
+            instrs: vec![(1, Some("lmao"), ""), (44, Some("end"), "")],
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
@@ -540,11 +554,11 @@ mod tests {
             vm.set_reg(RegId(101), Int(3));
             vm.run(&ast.0);
 
-            assert_eq!(vm.call_log, vec![
-                LoggedCall { real_time: 2, name: "lmao".parse().unwrap(), args: vec![] },
-                LoggedCall { real_time: 7, name: "lmao".parse().unwrap(), args: vec![] },
-                LoggedCall { real_time: 12, name: "lmao".parse().unwrap(), args: vec![] },
-                LoggedCall { real_time: 19, name: "end".parse().unwrap(), args: vec![] },
+            assert_eq!(vm.instr_log, vec![
+                LoggedCall { real_time: 2, opcode: 1, args: vec![] },
+                LoggedCall { real_time: 7, opcode: 1, args: vec![] },
+                LoggedCall { real_time: 12, opcode: 1, args: vec![] },
+                LoggedCall { real_time: 19, opcode: 44, args: vec![] },
             ]);
         }
 
@@ -554,7 +568,7 @@ mod tests {
             vm.set_reg(RegId(101), Int(0));
             vm.run(&ast.0);
 
-            assert_eq!(vm.call_log.len(), expected_iters + 1);
+            assert_eq!(vm.instr_log.len(), expected_iters + 1);
             assert_eq!(vm.real_time, (5 * expected_iters + 4) as i32);
         }
     }
@@ -562,6 +576,12 @@ mod tests {
     #[test]
     fn goto() {
         let ast = TestSpec {
+            instrs: vec![
+                (10, Some("a"), ""),
+                (20, Some("b"), ""),
+                (30, Some("c"), ""),
+                (40, Some("d"), ""),
+            ],
             globals: vec![("X", RegId(100), Ty::Int)],
             source: r#"{
                 X = 0;
@@ -582,12 +602,12 @@ mod tests {
 
         let mut vm = new_test_vm();
         vm.run(&ast.0);
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 0, name: "a".parse().unwrap(), args: vec![] },
-            LoggedCall { real_time: 0, name: "b".parse().unwrap(), args: vec![] },
-            LoggedCall { real_time: 0, name: "b".parse().unwrap(), args: vec![] },
-            LoggedCall { real_time: 15, name: "c".parse().unwrap(), args: vec![] },
-            LoggedCall { real_time: 15, name: "d".parse().unwrap(), args: vec![] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 0, opcode: 10, args: vec![] },
+            LoggedCall { real_time: 0, opcode: 20, args: vec![] },
+            LoggedCall { real_time: 0, opcode: 20, args: vec![] },
+            LoggedCall { real_time: 15, opcode: 30, args: vec![] },
+            LoggedCall { real_time: 15, opcode: 40, args: vec![] },
         ]);
     }
 
@@ -595,6 +615,7 @@ mod tests {
     fn times() {
         for possible_clobber in vec!["", "C = "] {
             let ast = TestSpec {
+                instrs: vec![(11, Some("a"), "")],
                 globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
                 source: format!(r#"{{
                     times({}X) {{
@@ -610,7 +631,7 @@ mod tests {
                 vm.set_reg(RegId(100), Int(count));
                 vm.run(&ast.0);
 
-                assert_eq!(vm.call_log.len(), count as usize);
+                assert_eq!(vm.instr_log.len(), count as usize);
                 assert_eq!(vm.real_time, count * 10 + 5);
                 assert_eq!(vm.time, 15);
             }
@@ -620,6 +641,7 @@ mod tests {
     #[test]
     fn predecrement_jmp() {
         let ast = TestSpec {
+            instrs: vec![(11, Some("foo"), "S")],
             globals: vec![("C", RegId(101), Ty::Int)],
             source: r#"{
                 C = 2;
@@ -634,9 +656,9 @@ mod tests {
         vm.run(&ast.0);
 
         assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 0, name: "foo".parse().unwrap(), args: vec![Int(2)] },
-            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(1)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 0, opcode: 11, args: vec![Int(2)] },
+            LoggedCall { real_time: 10, opcode: 11, args: vec![Int(1)] },
         ]);
         assert_eq!(vm.real_time, 20);
     }
@@ -644,6 +666,7 @@ mod tests {
     #[test]
     fn times_clobber_nice() {
         let ast = TestSpec {
+            instrs: vec![(11, Some("foo"), "S")],
             globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 2;
@@ -658,9 +681,9 @@ mod tests {
         vm.run(&ast.0);
 
         assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 0, name: "foo".parse().unwrap(), args: vec![Int(2)] },
-            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(1)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 0, opcode: 11, args: vec![Int(2)] },
+            LoggedCall { real_time: 10, opcode: 11, args: vec![Int(1)] },
         ]);
         assert_eq!(vm.real_time, 20);
     }
@@ -668,6 +691,7 @@ mod tests {
     #[test]
     fn times_clobber_naughty() {
         let ast = TestSpec {
+            instrs: vec![(11, Some("foo"), "S")],
             globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 4;
@@ -683,9 +707,9 @@ mod tests {
         vm.run(&ast.0);
 
         assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
-        assert_eq!(vm.call_log, vec![
-            LoggedCall { real_time: 0, name: "foo".parse().unwrap(), args: vec![Int(4)] },
-            LoggedCall { real_time: 10, name: "foo".parse().unwrap(), args: vec![Int(2)] },
+        assert_eq!(vm.instr_log, vec![
+            LoggedCall { real_time: 0, opcode: 11, args: vec![Int(4)] },
+            LoggedCall { real_time: 10, opcode: 11, args: vec![Int(2)] },
         ]);
         assert_eq!(vm.real_time, 20);
     }
@@ -695,6 +719,7 @@ mod tests {
         macro_rules! gen_spec {
             ($last_clause:literal) => {
                 TestSpec {
+                    instrs: vec![(11, Some("a"), "S"), (22, Some("b"), "")],
                     globals: vec![("X", RegId(100), Ty::Int)],
                     source: concat!(r#"{
                         if (X == 1) {
@@ -722,9 +747,9 @@ mod tests {
                 vm.set_reg(RegId(100), Int(x));
                 vm.run(&ast.0);
 
-                assert_eq!(vm.call_log, vec![
-                    LoggedCall { real_time: 0, name: "a".parse().unwrap(), args: vec![Int(x)] },
-                    LoggedCall { real_time: 10, name: "b".parse().unwrap(), args: vec![] },
+                assert_eq!(vm.instr_log, vec![
+                    LoggedCall { real_time: 0, opcode: 11, args: vec![Int(x)] },
+                    LoggedCall { real_time: 10, opcode: 22, args: vec![] },
                 ]);
                 assert_eq!(vm.time, 30);
                 assert_eq!(vm.real_time, 10);
@@ -735,6 +760,7 @@ mod tests {
     #[test]
     fn type_cast() {
         let ast = TestSpec {
+            instrs: vec![],
             globals: vec![("X", RegId(30), Ty::Int), ("Y", RegId(31), Ty::Int)],
             source: r#"{
                 Y = 6.78;
@@ -752,6 +778,7 @@ mod tests {
     #[should_panic(expected = "iteration limit")]
     fn iteration_limit() {
         let ast = TestSpec {
+            instrs: vec![],
             globals: vec![],
             source: r#"{
                 loop {}
@@ -764,6 +791,7 @@ mod tests {
     #[test]
     fn math_funcs() {
         let ast = TestSpec {
+            instrs: vec![],
             globals: vec![
                 ("X", RegId(30), Ty::Float),
                 ("SIN", RegId(31), Ty::Float), ("COS", RegId(32), Ty::Float), ("SQRT", RegId(33), Ty::Float),
@@ -788,6 +816,7 @@ mod tests {
     #[test]
     fn cast() {
         let ast = TestSpec {
+            instrs: vec![],
             globals: vec![
                 ("I", RegId(30), Ty::Int), ("F", RegId(31), Ty::Float),
                 ("F_TO_I", RegId(32), Ty::Int), ("I_TO_F", RegId(33), Ty::Float),
@@ -812,6 +841,7 @@ mod tests {
     #[test]
     fn string_arg() {
         let ast = TestSpec {
+            instrs: vec![(11, Some("blargh"), "z")],
             globals: vec![],
             source: r#"{
                 blargh(3, 2, "seashells");
@@ -821,6 +851,6 @@ mod tests {
         let mut vm = new_test_vm();
         vm.run(&ast.0);
 
-        assert_eq!(vm.call_log[0].args.last().unwrap(), &ScalarValue::String("seashells".into()));
+        assert_eq!(vm.instr_log[0].args.last().unwrap(), &ScalarValue::String("seashells".into()));
     }
 }

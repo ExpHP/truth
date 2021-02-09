@@ -176,11 +176,7 @@ impl<'a> Visitor<'a> {
         keyword: Sp<VarDeclKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), CompileError> {
-        let decl_ty = match keyword.value {
-            ast::VarDeclKeyword::Int => Some(ScalarType::Int),
-            ast::VarDeclKeyword::Float => Some(ScalarType::Float),
-            ast::VarDeclKeyword::Var => None,
-        };
+        let decl_ty = keyword.ty();
 
         vars.iter().map(|sp_pat!((var, value))| {
             let var_ty = self.check_var(var)?;
@@ -256,8 +252,7 @@ impl<'a> Visitor<'a> {
             },
 
             ast::Expr::Call { ref args, ref ident } => {
-                let func_res_id = self.ty_ctx.func_ident_id(ident);
-                let siggy = match self.ty_ctx.func_signature(func_res_id) {
+                let siggy = match self.ty_ctx.func_signature(ident.expect_res()) {
                     Ok(siggy) => siggy,
                     Err(crate::type_system::MissingSigError { opcode }) => return Err(error!(
                         message("signature not known for opcode {}", opcode),

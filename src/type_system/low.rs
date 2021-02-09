@@ -186,7 +186,7 @@ fn abi_to_signature(abi: &InstrAbi, ty_ctx: &mut TypeSystem) -> Signature {
             let name = format!("arg_{}", index + 1).parse().unwrap();
             let name = ty_ctx.add_local(sp!(name), Some(ty));
 
-            SignatureParam { default, name: name.value, ty: sp!(ty) }
+            SignatureParam { default, name, ty: sp!(ty) }
         }).collect(),
     }
 }

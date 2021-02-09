@@ -14,6 +14,7 @@ pub mod lexer;
 #[cfg(test)]
 mod tests;
 
+// FIXME: remove this lifetime parameter, zero-copy parsing is just not a thing.
 pub trait Parse<'input>: Sized {
     /// Parse a string into an AST node.
     ///

@@ -72,20 +72,20 @@ pub enum Item {
     Func {
         inline: Option<TokenSpan>,
         keyword: Sp<FuncKeyword>,
-        name: Sp<Ident>,
-        params: Vec<(Sp<VarDeclKeyword>, Sp<Ident>)>,
+        ident: Sp<ResIdent>,
+        params: Vec<(Sp<VarDeclKeyword>, Sp<ResIdent>)>,
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
     AnmScript {
         keyword: TokenSpan,
         number: Option<Sp<i32>>,
-        name: Sp<Ident>,
+        name: Sp<Ident>,  // FIXME: rename to ident
         code: Block,
     },
     Meta {
         keyword: Sp<MetaKeyword>,
-        name: Option<Sp<Ident>>,
+        name: Option<Sp<Ident>>,  // FIXME: rename to ident
         fields: Sp<meta::Fields>,
     },
     FileList {
@@ -149,7 +149,9 @@ pub enum StmtLabel {
 /// without any labels.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtBody {
+    // FIXME: rename to Goto
     Jump(StmtGoto),
+    // FIXME: rename to CondGoto
     CondJump {
         keyword: Sp<CondKeyword>,
         cond: Sp<Cond>,
@@ -392,7 +394,7 @@ pub enum Expr {
     },
     Binop(Box<Sp<Expr>>, Sp<BinopKind>, Box<Sp<Expr>>),
     Call {
-        ident: Sp<Ident>,
+        ident: Sp<ResIdent>,
         args: Vec<Sp<Expr>>,
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
@@ -554,6 +556,16 @@ string_enum! {
     }
 }
 
+impl VarDeclKeyword {
+    pub fn ty(self) -> Option<type_system::ScalarType> {
+        match self {
+            VarDeclKeyword::Int => Some(type_system::ScalarType::Int),
+            VarDeclKeyword::Float => Some(type_system::ScalarType::Float),
+            VarDeclKeyword::Var => None,
+        }
+    }
+}
+
 /// The hinted type of a variable at a usage site, which can differ from its inherent type.
 ///
 /// E.g. a variable's type may be hinted with the use of `$` or `%` prefixes.
@@ -674,7 +686,7 @@ macro_rules! generate_visitor_stuff {
         {
             match & $($mut)? x.value {
                 Item::Func {
-                    code, inline: _, keyword: _, name: _, params: _,
+                    code, inline: _, keyword: _, ident: _, params: _,
                 } => {
                     if let Some(code) = code {
                         v.visit_root_block(code);
