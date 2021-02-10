@@ -19,12 +19,8 @@ pub struct TypeSystem {
 
     vars: HashMap<ResolveId, VarData>,
     funcs: HashMap<ResolveId, FuncData>,
-
-    ins_abis: HashMap<u16, InstrAbi>,
-
-    // Ids corresponding to raw regs/instrs.  Used to look up their type info without an ident.
-    reg_reses: HashMap<RegId, ResolveId>,
-    ins_reses: HashMap<u16, ResolveId>,
+    regs: HashMap<RegId, RegData>,
+    instrs: HashMap<u16, InsData>,
 
     // Preferred aliases.  These are used during decompilation to make the output readable.
     reg_aliases: HashMap<RegId, ResolveId>,
@@ -53,9 +49,8 @@ impl TypeSystem {
             mapfiles: Default::default(),
             vars: Default::default(),
             funcs: Default::default(),
-            ins_abis: Default::default(),
-            reg_reses: Default::default(),
-            ins_reses: Default::default(),
+            regs: Default::default(),
+            instrs: Default::default(),
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
             func_ident_ids: Default::default(),
@@ -68,7 +63,7 @@ impl TypeSystem {
 
 /// # General modification and adding new entries
 impl TypeSystem {
-    /// Takes an [`ResIdent`] that has no name resolution id, and assigns it a new one.
+    /// Takes a [`ResIdent`] that has no name resolution id, and assigns it a new one.
     #[track_caller]
     fn make_resolvable(&mut self, mut ident: ResIdent) -> ResIdent {
         assert!(ident.res().is_none(), "tried to assign multiple ids to {}", ident);
@@ -76,61 +71,14 @@ impl TypeSystem {
         ident
     }
 
-    /// Returns the unique [`ResolveId`] for a raw register. (i.e. `[10004.0]` syntax)
-    ///
-    /// If the register does not yet have an ID, one will be generated.
-    pub fn ensure_reg(&mut self, reg: RegId) -> ResolveId {
-        let unused_ids = &mut self.unused_ids;
-        *self.reg_reses.entry(reg).or_insert_with(|| unused_ids.next())
-    }
-
-    /// Returns the unique [`ResolveId`] for a raw instruction. (i.e. `ins_23` syntax)
-    ///
-    /// If the instruction does not yet have an ID, one will be generated.
-    pub fn ensure_ins(&mut self, opcode: u16) -> ResolveId {
-        let unused_ids = &mut self.unused_ids;
-        let global_ids = &mut self.global_ids;
-        let funcs = &mut self.funcs;
-        *self.ins_reses.entry(opcode).or_insert_with(|| {
-            let mut ident = ResIdent::from(Ident::new_ins(opcode));
-            let res = unused_ids.next();
-            ident.set_res(res);
-
-            // make `ins_` available to name resolution in global scope
-            funcs.insert(res, FuncData {
-                sig: None,
-                kind: FuncKind::Instruction { opcode, ident },
-            });
-            global_ids.push((Namespace::Funcs, res));
-            res
-        })
-    }
-
-    /// Returns the unique [`ResolveId`] for a raw instruction. (i.e. `ins_23` syntax)
-    ///
-    /// Returns `None` if one was never generated.
-    pub fn get_ins(&self, opcode: u16) -> Option<ResolveId> {
-        self.ins_reses.get(&opcode).copied()
-    }
-
     /// Set the inherent type of a register.
-    ///
-    /// Returns the register's ID, which may be newly generated or it may already exist.
-    pub fn set_reg_ty(&mut self, reg: RegId, ty: VarType) -> ResolveId {
-        let res = self.ensure_reg(reg);
-        self.vars.insert(res, VarData {
-            ty: Some(ty),
-            kind: VarKind::Register { reg },
-        });
-        res
+    pub fn set_reg_ty(&mut self, reg: RegId, ty: VarType) {
+        self.regs.insert(reg, RegData { ty });
     }
 
     /// Add an alias for a register from a mapfile, attaching a brand new ID to the ident.
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
-    ///
-    /// (this ID is different from the one produced by [`Self::ensure_reg`], and refers to the identifier
-    ///  as opposed to raw register syntax)
     pub fn add_global_reg_alias(&mut self, reg: RegId, ident: ResIdent) -> ResIdent {
         let ident = self.make_resolvable(ident);
         let res = ident.expect_res();
@@ -157,34 +105,21 @@ impl TypeSystem {
     }
 
     /// Set the low-level ABI of an instruction.
-    ///
-    /// The high-level signature (available through [`Self::func_signature`]) will also automatically
-    /// be updated to be consistent with the new ABI.
-    ///
-    /// Returns the instruction's ID, which may be newly generated or it may already exist.
-    pub fn set_ins_abi(&mut self, opcode: u16, abi: InstrAbi) -> ResolveId {
-        let siggy = abi.create_signature(self);
-        self.ins_abis.insert(opcode, abi);
+    pub fn set_ins_abi(&mut self, opcode: u16, abi: InstrAbi) {
+        // also update the high-level signature
+        let sig = abi.create_signature(self);
+        sig.validate(self).expect("invalid signature from InstrAbi");
 
-        siggy.validate(self).expect("invalid signature from InstrAbi");
-
-        let res = self.ensure_ins(opcode);
-        self.funcs.get_mut(&res).unwrap().sig = Some(siggy);
-
-        res
+        self.instrs.insert(opcode, InsData { abi, sig });
     }
 
     /// Add an alias for an instruction from a mapfile, attaching a brand new ID for name resolution to the ident.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    ///
-    /// (this ID is different from the one produced by [`Self::ensure_ins`], and refers to the alias
-    ///  as opposed to raw `ins_` syntax)
     pub fn add_global_ins_alias(&mut self, opcode: u16, ident: ResIdent) -> ResIdent {
         let ident = self.make_resolvable(ident);
         let res = ident.expect_res();
 
-        self.ensure_ins(opcode);
         self.funcs.insert(res, FuncData {
             sig: None,
             kind: FuncKind::InstructionAlias { opcode, ident: ident.clone() },
@@ -220,18 +155,7 @@ impl TypeSystem {
 
 /// # Recovering low-level information
 impl TypeSystem {
-    // FIXME delete if not needed
-    // /// Get the unique [`ResolveId`] for a raw register, if one has been generated for it.
-    // pub fn reg_id(&mut self, reg: RegId) -> Option<ResolveId> {
-    //     self.reg_ids.get(&reg).copied()
-    // }
-    //
-    // /// Get the unique [`ResolveId`] for an opcode, if one has been generated for it.
-    // pub fn ins_id(&mut self, opcode: u16) -> Option<ResolveId> {
-    //     self.ins_ids.get(&opcode).copied()
-    // }
-
-    /// Get the register mapped to this variable, if it is a register or an alias for one.
+    /// Get the register mapped to this variable, if it is a register alias.
     ///
     /// Returns `None` for variables that do not represent registers.
     ///
@@ -245,35 +169,33 @@ impl TypeSystem {
     pub fn var_reg(&self, res: ResolveId) -> Option<RegId> {
         match self.vars[&res] {
             VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => Some(reg),
-            VarData { kind: VarKind::Register { reg, .. }, .. } => Some(reg),
             _ => None,
         }
     }
 
-    /// If this function is an instruction or alias for one, get its opcode.
+    /// If this function is an instruction alias, get its opcode.
     ///
     /// Returns `None` for functions that do not represent instructions.
     ///
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn ins_opcode(&self, res: ResolveId) -> Option<u16> {
+    pub fn func_opcode(&self, res: ResolveId) -> Option<u16> {
         match self.funcs[&res] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => Some(opcode),
-            FuncData { kind: FuncKind::Instruction { opcode, .. }, .. } => Some(opcode),
             _ => None,
         }
     }
 
     /// Recovers the ABI of an opcode, if it is known.
     pub fn ins_abi(&self, opcode: u16) -> Option<&InstrAbi> {
-        self.ins_abis.get(&opcode)
+        self.instrs.get(&opcode).map(|x| &x.abi)
     }
 }
 
 /// # Accessing high-level information
 impl TypeSystem {
-    /// If the given id has an identifier that makes it a candidate for name resolution, return that identifier.
+    /// Get the identifier that makes something a candidate for name resolution.
     ///
     /// # Panics
     ///
@@ -281,23 +203,22 @@ impl TypeSystem {
     ///
     /// (FIXME: this is silly because TypeSystem ought to know what namespace each
     ///         id belongs to without having to be reminded...)
-    pub fn name(&self, ns: Namespace, res: ResolveId) -> Option<&ResIdent> {
+    pub fn name(&self, ns: Namespace, res: ResolveId) -> &ResIdent {
         match ns {
             Namespace::Vars => self.var_name(res),
-            Namespace::Funcs => Some(self.func_name(res)),
+            Namespace::Funcs => self.func_name(res),
         }
     }
 
-    /// Get the fully-resolved name of a variable, if it has a name.
+    /// Get the fully-resolved name of a variable.
     ///
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_name(&self, res: ResolveId) -> Option<&ResIdent> {
+    pub fn var_name(&self, res: ResolveId) -> &ResIdent {
         match self.vars[&res] {
-            VarData { kind: VarKind::RegisterAlias { ref ident, .. }, .. } => Some(ident),
-            VarData { kind: VarKind::Local { ref ident, .. }, .. } => Some(ident),
-            VarData { kind: VarKind::Register { .. }, .. } => None,
+            VarData { kind: VarKind::RegisterAlias { ref ident, .. }, .. } => ident,
+            VarData { kind: VarKind::Local { ref ident, .. }, .. } => ident,
         }
     }
 
@@ -309,47 +230,47 @@ impl TypeSystem {
     pub fn func_name(&self, res: ResolveId) -> &ResIdent {
         match self.funcs[&res] {
             FuncData { kind: FuncKind::InstructionAlias { ref ident, .. }, .. } => ident,
-            FuncData { kind: FuncKind::Instruction { ref ident, .. }, .. } => ident,
             FuncData { kind: FuncKind::User { ref ident, .. }, .. } => ident,
         }
     }
 
-    /// Get the inherent type of any kind of variable. (registers, locals, temporaries, consts)
+    /// Get the inherent type of any kind of named variable. (register aliases, locals, temporaries, consts)
     ///
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
     pub fn var_inherent_ty(&self, res: ResolveId) -> VarType {
         match self.vars[&res] {
-            VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => {
-                match self.reg_reses.get(&reg) {
-                    Some(&reg_res) => self.vars[&reg_res].ty.expect("shouldn't be alias"),
-                    None => {
-                        // This is a register whose type is not in any mapfile.
-                        // This is actually fine, and is expected for stack registers.
-                        None  // unspecified type
-                    },
-                }
-            },
+            VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => self.reg_inherent_ty(reg),
             VarData { ty, .. } => ty.expect("shouldn't be alias"),
         }
     }
 
-    /// Get the signature of any kind of callable function. (instructions, inline and const functions...)
+    /// Get the signature of any kind of named function. (instruction aliases, inline and const functions...)
     ///
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
     pub fn func_signature(&self, res: ResolveId) -> Result<&Signature, MissingSigError> {
         match self.funcs[&res] {
-            FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => {
-                match self.ins_reses.get(&opcode) {
-                    Some(&ins_res) => Ok(self.funcs[&ins_res].sig.as_ref().expect("shouldn't be alias")),
-                    None => Err(MissingSigError { opcode }),
-                }
-            },
+            FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => self.ins_signature(opcode),
             FuncData { kind: FuncKind::User { .. }, .. } => unimplemented!("need to create signatures for user funcs!"),
-            FuncData { ref sig, .. } => Ok(sig.as_ref().expect("shouldn't be alias")),
+        }
+    }
+
+    /// Get the signature of any kind of callable function. (instructions, inline and const functions...)
+    pub fn func_signature_from_ast(&self, name: &ast::CallableName) -> Result<&Signature, MissingSigError> {
+        match *name {
+            ast::CallableName::Ins { opcode } => self.ins_signature(opcode),
+            ast::CallableName::Normal { ref ident } => self.func_signature(ident.expect_res()),
+        }
+    }
+
+    /// Get the high-level signature of an instruction.
+    fn ins_signature(&self, opcode: u16) -> Result<&Signature, MissingSigError> {
+        match self.instrs.get(&opcode) {
+            Some(InsData { sig, .. }) => Ok(sig),
+            None => Err(MissingSigError { opcode }),
         }
     }
 
@@ -362,7 +283,6 @@ impl TypeSystem {
     pub fn var_decl_span(&self, res: ResolveId) -> Option<Span> {
         match &self.vars[&res] {
             VarData { kind: VarKind::RegisterAlias { .. }, .. } => None,
-            VarData { kind: VarKind::Register { .. }, .. } => None,
             VarData { kind: VarKind::Local { ident, .. }, .. } => Some(ident.span),
         }
     }
@@ -376,7 +296,6 @@ impl TypeSystem {
     pub fn func_decl_span(&self, res: ResolveId) -> Option<Span> {
         match &self.funcs[&res] {
             FuncData { kind: FuncKind::InstructionAlias { .. }, .. } => None,
-            FuncData { kind: FuncKind::Instruction { .. }, .. } => None,
             FuncData { kind: FuncKind::User { ident, .. }, .. } => Some(ident.span),
         }
     }
@@ -435,6 +354,11 @@ impl UnusedIds {
 pub type VarType = Option<ScalarType>;
 
 #[derive(Debug, Clone)]
+struct RegData {
+    ty: VarType,
+}
+
+#[derive(Debug, Clone)]
 struct VarData {
     kind: VarKind,
     /// Inherent type.  `None` for [`VarKind::RegisterAlias`].
@@ -443,10 +367,6 @@ struct VarData {
 
 #[derive(Debug, Clone)]
 enum VarKind {
-    Register {
-        reg: RegId,
-        // TODO: location where type is specified, if any
-    },
     RegisterAlias {
         ident: ResIdent,
         reg: RegId,
@@ -459,6 +379,12 @@ enum VarKind {
 }
 
 #[derive(Debug, Clone)]
+struct InsData {
+    abi: InstrAbi,
+    sig: Signature,
+}
+
+#[derive(Debug, Clone)]
 struct FuncData {
     kind: FuncKind,
     /// `None` for [`FuncKind::InstructionAlias`].
@@ -467,12 +393,6 @@ struct FuncData {
 
 #[derive(Debug, Clone)]
 pub enum FuncKind {
-    Instruction {
-        opcode: u16,
-        /// The standard identifier beginning with `ins_`.
-        ident: ResIdent,
-        // TODO: location where signature is provided
-    },
     InstructionAlias {
         ident: ResIdent,
         opcode: u16,
@@ -493,7 +413,7 @@ impl TypeSystem {
     /// cast as a float using `%I0`.
     ///
     /// This returns [`ScalarType`] instead of [`ast::VarReadType`] because const vars could be strings.
-    pub fn var_read_ty_from_ast(&self, var: &Sp<ast::Var>) -> Option<ScalarType> {
+    pub fn var_read_ty_from_ast(&self, var: &Sp<ast::Var>) -> VarType {
         match var.value {
             ast::Var::Reg { ty_sigil, .. } => Some(ty_sigil.into()),
             ast::Var::Named { ty_sigil: Some(ty_sigil), .. } => Some(ty_sigil.into()),
@@ -501,15 +421,25 @@ impl TypeSystem {
         }
     }
 
-    pub fn var_inherent_ty_from_ast(&self, var: &Sp<ast::Var>) -> Option<ScalarType> {
-        let res = match var.value {
-            ast::Var::Reg { reg, .. } => match self.reg_reses.get(&reg) {
-                None => return None,  // not in mapfile
-                Some(&res) => res,
+    /// Get the innate type of a variable at a place where it is referenced, ignoring its sigils.
+    ///
+    /// `None` means it has no inherent type. (is untyped, e.g. via `var` keyword)
+    pub fn var_inherent_ty_from_ast(&self, var: &Sp<ast::Var>) -> VarType {
+        match var.value {
+            ast::Var::Reg { reg, .. } => self.reg_inherent_ty(reg),
+            ast::Var::Named { ref ident, .. } => self.var_inherent_ty(ident.expect_res()),
+        }
+    }
+
+    fn reg_inherent_ty(&self, reg: RegId) -> VarType {
+        match self.regs.get(&reg) {
+            Some(&RegData { ty }) => ty,
+            None => {
+                // This is a register whose type is not in any mapfile.
+                // This is actually fine, and is expected for stack registers.
+                None  // unspecified type
             },
-            ast::Var::Named { ref ident, .. } => ident.expect_res(),
-        };
-        self.var_inherent_ty(res)
+        }
     }
 
     /// If the variable is a register or register alias, gets the associated register id.
@@ -522,6 +452,22 @@ impl TypeSystem {
             ast::Var::Named { ident, .. } => {
                 match self.var_reg(ident.expect_res()) {
                     Some(reg) => Ok(reg),  // register alias
+                    None => Err(ident.expect_res()),  // something else
+                }
+            },
+        }
+    }
+
+    /// If the function name is an instruction or instruction alias, gets the associated register id.
+    ///
+    /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
+    /// name resolution id is returned.
+    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<u16, ResolveId> {
+        match name {
+            &ast::CallableName::Ins { opcode, .. } => Ok(opcode),  // instruction
+            ast::CallableName::Normal { ident, .. } => {
+                match self.func_opcode(ident.expect_res()) {
+                    Some(opcode) => Ok(opcode),  // instruction alias
                     None => Err(ident.expect_res()),  // something else
                 }
             },
@@ -543,20 +489,19 @@ impl TypeSystem {
         match self.reg_aliases.get(&reg) {
             None => ast::Var::Reg { reg, ty_sigil: read_ty },
             Some(&res) => {
-                let ident = self.var_name(res).expect("aliases have idents").clone();
+                let ident = self.var_name(res).clone();
                 self.nice_ident_to_var(ident, read_ty)
             },
         }
     }
 
-    /// Get the name of an instruction, automatically using an alias if one exists.
-    ///
-    /// `None` means that no existing name with a `ResolveId` is available.
-    /// This likely means that the instruction is not in any mapfile, as otherwise there
-    /// would at least be an `ins_` name.
-    pub fn ins_name(&self, opcode: u16) -> Option<&ResIdent> {
-        let &res = self.ins_aliases.get(&opcode).or_else(|| self.ins_reses.get(&opcode))?;
-        Some(self.func_name(res))
+    /// Generate an AST node with the ideal appearance for an instruction call,
+    /// automatically using an alias if one exists.
+    pub fn ins_to_ast(&self, opcode: u16) -> ast::CallableName {
+        match self.ins_aliases.get(&opcode) {
+            None => ast::CallableName::Ins { opcode },
+            Some(&res) => ast::CallableName::Normal { ident: self.func_name(res).clone() },
+        }
     }
 
     /// Generate a new, raw identifier.

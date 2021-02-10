@@ -1,4 +1,5 @@
 use bstr::{BString};
+use std::fmt;
 
 use crate::meta;
 use crate::var::{ResolveId, RegId};
@@ -394,7 +395,9 @@ pub enum Expr {
     },
     Binop(Box<Sp<Expr>>, Sp<BinopKind>, Box<Sp<Expr>>),
     Call {
-        ident: Sp<ResIdent>,
+        // note: deliberately called 'name' instead of 'ident' so that you can
+        //       match both this and the inner ident without shadowing
+        name: Sp<CallableName>,
         args: Vec<Sp<Expr>>,
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
@@ -425,6 +428,16 @@ impl Expr {
         Expr::LitString { .. } => "literal string",
         Expr::Var { .. } => "var expression",
     }}
+}
+
+/// An identifier in a function call.
+///
+/// Raw instructions (`ins_`) are separately recognized so that they don't have to take part
+/// in name resolution.  This makes it easier to use the AST VM [`crate::vm::AstVm`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallableName {
+    Normal { ident: ResIdent },
+    Ins { opcode: u16 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -625,6 +638,19 @@ impl<S: AsRef<[u8]>> Sp<LitString<S>> {
     }
 }
 
+// =============================================================================
+
+impl std::fmt::Display for CallableName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CallableName::Normal { ident } => fmt::Display::fmt(ident, f),
+            CallableName::Ins { opcode } => write!(f, "ins_{}", opcode),
+        }
+    }
+}
+
+// =============================================================================
+
 /// Trait for using [`Visit`] and [`VisitMut`] in a generic context.
 ///
 /// The methods on this trait very simply just statically dispatch to the appropriate method
@@ -804,7 +830,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(a);
                     v.visit_expr(b);
                 },
-                Expr::Call { ident: _, args } => {
+                Expr::Call { name: _, args } => {
                     for arg in args {
                         v.visit_expr(arg);
                     }

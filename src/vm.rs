@@ -275,14 +275,17 @@ impl AstVm {
 
                 ast::StmtBody::Expr(expr) => {
                     match &expr.value {
-                        ast::Expr::Call { ident, args } => {
+                        ast::Expr::Call { name, args } => {
                             let arg_values = args.iter().map(|arg| self.eval(arg)).collect::<Vec<_>>();
-                            let opcode = ident.as_ins().unwrap_or_else(|| unimplemented!("non-instr function in VM"));
-                            self.log_instruction(opcode, &arg_values);
+                            match name.value {
+                                ast::CallableName::Ins { opcode } => self.log_instruction(opcode, &arg_values),
+                                ast::CallableName::Normal { .. } => unimplemented!("non-instr function in VM"),
+                            }
                         },
                         _ => unimplemented!("VM statement expression: {:?}", expr)
                     }
                 },
+
 
                 ast::StmtBody::Assignment { var, op, value } => {
                     match op.value {

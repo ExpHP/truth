@@ -87,11 +87,7 @@ impl Eclmap {
         let mut pop_map = |s:&str| maps.remove(s).unwrap_or_else(BTreeMap::new);
         let parse_idents = |m:BTreeMap<i32, String>| -> Result<BTreeMap<i32, Ident>, SimpleError> {
             m.into_iter().map(|(key, s)| {
-                let ident: Ident = s.parse()?;
-                if let Some(_) = ident.as_ins() {
-                    bail!("invalid identifier (clashes with instruction)");
-                }
-                Ok((key, ident))
+                Ok((key, s.parse::<Ident>()?))
             }).collect()
         };
         let out = Eclmap {

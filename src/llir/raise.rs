@@ -273,11 +273,10 @@ fn raise_instr(
         None => group_anyhow(|| {
             // Default behavior for general instructions
             let abi = expect_abi(instr, ty_ctx);
-            let ins_ident = ty_ctx.ins_name(opcode).expect("we have an abi but didn't register even an `ins_` name!?");
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 args: raise_args(args, abi)?,
-                ident: sp!(ins_ident.clone()),
+                name: sp!(ty_ctx.ins_to_ast(opcode)),
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
     }

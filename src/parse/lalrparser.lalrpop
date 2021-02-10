@@ -22,6 +22,7 @@ extern {
         INT_HEX => Token::LitIntHex(<&'input BStr>),
         INT_BIN => Token::LitIntBin(<&'input BStr>),
         DIFFICULTY => Token::Difficulty(<&'input BStr>),
+        INSTR => Token::Instr(<&'input BStr>),
         IDENT => Token::Ident(<&'input BStr>),
         "," => Token::Comma,
         "?" => Token::Question,
@@ -518,8 +519,8 @@ ExprTerm: ast::Expr = {
     <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")"
         => ast::Expr::Unop(op, e),
 
-    <ident:Sp<ResIdent>> <args:ExprCallParenArgs>
-        => ast::Expr::Call { ident, args },
+    <name:Sp<CallableName>> <args:ExprCallParenArgs>
+        => ast::Expr::Call { name, args },
 
     <v:Sp<Var>> => ast::Expr::Var(v),
 
@@ -535,6 +536,12 @@ ExprTerm: ast::Expr = {
         message("invalid operation"),
         primary(Span::from_locs(l, r), "array indexing is not a thing, sorry"),
     ).into()),
+};
+
+#[inline]
+CallableName: ast::CallableName = {
+    <ident:ResIdent> => ast::CallableName::Normal { ident },
+    <opcode:RawInsIdent> => ast::CallableName::Ins { opcode },
 };
 
 ExprCallParenArgs: Vec<Sp<ast::Expr>> = {
@@ -675,19 +682,9 @@ OptionalMinus: i32 = {
 ResIdent: ResIdent = <ident:Ident> => ident.into();
 
 Ident: Ident = {
-    <l: @L> <tok:IdentStr> <r: @R> =>? {
+    <l: @L> <tok:IdentStr> <r: @R> => {
         std::str::from_utf8(&tok[..]).expect("cannot fail because lexed token is ascii")
-            .parse()
-            .map_err(|e| {
-                let mut diag = crate::error::Diagnostic::error();
-                diag.message(format!("invalid identifier"));
-                diag.primary(Span::from_locs(l, r), format!("{}", e));
-                if let crate::ident::ParseIdentError::InvalidIns = e {
-                    diag.note(format!(r#"identifiers beginning with "ins_" are reserved for instructions and must follow a specific format"#));
-                }
-                let ce: CompileError = diag.into();
-                ce.into()
-            })
+            .parse().expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
     },
 };
 
@@ -701,6 +698,32 @@ IdentStr: &'input BStr = {
     <s: "ecli"> => s.as_static_bstr().unwrap(),
     <s: "timeline"> => s.as_static_bstr().unwrap(),
     <s: "script"> => s.as_static_bstr().unwrap(),
+};
+
+RawInsIdent: u16 = {
+    <l:@L> <ins_ident:INSTR> <r:@R> =>? {
+        use regex::bytes::Regex;
+        lazy_static::lazy_static!{
+            static ref CANONICAL_INT_RE: Regex = Regex::new("^(0|[1-9][0-9]*)$").unwrap();
+        }
+
+        assert!(ins_ident.starts_with(b"ins_"));
+        let num_str = &ins_ident[b"ins_".len()..];
+        if !CANONICAL_INT_RE.is_match(num_str) {
+            return Err(error!(
+                message("invalid instruction identifier"),
+                primary(Span::from_locs(l, r), "invalid instruction identifier"),
+                note(r#"identifiers beginning with 'ins_' must end in a canonically-formatted integer, e.g. 'ins_42'."#),
+            ).into());
+        }
+
+        std::str::from_utf8(num_str).expect("known ascii").parse()
+            // this error is mostly for overflow
+            .map_err(|e| error!(
+                message("invalid instruction identifier"),
+                primary(Span::from_locs(l, r), "{}", e),
+            ).into())
+    }
 };
 
 // ==================================================
