@@ -2,12 +2,12 @@
 source: src/var.rs
 expression: "resolve_reformat::<ast::Script>(r#\"\n    int foo(int x) {\n        return x;\n    }\n\n    script script0 {\n        int x = 3;\n        foo(x);  // should match `foo` definition\n    }\"#).trim()"
 ---
-int foo_7(int x_8) {
-    return x_8;
+int foo_4(int x_5) {
+    return x_5;
 }
 
 
 script script0 {
-    int x_9 = 3;
-    foo_7(x_9);
+    int x_6 = 3;
+    foo_4(x_6);
 }

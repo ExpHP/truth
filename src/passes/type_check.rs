@@ -176,21 +176,8 @@ impl<'a> Visitor<'a> {
         keyword: Sp<VarDeclKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), CompileError> {
-        let decl_ty = keyword.ty();
-
         vars.iter().map(|sp_pat!((var, value))| {
-            let var_ty = self.check_var(var)?;
-
-            // forbid `int %x;` even if grammatically accepted
-            if let Some(decl_ty) = decl_ty {
-                _require_exact(decl_ty, var_ty, keyword.span, var.span)?;
-            }
-            if let Some(value) = value {
-                let value_ty = self.check_expr(value)?;
-                let value_ty = require_value(value_ty, value.span, value.span)?;
-                _require_exact(value_ty, var_ty, keyword.span, value.span)?;
-            }
-            Ok::<_, CompileError>(())
+            self.check_single_var_decl(keyword, var, value.as_ref())
         }).collect_with_recovery()
     }
 
@@ -300,8 +287,34 @@ impl<'a> Visitor<'a> {
         Ok(out)
     }
 
-    /// Get the type that a variable is being used as.
-    fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
+    /// Fully checks a variable declaration or a function parameter declaration.
+    fn check_single_var_decl(
+        &self,
+        keyword: Sp<VarDeclKeyword>,
+        var: &Sp<ast::Var>,
+        value: Option<&Sp<ast::Expr>>,
+    ) -> Result<(), CompileError> {
+        self.check_var_weak(var)?;
+
+        // forbid 'int %x;'
+        if let Some(decl_ty) = keyword.ty() {
+            let var_ty = self.ty_ctx.var_read_ty_from_ast(var).expect("must be Some since var is typed");
+            _require_exact(decl_ty, var_ty, keyword.span, var.span)?;
+        }
+
+        // is a value being assigned?
+        if let Some(value) = value {
+            let var_ty = self.check_var(var)?;
+            let value_ty = self.check_expr(value)?;
+            let value_ty = require_value(value_ty, value.span, value.span)?;
+            _require_exact(value_ty, var_ty, keyword.span, value.span)?;
+        }
+        Ok(())
+    }
+
+    /// Weaker version of [`Self::check_var`] that applies even in places where the variable is neither read
+    /// nor written, such as in `int x;`.
+    fn check_var_weak(&self, var: &Sp<ast::Var>) -> Result<(), CompileError> {
         let inherent_ty = self.ty_ctx.var_inherent_ty_from_ast(var);
         let read_ty = var.read_ty();
         match inherent_ty {
@@ -317,10 +330,16 @@ impl<'a> Visitor<'a> {
                 None => {},  // good; no sigil
                 Some(read_ty) => return Err(error!(
                     message("type error"),
-                    primary(var, "attempt to read {} as {}", inherent_ty.unwrap().descr(), ScalarType::from(read_ty).descr()),
+                    primary(var, "attempt to use {} as {}", inherent_ty.unwrap().descr(), ScalarType::from(read_ty).descr()),
                 )),
             }
         };
+        Ok(())
+    }
+
+    /// Check a variable that's actually being used in some way (read or written to).
+    fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
+        self.check_var_weak(var)?;
 
         self.ty_ctx.var_read_ty_from_ast(var).ok_or_else(|| {
             let mut err = crate::error::Diagnostic::error();

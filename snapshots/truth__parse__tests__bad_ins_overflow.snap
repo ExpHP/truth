@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Expr>(\"instruction\",\n                                r#\" ins_99999999999999() \"#).trim()"
+---
+error: invalid instruction identifier
+  ┌─ <input>:1:2
+  │
+1 │  ins_99999999999999() 
+  │  ^^^^^^^^^^^^^^^^^^ number too large to fit in target type

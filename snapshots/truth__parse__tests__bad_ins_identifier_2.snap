@@ -1,11 +1,11 @@
 ---
 source: src/parse/tests.rs
-expression: "expect_parse_error::<ast::Expr>(\"instruction\", r#\" ins_04() \"#).trim()"
+expression: "expect_parse_error::<ast::Expr>(\"instruction\", r#\" ins_a() \"#).trim()"
 ---
 error: invalid instruction identifier
   ┌─ <input>:1:2
   │
-1 │  ins_04() 
-  │  ^^^^^^ invalid instruction identifier
+1 │  ins_a() 
+  │  ^^^^^ invalid instruction identifier
   │
   = identifiers beginning with 'ins_' must end in a canonically-formatted integer, e.g. 'ins_42'.

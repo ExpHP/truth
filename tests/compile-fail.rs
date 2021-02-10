@@ -253,18 +253,6 @@ compile_fail_test!(
     expected: "expects 3 arguments",
 );
 
-compile_fail_test!(
-    STD_08, bad_ins_idents,
-    main_body: r#"
-        ins_();  // no digits  (note: expect 5 errors total)
-        ins_a();  // not number
-        ins_01();  // not canonical
-        ins_1a();  // junk after number
-        ins_999999999999999999999999();  // overflow
-    "#,
-    expected: "invalid instruction",
-);
-
 // TODO: STD script requirements (single sub called main...)
 
 mod type_error {
