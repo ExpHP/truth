@@ -9,7 +9,7 @@ use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
-use crate::var::{ResolveId, RegId};
+use crate::resolve::{ResolveId, RegId};
 use crate::type_system::{TypeSystem, ScalarType};
 
 use IntrinsicInstrKind as IKind;

@@ -241,12 +241,12 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, de
         items: vec! [
             sp!(ast::Item::Meta {
                 keyword: sp!(ast::MetaKeyword::Meta),
-                name: None,
+                ident: None,
                 fields: sp!(std.make_meta(format)),
             }),
             sp!(ast::Item::AnmScript {
                 number: None,
-                name: sp!("main".parse().unwrap()),
+                ident: sp!("main".parse().unwrap()),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }),
@@ -284,7 +284,7 @@ fn compile_std(
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
-                Item::Meta { keyword: Sp { span: kw_span, value: ast::MetaKeyword::Meta }, name: None, fields: meta } => {
+                Item::Meta { keyword: Sp { span: kw_span, value: ast::MetaKeyword::Meta }, ident: None, fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(error!(
                             message("'meta' supplied multiple times"),
@@ -293,9 +293,9 @@ fn compile_std(
                         ));
                     }
                 },
-                Item::Meta { keyword: Sp { value: ast::MetaKeyword::Meta, .. }, name: Some(name), .. } => return Err(error!(
-                    message("unexpected named meta '{}' in STD file", name),
-                    primary(name, "unexpected name"),
+                Item::Meta { keyword: Sp { value: ast::MetaKeyword::Meta, .. }, ident: Some(ident), .. } => return Err(error!(
+                    message("unexpected named meta '{}' in STD file", ident),
+                    primary(ident, "unexpected name"),
                 )),
                 Item::Meta { keyword, .. } => return Err(error!(
                     message("unexpected '{}' in STD file", keyword),
@@ -305,11 +305,11 @@ fn compile_std(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
                 )),
-                Item::AnmScript { number: None, name, code, .. } => {
-                    if name != "main" {
+                Item::AnmScript { number: None, ident, code, .. } => {
+                    if ident != "main" {
                         return Err(error!(
                             message("STD script must be called 'main'"),
-                            primary(name, "invalid name for STD script"),
+                            primary(ident, "invalid name for STD script"),
                         ));
                     }
                     if let Some((prev_item, _)) = found_main_sub.replace((item, code)) {

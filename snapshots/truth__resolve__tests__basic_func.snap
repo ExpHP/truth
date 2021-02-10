@@ -1,5 +1,5 @@
 ---
-source: src/var.rs
+source: src/resolve.rs
 expression: "resolve_reformat::<ast::Script>(r#\"\n    int foo(int x) {\n        return x;\n    }\n\n    script script0 {\n        int x = 3;\n        foo(x);  // should match `foo` definition\n    }\"#).trim()"
 ---
 int foo_4(int x_5) {

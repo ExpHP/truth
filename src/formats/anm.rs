@@ -17,7 +17,7 @@ use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::type_system::{ScalarType, TypeSystem};
 use crate::passes::DecompileKind;
-use crate::var::RegId;
+use crate::resolve::RegId;
 
 // =============================================================================
 
@@ -211,7 +211,7 @@ fn decompile(
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
-            name: None,
+            ident: None,
             fields: sp!(entry.make_meta()),
         }));
 
@@ -220,7 +220,7 @@ fn decompile(
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
-                name: name.clone(),
+                ident: name.clone(),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }));
@@ -320,13 +320,13 @@ fn compile(
                 cur_entry = Some(fields);
                 cur_group = vec![];
             },
-            &ast::Item::AnmScript { number, ref name, ref code, .. } => {
+            &ast::Item::AnmScript { number, ref ident, ref code, .. } => {
                 if cur_entry.is_none() { return Err(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),
                     note("at least one `entry` must come before scripts in an ANM file"),
                 ))}
-                cur_group.push((number, name, code));
+                cur_group.push((number, ident, code));
             },
             _ => return Err(error!(
                 message("feature not supported by format"),

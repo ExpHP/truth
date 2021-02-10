@@ -8,7 +8,7 @@ use crate::ast;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent, GensymContext};
-use crate::var::{RegId, Namespace, ResolveId};
+use crate::resolve::{RegId, Namespace, ResolveId};
 use crate::eclmap::Eclmap;
 use crate::type_system::{ScalarType, InstrAbi};
 

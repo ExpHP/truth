@@ -178,11 +178,11 @@ Item: ast::Item = {
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
         => ast::Item::Func { inline, keyword, ident, params, code },
 
-    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <name:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
-        => ast::Item::AnmScript { keyword, number, name, code },
+    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
+        => ast::Item::AnmScript { keyword, number, ident, code },
 
-    <keyword:Sp<MetaKeyword>> <name:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
-        => ast::Item::Meta { keyword, name, fields },
+    <keyword:Sp<MetaKeyword>> <ident:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
+        => ast::Item::Meta { keyword, ident, fields },
 
     <keyword:Sp<FileListKeyword>> "{" <files:(<Sp<LitString>> ";")*> "}"
         => ast::Item::FileList { keyword, files },

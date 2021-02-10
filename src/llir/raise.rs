@@ -7,7 +7,7 @@ use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
-use crate::var::{RegId};
+use crate::resolve::{RegId};
 use crate::type_system::{ArgEncoding, TypeSystem, ScalarType, InstrAbi};
 use crate::value::ScalarValue;
 

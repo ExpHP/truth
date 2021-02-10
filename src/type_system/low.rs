@@ -65,27 +65,6 @@ impl InstrAbi {
         self.encodings.iter().copied()
     }
 
-    // /// Get the minimum number of args allowed in the AST.
-    // pub fn min_args(&self) -> usize { self.count_args_incl_padding() - self.count_padding() }
-    // /// Get the maximum number of args allowed in the AST.
-    // pub fn max_args(&self) -> usize { self.count_args_incl_padding() }
-    //
-    // fn count_args_incl_padding(&self) -> usize {
-    //     self.encodings.len()
-    // }
-    //
-    // fn count_padding(&self) -> usize {
-    //     self.arg_encodings().rev().position(|c| c != Enc::Padding)
-    //         .unwrap_or(self.count_args_incl_padding())
-    // }
-    //
-    // pub fn split_padding<'a, T>(&self, args: &'a [T]) -> Option<(&'a [T], &'a [T])> {
-    //     let i = self.count_args_incl_padding() - self.count_padding();
-    //     if i <= args.len() {
-    //         Some(args.split_at(i))
-    //     } else { None }
-    // }
-
     pub fn create_signature(&self, ty_ctx: &mut TypeSystem) -> Signature {
         abi_to_signature(self, ty_ctx)
     }

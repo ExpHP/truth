@@ -121,7 +121,7 @@ fn parse_trailing_comma() {
 #[test]
 fn var_parse() {
     use ast::{Var, VarReadType};
-    use crate::var::RegId;
+    use crate::resolve::RegId;
 
     assert_eq!(Var::parse("[244]").unwrap(), Var::Reg { ty_sigil: VarReadType::Int, reg: RegId(244) });
     assert_eq!(Var::parse("[-99998]").unwrap(), Var::Reg { ty_sigil: VarReadType::Int, reg: RegId(-99998) });

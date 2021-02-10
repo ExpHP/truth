@@ -2,7 +2,7 @@ use bstr::{BString};
 use std::fmt;
 
 use crate::meta;
-use crate::var::{ResolveId, RegId};
+use crate::resolve::{ResolveId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
@@ -81,12 +81,12 @@ pub enum Item {
     AnmScript {
         keyword: TokenSpan,
         number: Option<Sp<i32>>,
-        name: Sp<Ident>,  // FIXME: rename to ident
+        ident: Sp<Ident>,
         code: Block,
     },
     Meta {
         keyword: Sp<MetaKeyword>,
-        name: Option<Sp<Ident>>,  // FIXME: rename to ident
+        ident: Option<Sp<Ident>>,
         fields: Sp<meta::Fields>,
     },
     FileList {
@@ -723,7 +723,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_root_block(code);
                     }
                 },
-                Item::AnmScript { keyword: _, number: _, name: _, code } => {
+                Item::AnmScript { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { .. } => {},
