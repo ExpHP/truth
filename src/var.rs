@@ -376,7 +376,7 @@ mod tests {
 21 func21
 "#;
 
-    fn resolve<A: ast::Visitable + for<'a> Parse<'a>>(text: &str) -> Result<A, (Files, CompileError)> {
+    fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<A, (Files, CompileError)> {
         let mut files = Files::new();
         let mut ty_ctx = TypeSystem::new();
         ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
@@ -388,13 +388,13 @@ mod tests {
         }
     }
 
-    fn resolve_reformat<A: ast::Visitable + Format + for<'a> Parse<'a>>(text: &str) -> String {
+    fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
         let parsed = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
 
         crate::fmt::stringify_with(&parsed, crate::fmt::Config::new().show_res(true))
     }
 
-    fn resolve_expect_err<A: ast::Visitable + for<'a> Parse<'a>>(text: &str, expected: &str) -> String {
+    fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
         let (files, err) = resolve::<A>(text).err().unwrap();
         let err_msg = err.to_string(&files).unwrap();
         assert!(err_msg.contains(expected), "{}", err_msg);
