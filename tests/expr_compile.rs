@@ -235,19 +235,21 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
         truth::passes::resolve_names::run(&mut block, &mut ty_ctx)?;
+        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx)?;
         truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx)?;
         block
     };
 
-    let old_code = parsed_block.0;
-    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_code, &mut ty_ctx)?;
-    let new_code = llir::raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx)?;
+    let old_stmts = parsed_block.0;
+    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, &mut ty_ctx)?;
+    let mut new_block = ast::Block(llir::raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx)?);
+    truth::passes::resolve_names::aliases_to_raw(&mut new_block, &mut ty_ctx)?;
 
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
-    eprintln!("{}", truth::fmt::stringify(&ast::Block(new_code.clone())));
-    old_vm.run(&old_code);
-    new_vm.run(&new_code);
+    eprintln!("{}", truth::fmt::stringify(&new_block));
+    old_vm.run(&old_stmts);
+    new_vm.run(&new_block.0);
 
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");
@@ -271,6 +273,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
         truth::passes::resolve_names::run(&mut block, &mut ty_ctx).unwrap();
+        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx).unwrap();
         truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx).unwrap();
         block
     };

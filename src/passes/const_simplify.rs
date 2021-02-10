@@ -1,8 +1,8 @@
 //! Constant expression simplification pass.
 //!
 //! This pass identifies expressions in the AST that can be evaluated at compile-time and simplifies
-//! them.  Expressions that cannot be simplified (e.g. calls of non-const functions or use of
-//! non-const variables) will be left as-is.
+//! them.  Expressions that cannot be simplified (e.g. calls of non-`const` functions or use of
+//! non-`const` variables) will be left as-is.
 //!
 //! This is a crucial part of STD compilation, as STD has no mechanism for using variables at
 //! runtime.  For other formats, it is moreso just an optimization.
@@ -17,15 +17,20 @@
 //!
 //! let mut files = Files::new();
 //!
-//! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4";
+//! let text = b"(3 == 3) ? (3.0 + 0.5) * 2.0 : 4.0";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
 //! const_simplify::run(&mut expr).expect("failed to simplify");
 //!
-//! let text_simplified = b"3.5 * x";
+//! let text_simplified = b"7.0";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```
+//!
+//! **Note:** a more instructive example might be `(3 == 3) ? (3.0 + 0.5) * x : 4.0`
+//! (where `x` is not a `const` variable), which after const simplification becomes
+//! `3.5 * x`.  (It is difficult to demonstrate this example though because variables require
+//! name resolution, and name resolution messes with equality tests on the AST.)
 
 use crate::value::ScalarValue;
 use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
