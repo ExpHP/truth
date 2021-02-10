@@ -570,20 +570,20 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
-            ast::Item::AnmScript { keyword: _, number, name, code } => {
+            ast::Item::AnmScript { keyword: _, number, ident, code } => {
                 out.fmt("script ")?;
                 if let Some(number) = number {
                     out.fmt((number, " "))?;
                 }
                 out.state.time_stack.push(0);
-                out.fmt((name, " ", code))?;
+                out.fmt((ident, " ", code))?;
                 out.state.time_stack.pop();
                 out.next_line()
             },
-            ast::Item::Meta { keyword, name, fields: meta } => {
+            ast::Item::Meta { keyword, ident, fields: meta } => {
                 out.fmt((keyword, " "))?;
-                if let Some(name) = name {
-                    out.fmt((name, " "))?;
+                if let Some(ident) = ident {
+                    out.fmt((ident, " "))?;
                 }
                 out.fmt(meta)?;
                 out.next_line()

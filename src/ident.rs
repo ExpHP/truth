@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use thiserror::Error;
 
-use crate::var::ResolveId;
+use crate::resolve::ResolveId;
 use crate::pos::Sp;
 
 /// An identifier subject to name resolution.

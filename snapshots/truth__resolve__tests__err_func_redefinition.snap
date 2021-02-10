@@ -1,5 +1,5 @@
 ---
-source: src/var.rs
+source: src/resolve.rs
 expression: "resolve_expect_err::<ast::Script>(r#\"\n    int foo(int x) {\n        return x;\n    }\n\n    int foo(float y) {\n        return y;\n    }\n    \"#,\n                                  \"redefinition\").trim()"
 ---
 error: redefinition of func 'foo'

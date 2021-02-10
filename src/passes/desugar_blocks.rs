@@ -212,7 +212,7 @@ mod tests {
     use crate::ast;
     use crate::pos::Files;
     use crate::type_system::TypeSystem;
-    use crate::var::RegId;
+    use crate::resolve::RegId;
     use crate::vm::{AstVm, LoggedCall};
     use crate::value::ScalarValue::{Int};
     use crate::type_system::ScalarType as Ty;

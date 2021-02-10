@@ -1,5 +1,5 @@
 ---
-source: src/var.rs
+source: src/resolve.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        int b = a + a;  // should use same `a`\n    }\"#).trim()"
 ---
 {

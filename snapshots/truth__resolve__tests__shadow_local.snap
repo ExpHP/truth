@@ -1,5 +1,5 @@
 ---
-source: src/var.rs
+source: src/resolve.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        if (true) {\n            int a = 4;\n            int b = a * a;  // should use inner `a`\n        }\n        int c = a * a;  // should use outer `a`\n        if (true) {\n            int a = 4;  // should be different from other inner `a`\n            int b = a * a;  // should use new inner `a`\n        }\n    }\"#).trim()"
 ---
 {

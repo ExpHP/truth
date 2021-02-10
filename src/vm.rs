@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
-use crate::var::{ResolveId, RegId};
+use crate::resolve::{ResolveId, RegId};
 use crate::value::ScalarValue;
 
 /// A VM that runs on the AST, which can be used to help verify the validity of AST transforms

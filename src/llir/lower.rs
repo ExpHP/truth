@@ -5,7 +5,7 @@ use crate::llir::{RawInstr, InstrFormat};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast;
-use crate::var::ResolveId;
+use crate::resolve::ResolveId;
 use crate::ident::{Ident};
 use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
 

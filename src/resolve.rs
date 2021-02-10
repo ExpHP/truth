@@ -4,8 +4,6 @@ use std::collections::HashMap;
 use crate::ident::{Ident, ResIdent};
 use crate::type_system::{TypeSystem};
 
-// FIXME rename to crate::resolve
-
 /// Represents an identifier that has been uniquely resolved according to its scope.
 ///
 /// These are the disambiguating id numbers that get stored in [`ResIdent`] to make them
@@ -16,7 +14,6 @@ use crate::type_system::{TypeSystem};
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResolveId(pub NonZeroU64);
 
-// FIXME move to crate::llir or crate::type_system
 /// The number used to access a register as an instruction argument.  This uniquely identifies a register.
 ///
 /// For instance, in TH17 ECL, the `TIME` register has an id of `-9988`.
@@ -448,12 +445,11 @@ mod tests {
         int b = a;  // should fail at `a`
     }"#);
 
-    // FIXME rename to basic_reg_alias
-    snapshot_test!(basic_global = <ast::Block> r#"{
+    snapshot_test!(basic_reg_alias = <ast::Block> r#"{
         ins_21(A, X);
     }"#);
 
-    snapshot_test!(shadow_global = <ast::Block> r#"{
+    snapshot_test!(shadow_reg_alias = <ast::Block> r#"{
         ins_21(A, X);
         if (true) {
             float A = 4.0;  // should be different `A`

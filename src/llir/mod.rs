@@ -10,7 +10,7 @@ use crate::error::CompileError;
 use crate::pos::{Span};
 use crate::type_system::ScalarType;
 use crate::value::ScalarValue;
-use crate::var::{RegId};
+use crate::resolve::{RegId};
 
 pub use lower::lower_sub_ast_to_instrs;
 mod lower;

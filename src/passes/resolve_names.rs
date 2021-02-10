@@ -3,12 +3,12 @@ use crate::pos::Sp;
 use crate::type_system::TypeSystem;
 use crate::error::CompileError;
 
-/// Resolve names in a script parsed from text, replacing all variables with unique [`crate::var::VarId`]s.
+/// Resolve names in a script parsed from text, replacing all variables with unique [`crate::resolve::VarId`]s.
 ///
 /// After calling this, information containing the names and declared types of all variables
-/// will be stored on the [`crate::var::Variables`] type.
+/// will be stored on the [`crate::resolve::Variables`] type.
 pub fn run<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    let mut v = crate::var::ResolveVarsVisitor::new(ty_ctx);
+    let mut v = crate::resolve::ResolveVarsVisitor::new(ty_ctx);
     ast.visit_mut_with(&mut v);
     v.finish()
 }

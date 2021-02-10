@@ -1,5 +1,5 @@
 ---
-source: src/var.rs
+source: src/resolve.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        ins_21(A, X);\n        if (true) {\n            float A = 4.0;  // should be different `A`\n            float b = A;\n        }\n        ins_21(A, X);  // should be original `A`\n    }\"#).trim()"
 ---
 {

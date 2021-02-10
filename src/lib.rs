@@ -46,8 +46,8 @@ mod game;
 #[doc(hidden)]
 pub mod cli_def;
 
-pub use var::{RegId, ResolveId};
-mod var;
+pub use resolve::{RegId, ResolveId};
+mod resolve;
 
 mod binary_io;
 
