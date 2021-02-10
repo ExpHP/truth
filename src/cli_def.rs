@@ -104,7 +104,8 @@ pub mod anm_decompile {
 
         let stdout = io::stdout();
         wrap_fancy_errors(|_files| {
-            let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(max_columns);
+            let fmt_config = crate::fmt::Config::new().max_columns(max_columns);
+            let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
             run(&mut f, game, input.as_ref(), mapfile)
         });
     }
@@ -245,8 +246,9 @@ pub mod anm_benchmark {
     ) -> Result<(), CompileError> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
+            let fmt_config = crate::fmt::Config::new().max_columns(100);
             let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
-            let mut f = crate::Formatter::new(io::BufWriter::new(script_out)).with_max_columns(100);
+            let mut f = crate::Formatter::with_config(io::BufWriter::new(script_out), fmt_config);
             super::anm_decompile::run(&mut f, game, anm_path, map_path.clone())?;
             drop(f);
 
@@ -318,7 +320,8 @@ pub mod std_decompile {
         };
 
         let stdout = io::stdout();
-        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        let fmt_config = crate::fmt::Config::new().max_columns(ncol);
+        let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
         f.fmt(&script)?;
         Ok(())
     }
@@ -419,7 +422,8 @@ pub mod msg_decompile {
         };
 
         let stdout = io::stdout();
-        let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock())).with_max_columns(ncol);
+        let fmt_config = crate::fmt::Config::new().max_columns(ncol);
+        let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
         f.fmt(&script)?;
         Ok(())
     }
