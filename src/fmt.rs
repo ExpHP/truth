@@ -835,8 +835,8 @@ impl Format for ast::Expr {
                 out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
             ast::Expr::Binop(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
-            ast::Expr::Call { ident, args } => {
-                out.fmt(ident)?;
+            ast::Expr::Call { name, args } => {
+                out.fmt(name)?;
                 out.fmt_comma_separated("(", ")", args)
             },
             ast::Expr::Unop(op, x) => match op.value {
@@ -851,6 +851,15 @@ impl Format for ast::Expr {
             ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
             ast::Expr::Var(x) => out.fmt(x),
+        }
+    }
+}
+
+impl Format for ast::CallableName {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        match self {
+            ast::CallableName::Ins { opcode } => out.fmt(("ins_", *opcode as i32)),
+            ast::CallableName::Normal { ident } => out.fmt(ident),
         }
     }
 }

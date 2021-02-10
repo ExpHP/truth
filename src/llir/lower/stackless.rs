@@ -9,7 +9,6 @@ use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
-use crate::ident::{ResIdent};
 use crate::var::{ResolveId, RegId};
 use crate::type_system::{TypeSystem, ScalarType};
 
@@ -70,10 +69,10 @@ impl Lowerer<'_> {
 
 
                 ast::StmtBody::Expr(expr) => match &expr.value {
-                    ast::Expr::Call { ident, args } => {
-                        let opcode = self.lower_func_stmt(stmt, ident, args)?;
+                    ast::Expr::Call { name, args } => {
+                        let opcode = self.lower_func_stmt(stmt, name, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
-                            th06_anm_end_span = Some(ident);
+                            th06_anm_end_span = Some(name);
                         }
                     },
                     _ => return Err(unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
@@ -98,19 +97,11 @@ impl Lowerer<'_> {
     fn lower_func_stmt<'a>(
         &mut self,
         stmt: &Sp<ast::Stmt>,
-        func: &Sp<ResIdent>,
+        name: &Sp<ast::CallableName>,
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
         // all function statements currently refer to single instructions
-        let opcode = self.ty_ctx.ins_opcode(func.expect_res());
-
-        let opcode = match opcode {
-            Some(opcode) => opcode,
-            None => return Err(error!(
-                message("unknown instruction '{}'", func),
-                primary(func, "not an instruction"),
-            )),
-        };
+        let opcode = self.ty_ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
 
         self.lower_instruction(stmt, opcode as _, args)
     }

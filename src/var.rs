@@ -13,11 +13,6 @@ use crate::type_system::{TypeSystem};
 /// referring to different things will ever have the same [`ResolveId`]. This is true even if
 /// the identifiers are different or live in different namespaces (i.e. no additional information
 /// beyond the [`ResolveId`] is necessary to uniquely refer to a named entity).
-///
-/// FIXME: Currently `ResolveId` is also used for some things that don't have resolvable idents
-///        (such as raw register references) because it is more generally used as an key for
-///        `TypeSystem`.  Maybe we can stop doing this now that the whole VarId mess has been
-///        cleaned up?  Not sure.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResolveId(pub NonZeroU64);
 
@@ -99,9 +94,8 @@ mod name_resolver {
         pub fn init_from_ty_ctx(ty_ctx: &TypeSystem) -> Self {
             let mut this = Self::new();
             for (ns, res) in ty_ctx.globals() {
-                if let Some(ident) = ty_ctx.name(ns, res) {
-                    this.enter_child(ident.as_raw().clone(), ns, res);
-                }
+                let ident = ty_ctx.name(ns, res);
+                this.enter_child(ident.as_raw().clone(), ns, res);
             }
             this
         }
@@ -306,14 +300,15 @@ mod resolve_vars {
         }
 
         fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
-            if let ast::Expr::Call { ident, .. } = &mut expr.value {
-                match self.resolver.resolve(ident, Namespace::Funcs) {
-                    Err(ResolutionError) => self.errors.append(error!(
-                        message("unknown function '{}'", ident),
-                        primary(ident, "not found in this scope"),
-                    )),
-                    Ok(()) => {},
-                };
+            if let ast::Expr::Call { name, .. } = &mut expr.value {
+                if let ast::CallableName::Normal { ident, .. } = &mut name.value {
+                    if let Err(ResolutionError) = self.resolver.resolve(ident, Namespace::Funcs) {
+                        self.errors.append(error!(
+                            message("unknown function '{}'", name),
+                            primary(name, "not found in this scope"),
+                        ));
+                    }
+                }
             }
             ast::walk_expr_mut(self, expr)
         }

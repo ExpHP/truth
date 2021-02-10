@@ -2,8 +2,6 @@ use std::fmt;
 use std::rc::Rc;
 
 use thiserror::Error;
-use lazy_static::lazy_static;
-use regex::Regex;
 
 use crate::var::ResolveId;
 use crate::pos::Sp;
@@ -41,9 +39,8 @@ pub struct ResIdent {
 ///
 /// # Identifier syntax
 ///
-/// Identifiers must contain ASCII text.  Furthermore, if it begins with `ins_`, it is
-/// considered to be an **instruction identifier**, and the remaining part is required to be
-/// a canonically-formatted non-negative integer.
+/// Identifiers must contain ASCII text.  Furthermore, it may not begin with `ins_` (this is
+/// a raw instruction identifier).
 ///
 /// These restrictions are checked when you construct an identifier using [`str::parse`].
 ///
@@ -56,10 +53,6 @@ pub struct Ident {
 }
 
 impl ResIdent {
-    pub fn new_ins(opcode: u16) -> Self {
-        Ident::new_ins(opcode).into()
-    }
-
     pub fn as_raw(&self) -> &Ident {
         &self.ident
     }
@@ -88,24 +81,10 @@ impl ResIdent {
     }
 }
 
-impl Ident {
-    pub fn new_ins(opcode: u16) -> Self {
-        Ident { ident: format!("ins_{}", opcode).into() }
-    }
-
-    pub fn as_ins(&self) -> Option<u16> {
-        if let Some(remainder) = self.ident.strip_prefix("ins_") {
-            Some(remainder.parse().expect("(bug!) invalid instr ident!"))
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum ParseIdentError {
-    #[error("invalid instruction identifier")]
-    InvalidIns,
+    #[error("unexpected instruction identifier")]
+    UnexpectedIns,
     #[error("non-ascii byte '\\x{:02x}'", .0)]
     NonAsciiByte(u8),
 }
@@ -123,17 +102,12 @@ impl std::str::FromStr for Ident {
     type Err = ParseIdentError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-                // * requires an integer after "ins_"
-                // * forbids leading zeroes so that the strings are unique
-                //   (to facilitate equality comparisons)
-                static ref VALID_INS_RE: Regex = Regex::new("^ins_(0|[1-9][0-9]*)$").unwrap();
-            }
         if let Some(byte) = s.bytes().find(|&c| c & 0x80 != 0) {
             return Err(ParseIdentError::NonAsciiByte(byte));
         }
-        if s.starts_with("ins_") && !VALID_INS_RE.is_match(s) {
-            return Err(ParseIdentError::InvalidIns);
+        // Reject stuff like `ins_a`, `ins
+        if s.starts_with("ins_") {
+            return Err(ParseIdentError::UnexpectedIns);
         }
         Ok(Ident { ident: s.into() })
     }

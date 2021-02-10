@@ -48,10 +48,9 @@ impl ast::VisitMut for AliasesToRawVisitor<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
-        if let ast::Expr::Call { ident, .. } = &mut expr.value {
-            if let Some(opcode) = self.ty_ctx.ins_opcode(ident.expect_res()) {
-                let res = self.ty_ctx.get_ins(opcode).expect("alias had res but ins_ name didn't?!");
-                ident.value = self.ty_ctx.func_name(res).clone();
+        if let ast::Expr::Call { name, .. } = &mut expr.value {
+            if let Ok(opcode) = self.ty_ctx.func_opcode_from_ast(name) {
+                name.value = ast::CallableName::Ins { opcode };
             }
         }
         ast::walk_expr_mut(self, expr);
@@ -70,9 +69,9 @@ impl ast::VisitMut for RawToAliasesVisitor<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
-        if let ast::Expr::Call { ident, .. } = &mut expr.value {
-            if let Some(opcode) = self.ty_ctx.ins_opcode(ident.expect_res()) {
-                ident.value = self.ty_ctx.ins_name(opcode).expect("ins is recorded so it must have name").clone();
+        if let ast::Expr::Call { name, .. } = &mut expr.value {
+            if let ast::CallableName::Ins { opcode, .. } = name.value {
+                name.value = self.ty_ctx.ins_to_ast(opcode);
             }
         }
         ast::walk_expr_mut(self, expr);

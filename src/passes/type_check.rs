@@ -251,12 +251,12 @@ impl<'a> Visitor<'a> {
                 Some(left_ty)
             },
 
-            ast::Expr::Call { ref args, ref ident } => {
-                let siggy = match self.ty_ctx.func_signature(ident.expect_res()) {
+            ast::Expr::Call { ref args, ref name } => {
+                let siggy = match self.ty_ctx.func_signature_from_ast(name) {
                     Ok(siggy) => siggy,
                     Err(crate::type_system::MissingSigError { opcode }) => return Err(error!(
                         message("signature not known for opcode {}", opcode),
-                        primary(ident, "signature not known"),
+                        primary(name, "signature not known"),
                         note("try adding this instruction's signature to your mapfiles"),
                     )),
                 };
@@ -268,19 +268,19 @@ impl<'a> Visitor<'a> {
                         false => format!("{} to {}", min_args, max_args),
                     };
                     return Err(error!(
-                        message("wrong number of arguments to '{}'", ident),
-                        primary(ident, "expects {} arguments, got {}", range_str, args.len()),
+                        message("wrong number of arguments to '{}'", name),
+                        primary(name, "expects {} arguments, got {}", range_str, args.len()),
                     ));
                 }
 
                 zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
                     let arg_ty = self.check_expr(arg)?;
-                    let arg_ty = require_value(arg_ty, ident.span, arg.span)?;
+                    let arg_ty = require_value(arg_ty, name.span, arg.span)?;
                     if arg_ty != param.ty.value {
                         return Err(error!(
                             message("type error"),
                             primary(arg.span, "{}", arg_ty.descr()),
-                            secondary(ident, "expects {} for parameter {}", param.ty.descr(), param_num),
+                            secondary(name, "expects {} for parameter {}", param.ty.descr(), param_num),
                         ));
                     }
                     Ok::<_, CompileError>(())

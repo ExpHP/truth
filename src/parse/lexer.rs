@@ -109,6 +109,7 @@ macro_rules! with_each_terminal {
             [0, INT_HEX_RE_PAIR = r"0[xX][0-9a-fA-F]+", LitIntHex]
             [0, INT_BIN_RE_PAIR = r"0[bB][0-1]+", LitIntBin]
             [0, DIFFICULTY_RE_PAIR = r"![-*ENHLWXYZO4567]+", Difficulty]
+            [0, INSTR_RE_PAIR = r"ins_[a-zA-Z0-9_]*", Instr]
             // Lower priority
             [1, IDENT_RE_PAIR = r"[a-zA-Z_][a-zA-Z0-9_]*", Ident]
         ]
@@ -281,6 +282,9 @@ impl<'a> Lexer<'a> {
         if input.get(0) == Some(&b'r') {
             try_regex!(FLOAT_RAD_RE_PAIR);
         }
+        if input.get(0) == Some(&b'i') {
+            try_regex!(INSTR_RE_PAIR);
+        }
         match input.get(0) {
             None => return,
             Some(b'"') => try_regex!(STRING_RE_PAIR),
@@ -389,6 +393,18 @@ mod tests {
         assert_eq!(
             tokenize("  \r\n  /* lol */ // \n\n\n 32"),
             vec![(p(23), Token::LitIntDec("32".as_ref()), p(25))],
+        );
+    }
+
+    #[test]
+    fn ins() {
+        let p = BytePos;
+        assert_eq!(
+            tokenize("ins_23  ins_x"),
+            vec![
+                (p(0), Token::Instr("ins_23".as_ref()), p(6)),
+                (p(8), Token::Instr("ins_x".as_ref()), p(13)),
+            ],
         );
     }
 }
