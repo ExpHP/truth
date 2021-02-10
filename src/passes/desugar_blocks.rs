@@ -218,7 +218,6 @@ mod tests {
     use crate::type_system::ScalarType as Ty;
 
     struct TestSpec<S> {
-        instrs: Vec<(u16, Option<&'static str>, &'static str)>,
         globals: Vec<(&'static str, RegId, Ty)>,
         source: S,
     }
@@ -229,12 +228,6 @@ mod tests {
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ty_ctx = TypeSystem::new();
-            for &(opcode, alias, abi_str) in &self.instrs {
-                ty_ctx.set_ins_abi(opcode, abi_str.parse().unwrap());
-                if let Some(alias) = alias {
-                    ty_ctx.add_global_ins_alias(opcode, alias.parse().unwrap());
-                }
-            }
             for &(name, reg, ty) in &self.globals {
                 ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
@@ -263,7 +256,6 @@ mod tests {
     #[test]
     fn r#loop() {
         TestSpec {
-            instrs: vec![],
             globals: vec![("X", RegId(20), Ty::Int)],
             source: r#"{
                 X = 1;
@@ -282,13 +274,12 @@ mod tests {
     fn times() {
         for ntimes in vec![11, 1, 0] {
             let vm = TestSpec {
-                instrs: vec![(10, Some("foo"), "S")],
                 globals: vec![("X", RegId(20), Ty::Int)],
                 source: format!(r#"{{
                     X = 1;
                     times({ntimes}) {{
                       +2:
-                        foo(X);
+                        ins_10(X);
                       +2:
                     }}
                 }}"#, ntimes=ntimes),
@@ -302,15 +293,14 @@ mod tests {
     fn times_clobber() {
         for ntimes in vec![11, 1, 0] {
             let vm = TestSpec {
-                instrs: vec![(10, Some("foo"), "S"), (20, Some("final"), "S")],
                 globals: vec![("X", RegId(20), Ty::Int)],
                 source: format!(r#"{{
                     times(X = {ntimes}) {{
                       +2:
-                        foo(X);
+                        ins_10(X);
                       +2:
                     }}
-                    final(X);
+                    ins_200(X);
                 }}"#, ntimes=ntimes),
             }.run();
             assert_eq!(vm.time, 4);
@@ -323,17 +313,16 @@ mod tests {
     fn do_while() {
         for mult in vec![4, 1, 0] {
             let vm = TestSpec {
-                instrs: vec![(10, Some("foo"), "f"), (20, Some("final"), "f")],
                 globals: vec![("X", RegId(20), Ty::Float)],
                 source: format!(r#"{{
                     X = 0.33333333333333333333;
                     do {{
                       +2:
                         X += 5.0;
-                        foo(X);
+                        ins_10(X);
                       +2:
                     }} while (X < {stop_val});
-                    final(X);
+                    ins_200(X);
                 }}"#, stop_val = 0.1 + 5.0 * (mult as f32)),
             }.run();
 
@@ -350,17 +339,16 @@ mod tests {
     fn r#while() {
         for niter in vec![4, 1, 0] {
             let vm = TestSpec {
-                instrs: vec![(10, Some("foo"), "f"), (20, Some("final"), "f")],
                 globals: vec![("X", RegId(20), Ty::Float)],
                 source: format!(r#"{{
                     X = 0.33333333333333333333;
                     while (X < {stop_val}) {{
                       +2:
                         X += 5.0;
-                        foo(X);
+                        ins_10(X);
                       +2:
                     }}
-                    final(X);
+                    ins_200(X);
                 }}"#, stop_val = 0.1 + 5.0 * (niter as f32)),
             }.run();
 
@@ -372,30 +360,24 @@ mod tests {
     #[test]
     fn cond_chain() {
         let get_vm = |x| TestSpec {
-            instrs: vec![
-                (2, Some("two"), "S"),
-                (22, Some("two_digit"), "S"),
-                (6, Some("other"), "S"),
-                (44, Some("final"), "S"),
-            ],
             globals: vec![("X", RegId(20), Ty::Int)],
             source: format!(r#"{{
                 X = {x};
                 if (X == 2) {{
                   +2:
-                    two(X);
+                    ins_2(X);
                   +3:  // 5
                 }} else if (X >= 10) {{
                   +4:  // 9
-                    two_digit(X);
+                    ins_22(X);
                   +6:  // 15
                 }} else {{
                   +1:  // 16
-                    other(X);
+                    ins_6(X);
                   +4:  // 20
                 }}
                 +5: // 25
-                final(X);
+                ins_44(X);
             }}"#, x=x),
         }.run();
 

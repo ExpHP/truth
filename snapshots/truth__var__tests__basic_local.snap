@@ -3,6 +3,6 @@ source: src/var.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        int b = a + a;  // should use same `a`\n    }\"#).trim()"
 ---
 {
-    int a_7 = 3;
-    int b_8 = (a_7 + a_7);
+    int a_4 = 3;
+    int b_5 = (a_4 + a_4);
 }

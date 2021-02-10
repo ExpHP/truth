@@ -3,10 +3,10 @@ source: src/var.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        ins_21(A, X);\n        if (true) {\n            float A = 4.0;  // should be different `A`\n            float b = A;\n        }\n        ins_21(A, X);  // should be original `A`\n    }\"#).trim()"
 ---
 {
-    ins_21_2(A_3, X_4);
+    ins_21(A_2, X_3);
     if (1) {
-        float A_7 = 4.0;
-        float b_8 = A_7;
+        float A_4 = 4.0;
+        float b_5 = A_4;
     }
-    ins_21_2(A_3, X_4);
+    ins_21(A_2, X_3);
 }

@@ -463,6 +463,11 @@ impl Var {
         }
     }
 
+    /// Get the *explicitly annotated* read type.  If there isn't one, returns `None`.
+    ///
+    /// Because this does not use the type system, it is unable to determine anything in the case
+    /// that there is no type sigil.  [`crate::type_system::TypeSystem::var_read_ty_from_ast`] for a
+    /// more reliable way of determining the type of a [`Var`].
     pub fn read_ty(&self) -> Option<VarReadType> {
         match *self {
             Var::Named { ty_sigil, .. } => ty_sigil,

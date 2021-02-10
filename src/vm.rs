@@ -286,7 +286,6 @@ impl AstVm {
                     }
                 },
 
-
                 ast::StmtBody::Assignment { var, op, value } => {
                     match op.value {
                         ast::AssignOpKind::Assign => {
@@ -442,7 +441,6 @@ mod tests {
     use crate::type_system::ScalarType as Ty;
 
     struct TestSpec<S> {
-        instrs: Vec<(u16, Option<&'static str>, &'static str)>,
         globals: Vec<(&'static str, RegId, Ty)>,
         source: S,
     }
@@ -457,12 +455,6 @@ mod tests {
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ty_ctx = TypeSystem::new();
-            for &(opcode, alias, abi_str) in &self.instrs {
-                ty_ctx.set_ins_abi(opcode, abi_str.parse().unwrap());
-                if let Some(alias) = alias {
-                    ty_ctx.add_global_ins_alias(opcode, alias.parse().unwrap());
-                }
-            }
             for &(alias, reg, ty) in &self.globals {
                 ty_ctx.add_global_reg_alias(reg, alias.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
@@ -476,7 +468,6 @@ mod tests {
     #[test]
     fn basic_variables() {
         let ast = TestSpec {
-            instrs: vec![],
             globals: vec![("Y", RegId(-999), Ty::Int)],
             source: r#"{
                 int x = 3;
@@ -494,15 +485,11 @@ mod tests {
     #[test]
     fn basic_instrs_and_time() {
         let ast = TestSpec {
-            instrs: vec![
-                (345, None, "SS"),
-                (12, Some("foo"), "Sf"),
-            ],
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Float)],
             source: r#"{
                 ins_345(0, 6);
             +10:
-                foo(X, Y + 1.0);
+                ins_12(X, Y + 1.0);
             }"#,
         }.prepare();
 
@@ -520,34 +507,32 @@ mod tests {
     #[test]
     fn while_do_while() {
         let while_ast = TestSpec {
-            instrs: vec![(1, Some("lmao"), ""), (44, Some("end"), "")],
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
                 while (X < Y) {
                   +2:
                     X += 1;
-                    lmao();
+                    ins_1();
                   +3:
                 }
               +4:
-                end();
+                ins_44();
             }"#,
         }.prepare();
 
         let do_while_ast = TestSpec {
-            instrs: vec![(1, Some("lmao"), ""), (44, Some("end"), "")],
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
                 do {
                   +2:
                     X += 1;
-                    lmao();
+                    ins_1();
                   +3:
                 } while (X < Y);
               +4:
-                end();
+                ins_44();
             }"#,
         }.prepare();
         dbg!(&do_while_ast);
@@ -579,27 +564,21 @@ mod tests {
     #[test]
     fn goto() {
         let ast = TestSpec {
-            instrs: vec![
-                (10, Some("a"), ""),
-                (20, Some("b"), ""),
-                (30, Some("c"), ""),
-                (40, Some("d"), ""),
-            ],
             globals: vec![("X", RegId(100), Ty::Int)],
             source: r#"{
                 X = 0;
                 loop {
-                    a(); goto B;
+                    ins_10(); goto B;
                 20: C:
-                    c(); goto exited;
+                    ins_30(); goto exited;
                 30: B:
-                    b();
+                    ins_20();
                     if (X == 1) goto C @ 5;
                     X = 1;
                     goto B;
                 }
             exited:
-                d();
+                ins_40();
             }"#,
         }.prepare();
 
@@ -618,11 +597,10 @@ mod tests {
     fn times() {
         for possible_clobber in vec!["", "C = "] {
             let ast = TestSpec {
-                instrs: vec![(11, Some("a"), "")],
                 globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
                 source: format!(r#"{{
                     times({}X) {{
-                        a();
+                        ins_11();
                     +10:
                     }}
                     +5:
@@ -644,12 +622,11 @@ mod tests {
     #[test]
     fn predecrement_jmp() {
         let ast = TestSpec {
-            instrs: vec![(11, Some("foo"), "S")],
             globals: vec![("C", RegId(101), Ty::Int)],
             source: r#"{
                 C = 2;
             label:
-                foo(C);
+                ins_11(C);
                 +10:
                 if (--C) goto label;
             }"#,
@@ -669,12 +646,11 @@ mod tests {
     #[test]
     fn times_clobber_nice() {
         let ast = TestSpec {
-            instrs: vec![(11, Some("foo"), "S")],
             globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 2;
                 times(C = X) {
-                    foo(C);
+                    ins_11(C);
                 +10:
                 }
             }"#,
@@ -694,12 +670,11 @@ mod tests {
     #[test]
     fn times_clobber_naughty() {
         let ast = TestSpec {
-            instrs: vec![(11, Some("foo"), "S")],
             globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 4;
                 times(C = X) {
-                    foo(C);
+                    ins_11(C);
                     C -= 1;  // further manipulate the counter! (le gasp)
                 +10:
                 }
@@ -722,20 +697,19 @@ mod tests {
         macro_rules! gen_spec {
             ($last_clause:literal) => {
                 TestSpec {
-                    instrs: vec![(11, Some("a"), "S"), (22, Some("b"), "")],
                     globals: vec![("X", RegId(100), Ty::Int)],
                     source: concat!(r#"{
                         if (X == 1) {
-                            a(1);
+                            ins_11(1);
                         10:
                         } else if (X == 2) {
-                            a(2);
+                            ins_11(2);
                         20:
                         } "#, $last_clause, r#" {
-                            a(3);
+                            ins_11(3);
                         30:
                         }
-                        b();
+                        ins_200();
                     }"#),
                 }
             };
@@ -752,7 +726,7 @@ mod tests {
 
                 assert_eq!(vm.instr_log, vec![
                     LoggedCall { real_time: 0, opcode: 11, args: vec![Int(x)] },
-                    LoggedCall { real_time: 10, opcode: 22, args: vec![] },
+                    LoggedCall { real_time: 10, opcode: 200, args: vec![] },
                 ]);
                 assert_eq!(vm.time, 30);
                 assert_eq!(vm.real_time, 10);
@@ -763,7 +737,6 @@ mod tests {
     #[test]
     fn type_cast() {
         let ast = TestSpec {
-            instrs: vec![],
             globals: vec![("X", RegId(30), Ty::Int), ("Y", RegId(31), Ty::Int)],
             source: r#"{
                 Y = 6.78;
@@ -781,7 +754,6 @@ mod tests {
     #[should_panic(expected = "iteration limit")]
     fn iteration_limit() {
         let ast = TestSpec {
-            instrs: vec![],
             globals: vec![],
             source: r#"{
                 loop {}
@@ -794,7 +766,6 @@ mod tests {
     #[test]
     fn math_funcs() {
         let ast = TestSpec {
-            instrs: vec![],
             globals: vec![
                 ("X", RegId(30), Ty::Float),
                 ("SIN", RegId(31), Ty::Float), ("COS", RegId(32), Ty::Float), ("SQRT", RegId(33), Ty::Float),
@@ -819,7 +790,6 @@ mod tests {
     #[test]
     fn cast() {
         let ast = TestSpec {
-            instrs: vec![],
             globals: vec![
                 ("I", RegId(30), Ty::Int), ("F", RegId(31), Ty::Float),
                 ("F_TO_I", RegId(32), Ty::Int), ("I_TO_F", RegId(33), Ty::Float),
@@ -844,10 +814,9 @@ mod tests {
     #[test]
     fn string_arg() {
         let ast = TestSpec {
-            instrs: vec![(11, Some("blargh"), "z")],
             globals: vec![],
             source: r#"{
-                blargh(3, 2, "seashells");
+                ins_11(3, 2, "seashells");
             }"#,
         }.prepare();
 
