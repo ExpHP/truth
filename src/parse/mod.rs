@@ -14,21 +14,20 @@ pub mod lexer;
 #[cfg(test)]
 mod tests;
 
-// FIXME: remove this lifetime parameter, zero-copy parsing is just not a thing.
-pub trait Parse<'input>: Sized {
+pub trait Parse: Sized {
     /// Parse a string into an AST node.
     ///
     /// This is for quick-and-dirty use only; the spans in the output will have incomplete
     /// information and [`crate::Files`] will be unable to locate the corresponding
     /// strings of text. For proper diagnostics you should prefer the helper method
     /// [`crate::pos::NonUtf8Files::parse`] instead.
-    fn parse<B: AsRef<[u8]> + ?Sized>(s: &'input B) -> Result<'input, Self> {
+    fn parse<B: AsRef<[u8]> + ?Sized>(s: &B) -> Result<'_, Self> {
         let mut state = State::new();
         Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
             .map(|x| x.value)
     }
 
-    fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>>;
+    fn parse_stream<'input>(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>>;
 }
 
 
@@ -102,8 +101,8 @@ fn call_anything_parser<'input>(
 
 macro_rules! impl_parse {
     ($AstType:ty, $TagName:ident) => {
-        impl<'input> Parse<'input> for $AstType {
-            fn parse_stream(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>> {
+        impl Parse for $AstType {
+            fn parse_stream<'input>(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>> {
                 let sp = call_anything_parser(AnythingTag::$TagName, state, lexer)?;
                 Ok(sp!(sp.span => match sp.value {
                     AnythingValue::$TagName(x) => x,

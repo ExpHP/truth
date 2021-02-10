@@ -142,7 +142,7 @@ fn string_escape() {
 }
 
 #[track_caller]
-fn expect_parse_error<T: for<'a> Parse<'a>>(expected: &str, source: &str) -> String {
+fn expect_parse_error<T: Parse>(expected: &str, source: &str) -> String {
     let mut files = Files::new();
     let result = files.parse::<T>("<input>", source.as_bytes());
     let err_str = result.err().unwrap().to_string(&files).unwrap();

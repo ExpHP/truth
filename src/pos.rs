@@ -108,10 +108,8 @@ impl NonUtf8Files {
     ///
     /// This is just a wrapper around [`Self::parse`] and [`std::fs::read`] with suitable
     /// handling of errors.
-    pub fn read_file<T>(&mut self, path: &Path)
+    pub fn read_file<T: Parse>(&mut self, path: &Path)
         -> Result<Sp<T>, CompileError>
-    where
-        T: for<'a> Parse<'a>,
     {
         use anyhow::Context;
 
@@ -124,10 +122,8 @@ impl NonUtf8Files {
     ///
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
-    pub fn parse<'input, T>(&mut self, filename: &str, source: &'input [u8])
+    pub fn parse<T: Parse>(&mut self, filename: &str, source: &[u8])
         -> Result<Sp<T>, CompileError>
-    where
-        T: Parse<'input>,
     {
         let file_id = self.add(filename, source.as_ref());
         let mut state = crate::parse::State::new();
