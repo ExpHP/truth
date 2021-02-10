@@ -162,15 +162,6 @@ mod formatter {
             }
         }
 
-        // FIXME: Remove
-        pub fn with_max_columns(mut self, width: usize) -> Self {
-            // FIXME: The -1 is to work around a known bug where, if something is in
-            //        block mode and one of its items exactly exactly reaches target_width
-            //        in inline mode, then the comma after the item will surpass the width
-            //        without triggering backtracking on the item.
-            self.config.target_width = width - 1; self
-        }
-
         /// Recover the wrapped `io::Write` object.
         ///
         /// **Important:** If the last line has not yet been written by calling
@@ -949,7 +940,7 @@ mod tests {
 
     // Parse and dump back out, with some max columns.
     fn reformat_bytes<'a, T: crate::parse::Parse<'a> + Format>(ncol: usize, text: &'a [u8]) -> Vec<u8> {
-        let mut f = Formatter::new(vec![]).with_max_columns(ncol);
+        let mut f = Formatter::with_config(vec![], Config::new().max_columns(ncol));
         let mut files = crate::pos::Files::new();
         let value = files.parse::<T>("<input>", text.as_bytes()).unwrap();
         f.fmt(&value).unwrap();
