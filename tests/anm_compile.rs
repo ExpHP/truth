@@ -44,7 +44,7 @@ fn compile(game: Game, infile: impl AsRef<Path>) -> AnmFile {
 }
 
 fn compile_for_thecl_defs(game: Game, infile: impl AsRef<Path>) -> String {
-    let (tempdir, anm) = compile_with_args(
+    let (tempdir, _) = compile_with_args(
         game, infile, |tempdir| vec![
             "--output-thecl-defs".into(),
             tempdir.join("defs").to_string_lossy().into_owned(),

@@ -1,6 +1,6 @@
 [package]
 name = "truth"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Michael Lamparski <diagonaldevice@gmail.com>"]
 edition = "2018"
 build = "build/main.rs"

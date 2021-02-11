@@ -34,26 +34,29 @@ def rebuild_binaries(target):
     for src_path in glob.glob(f'target/{target}/release/*.exe'):
         os.unlink(src_path)
 
-    subprocess.run(['cargo', 'build', '--release'], check=True)
+    subprocess.run(['cargo', 'build', '--release', '--target', target], check=True)
 
 
 def make_release(version, target):
-    release_dir = f'{PRODUCT_NAME}-{version}'
-    release_zip = f'{PRODUCT_NAME}-{version}-{target}.zip'
+    release_dir = f'release/{PRODUCT_NAME}-{version}'
+    release_zip = f'release/{PRODUCT_NAME}-{version}-{target}.zip'
 
     shutil.rmtree(release_dir, ignore_errors=True)
     shutil.rmtree(release_zip, ignore_errors=True)
     os.makedirs(release_dir)
+    print('copying map/')
     shutil.copytree('map', os.path.join(release_dir, 'map'))
     shutil.rmtree(os.path.join(release_dir, 'map', 'core'))
 
     for src_path in glob.glob(f'target/{target}/release/*.exe'):
+        print(f'copying {src_path}')
         filename = os.path.basename(src_path)
         shutil.copyfile(src_path, os.path.join(release_dir, filename))
 
-    subprocess.run(['powershell', 'Compress-Archive', release_dir, release_zip], check=True)
+    if not len(list(glob.glob(f'{release_dir}/*.exe'))):
+        die("no executables copied!")
 
-    shutil.rmtree(release_dir)
+    subprocess.run(['powershell', 'Compress-Archive', '-Force', release_dir, release_zip], check=True)
 
 
 # ------------------------------------------------------

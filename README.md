@@ -12,6 +12,7 @@ truth stands for "**t**htk **ru**st **th**ing".  Or maybe it stands for "**t**ht
 
 * `trustd`: in beta; **feature complete, please give it a try!**
 * `truanm`: in alpha
+* `trumsg`: extremely alpha, only partial game support
 
 Supports **all danmaku titles TH06–TH17.**  That is:
 
