@@ -15,6 +15,7 @@ use crate::ident::Ident;
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
+use crate::value::ScalarValue;
 use crate::type_system::{ScalarType, TypeSystem};
 use crate::passes::DecompileKind;
 use crate::resolve::RegId;
@@ -297,27 +298,22 @@ fn compile(
 ) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
-    let ast = {
-        let mut ast = ast.clone();
-
-        crate::passes::resolve_names::run(&mut ast, ty_ctx)?;
-        crate::passes::type_check::run(&ast, ty_ctx)?;
-        crate::passes::const_simplify::run(&mut ast)?;
-        crate::passes::desugar_blocks::run(&mut ast, ty_ctx)?;
-        ast
-    };
-
     // group scripts by entry
     let mut groups = vec![];
     let mut cur_entry = None;
     let mut cur_group = vec![];
+    let mut sprite_names = vec![];
+    let mut script_names = vec![];
     for item in &ast.items {
         match &item.value {
             ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => {
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
-                cur_entry = Some(fields);
+                let entry = Entry::from_fields(fields)?;
+                sprite_names.extend(entry.sprites.keys().cloned());
+
+                cur_entry = Some(entry);
                 cur_group = vec![];
             },
             &ast::Item::AnmScript { number, ref ident, ref code, .. } => {
@@ -327,6 +323,7 @@ fn compile(
                     note("at least one `entry` must come before scripts in an ANM file"),
                 ))}
                 cur_group.push((number, ident, code));
+                script_names.push(ident);
             },
             _ => return Err(error!(
                 message("feature not supported by format"),
@@ -334,17 +331,42 @@ fn compile(
             )),
         }
     }
+
     match cur_entry {
         None => return Err(error!("empty ANM script")),
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
     }
 
+    // Create automatic 'const' items for all
+    for (index, script_name) in script_names.into_iter().enumerate() {
+        let script_name = sp!(script_name.span => script_name.value.clone().into());
+        ty_ctx.add_global_const_var(script_name, ScalarValue::Int(index as i32));
+    }
+    for (index, sprite_name) in sprite_names.into_iter().enumerate() {
+        let sprite_name = sp!(sprite_name.span => sprite_name.value.clone().into());
+        ty_ctx.add_global_const_var(sprite_name, ScalarValue::Int(index as i32));
+    }
+
     let mut next_auto_id = 0;
-    let entries = groups.into_iter().map(|(entry_fields, ast_scripts)| {
-        let mut entry = Entry::from_fields(entry_fields)?;
+    let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (given_number, name, code) in ast_scripts {
             let id = given_number.map(|sp| sp.value).unwrap_or(next_auto_id);
             next_auto_id = id + 1;
+
+            // FIXME: We should be running these passes on the whole file, not on each script.
+            //        (running it on each script will prevent us from having `const` items & inline functions).
+            //        However, currently it is done to individual scripts because const simplification
+            //        requires script & sprite names, which require handling the Meta.
+            //        (we'll need to rework our first pass over the script to just do Meta stuff)
+            let code = {
+                let mut code = code.clone();
+
+                crate::passes::resolve_names::run(&mut code, ty_ctx)?;
+                crate::passes::type_check::run(&code, ty_ctx)?;
+                crate::passes::const_simplify::run(&mut code, ty_ctx)?;
+                crate::passes::desugar_blocks::run(&mut code, ty_ctx)?;
+                code
+            };
 
             match entry.scripts.entry(name.clone()) {
                 indexmap::map::Entry::Vacant(e) => {
@@ -485,10 +507,10 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
     Ok(AnmFile { entries })
 }
 
-fn auto_sprite_name(i: u32) -> Ident {
+pub fn auto_sprite_name(i: u32) -> Ident {
     format!("sprite{}", i).parse::<Ident>().unwrap()
 }
-fn auto_script_name(i: u32) -> Ident {
+pub fn auto_script_name(i: u32) -> Ident {
     format!("script{}", i).parse::<Ident>().unwrap()
 }
 

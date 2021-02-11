@@ -308,14 +308,20 @@ fn raise_args(args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, Simpl
 fn raise_arg(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
     if raw.is_reg {
         let ty = match enc {
-            ArgEncoding::Padding |
-            ArgEncoding::Color |
-            ArgEncoding::Dword => ScalarType::Int,
-            ArgEncoding::Float => ScalarType::Float,
-            ArgEncoding::JumpTime => bail!("unexpected register used as jump time"),
-            ArgEncoding::JumpOffset => bail!("unexpected register used as jump offset"),
-            ArgEncoding::Word => bail!("unexpected register used as word-sized argument"),
-            ArgEncoding::String { .. } => bail!("unexpected register used as string argument"),
+            | ArgEncoding::Padding
+            | ArgEncoding::Color
+            | ArgEncoding::Sprite
+            | ArgEncoding::Script
+            | ArgEncoding::Dword
+            => ScalarType::Int,
+
+            | ArgEncoding::Float
+            => ScalarType::Float,
+
+            | ArgEncoding::JumpTime => bail!("unexpected register used as jump time"),
+            | ArgEncoding::JumpOffset => bail!("unexpected register used as jump offset"),
+            | ArgEncoding::Word => bail!("unexpected register used as word-sized argument"),
+            | ArgEncoding::String { .. } => bail!("unexpected register used as string argument"),
         };
         Ok(Expr::Var(sp!(raise_arg_to_reg(raw, ty)?)))
     } else {
@@ -333,6 +339,18 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
         | ArgEncoding::Word
         | ArgEncoding::Dword
         => Ok(Expr::from(raw.expect_int())),
+
+        | ArgEncoding::Sprite
+        => Ok(Expr::Var(sp!(ast::Var::Named {
+            ident: crate::formats::anm::auto_sprite_name(raw.expect_int() as _).into(),
+            ty_sigil: None,
+        }))),
+
+        | ArgEncoding::Script
+        => Ok(Expr::Var(sp!(ast::Var::Named {
+            ident: crate::formats::anm::auto_script_name(raw.expect_int() as _).into(),
+            ty_sigil: None,
+        }))),
 
         | ArgEncoding::Color
         => Ok(Expr::LitInt { value: raw.expect_int(), hex: true }),
@@ -405,6 +423,8 @@ fn decode_args(instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, Simp
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
+            | ArgEncoding::Sprite
+            | ArgEncoding::Script
             => Ok(ScalarValue::Int(args_blob.read_u32()? as i32)),
 
             | ArgEncoding::Float

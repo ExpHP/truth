@@ -193,6 +193,8 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
                 | ArgEncoding::Padding
+                | ArgEncoding::Script
+                | ArgEncoding::Sprite
                 => size += 4,
 
                 | ArgEncoding::Word
@@ -231,6 +233,8 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
+            | ArgEncoding::Script
+            | ArgEncoding::Sprite
             => args_blob.write_i32(arg.expect_raw().expect_int())?,
 
             | ArgEncoding::Float

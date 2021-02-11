@@ -242,11 +242,11 @@ fn anm10_if_elseif_else() {
     "#, |decompiled| {
         assert!(decompiled.contains(r#"
     if ([10000] == 0) {
-        ins_3(2);
+        ins_3(sprite2);
     } else if ([10000] == 1) {
-        ins_3(3);
+        ins_3(sprite3);
     } else {
-        ins_3(1);
+        ins_3(sprite1);
     }"#.trim()));
     });
 }

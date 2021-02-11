@@ -17,7 +17,7 @@
 11 SSfffffffff
 12 S
 13 C
-14 SN     # different from 14+
+14 SS     # SN  # different from 14+
 16 S      # TH11 (10 had no callSTD...?)
 17 S      # TH11
 18 SSfff  # TH12

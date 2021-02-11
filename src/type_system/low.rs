@@ -41,6 +41,10 @@ pub enum ArgEncoding {
     Color,
     /// `f` in mapfile. Single-precision float.
     Float,
+    /// `N` in mapfile. Dword index of an anm script.  When decompiled, prefers to use the name of that script.
+    Script,
+    /// `n` in mapfile. Dword index of an anm sprite.  When decompiled, prefers to use the name of that sprite.
+    Sprite,
     /// `z` or `m` in mapfile.
     ///
     /// A null-terminated string argument which must be the last argument in the signature and
@@ -73,14 +77,21 @@ impl InstrAbi {
 impl ArgEncoding {
     pub fn expr_type(self) -> ScalarType {
         match self {
-            ArgEncoding::JumpOffset |
-            ArgEncoding::JumpTime |
-            ArgEncoding::Padding |
-            ArgEncoding::Color |
-            ArgEncoding::Word |
-            ArgEncoding::Dword => ScalarType::Int,
-            ArgEncoding::Float => ScalarType::Float,
-            ArgEncoding::String { .. } => ScalarType::String,
+            | ArgEncoding::JumpOffset
+            | ArgEncoding::JumpTime
+            | ArgEncoding::Padding
+            | ArgEncoding::Color
+            | ArgEncoding::Word
+            | ArgEncoding::Sprite
+            | ArgEncoding::Script
+            | ArgEncoding::Dword
+            => ScalarType::Int,
+
+            | ArgEncoding::Float
+            => ScalarType::Float,
+
+            | ArgEncoding::String { .. }
+            => ScalarType::String,
         }
     }
 }
@@ -128,8 +139,8 @@ impl std::str::FromStr for InstrAbi {
                 b't' => ArgEncoding::JumpTime,
                 b'f' => ArgEncoding::Float,
                 b'_' => ArgEncoding::Padding,
-                b'n' => ArgEncoding::Dword, // FIXME sprite
-                b'N' => ArgEncoding::Dword, // FIXME script
+                b'n' => ArgEncoding::Sprite,
+                b'N' => ArgEncoding::Script,
                 b'z' => ArgEncoding::String { block_size: 4, mask: 0 },
                 b'm' => ArgEncoding::String { block_size: 4, mask: 0x77 },
                 0x80..=0xff => anyhow::bail!("non-ascii byte in signature: {:#04x}", b),
@@ -151,6 +162,8 @@ fn abi_to_signature(abi: &InstrAbi, ty_ctx: &mut TypeSystem) -> Signature {
                 | ArgEncoding::Color
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
+                | ArgEncoding::Sprite
+                | ArgEncoding::Script
                 => (ScalarType::Int, None),
 
                 | ArgEncoding::Padding
