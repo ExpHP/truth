@@ -129,6 +129,10 @@ std_b2b_test!(Game::Th12, "map/any.stdm", std12_general, "th12-general.std");
 
 anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_registers, "th12-registers.anm");
 anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_script_args, "th12-sprite-script-args.anm");
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_unset, "th12-sprite-unset.anm");
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_non_sequential, "th12-sprite-non-sequential.anm");
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_duplicates, "th12-sprite-duplicates.anm");
 
 msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_multiple_scripts, "th06-multiple-scripts.msg");
 msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_z_string, "th06-z-string.msg");

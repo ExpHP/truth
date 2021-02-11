@@ -341,10 +341,13 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
         => Ok(Expr::from(raw.expect_int())),
 
         | ArgEncoding::Sprite
-        => Ok(Expr::Var(sp!(ast::Var::Named {
-            ident: crate::formats::anm::auto_sprite_name(raw.expect_int() as _).into(),
-            ty_sigil: None,
-        }))),
+        => match raw.expect_int() {
+            -1 => Ok(Expr::from(-1)),
+            id => Ok(Expr::Var(sp!(ast::Var::Named {
+                ident: crate::formats::anm::auto_sprite_name(id as _).into(),
+                ty_sigil: None,
+            }))),
+        },
 
         | ArgEncoding::Script
         => Ok(Expr::Var(sp!(ast::Var::Named {
