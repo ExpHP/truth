@@ -39,16 +39,36 @@ fn all_files_tested() {
 }
 
 fn compile(game: Game, infile: impl AsRef<Path>) -> AnmFile {
+    let (_, anm) = compile_with_args(game, infile, |_| vec![]);
+    anm
+}
+
+fn compile_for_thecl_defs(game: Game, infile: impl AsRef<Path>) -> String {
+    let (tempdir, anm) = compile_with_args(
+        game, infile, |tempdir| vec![
+            "--output-thecl-defs".into(),
+            tempdir.join("defs").to_string_lossy().into_owned(),
+        ],
+    );
+    std::fs::read_to_string(tempdir.path().join("defs")).unwrap()
+}
+
+fn compile_with_args(
+    game: Game,
+    infile: impl AsRef<Path>,
+    extra_args: impl FnOnce(&Path) -> Vec<String>,  // gets tmpdir as argument
+) -> (tempfile::TempDir, AnmFile) {
     truth::setup_for_test_harness();
 
-    let temp = tempfile::tempdir().unwrap();
-    let temp = temp.path();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp = temp_dir.path();
     let output = {
         Command::cargo_bin("truanm").unwrap()
             .arg("compile")
             .arg(infile.as_ref())
             .arg("-g").arg(game.to_string())
             .arg("-o").arg(temp.join("test.anm"))
+            .args(extra_args(temp.as_ref()))
             .output().expect("failed to execute process")
     };
     print!("{}", std::str::from_utf8(&output.stdout).unwrap());
@@ -56,7 +76,8 @@ fn compile(game: Game, infile: impl AsRef<Path>) -> AnmFile {
     assert!(output.status.success());
 
     let reader = std::io::Cursor::new(std::fs::read(&temp.join("test.anm")).unwrap());
-    AnmFile::read_from_stream(reader, game, false).unwrap()
+    let anm = AnmFile::read_from_stream(reader, game, false).unwrap();
+    (temp_dir, anm)
 }
 
 fn compile_fail_stderr(game: Game, infile: impl AsRef<Path>) -> String {
@@ -144,4 +165,11 @@ fn multiple_same() {
     assert_eq!(anm.entries[1].specs.width, Some(2000));
     assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
     assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
+}
+
+#[test]
+fn thecl_defs() {
+    let defs = compile_for_thecl_defs(Game::Th12, file("th12-thecl-defs-input.anm.spec"));
+    let expected = std::fs::read_to_string(file("th12-thecl-defs-expected.ecs")).unwrap();
+    assert_eq!(defs, expected);
 }

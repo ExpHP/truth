@@ -138,16 +138,17 @@ pub mod anm_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (script_path, game, output, mapfile, image_sources) = cli::parse_args(version, args, CmdSpec {
+        let (script_path, game, output, mapfile, image_sources, output_thecl_defs) = cli::parse_args(version, args, CmdSpec {
             program: "truanm compile",
             usage_args: "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
                 cli::path_arg("SCRIPT"),
                 cli::game(), cli::required_output(), cli::mapfile(), cli::image_sources(),
+                cli::output_thecl_defs(),
             ),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &script_path, &output, &image_sources, mapfile));
+        wrap_fancy_errors(|files| run(files, game, &script_path, &output, &image_sources, mapfile, output_thecl_defs));
     }
 
     pub(super) fn run(
@@ -157,6 +158,7 @@ pub mod anm_compile {
         outpath: &Path,
         cli_image_source_paths: &[PathBuf],
         map_path: Option<PathBuf>,
+        output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let mut ty_ctx = init_ty_ctx(game, map_path, &crate::anm::game_core_mapfile(game))?;
 
@@ -182,8 +184,13 @@ pub mod anm_compile {
             compiled.apply_image_source(source_anm_file)?;
         }
 
-        let out = fs::File::create(outpath).with_context(|| format!("creating file '{}'", outpath.display()))?;
-        compiled.write_to_stream(&mut io::BufWriter::new(out), game)?;
+        compiled.write_to_stream(io::BufWriter::new(fs_create(outpath)?), game)?;
+
+        if let Some(outpath) = output_thecl_defs {
+            compiled.write_thecl_defs(io::BufWriter::new(fs_create(&outpath)?))
+                .with_context(|| format!("while writing '{}'", outpath.display()))?;
+        }
+
         Ok(())
     }
 }
@@ -252,7 +259,7 @@ pub mod anm_benchmark {
             super::anm_decompile::run(&mut f, game, anm_path, map_path.clone())?;
             drop(f);
 
-            super::anm_compile::run(files, game, script_path, outpath, &image_source_paths, map_path.clone())?;
+            super::anm_compile::run(files, game, script_path, outpath, &image_source_paths, map_path.clone(), None)?;
         }
     }
 }
@@ -545,6 +552,13 @@ mod cli {
             short: "i", long: "image-source", metavar: "ANMFILE",
             help: "supply an existing ANM file to copy any missing embedded images and header data from",
         }).map(|strs| strs.into_iter().map(Into::into).collect())
+    }
+
+    pub fn output_thecl_defs() -> impl CliArg<Value=Option<PathBuf>> {
+        opts::Opt {
+            short: "", long: "output-thecl-defs", metavar: "FILE",
+            help: "write a file defining globals for anm scripts for use in thecl",
+        }.map(|opt| opt.map(Into::into))
     }
 
     pub enum Abbreviations { Allow, Forbid }
