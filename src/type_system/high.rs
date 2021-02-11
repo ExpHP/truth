@@ -10,6 +10,7 @@ use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent, GensymContext};
 use crate::resolve::{RegId, Namespace, ResolveId};
 use crate::eclmap::Eclmap;
+use crate::value::ScalarValue;
 use crate::type_system::{ScalarType, InstrAbi};
 
 // TODO: document
@@ -25,9 +26,6 @@ pub struct TypeSystem {
     // Preferred aliases.  These are used during decompilation to make the output readable.
     reg_aliases: HashMap<RegId, ResolveId>,
     ins_aliases: HashMap<u16, ResolveId>,
-
-    // HACK because we do not yet do name resolution for functions
-    func_ident_ids: HashMap<Ident, ResolveId>,
 
     /// Ids for names available in the global scope.  These form the baseline set of names
     /// available to name resolution.
@@ -53,7 +51,6 @@ impl TypeSystem {
             instrs: Default::default(),
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
-            func_ident_ids: Default::default(),
             global_ids: Default::default(),
             unused_ids: UnusedIds(1..),
             gensym: GensymContext::new(),
@@ -219,6 +216,7 @@ impl TypeSystem {
         match self.vars[&res] {
             VarData { kind: VarKind::RegisterAlias { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::Local { ref ident, .. }, .. } => ident,
+            VarData { kind: VarKind::Const { ref ident, .. }, .. } => ident,
         }
     }
 
@@ -284,6 +282,7 @@ impl TypeSystem {
         match &self.vars[&res] {
             VarData { kind: VarKind::RegisterAlias { .. }, .. } => None,
             VarData { kind: VarKind::Local { ident, .. }, .. } => Some(ident.span),
+            VarData { kind: VarKind::Const { ident, .. }, .. } => Some(ident.span),
         }
     }
 
@@ -297,6 +296,33 @@ impl TypeSystem {
         match &self.funcs[&res] {
             FuncData { kind: FuncKind::InstructionAlias { .. }, .. } => None,
             FuncData { kind: FuncKind::User { ident, .. }, .. } => Some(ident.span),
+        }
+    }
+}
+
+impl TypeSystem {
+    /// Declare a fully-evaluated compile-time constant variable, attaching a brand new ID to the ident.
+    pub fn add_global_const_var(&mut self, ident: Sp<ResIdent>, value: ScalarValue) -> Sp<ResIdent> {
+        let ident = sp!(ident.span => self.make_resolvable(ident.value));
+        let res = ident.expect_res();
+
+        self.vars.insert(res, VarData {
+            ty: Some(Some(value.ty())),
+            kind: VarKind::Const { ident: ident.clone(), value },
+        });
+        self.global_ids.push((Namespace::Vars, res));
+        ident
+    }
+
+    /// Get the value of a variable if it is a fully-evaluated const.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID does not correspond to a variable.
+    pub fn var_const_value(&mut self, res: ResolveId) -> Option<ScalarValue> {
+        match &self.vars[&res] {
+            VarData { kind: VarKind::Const { value, .. }, .. } => Some(value.clone()),
+            _ => None,
         }
     }
 }
@@ -376,6 +402,10 @@ enum VarKind {
         /// NOTE: For auto-generated temporaries, the span may point to their expression instead.
         ident: Sp<ResIdent>,
     },
+    Const {
+        ident: Sp<ResIdent>,
+        value: ScalarValue,
+    }
 }
 
 #[derive(Debug, Clone)]

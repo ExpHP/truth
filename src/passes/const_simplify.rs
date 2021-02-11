@@ -13,14 +13,16 @@
 //! # Example
 //! ```
 //! use truth::{ast, pos::{Files, Sp}};
+//! use truth::type_system::TypeSystem;
 //! use truth::passes::const_simplify;
 //!
 //! let mut files = Files::new();
+//! let mut ty_ctx = TypeSystem::new();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * 2.0 : 4.0";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
-//! const_simplify::run(&mut expr).expect("failed to simplify");
+//! const_simplify::run(&mut expr, &mut ty_ctx).expect("failed to simplify");
 //!
 //! let text_simplified = b"7.0";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
@@ -33,16 +35,17 @@
 //! name resolution, and name resolution messes with equality tests on the AST.)
 
 use crate::value::ScalarValue;
-use crate::ast::{self, VisitMut, UnopKind, BinopKind, Expr};
+use crate::ast;
 use crate::error::{CompileError};
 use crate::pos::Sp;
+use crate::type_system::TypeSystem;
 
 #[track_caller]
 fn uncaught_type_error() -> ! {
     panic!("(bug!) type_check should fail...")
 }
 
-impl UnopKind {
+impl ast::UnopKind {
     pub fn const_eval(&self, b: ScalarValue) -> ScalarValue {
         match b {
             ScalarValue::Int(x) => match self {
@@ -70,7 +73,7 @@ impl UnopKind {
     }
 }
 
-impl BinopKind {
+impl ast::BinopKind {
     pub fn const_eval(&self, a: ScalarValue, b: ScalarValue) -> ScalarValue {
         match (a, b) {
             (ScalarValue::Int(a), ScalarValue::Int(b)) => match self {
@@ -116,13 +119,13 @@ impl BinopKind {
     }
 }
 
-impl Expr {
+impl ast::Expr {
     /// Get the expression's value, if it is an integer literal.
     ///
     /// Because const simplification turns expressions into literals, this is the quickest way to
     /// inspect the final, evaluated result of a constant integer expression.
     pub fn as_const_int(&self) -> Option<i32> { match *self {
-        Expr::LitInt { value, .. } => Some(value),
+        ast::Expr::LitInt { value, .. } => Some(value),
         _ => None,
     }}
 
@@ -131,7 +134,7 @@ impl Expr {
     /// Because const simplification turns expressions into literals, this is the quickest way to
     /// inspect the final, evaluated result of a constant float expression.
     pub fn as_const_float(&self) -> Option<f32> { match *self {
-        Expr::LitFloat { value, .. } => Some(value),
+        ast::Expr::LitFloat { value, .. } => Some(value),
         _ => None,
     }}
 
@@ -140,9 +143,9 @@ impl Expr {
     /// Because const simplification turns expressions into literals, this is the quickest way to
     /// inspect the final, evaluated result of a constant expression.
     pub fn to_const(&self) -> Option<ScalarValue> { match *self {
-        Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
-        Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
-        Expr::LitString(ast::LitString { ref string, .. }) => Some(ScalarValue::String(string.clone())),
+        ast::Expr::LitInt { value, .. } => Some(ScalarValue::Int(value)),
+        ast::Expr::LitFloat { value, .. } => Some(ScalarValue::Float(value)),
+        ast::Expr::LitString(ast::LitString { ref string, .. }) => Some(ScalarValue::String(string.clone())),
         _ => None,
     }}
 }
@@ -150,36 +153,46 @@ impl Expr {
 /// Performs const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.
-pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), CompileError> {
-    let mut visitor = Visitor { errors: CompileError::new_empty() };
+pub fn run<V: ast::Visitable>(ast: &mut V, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
+    let mut visitor = Visitor { errors: CompileError::new_empty(), ty_ctx };
     ast.visit_mut_with(&mut visitor);
     visitor.errors.into_result(())
 }
 
-struct Visitor {
+struct Visitor<'a> {
+    ty_ctx: &'a mut TypeSystem,
     errors: CompileError,
 }
 
-impl VisitMut for Visitor {
-    fn visit_expr(&mut self, e: &mut Sp<Expr>) {
+impl ast::VisitMut for Visitor<'_> {
+    fn visit_expr(&mut self, e: &mut Sp<ast::Expr>) {
         // simplify subexpressions first
         ast::walk_expr_mut(self, e);
 
         // now inspect this expression
         match &e.value {
-            Expr::Unop(op, b) => {
+            ast::Expr::Var(var) => match var.value {
+                ast::Var::Named { ref ident, ty_sigil } => {
+                    if let Some(value) = self.ty_ctx.var_const_value(ident.expect_res()) {
+                        e.value = value.apply_sigil(ty_sigil).expect("shoulda been type-checked").into();
+                    }
+                },
+                ast::Var::Reg { .. } => {}, // can't simplify register
+            },
+
+            ast::Expr::Unop(op, b) => {
                 if let Some(b_value) = b.to_const() {
                     e.value = op.const_eval(b_value).into();
                 }
             },
 
-            Expr::Binop(a, op, b) => {
+            ast::Expr::Binop(a, op, b) => {
                 if let (Some(a_value), Some(b_value)) = (a.to_const(), b.to_const()) {
                     e.value = op.const_eval(a_value, b_value).into();
                 };
             },
 
-            Expr::Ternary { cond, left, right, .. } => match cond.to_const() {
+            ast::Expr::Ternary { cond, left, right, .. } => match cond.to_const() {
                 // FIXME it should be possible to move somehow instead of cloning here...
                 Some(ScalarValue::Int(0)) => e.value = (***right).clone(),
                 Some(ScalarValue::Int(_)) => e.value = (***left).clone(),
