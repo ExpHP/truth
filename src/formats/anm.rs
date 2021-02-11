@@ -58,6 +58,10 @@ impl AnmFile {
     pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, with_images: bool) -> ReadResult<Self> {
         read_anm(&game_format(game), &mut r, with_images)
     }
+
+    pub fn write_thecl_defs(&self, w: impl io::Write) -> WriteResult {
+        write_thecl_defs(w, self)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -410,6 +414,20 @@ fn gather_sprite_ids<'a>(entries: impl IntoIterator<Item=&'a Entry>) -> Result<V
         }
     }
     Ok(sprite_ids.into_iter().map(|(ident, (_, id))| (ident, id)).collect())
+}
+
+fn write_thecl_defs(
+    mut w: impl io::Write,
+    anm: &AnmFile,
+) -> Result<(), SimpleError> {
+    let mut script_index = 0;
+    for entry in &anm.entries {
+        for name in entry.scripts.keys() {
+            writeln!(&mut w, "global {} = {};", name, script_index)?;
+            script_index += 1;
+        }
+    }
+    Ok(())
 }
 
 // =============================================================================
