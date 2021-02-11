@@ -276,7 +276,7 @@ fn raise_instr(
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 args: raise_args(args, abi)?,
-                name: sp!(ty_ctx.ins_to_ast(opcode)),
+                name: sp!(ast::CallableName::Ins { opcode }),
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
     }

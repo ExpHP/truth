@@ -127,6 +127,7 @@ std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_script, "th08-empty-script
 std_b2b_test!(Game::Th06, "map/any.stdm", std06_general, "th06-general.std");
 std_b2b_test!(Game::Th12, "map/any.stdm", std12_general, "th12-general.std");
 
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_registers, "th12-registers.anm");
 anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");
 
 msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_multiple_scripts, "th06-multiple-scripts.msg");
