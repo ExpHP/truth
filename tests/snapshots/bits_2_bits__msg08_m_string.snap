@@ -7,7 +7,7 @@ expression: s
 script 0 main {
     anmInterrupt(0, 1);
 +60: // 60
-    textSet(0, 0, "�ł�...");
+    textSet(0, 0, "でも...");
     anmInterrupt(0, 0);
     textSet(0, 0, "also here's an ascii string so it's not all mojibake");
     textPause(300);

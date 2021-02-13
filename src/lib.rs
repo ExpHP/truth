@@ -57,7 +57,6 @@ pub mod vm;
 
 pub use value::ScalarValue;
 mod value {
-    use bstr::BString;
     use std::fmt;
     use crate::ast;
     use crate::type_system::ScalarType;
@@ -67,7 +66,7 @@ mod value {
     pub enum ScalarValue {
         Int(i32),
         Float(f32),
-        String(BString),
+        String(String),
     }
 
     impl From<ScalarValue> for ast::Expr {

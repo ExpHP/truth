@@ -1,11 +1,10 @@
 use std::io;
 
-use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap;
 use anyhow::bail;
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult};
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
 use crate::ident::Ident;
@@ -30,18 +29,18 @@ pub struct StdFile {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StdExtra {
     Th06 {
-        stage_name: BString,
+        stage_name: Sp<String>,
         bgm: [Std06Bgm; 4],
     },
     Th10 {
-        anm_path: BString,
+        anm_path: Sp<String>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Std06Bgm {
-    pub path: BString,
-    pub name: BString,
+    pub path: Sp<String>,
+    pub name: Sp<String>,
 }
 
 impl FromMeta for Std06Bgm {
@@ -56,8 +55,8 @@ impl FromMeta for Std06Bgm {
 impl ToMeta for Std06Bgm {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field("path", &self.path)
-            .field("name", &self.name)
+            .field("path", &self.path.value)
+            .field("name", &self.name.value)
             .build()
     }
 }
@@ -424,24 +423,14 @@ fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Wr
     Ok(())
 }
 
-fn read_string_128(f: &mut dyn BinRead) -> ReadResult<BString> {
-    let mut out = [0u8; 128];
-    f.read_exact(&mut out)?;
-    
-    let mut out = out.as_bstr().to_owned();
-    while let Some(0) = out.last() {
-        out.pop();
-    }
-    Ok(out)
+fn read_string_128(f: &mut dyn BinRead) -> ReadResult<Sp<String>> {
+    f.read_cstring_masked_exact(128, 0x00)?.decode().map(|x| sp!(x))
 }
-fn write_string_128(f: &mut dyn BinWrite, s: &BStr) -> WriteResult {
-    let mut buf = [0u8; 128];
-    if s.len() >= 128 {
-        bail!("string too long (max 127 bytes): {:?}", s);
+fn write_string_128<S: AsRef<str>>(f: &mut dyn BinWrite, s: &Sp<S>) -> WriteResult {
+    if s.value.as_ref().len() >= 128 {
+        bail!("string too long (max 127 bytes): {:?}", s.as_ref());
     }
-
-    buf[..s.len()].copy_from_slice(&s[..]);
-    f.write_all(&mut buf)?;
+    f.write_cstring_masked(&Encoded::encode(&s)?, 128, 0x00)?;
     Ok(())
 }
 
@@ -640,7 +629,7 @@ impl FileFormat for FileFormat06 {
         match extra {
             StdExtra::Th10 { .. } => unreachable!(),
             StdExtra::Th06 { stage_name, bgm } => {
-                b.field("stage_name", stage_name);
+                b.field("stage_name", &stage_name.value);
                 b.field("bgm", bgm);
             },
         }
@@ -660,11 +649,11 @@ impl FileFormat for FileFormat06 {
     fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th06 { stage_name, bgm } => {
-                write_string_128(f, stage_name.as_ref())?;
+                write_string_128(f, stage_name)?;
                 let bgm_names = bgm.iter().map(|Std06Bgm { name, .. }| name);
                 let bgm_paths = bgm.iter().map(|Std06Bgm { path, .. }| path);
                 for s in bgm_names.chain(bgm_paths) {
-                    write_string_128(f, s.as_ref())?;
+                    write_string_128(f, s)?;
                 }
             },
             StdExtra::Th10 { .. } => unreachable!(),
@@ -685,7 +674,7 @@ impl FileFormat for FileFormat10 {
 
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject) {
         match extra {
-            StdExtra::Th10 { anm_path } => { b.field("anm_path", anm_path); },
+            StdExtra::Th10 { anm_path } => { b.field("anm_path", &anm_path.value); },
             StdExtra::Th06 { .. } => unreachable!(),
         }
     }
@@ -696,7 +685,7 @@ impl FileFormat for FileFormat10 {
 
     fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult {
         match x {
-            StdExtra::Th10 { anm_path } => write_string_128(f, anm_path.as_ref())?,
+            StdExtra::Th10 { anm_path } => write_string_128(f, anm_path)?,
             StdExtra::Th06 { .. } => unreachable!(),
         };
         Ok(())

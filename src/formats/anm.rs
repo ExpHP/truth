@@ -3,12 +3,11 @@ use std::io;
 use std::num::NonZeroU64;
 
 use anyhow::{Context, bail};
-use bstr::BString;
 use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::game::Game;
 use crate::ident::Ident;
@@ -68,8 +67,8 @@ impl AnmFile {
 pub struct Entry {
     pub specs: EntrySpecs,
     pub texture: Option<Texture>,
-    pub path: BString,
-    pub path_2: Option<BString>,
+    pub path: Sp<String>,
+    pub path_2: Option<Sp<String>>,
     pub scripts: IndexMap<Sp<Ident>, Script>,
     pub sprites: IndexMap<Sp<Ident>, Sprite>,
 }
@@ -101,8 +100,8 @@ impl Entry {
         } = &self.specs;
 
         Meta::make_object()
-            .field("path", &self.path)
-            .opt_field("path_2", self.path_2.as_ref())
+            .field("path", &self.path.value)
+            .opt_field("path_2", self.path_2.as_ref().map(|x| &x.value))
             .opt_field("has_data", has_data.as_ref())
             .opt_field("width", width.as_ref())
             .opt_field("height", height.as_ref())
@@ -478,12 +477,12 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
         // eprintln!("{:?}", script_ids_and_offsets);
 
         reader.seek_to(entry_pos + header_data.name_offset)?;
-        let path = reader.read_cstring_blockwise(16)?;
+        let path = reader.read_cstring_blockwise(16)?.decode()?;
         let path_2 = match header_data.secondary_name_offset {
             None => None,
             Some(n) => {
                 reader.seek_to(entry_pos + n.get())?;
-                Some(reader.read_cstring_blockwise(16)?)
+                Some(reader.read_cstring_blockwise(16)?.decode()?)
             },
         };
 
@@ -523,7 +522,7 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
             Ok((key, Script { id, instrs }))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
-        let expect_no_texture = header_data.has_data == 0 || path.starts_with(b"@");
+        let expect_no_texture = header_data.has_data == 0 || path.starts_with("@");
         if expect_no_texture != header_data.thtx_offset.is_none() {
             bail!("inconsistency between thtx_offset and has_data/name");
         }
@@ -544,7 +543,11 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
             low_res_scale: Some(header_data.low_res_scale != 0),
         };
 
-        entries.push(Entry { texture, specs, path, path_2, sprites, scripts });
+        entries.push(Entry {
+            path: sp!(path),
+            path_2: path_2.map(|x| sp!(x)),
+            texture, specs, sprites, scripts
+        });
 
         if header_data.next_offset == 0 {
             break;
@@ -588,11 +591,11 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
         has_data, low_res_scale,
     } = entry.specs;
 
-    fn missing(path: &BString, problem: &str) -> anyhow::Error {
+    fn missing(path: &str, problem: &str) -> anyhow::Error {
         const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
         anyhow::anyhow!(
             "entry for '{}' {}\n       {}",
-            String::from_utf8_lossy(path), problem, SUGGESTION,
+            path, problem, SUGGESTION,
         )
     }
 
@@ -631,12 +634,12 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
     f.write_u32s(&vec![0; 2 * entry.scripts.len()])?;
 
     let path_offset = f.pos()? - entry_pos;
-    f.write_cstring(&entry.path, 16)?;
+    f.write_cstring(&Encoded::encode(&entry.path)?, 16)?;
 
     let mut path_2_offset = 0;
     if let Some(path_2) = &entry.path_2 {
         path_2_offset = f.pos()? - entry_pos;
-        f.write_cstring(path_2, 16)?;
+        f.write_cstring(&Encoded::encode(path_2)?, 16)?;
     };
 
     let sprite_offsets = entry.sprites.iter().map(|(_, sprite)| {

@@ -1,8 +1,11 @@
-//! Because LALRPOP's default lexer requires UTF-8 (and ECL script files may
-//! instead be encoded in Shift-JIS), we need to use our own lexer.
+//! We need our own lexer to insert a virtual token at the beginning.
+//!
+//! Why not use LALRPOP's built-in lexer?  Well, the original reason was that a custom
+//! lexer was required to allow Shift-JIS text files, as the default lexer operates on `str`.
+//! Now that truth also requires UTF-8, the only real reason this still exists is because
+//! I don't see a satisfactory alternative for how to embed the virtual token
 
 use std::fmt;
-use bstr::{BStr, ByteSlice};
 
 use crate::pos::{FileId, BytePos};
 use crate::error::CompileError;
@@ -11,10 +14,10 @@ macro_rules! define_token_enum {
     (
         $( #[$($meta:tt)+] )*
         pub enum $Token:ident<$lt:lifetime> {
-            $( #[token($fixed_bstr:literal)] $fixed_variant:ident, )*
+            $( #[token($fixed_str:literal)] $fixed_variant:ident, )*
 
             $(
-                #[regex($regex_bstr:literal)]
+                #[regex($($regex_tt:tt)+)]
                 $regex_variant:ident($regex_ty:ty),
             )*
 
@@ -26,10 +29,10 @@ macro_rules! define_token_enum {
         }
     ) => {
         $( #[$($meta)+] )*
-        pub enum Token<'a> {
-            $( #[token($fixed_bstr)] $fixed_variant, )*
+        pub enum $Token<$lt> {
+            $( #[token($fixed_str)] $fixed_variant, )*
 
-            $( #[regex($regex_bstr, |lex| lex.slice().as_bstr())] $regex_variant($regex_ty), )*
+            $( #[regex($($regex_tt)+)] $regex_variant($regex_ty), )*
 
             #[error]
             $( #[ $($error_meta)+ ] )*
@@ -38,13 +41,13 @@ macro_rules! define_token_enum {
             $($other_variants)*
         }
 
-        impl<'input> Token<'input> {
-            pub(super) fn as_bstr(&self) -> &'input BStr {
+        impl<'input> $Token<'input> {
+            pub(super) fn as_str(&self) -> &'input str {
                 match self {
-                    $( Token::$fixed_variant => $fixed_bstr.as_bstr(), )*
-                    $( Token::$regex_variant(bstr) => bstr, )*
-                    Token::Error => b"<invalid>".as_bstr(),
-                    _ => b"<special>".as_bstr(),
+                    $( Token::$fixed_variant => $fixed_str, )*
+                    $( Token::$regex_variant(str) => str, )*
+                    Token::Error => "<invalid>",
+                    _ => "<special>",
                 }
             }
         }
@@ -54,103 +57,103 @@ macro_rules! define_token_enum {
 define_token_enum! {
     #[derive(logos::Logos, Clone, Copy, Debug, PartialEq)]
     pub enum Token<'a> {
-        #[token(b",")] Comma,
-        #[token(b"?")] Question,
-        #[token(b":")] Colon,
-        #[token(b";")] Semicolon,
-        #[token(b"[")] BracketOpen,
-        #[token(b"]")] BracketClose,
-        #[token(b"{")] BraceOpen,
-        #[token(b"}")] BraceClose,
-        #[token(b"(")] ParenOpen,
-        #[token(b")")] ParenClose,
-        #[token(b"@")] AtSign,
-        #[token(b"...")] Ellipsis,
-        #[token(b".")] Dot,
-        #[token(b"=")] Eq,
-        #[token(b"+")] Plus,
-        #[token(b"-")] Minus,
-        #[token(b"*")] Star,
-        #[token(b"/")] Slash,
-        #[token(b"%")] Percent,
-        #[token(b"^")] Caret,
-        #[token(b"|")] Or,
-        #[token(b"&")] And,
-        #[token(b"+=")] PlusEq,
-        #[token(b"-=")] MinusEq,
-        #[token(b"*=")] StarEq,
-        #[token(b"/=")] SlashEq,
-        #[token(b"%=")] PercentEq,
-        #[token(b"^=")] CaretEq,
-        #[token(b"|=")] OrEq,
-        #[token(b"&=")] AndEq,
-        #[token(b"==")] EqEq,
-        #[token(b"!=")] NotEq,
-        #[token(b"<")] Less,
-        #[token(b"<=")] LessEq,
-        #[token(b">")] Greater,
-        #[token(b">=")] GreaterEq,
-        #[token(b"!")] Not,
-        #[token(b"||")] OrOr,
-        #[token(b"&&")] AndAnd,
-        #[token(b"--")] MinusMinus,
-        #[token(b"$")] Cash,
-        #[token(b"#")] Hash,
-        #[token(b"anim")] Anim,
-        #[token(b"ecli")] Ecli,
-        #[token(b"meta")] Meta,
-        #[token(b"sub")] Sub,
-        #[token(b"timeline")] Timeline,
-        #[token(b"script")] Script,
-        #[token(b"entry")] Entry,
-        #[token(b"var")] Var,
-        #[token(b"int")] Int,
-        #[token(b"float")] Float,
-        #[token(b"void")] Void,
-        #[token(b"inline")] Inline,
-        #[token(b"insdef")] Insdef,
-        #[token(b"return")] Return,
-        #[token(b"goto")] Goto,
-        #[token(b"loop")] Loop,
-        #[token(b"if")] If,
-        #[token(b"else")] Else,
-        #[token(b"unless")] Unless,
-        #[token(b"do")] Do,
-        #[token(b"while")] While,
-        #[token(b"times")] Times,
-        #[token(b"break")] Break,
-        #[token(b"switch")] Switch,
-        #[token(b"case")] Case,
-        #[token(b"default")] Default,
-        #[token(b"interrupt")] Interrupt,
-        #[token(b"async")] Async,
-        #[token(b"global")] Global,
-        #[token(b"false")] False,
-        #[token(b"true")] True,
-        #[token(b"pragma")] Pragma,
-        #[token(b"mapfile")] Mapfile,
-        #[token(b"image_source")] ImageSource,
-        #[token(b"sin")] Sin,
-        #[token(b"cos")] Cos,
-        #[token(b"sqrt")] Sqrt,
-        #[token(b"_S")] CastI,
-        #[token(b"_f")] CastF,
+        #[token(",")] Comma,
+        #[token("?")] Question,
+        #[token(":")] Colon,
+        #[token(";")] Semicolon,
+        #[token("[")] BracketOpen,
+        #[token("]")] BracketClose,
+        #[token("{")] BraceOpen,
+        #[token("}")] BraceClose,
+        #[token("(")] ParenOpen,
+        #[token(")")] ParenClose,
+        #[token("@")] AtSign,
+        #[token("...")] Ellipsis,
+        #[token(".")] Dot,
+        #[token("=")] Eq,
+        #[token("+")] Plus,
+        #[token("-")] Minus,
+        #[token("*")] Star,
+        #[token("/")] Slash,
+        #[token("%")] Percent,
+        #[token("^")] Caret,
+        #[token("|")] Or,
+        #[token("&")] And,
+        #[token("+=")] PlusEq,
+        #[token("-=")] MinusEq,
+        #[token("*=")] StarEq,
+        #[token("/=")] SlashEq,
+        #[token("%=")] PercentEq,
+        #[token("^=")] CaretEq,
+        #[token("|=")] OrEq,
+        #[token("&=")] AndEq,
+        #[token("==")] EqEq,
+        #[token("!=")] NotEq,
+        #[token("<")] Less,
+        #[token("<=")] LessEq,
+        #[token(">")] Greater,
+        #[token(">=")] GreaterEq,
+        #[token("!")] Not,
+        #[token("||")] OrOr,
+        #[token("&&")] AndAnd,
+        #[token("--")] MinusMinus,
+        #[token("$")] Cash,
+        #[token("#")] Hash,
+        #[token("anim")] Anim,
+        #[token("ecli")] Ecli,
+        #[token("meta")] Meta,
+        #[token("sub")] Sub,
+        #[token("timeline")] Timeline,
+        #[token("script")] Script,
+        #[token("entry")] Entry,
+        #[token("var")] Var,
+        #[token("int")] Int,
+        #[token("float")] Float,
+        #[token("void")] Void,
+        #[token("inline")] Inline,
+        #[token("insdef")] Insdef,
+        #[token("return")] Return,
+        #[token("goto")] Goto,
+        #[token("loop")] Loop,
+        #[token("if")] If,
+        #[token("else")] Else,
+        #[token("unless")] Unless,
+        #[token("do")] Do,
+        #[token("while")] While,
+        #[token("times")] Times,
+        #[token("break")] Break,
+        #[token("switch")] Switch,
+        #[token("case")] Case,
+        #[token("default")] Default,
+        #[token("interrupt")] Interrupt,
+        #[token("async")] Async,
+        #[token("global")] Global,
+        #[token("false")] False,
+        #[token("true")] True,
+        #[token("pragma")] Pragma,
+        #[token("mapfile")] Mapfile,
+        #[token("image_source")] ImageSource,
+        #[token("sin")] Sin,
+        #[token("cos")] Cos,
+        #[token("sqrt")] Sqrt,
+        #[token("_S")] CastI,
+        #[token("_f")] CastF,
 
-        #[regex(br##""([^\\"]|\\.)*""##)] LitString(&'a BStr),
-        #[regex(br"[0-9]+(\.([0-9]*f|[0-9]+)|f)")] LitFloat(&'a BStr),
-        #[regex(br"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)")] LitRad(&'a BStr),
-        #[regex(br"[0-9]+")] LitIntDec(&'a BStr),
-        #[regex(br"0[xX][0-9a-fA-F]+")] LitIntHex(&'a BStr),
-        #[regex(br"0[bB][0-1]+")] LitIntBin(&'a BStr),
-        #[regex(br"![-*ENHLWXYZO4567]+")] Difficulty(&'a BStr),
-        #[regex(br"ins_[a-zA-Z0-9_]*")] Instr(&'a BStr),
-        #[regex(br"[a-zA-Z_][a-zA-Z0-9_]*")] Ident(&'a BStr),
+        #[regex(r##""([^\\"]|\\.)*""##)] LitString(&'a str),
+        #[regex(r##"[0-9]+(\.([0-9]*f|[0-9]+)|f)"##)] LitFloat(&'a str),
+        #[regex(r##"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)"##)] LitRad(&'a str),
+        #[regex(r##"[0-9]+"##)] LitIntDec(&'a str),
+        #[regex(r##"0[xX][0-9a-fA-F]+"##)] LitIntHex(&'a str),
+        #[regex(r##"0[bB][0-1]+"##)] LitIntBin(&'a str),
+        #[regex(r##"![-*ENHLWXYZO4567]+"##)] Difficulty(&'a str),
+        #[regex(r##"ins_[a-zA-Z0-9_]*"##)] Instr(&'a str),
+        #[regex(r##"[a-zA-Z_][a-zA-Z0-9_]*"##)] Ident(&'a str),
 
         #[error]
-        #[regex(r"\s+", logos::skip)] // whitespace
-        #[regex(r"//[^\n\r]*[\n\r]*", logos::skip)] // line comment
-        #[regex(r"/\*([^*]|\**[^*/])*\*+/", logos::skip)] // block comment
-        #[regex(r"/\*([^*]|\*+[^*/])*\*?")] // unclosed block comment
+        #[regex(r##"\s+"##, logos::skip)] // whitespace
+        #[regex(r##"//[^\n\r]*[\n\r]*"##, logos::skip)] // line comment
+        #[regex(r##"/\*([^*]|\**[^*/])*\*+/"##, logos::skip)] // block comment
+        #[regex(r##"/\*([^*]|\*+[^*/])*\*?"##)] // unclosed block comment
         #[doc(hidden)]
         /// Implementation detail. Basically, [`logos`] requires an error variant.
         /// [`Lexer`] never actually produces this variant, returning `Result::Err` instead.
@@ -165,7 +168,7 @@ define_token_enum! {
 
 impl fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.as_bstr().to_str_lossy(), f)
+        fmt::Display::fmt(&self.as_str(), f)
     }
 }
 
@@ -180,7 +183,7 @@ pub struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(file_id: FileId, input: &'input [u8]) -> Lexer<'input> {
+    pub fn new(file_id: FileId, input: &'input str) -> Lexer<'input> {
         Lexer {
             file_id,
             offset: 0,

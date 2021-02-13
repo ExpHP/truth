@@ -1,4 +1,3 @@
-use bstr::{BStr, BString, ByteSlice, ByteVec};
 use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast;
@@ -411,16 +410,12 @@ mod formatter {
 //==============================================================================
 
 // Base impls: To write arbitrary text, use a string type.
-impl Format for BString {
+impl Format for String {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.append_to_line(self.as_ref())
+        Format::fmt(&**self, out)
     }
 }
-impl Format for BStr {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.append_to_line(self.as_ref())
-    }
-}
+
 impl Format for str {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         out.append_to_line(self.as_ref())
@@ -539,7 +534,7 @@ impl Format for Meta {
             Meta::Int(x) => out.fmt(x),
             Meta::Float(x) => out.fmt(x),
             Meta::Bool(x) => out.fmt(x),
-            Meta::String(x) => out.fmt(ast::LitString { string: x }),
+            Meta::String(x) => out.fmt(ast::LitString { string: x.clone() }),
             Meta::Object(fields) => out.fmt(fields),
             Meta::Array(xs) => out.fmt_comma_separated("[", "]", xs),
             Meta::Variant { name, fields } => out.fmt((name, " ", fields)),
@@ -889,17 +884,17 @@ impl Format for Ident {
     }
 }
 
-impl<S: AsRef<[u8]>> Format for ast::LitString<S> {
+impl Format for ast::LitString {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let mut tmp = BString::from(Vec::with_capacity(2*self.string.as_ref().len()+1));
-        for byte in self.string.as_ref().bytes() {
-            match byte {
-                b'\0' => tmp.push_str(br#"\0"#),
-                b'\"' => tmp.push_str(br#"\""#),
-                b'\\' => tmp.push_str(br#"\\"#),
-                b'\n' => tmp.push_str(br#"\n"#),
-                b'\r' => tmp.push_str(br#"\r"#),
-                b => tmp.push(b),
+        let mut tmp = String::with_capacity(2*self.string.len()+1);
+        for c in self.string.chars() {
+            match c {
+                '\0' => tmp.push_str(r#"\0"#),
+                '\"' => tmp.push_str(r#"\""#),
+                '\\' => tmp.push_str(r#"\\"#),
+                '\n' => tmp.push_str(r#"\n"#),
+                '\r' => tmp.push_str(r#"\r"#),
+                c => tmp.push(c),
             }
         }
         out.fmt(("\"", tmp, "\""))
@@ -934,15 +929,11 @@ impl Format for bool {
 mod tests {
     use super::*;
 
-    // Verify that Shift-JIS text is preserved.
-    const QUOTED_SJIS: &[u8] = b"\"\x82\xB1\x82\xF1\x82\xC9\x82\xBF\x82\xCD\""; // "こんにちは"
-    const QUOTED_UTF8: &[u8] = "\"こんにちは\"".as_bytes();
-
     // Parse and dump back out, with some max columns.
     fn reformat_bytes<T: crate::parse::Parse + Format>(ncol: usize, text: &[u8]) -> Vec<u8> {
         let mut f = Formatter::with_config(vec![], Config::new().max_columns(ncol));
         let mut files = crate::pos::Files::new();
-        let value = files.parse::<T>("<input>", text.as_bytes()).unwrap();
+        let value = files.parse::<T>("<input>", text).unwrap();
         f.fmt(&value).unwrap();
         f.into_inner().unwrap()
     }
@@ -952,13 +943,9 @@ mod tests {
     }
 
     #[test]
-    fn string_lit_utf8() {
-        assert_eq!(reformat_bytes::<ast::LitString>(100, QUOTED_UTF8), QUOTED_UTF8);
-    }
-
-    #[test]
-    fn string_lit_shift_jis() {
-        assert_eq!(reformat_bytes::<ast::LitString>(100, QUOTED_SJIS), QUOTED_SJIS);
+    fn string_quote() {
+        let f = reformat::<ast::Expr>;
+        assert_eq!(f(100, r#" "\r\n\\\"\0" "#).trim(), r#""\r\n\\\"\0""#);
     }
 
     #[test]

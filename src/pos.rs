@@ -15,8 +15,6 @@ pub type FileId = Option<NonZeroU32>;
 use codespan_reporting::{files as cs_files};
 pub use codespan::{ByteIndex as BytePos, ByteOffset, RawIndex, RawOffset};
 
-pub type Files = NonUtf8Files;
-
 /// Helper to wrap a value in [`Sp`]. It is recommended to use this in place of the type constructor.
 ///
 /// * `sp!(span => value)` uses the given span.
@@ -79,29 +77,40 @@ macro_rules! sp_pat {
     ($pat:pat) => { $crate::Sp { value: $pat, span: _ } };
 }
 
-/// An implementation of [`codespan_reporting::files::Files`] adapted to non-UTF8 files.
+/// An implementation of [`codespan_reporting::files::Files`] for `truth`.
 ///
 /// This is the type responsible for keeping track of source text so that snippets can be displayed
 /// in diagnostic error messages.  It provides helper methods for parsing text in a manner which
 /// automatically records that text for these purposes.
 #[derive(Debug, Clone)]
-pub struct NonUtf8Files {
+pub struct Files {
     inner: cs_files::SimpleFiles<String, String>,
 }
 
-impl NonUtf8Files {
-    pub fn new() -> Self { NonUtf8Files { inner: cs_files::SimpleFiles::new() } }
+impl Files {
+    pub fn new() -> Self { Files { inner: cs_files::SimpleFiles::new() } }
 
     /// Add a piece of source text to the database, and give it a name (usually a filepath)
-    /// which will appear in error messages.
+    /// which will appear in error messages.  Also validate the source as UTF-8 with a fancy error.
     ///
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
-    pub fn add(&mut self, name: &str, source: &[u8]) -> FileId {
-        Self::shift_file_id(self.inner.add(
+    pub fn add<'a>(&mut self, name: &str, source: &'a [u8]) -> Result<(FileId, &'a str), CompileError> {
+        // FIXME number of full scans across text can probably be reduced here
+        let file_id = Self::shift_file_id(self.inner.add(
             name.to_owned(),
             prepare_diagnostic_text_source(source).into(),
-        ))
+        ));
+        let str = std::str::from_utf8(source).map_err(|err| {
+            let pos = err.valid_up_to();
+            error!(
+                message("invalid UTF-8"),
+                primary(Span::new(file_id, BytePos(pos as _), BytePos(pos as _)), "not valid UTF-8"),
+                note("truth expects all input script files to be UTF-8 regardless of the output encoding"),
+            )
+        })?;
+
+        Ok((file_id, str))
     }
 
     /// Read a file from the filesystem and automatically parse it into an AST type.
@@ -125,10 +134,10 @@ impl NonUtf8Files {
     pub fn parse<T: Parse>(&mut self, filename: &str, source: &[u8])
         -> Result<Sp<T>, CompileError>
     {
-        let file_id = self.add(filename, source.as_ref());
+        let (file_id, source_str) = self.add(filename, source.as_ref())?;
         let mut state = crate::parse::State::new();
 
-        T::parse_stream(&mut state, lexer::Lexer::new(file_id, source.as_ref()))
+        T::parse_stream(&mut state, lexer::Lexer::new(file_id, source_str))
             .map_err(Into::into)
     }
 
@@ -145,7 +154,7 @@ impl NonUtf8Files {
 
 /// This implementation provides source text that has been lossily modified to be valid UTF-8,
 /// and which should only be used for diagnostic purposes.
-impl<'a> cs_files::Files<'a> for NonUtf8Files {
+impl<'a> cs_files::Files<'a> for Files {
     type FileId = FileId;
     type Name = String;
     type Source = &'a str;
@@ -167,70 +176,15 @@ impl<'a> cs_files::Files<'a> for NonUtf8Files {
     }
 }
 
-/// A version of `from_utf8_lossy` that preserves byte positions.
-///
-/// The output of this is suitable for rendering spans in error messages.
-///
-/// It accomplishes this by using `?` as the replacement character, which only takes a single byte
-/// and can thus easily fill arbitrarily-sized spaces, unlike `U+FFFD REPLACEMENT CHARACTER`
-/// which takes three bytes.
-fn prepare_diagnostic_text_source(s: &[u8]) -> Cow<str> {
-    match std::str::from_utf8(s) {
-        Ok(valid) => Cow::Borrowed(valid),
-        Err(error) => {
-            let mut remaining = s;
-            let mut out = String::new();
-            let mut res = Err(error);
-            while let Err(error) = res {
-                let (valid, after_valid) = remaining.split_at(error.valid_up_to());
-                out.push_str(std::str::from_utf8(valid).expect("already validated"));
-
-                let num_bad = error.error_len().unwrap_or(after_valid.len());
-                for _ in 0..num_bad {
-                    out.push('?');
-                }
-                remaining = &after_valid[num_bad..];
-                res = std::str::from_utf8(remaining);
-            }
-            match res {
-                Err(_) => unreachable!(),
-                Ok(remaining_str) => out.push_str(remaining_str),
-            }
-            assert_eq!(s.len(), out.len());
-            Cow::Owned(out)
-        },
-    }
-}
-
-#[test]
-fn test_lossy_utf8() {
-    let func = prepare_diagnostic_text_source;
-
-    // valid UTF-8
-    assert_eq!(func(b"ab\xF0\x9F\x92\x96cd"), "ab💖cd");
-
-    // invalid byte sequence...
-    assert_eq!(func(b"\x80\xFFcd"), "??cd"); // ...at beginning
-    assert_eq!(func(b"ab\x80\xFFcd"), "ab??cd"); // ...in middle
-    assert_eq!(func(b"ab\x80\xFF"), "ab??"); // ...at end
-
-    // incomplete character; byte 0b11110000 expects 3 more bytes after it.
-    // (this is the case where Utf8Error::error_len() returns None)
-    assert_eq!(func(b"ab\xF0\x80\x80"), "ab???");
-
-    // unpaired surrogate
-    // http://simonsapin.github.io/wtf-8/#surrogates-byte-sequences
-    assert_eq!(func(b"ab\xED\xA3\xA4cd"), "ab???cd");
-
-    // ambiguous case.  This begins with a 4-byte character starter byte, but returns to ascii after
-    // 2 bytes. I'm not sure whether the documentation of `Utf8Error::error_len` is specified
-    // well-enough to determine whether this would replace the two 'w' characters.
-    let input = b"ab\xF0\x80wwcd";
-    let output = func(input);
-    assert_eq!(output.len(), input.len());
-    assert_eq!(&output.as_bytes()[..2], &input[..2]);
-    assert_eq!(&output.as_bytes()[2..2+2], b"??");
-    assert_eq!(&output.as_bytes()[2+4..], &input[2+4..]);
+/// Obtain a UTF-8 version of the source that is suitable for rendering spans in error messages
+/// for potentially non-UTF8 text.
+fn prepare_diagnostic_text_source(s: &[u8]) -> Cow<'_, str> {
+    // Back when truth allowed scripts to be Shift-JIS, we had to worry about the replacement character
+    // messing up byte offsets, and so this was more complicated.
+    //
+    // Now that we require UTF-8, the only possible error that needs to be rendered from a non-UTF-8 file
+    // is an error at the FIRST appearance of non-UTF8 data; thus the byte offsets will be just fine.
+    String::from_utf8_lossy(s)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -461,7 +415,7 @@ pub struct Sp<T: ?Sized> {
     pub value: T,
 }
 
-impl<T: fmt::Debug> fmt::Debug for Sp<T> {
+impl<T: ?Sized + fmt::Debug> fmt::Debug for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // emit a compressed notation to make dbg! slightly less of an abomination
         write!(f, "sp!({:?} => ", &(self.span.start().0..self.span.end().0))?;

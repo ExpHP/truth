@@ -21,7 +21,7 @@ pub trait Parse: Sized {
     /// information and [`crate::Files`] will be unable to locate the corresponding
     /// strings of text. For proper diagnostics you should prefer the helper method
     /// [`crate::pos::NonUtf8Files::parse`] instead.
-    fn parse<B: AsRef<[u8]> + ?Sized>(s: &B) -> Result<'_, Self> {
+    fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
         let mut state = State::new();
         Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
             .map(|x| x.value)

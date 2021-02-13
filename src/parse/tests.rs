@@ -120,6 +120,13 @@ fn parse_trailing_comma() {
 }
 
 #[test]
+fn parse_escape() {
+    use ast::Expr;
+
+    assert_eq!(Expr::parse(r#" "\r\n\\\"\0" "#).unwrap(), Expr::LitString(ast::LitString { string: "\r\n\\\"\0".to_string() }));
+}
+
+#[test]
 fn var_parse() {
     use ast::{Var, VarReadType};
     use crate::resolve::RegId;
@@ -139,7 +146,7 @@ fn var_parse() {
 fn string_escape() {
     use ast::LitString;
 
-    assert_eq!(LitString::parse(r#" "ab\\\"\r\nd" "#).unwrap(), LitString { string: b"ab\\\"\r\nd"[..].into() });
+    assert_eq!(LitString::parse(r#" "ab\\\"\r\nd" "#).unwrap(), LitString { string: "ab\\\"\r\nd".into() });
 }
 
 #[track_caller]

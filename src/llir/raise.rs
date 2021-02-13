@@ -440,7 +440,7 @@ fn decode_args(instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, Simp
             => {
                 // read to end
                 let read_len = args_blob.get_ref().len() - args_blob.pos()? as usize;
-                Ok(ScalarValue::String(args_blob.read_cstring_masked_exact(read_len, mask)?))
+                Ok(ScalarValue::String(args_blob.read_cstring_masked_exact(read_len, mask)?.decode()?))
             },
         }).with_context(|| format!("in argument {} of ins_{}", arg_index + 1, instr.opcode))?;
 

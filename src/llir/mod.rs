@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bstr::BString;
 use anyhow::{bail, Context};
 use enum_map::EnumMap;
 
@@ -72,7 +71,7 @@ impl SimpleArg {
     }
 
     #[track_caller]
-    pub fn expect_string(&self) -> &BString {
+    pub fn expect_string(&self) -> &String {
         match self.value {
             ScalarValue::String(ref x) => x,
             _ => panic!("{:?}", self),
@@ -112,8 +111,8 @@ impl From<f32> for SimpleArg {
     fn from(x: f32) -> SimpleArg { SimpleArg { value: ScalarValue::Float(x), is_reg: false } }
 }
 
-impl From<BString> for SimpleArg {
-    fn from(x: BString) -> SimpleArg { SimpleArg { value: ScalarValue::String(x), is_reg: false } }
+impl From<String> for SimpleArg {
+    fn from(x: String) -> SimpleArg { SimpleArg { value: ScalarValue::String(x), is_reg: false } }
 }
 
 fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {

@@ -171,7 +171,7 @@ pub mod anm_compile {
         // image sources referenced in file take precedence
         let mut image_source_paths = vec![];
         for path_literal in &ast.image_sources {
-            image_source_paths.push(path_literal.as_path()?.to_owned());
+            image_source_paths.push(PathBuf::from(path_literal.string.clone()));
         }
         image_source_paths.extend(cli_image_source_paths.iter().cloned());
 
@@ -468,7 +468,7 @@ fn init_ty_ctx(
 /// Loads mapfiles from a parsed script.
 fn load_mapfiles_from_pragmas(game: Game, ty_ctx: &mut crate::TypeSystem, script: &ast::Script) -> Result<(), CompileError> {
     for path_literal in &script.mapfiles {
-        let path = path_literal.as_path()?;
+        let path: &Path = path_literal.string.as_ref();
 
         crate::error::group_anyhow(|| {
             let eclmap = crate::Eclmap::load(&path, Some(game))?;

@@ -1,4 +1,3 @@
-use bstr::{BStr, ByteSlice};
 use crate::error::CompileError;
 use crate::parse::lexer::{Token};
 use crate::meta::{self, Meta};
@@ -15,15 +14,15 @@ extern {
 
     enum Token<'input> {
         // Terminals
-        STRING => Token::LitString(<&'input BStr>),
-        FLOAT => Token::LitFloat(<&'input BStr>),
-        FLOAT_RAD => Token::LitRad(<&'input BStr>),
-        INT => Token::LitIntDec(<&'input BStr>),
-        INT_HEX => Token::LitIntHex(<&'input BStr>),
-        INT_BIN => Token::LitIntBin(<&'input BStr>),
-        DIFFICULTY => Token::Difficulty(<&'input BStr>),
-        INSTR => Token::Instr(<&'input BStr>),
-        IDENT => Token::Ident(<&'input BStr>),
+        STRING => Token::LitString(<&'input str>),
+        FLOAT => Token::LitFloat(<&'input str>),
+        FLOAT_RAD => Token::LitRad(<&'input str>),
+        INT => Token::LitIntDec(<&'input str>),
+        INT_HEX => Token::LitIntHex(<&'input str>),
+        INT_BIN => Token::LitIntBin(<&'input str>),
+        DIFFICULTY => Token::Difficulty(<&'input str>),
+        INSTR => Token::Instr(<&'input str>),
+        IDENT => Token::Ident(<&'input str>),
         "," => Token::Comma,
         "?" => Token::Question,
         ":" => Token::Colon,
@@ -552,36 +551,36 @@ ExprCallParenArgs: Vec<Sp<ast::Expr>> = {
 
 LitString: ast::LitString = {
     <l: @L> <s:STRING> <r: @R> =>? {
-        let mut out = vec![];
+        let mut out = String::new();
         let mut escape = false;
-        for b in s[1..s.len()-1].bytes() {
+        for c in s[1..s.len()-1].chars() {
             if escape {
                 escape = false;
-                match b {
-                    b'0' => out.push(b'\0'),
-                    b'"' => out.push(b'"'),
-                    b'\\' => out.push(b'\\'),
-                    b'n' => out.push(b'\n'),
-                    b'r' => out.push(b'\r'),
-                    c => {
+                match c {
+                    '0' => out.push_str("\0"),
+                    '"' => out.push_str("\""),
+                    '\\' => out.push_str("\\"),
+                    'n' => out.push_str("\n"),
+                    'r' => out.push_str("\r"),
+                    _ => {
                         let escape = match c.is_ascii_graphic() {
-                            true => format!("{}", c as char),
-                            false => format!("\\x{:02x}", c),
+                            true => format!("'{}'", c),
+                            false => format!("U+{:04x}", c as u32),
                         };
                         return Err(error!(
-                            message("invalid escape character '{}'", escape),
+                            message("invalid escape character {}", escape),
                             primary(Span::from_locs(l, r), "contains invalid escape"),
                         ).into());
-                    }
+                    },
                 }
-            } else if b == b'\\' {
+            } else if c == '\\' {
                 escape = true;
             } else {
-                out.push(b);
+                out.push(c);
             }
         }
         assert!(!escape);  // should be impossible due to the token's regex
-        Ok(ast::LitString { string: out.into() })
+        Ok(ast::LitString { string: out })
     },
 };
 
@@ -597,15 +596,15 @@ LitIntSigned: i32 = {
 
 LitFloatUnsigned: f32 = {
     <mut s:FLOAT> => {
-        if s.ends_with(b"f") || s.ends_with(b"F") {
+        if s.ends_with("f") || s.ends_with("F") {
             s = &s[..s.len()-1];
         }
         parse_ascii(s).unwrap()
     },
     <mut s:FLOAT_RAD> => {
-        s = &s[b"rad(".len()..];
-        s = &s[..s.len()-b")".len()];
-        if s.ends_with(b"f") || s.ends_with(b"F") {
+        s = &s["rad(".len()..];
+        s = &s[..s.len()-")".len()];
+        if s.ends_with("f") || s.ends_with("F") {
             s = &s[..s.len()-1];
         }
         parse_ascii::<_, f32>(s).unwrap().to_radians()
@@ -683,32 +682,32 @@ ResIdent: ResIdent = <ident:Ident> => ident.into();
 
 Ident: Ident = {
     <l: @L> <tok:IdentStr> <r: @R> => {
-        std::str::from_utf8(&tok[..]).expect("cannot fail because lexed token is ascii")
-            .parse().expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
+        tok.parse().expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
     },
 };
 
-IdentStr: &'input BStr = {
+IdentStr: &'input str = {
     // obviously
     IDENT,
     // contextual keywords
-    <s: "mapfile"> => s.as_bstr(),
-    <s: "entry"> => s.as_bstr(),
-    <s: "anim"> => s.as_bstr(),
-    <s: "ecli"> => s.as_bstr(),
-    <s: "timeline"> => s.as_bstr(),
-    <s: "script"> => s.as_bstr(),
+    <s: "mapfile"> => s.as_str(),
+    <s: "entry"> => s.as_str(),
+    <s: "anim"> => s.as_str(),
+    <s: "ecli"> => s.as_str(),
+    <s: "timeline"> => s.as_str(),
+    <s: "script"> => s.as_str(),
 };
 
 RawInsIdent: u16 = {
     <l:@L> <ins_ident:INSTR> <r:@R> =>? {
-        use regex::bytes::Regex;
+        use regex::Regex;
+
         lazy_static::lazy_static!{
             static ref CANONICAL_INT_RE: Regex = Regex::new("^(0|[1-9][0-9]*)$").unwrap();
         }
 
-        assert!(ins_ident.starts_with(b"ins_"));
-        let num_str = &ins_ident[b"ins_".len()..];
+        assert!(ins_ident.starts_with("ins_"));
+        let num_str = &ins_ident["ins_".len()..];
         if !CANONICAL_INT_RE.is_match(num_str) {
             return Err(error!(
                 message("invalid instruction identifier"),
@@ -717,7 +716,7 @@ RawInsIdent: u16 = {
             ).into());
         }
 
-        std::str::from_utf8(num_str).expect("known ascii").parse()
+        num_str.parse()
             // this error is mostly for overflow
             .map_err(|e| error!(
                 message("invalid instruction identifier"),

@@ -8,6 +8,7 @@ use crate::ast;
 use crate::resolve::ResolveId;
 use crate::ident::{Ident};
 use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
+use crate::binary_io::Encoded;
 
 mod stackless;
 
@@ -202,7 +203,10 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
 
                 | ArgEncoding::String { block_size, mask: _ }
                 => {
-                    let string_len = arg.expect_raw().expect_string().len();
+                    // blech, we have to encode the string (which allocates) just to compute the correct length!
+                    let string = arg.expect_raw().expect_string();
+                    let encoded = Encoded::encode(&sp!(string))?;
+                    let string_len = encoded.len();
                     size += crate::binary_io::cstring_num_bytes(string_len, block_size);
                 },
             },
@@ -244,7 +248,11 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
             => args_blob.write_i16(arg.expect_raw().expect_int() as _)?,
 
             | ArgEncoding::String { block_size, mask }
-            => args_blob.write_cstring_masked(arg.expect_raw().expect_string(), block_size, mask)?,
+            => {
+                let string = arg.expect_raw().expect_string();
+                let encoded = Encoded::encode(&sp!(string))?;
+                args_blob.write_cstring_masked(&encoded, block_size, mask)?
+            },
         }
     }
 

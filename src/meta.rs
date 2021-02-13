@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use bstr::{BStr, BString, ByteSlice};
 use indexmap::IndexMap as Map;
 use thiserror::Error;
 use crate::pos::Sp;
@@ -12,7 +11,7 @@ pub enum Meta {
     Int(i32),
     Float(f32),
     Bool(bool),
-    String(BString),
+    String(String),
     // { key: value, ... }
     Object(Sp<Fields>),
     // [ value, ... ]
@@ -325,6 +324,12 @@ impl BuildObject {
 
 // =============================================================================
 
+impl<T: FromMeta> FromMeta for Sp<T> {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        T::from_meta(meta).map(|value| sp!(meta.span => value))
+    }
+}
+
 impl FromMeta for i32 {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match meta.value {
@@ -361,7 +366,7 @@ impl FromMeta for bool {
     }
 }
 
-impl FromMeta for BString {
+impl FromMeta for String {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match &meta.value {
             Meta::String(x) => Ok(x.clone()),
@@ -442,17 +447,11 @@ impl ToMeta for f32 {
 impl ToMeta for bool {
     fn to_meta(&self) -> Meta { Meta::Bool(*self) }
 }
-impl ToMeta for BString {
-    fn to_meta(&self) -> Meta { Meta::String(self.clone()) }
-}
-impl ToMeta for BStr {
+impl ToMeta for String {
     fn to_meta(&self) -> Meta { Meta::String(self.to_owned()) }
 }
-impl ToMeta for String {
-    fn to_meta(&self) -> Meta { Meta::String(self.as_bytes().as_bstr().to_owned()) }
-}
 impl ToMeta for str {
-    fn to_meta(&self) -> Meta { Meta::String(self.as_bytes().as_bstr().to_owned()) }
+    fn to_meta(&self) -> Meta { Meta::String(self.to_owned()) }
 }
 impl<T: ToMeta> ToMeta for Vec<T> {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }

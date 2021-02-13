@@ -1,4 +1,3 @@
-use bstr::{BString};
 use std::fmt;
 
 use crate::meta;
@@ -320,7 +319,7 @@ impl CondKeyword {
 }
 
 // TODO: Parse
-pub type DifficultyLabel = BString;
+pub type DifficultyLabel = String;
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -546,8 +545,8 @@ impl From<i32> for Expr {
 impl From<f32> for Expr {
     fn from(value: f32) -> Expr { Expr::LitFloat { value } }
 }
-impl From<BString> for Expr {
-    fn from(string: BString) -> Expr { Expr::LitString(LitString { string }) }
+impl From<String> for Expr {
+    fn from(string: String) -> Expr { Expr::LitString(LitString { string }) }
 }
 
 impl From<Sp<i32>> for Sp<Expr> {
@@ -559,8 +558,8 @@ impl From<Sp<f32>> for Sp<Expr> {
 impl From<Sp<Var>> for Sp<Expr> {
     fn from(var: Sp<Var>) -> Sp<Expr> { sp!(var.span => Expr::Var(var)) }
 }
-impl From<Sp<BString>> for Sp<Expr> {
-    fn from(string: Sp<BString>) -> Sp<Expr> { sp!(string.span => Expr::from(string.value)) }
+impl From<Sp<String>> for Sp<Expr> {
+    fn from(string: Sp<String>) -> Sp<Expr> { sp!(string.span => Expr::from(string.value)) }
 }
 
 // =============================================================================
@@ -620,27 +619,18 @@ impl From<VarReadType> for type_system::ScalarType {
     }
 }
 
-/// A literal string, which may be encoded in UTF-8 or Shift-JIS.
+/// A string literal.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LitString<S=BString> {
-    pub string: S,
+pub struct LitString {
+    pub string: String,
 }
 
-impl<S: AsRef<[u8]>> Sp<LitString<S>> {
-    /// Interpret as a path.
-    ///
-    /// This will assume a UTF-8 encoding, and thus may fail on Shift-JIS encoded strings.
-    /// It has to do this because Windows path APIs are encoding-aware.
-    pub fn as_path(&self) -> Result<&std::path::Path, CompileError> {
-        match std::str::from_utf8(self.string.as_ref()) {
-            Err(_) => Err(error!(
-                message("cannot parse path as UTF-8"),
-                primary(self, "not valid UTF-8"),
-                note("paths are always read as UTF-8 regardless of the encoding of the file"),
-            )),
-            Ok(p) => Ok(p.as_ref()),
-        }
-    }
+impl From<String> for LitString {
+    fn from(string: String) -> Self { LitString { string } }
+}
+
+impl From<&str> for LitString {
+    fn from(str: &str) -> Self { LitString { string: str.to_owned() } }
 }
 
 // =============================================================================
