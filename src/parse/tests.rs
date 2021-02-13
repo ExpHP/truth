@@ -167,12 +167,13 @@ parse_error_snapshot_test!(unexpected_token, expect("unexpected"), <ast::Stmt> "
 parse_error_snapshot_test!(unexpected_eof, expect("EOF"), <ast::Stmt> "int x = 3");
 parse_error_snapshot_test!(big_float_reg, expect("overflow"), <ast::Stmt> "int x = [1234258905623.0];");
 parse_error_snapshot_test!(bad_escape, expect("escape"), <ast::Expr> r#" "abc\jefg" "#);
-parse_error_snapshot_test!(bad_escape_end, expect(""), <ast::Expr> r#" "abcefg\"#);
+parse_error_snapshot_test!(bad_escape_end, expect("token"), <ast::Expr> r#" "abcefg\"#);
 parse_error_snapshot_test!(bad_ins_identifier, expect("instruction"), <ast::Expr> r#" ins_04() "#);
 parse_error_snapshot_test!(bad_ins_identifier_2, expect("instruction"), <ast::Expr> r#" ins_a() "#);
 parse_error_snapshot_test!(bad_ins_empty, expect("instruction"), <ast::Expr> r#" ins_() "#);
 parse_error_snapshot_test!(bad_ins_overflow, expect("instruction"), <ast::Expr> r#" ins_99999999999999() "#);
 parse_error_snapshot_test!(non_int_float_reg, expect("non-integer"), <ast::Expr> "32 * [101.32f]");
+parse_error_snapshot_test!(unclosed_comment, expect("token"), <ast::Script> r#" /* comment "#);
 parse_error_snapshot_test!(duplicate_meta_key, expect("duplicate"), <meta::Meta> r#"{
   a: {
     thing: 100,

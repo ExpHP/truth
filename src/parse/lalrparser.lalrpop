@@ -692,12 +692,12 @@ IdentStr: &'input BStr = {
     // obviously
     IDENT,
     // contextual keywords
-    <s: "mapfile"> => s.as_static_bstr().unwrap(),
-    <s: "entry"> => s.as_static_bstr().unwrap(),
-    <s: "anim"> => s.as_static_bstr().unwrap(),
-    <s: "ecli"> => s.as_static_bstr().unwrap(),
-    <s: "timeline"> => s.as_static_bstr().unwrap(),
-    <s: "script"> => s.as_static_bstr().unwrap(),
+    <s: "mapfile"> => s.as_bstr(),
+    <s: "entry"> => s.as_bstr(),
+    <s: "anim"> => s.as_bstr(),
+    <s: "ecli"> => s.as_bstr(),
+    <s: "timeline"> => s.as_bstr(),
+    <s: "script"> => s.as_bstr(),
 };
 
 RawInsIdent: u16 = {

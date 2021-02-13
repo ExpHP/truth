@@ -6,4 +6,4 @@ error: invalid token
   ┌─ <input>:1:2
   │
 1 │  "abcefg\
-  │  ^ invalid token
+  │  ^^^^^^^ invalid token
