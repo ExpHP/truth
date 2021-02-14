@@ -421,7 +421,7 @@ impl AstVm {
             match &stmt.body {
                 ast::StmtBody::Label(label) => {
                     if label == &goto.destination {
-                        self.time = goto.time.unwrap_or(stmt.time);
+                        self.time = goto.time.map(|x| x.value).unwrap_or(stmt.time);
                         return Some(index);
                     }
                 },

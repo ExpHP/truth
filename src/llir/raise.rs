@@ -402,7 +402,7 @@ fn raise_jump_args(
     let label = &offset_labels[&offset];
     ast::StmtGoto {
         destination: sp!(label.label.clone()),
-        time: time_arg.map(|arg| arg.expect_immediate_int()).filter(|&t| t != label.time_label),
+        time: time_arg.map(|arg| sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label),
     }
 }
 

@@ -130,7 +130,10 @@ impl CompileError {
         files: &'a impl cs::files::Files<'a, FileId=FileId>,
     ) -> Result<(), codespan_reporting::files::Error> {
         for e in self.diagnostics.drain(..) {
-            cs::term::emit(writer, &*TERM_CONFIG, files, &e.imp).unwrap();
+            cs::term::emit(writer, &*TERM_CONFIG, files, &e.imp)
+                .unwrap_or_else(|fmt_err| {
+                    panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", e.imp, fmt_err)
+                });
         }
         Ok(())
     }

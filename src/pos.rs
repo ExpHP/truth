@@ -415,6 +415,13 @@ pub struct Sp<T: ?Sized> {
     pub value: T,
 }
 
+impl<T> Sp<T> {
+    /// Transform the value in some way while keeping the same span.
+    pub fn sp_map<B>(self, func: impl FnOnce(T) -> B) -> Sp<B> {
+        sp!(self.span => func(self.value))
+    }
+}
+
 impl<T: ?Sized + fmt::Debug> fmt::Debug for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // emit a compressed notation to make dbg! slightly less of an abomination
@@ -464,6 +471,12 @@ where
 {
     fn as_ref(&self) -> &U {
         self.value.as_ref()
+    }
+}
+
+impl<T: ?Sized> std::borrow::Borrow<T> for Sp<T> {
+    fn borrow(&self) -> &T {
+        &self.value
     }
 }
 

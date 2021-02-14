@@ -112,7 +112,7 @@ impl ast::Visit for Visitor<'_> {
         // this comment reminding you to fix this.  ;)
         //
         // (in particular, you need to check that the new expression(s) are of integer type).
-        let _: &Option<i32> = time;
+        let _: &Option<Sp<i32>> = time;
         let _: &Sp<crate::ident::Ident> = destination;
     }
 

@@ -33,7 +33,7 @@ enum LowerStmt {
 pub struct LowerInstr {
     pub time: i32,
     pub opcode: u16,
-    pub args: Vec<LowerArg>,
+    pub args: Vec<Sp<LowerArg>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,9 +45,9 @@ pub enum LowerArg {
     /// A reference to a register-allocated local.
     Local { res: ResolveId, read_ty: ScalarType },
     /// A label that has not yet been converted to an integer argument.
-    Label(Sp<Ident>),
+    Label(Ident),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
-    TimeOf(Sp<Ident>),
+    TimeOf(Ident),
 }
 
 impl LowerArg {
@@ -107,18 +107,18 @@ fn encode_labels(
     code.iter_mut().map(|thing| {
         match thing {
             LowerStmt::Instr(instr) => for arg in &mut instr.args {
-                match *arg {
+                match arg.value {
                     | LowerArg::Label(ref label)
                     | LowerArg::TimeOf(ref label)
                     => match label_info.get(label) {
-                        Some(info) => match arg {
-                            LowerArg::Label(_) => *arg = LowerArg::Raw((format.encode_label(info.offset) as i32).into()),
-                            LowerArg::TimeOf(_) => *arg = LowerArg::Raw(info.time.into()),
+                        Some(info) => match arg.value {
+                            LowerArg::Label(_) => arg.value = LowerArg::Raw((format.encode_label(info.offset) as i32).into()),
+                            LowerArg::TimeOf(_) => arg.value = LowerArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },
                         None => return Err(error!{
                             message("undefined label '{}'", label),
-                            primary(label, "there is no label by this name"),
+                            primary(arg, "there is no label by this name"),
                         }),
                     },
                     _ => {},
@@ -182,11 +182,17 @@ fn gather_label_info(
 ///
 /// Unlike [`encode_args`], this has to deal with variants of [`LowerArg`] that are not the raw argument.
 fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
+    let arg_size = precompute_instr_args_size(instr, ty_ctx)?;
+
+    Ok(instr_format.instr_header_size() + arg_size)
+}
+
+fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
     let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) how did this typecheck with no signature?");
 
-    let mut size = instr_format.instr_header_size();
+    let mut size = 0;
     for (arg, enc) in zip!(&instr.args, abi.arg_encodings()) {
-        match arg {
+        match arg.value {
             LowerArg::Raw(_) => match enc {
                 | ArgEncoding::Dword
                 | ArgEncoding::Color
@@ -205,7 +211,7 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
                 => {
                     // blech, we have to encode the string (which allocates) just to compute the correct length!
                     let string = arg.expect_raw().expect_string();
-                    let encoded = Encoded::encode(&sp!(string))?;
+                    let encoded = Encoded::encode(&sp!(arg.span => string))?;
                     let string_len = encoded.len();
                     size += crate::binary_io::cstring_num_bytes(string_len, block_size);
                 },
@@ -250,7 +256,7 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
             | ArgEncoding::String { block_size, mask }
             => {
                 let string = arg.expect_raw().expect_string();
-                let encoded = Encoded::encode(&sp!(string))?;
+                let encoded = Encoded::encode(&sp!(arg.span => string))?;
                 args_blob.write_cstring_masked(&encoded, block_size, mask)?
             },
         }
@@ -269,14 +275,16 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
     })
 }
 
-fn compute_param_mask(args: &[LowerArg]) -> Result<u16, CompileError> {
+fn compute_param_mask(args: &[Sp<LowerArg>]) -> Result<u16, CompileError> {
     if args.len() > 16 {
-        // FIXME need span info
-        return Err(error!("too many arguments in instruction!"));
+        return Err(error!(
+            message("too many arguments in instruction!"),
+            primary(args[16], "too many arguments"),
+        ));
     }
     let mut mask = 0;
     for arg in args.iter().rev(){
-        let bit = match arg {
+        let bit = match &arg.value {
             LowerArg::Raw(raw) => raw.is_reg as u16,
             LowerArg::TimeOf { .. } |
             LowerArg::Label { .. } => 0,
@@ -286,4 +294,33 @@ fn compute_param_mask(args: &[LowerArg]) -> Result<u16, CompileError> {
         mask += bit;
     }
     Ok(mask)
+}
+
+#[test]
+fn test_precomputed_string_len() {
+    use crate::value::ScalarValue;
+    use encoding_rs::SHIFT_JIS;
+
+    // the point of this test is to make sure the precomputed length of string arguments
+    // uses the correct encoding instead of UTF-8.
+    let str = "ｶﾀｶﾅｶﾀｶﾅｶﾀｶﾅｶﾀｶﾅ";
+    let utf8_len = str.len();
+    let sjis_len = SHIFT_JIS.encode(str).0.len();
+    assert_ne!(utf8_len, sjis_len);
+
+    let arg = LowerArg::Raw(SimpleArg { value: ScalarValue::String(str.into()), is_reg: false });
+    let instr = LowerInstr { time: 0, opcode: 1, args: vec![sp!(arg)] };
+    let mut ty_ctx = TypeSystem::new();
+    ty_ctx.set_ins_abi(1, "m".parse().unwrap());
+
+    let actual = precompute_instr_args_size(&instr, &ty_ctx).unwrap();
+    let expected = encode_args(&instr, &ty_ctx).unwrap().args_blob.len();
+    assert_eq!(actual, expected);
+
+    // the written length should be *slightly more* than sjis_len because there's the null terminator
+    // and padding.  That's not too well-defined to check, though.
+    //
+    // However, we can be sure of the following, because the SJIS string is so much shorter than the
+    // UTF8 encoding.
+    assert!(actual < utf8_len);
 }

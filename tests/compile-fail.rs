@@ -16,16 +16,20 @@ const TEMP_FILE_REPLACEMENT: &'static str = "┌─ <input>";
 
 impl Format {
     fn compile_fail_stderr(&self, other_items: &str, main_body: &str) -> String {
-        use std::fs::{write};
-
         truth::setup_for_test_harness();
 
-        let full_source = format!(
+        self.compile_fail_stderr_no_transform(format!(
             "{}\n{}\n{}",
             self.script_head,
             other_items,
             (self.make_main)(main_body),
-        );
+        ))
+    }
+
+    fn compile_fail_stderr_no_transform<S: AsRef<[u8]>>(&self, full_source: S) -> String {
+        use std::fs::{write};
+
+        truth::setup_for_test_harness();
 
         let temp = tempfile::tempdir().unwrap();
         let temp = temp.path();
@@ -83,16 +87,42 @@ macro_rules! compile_fail_test {
                 first_token!( $($items_before)? "" ),
                 $main_body,
             );
-            // we don't want internal compiler errors.
-            let was_ice = stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1");
-            assert!(!was_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
-
-            $( assert!(stderr.contains($expected), "{}", stderr); )?
-            insta::with_settings!{{snapshot_path => snapshot_path!()}, {
-                insta::assert_snapshot!{stderr};
-            }}
+            _check_compile_fail_output!(stderr $(, expected: $expected)?);
         }
     };
+}
+
+macro_rules! compile_fail_no_transform_test {
+    (
+        // This one is like compile_fail_test but takes the full source instead of just items and stmts.
+        $format:expr, $test_name:ident
+
+        , full_source: $main_body:expr
+
+        $(, expected: $expected:expr)?
+        $(,)?
+    ) => {
+        #[test]
+        fn $test_name() {
+            let stderr = $format.compile_fail_stderr_no_transform($main_body);
+            _check_compile_fail_output!(stderr $(, expected: $expected)?);
+        }
+    };
+}
+
+macro_rules! _check_compile_fail_output {
+    ($stderr:expr $(, expected: $expected:expr)?) => {
+        let stderr = $stderr;
+
+        // we don't want internal compiler errors.
+        let was_ice = stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1");
+        assert!(!was_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
+
+        $( assert!(stderr.contains($expected), "Error did not contain expected! error: {}", stderr); )?
+        insta::with_settings!{{snapshot_path => snapshot_path!()}, {
+            insta::assert_snapshot!{stderr};
+        }}
+    }
 }
 
 // stderr search strings for ubiquitous error messages
@@ -529,3 +559,36 @@ mod type_error {
         expected: EXPECTED_TYPE_ERROR,
     );
 }
+
+compile_fail_no_transform_test!(
+    STD_08, shift_jis_in_source_file,
+    full_source: {
+        let mut text = vec![];
+        text.extend(r#"
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    stage_name: "#.bytes());
+        text.extend(b"\"\x82\xB1\x82\xF1\x82\xC9\x82\xBF\x82\xCD\"".iter().copied());
+        text.extend(r#",
+    bgm: [
+        {path: "bgm/th08_08.mid", name: "dm"},
+        {path: "bgm/th08_09.mid", name: "dm"},
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {},
+    instances: [],
+}
+    "#.bytes());
+        text
+    },
+    expected: "UTF-8",
+);
+
+compile_fail_test!(
+    MSG_06, encoding_error_in_arg,
+    main_body: r#"  textSet(0, 0, "⏄");  "#,  // character not available in SJIS
+    expected: "JIS",
+);

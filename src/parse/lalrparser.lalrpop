@@ -334,7 +334,7 @@ StmtLabel: ast::StmtLabel = {
 };
 
 StmtGoto: ast::StmtGoto = {
-    "goto" <destination:Sp<Ident>> <time:("@" <LitIntSigned>)?>
+    "goto" <destination:Sp<Ident>> <time:("@" <Sp<LitIntSigned>>)?>
         => ast::StmtGoto { destination, time },
 };
 

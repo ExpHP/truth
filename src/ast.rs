@@ -260,7 +260,7 @@ impl StmtBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtGoto {
     pub destination: Sp<Ident>,
-    pub time: Option<i32>,
+    pub time: Option<Sp<i32>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -53,7 +53,7 @@ impl Lowerer<'_> {
                     self.out.push(LowerStmt::Instr(LowerInstr {
                         time: stmt.time,
                         opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
-                        args: vec![LowerArg::Raw(interrupt_id.value.into())],
+                        args: vec![sp!(interrupt_id.span => LowerArg::Raw(interrupt_id.value.into()))],
                     }));
                 },
 
@@ -120,7 +120,7 @@ impl Lowerer<'_> {
                 ExprClass::NeedsTemp(data) => {
                     // Save this expression to a temporary
                     let (res, _) = self.define_temporary(stmt.time, &data)?;
-                    let lowered = LowerArg::Local { res, read_ty: data.read_ty };
+                    let lowered = sp!(expr.span => LowerArg::Local { res, read_ty: data.read_ty });
 
                     temp_reses.push(res); // so we can free the register later
                     lowered
@@ -686,7 +686,7 @@ enum ExprClass<'a> {
 }
 
 struct SimpleExpr {
-    lowered: LowerArg,
+    lowered: Sp<LowerArg>,
     ty: ScalarType,
 }
 
@@ -701,15 +701,15 @@ struct TemporaryExpr<'a> {
 fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<ExprClass<'a>, CompileError> {
     match arg.value {
         ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: LowerArg::Raw(value.into()),
+            lowered: sp!(arg.span => LowerArg::Raw(value.into())),
             ty: ScalarType::Int,
         })),
         ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: LowerArg::Raw(value.into()),
+            lowered: sp!(arg.span => LowerArg::Raw(value.into())),
             ty: ScalarType::Float,
         })),
         ast::Expr::LitString(ast::LitString { ref string, .. }) => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: LowerArg::Raw(string.clone().into()),
+            lowered: sp!(arg.span => LowerArg::Raw(string.clone().into())),
             ty: ScalarType::String,
         })),
         ast::Expr::Var(ref var) => {
@@ -744,7 +744,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
     }
 }
 
-fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(LowerArg, ScalarType), CompileError> {
+fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(Sp<LowerArg>, ScalarType), CompileError> {
     let read_ty = ty_ctx.var_read_ty_from_ast(var).expect("shoulda been type-checked");
 
     // Up to this point in compilation, register aliases use Var::Named.
@@ -753,14 +753,14 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(LowerArg
         Ok(reg) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
         Err(res) => LowerArg::Local { res, read_ty },
     };
-    Ok((arg, read_ty))
+    Ok((sp!(var.span => arg), read_ty))
 }
 
-fn lower_goto_args(goto: &ast::StmtGoto) -> (LowerArg, LowerArg) {
-    let label_arg = LowerArg::Label(goto.destination.clone());
+fn lower_goto_args(goto: &ast::StmtGoto) -> (Sp<LowerArg>, Sp<LowerArg>) {
+    let label_arg = goto.destination.clone().sp_map(LowerArg::Label);
     let time_arg = match goto.time {
-        Some(time) => LowerArg::Raw(time.into()),
-        None => LowerArg::TimeOf(goto.destination.clone()),
+        Some(time) => time.sp_map(|t| LowerArg::Raw(t.into())),
+        None => goto.destination.clone().sp_map(LowerArg::TimeOf),
     };
     (label_arg, time_arg)
 }
@@ -853,8 +853,8 @@ pub (in crate::llir::lower) fn assign_registers(
                 }
 
                 for arg in &mut instr.args {
-                    if let LowerArg::Local { res, read_ty } = *arg {
-                        *arg = LowerArg::Raw(SimpleArg::from_reg(local_regs[&res].0, read_ty));
+                    if let LowerArg::Local { res, read_ty } = arg.value {
+                        arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&res].0, read_ty));
                     }
                 }
             },
@@ -882,7 +882,7 @@ fn get_used_regs(func_body: &[LowerStmt]) -> BTreeSet<RegId> {
         .filter_map(|stmt| match stmt {
             LowerStmt::Instr(LowerInstr { args, .. }) => Some(args),
             _ => None
-        }).flat_map(|args| args.iter().filter_map(|arg| match arg {
+        }).flat_map(|args| args.iter().filter_map(|arg| match &arg.value {
             LowerArg::Raw(arg) => arg.get_reg_id(),
             _ => None,
         })).collect()

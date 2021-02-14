@@ -371,7 +371,7 @@ fn maybe_decompile_jump(
 struct JmpInfo {
     dest: usize,
     dest_refcount: u32,
-    time_arg: Option<i32>,
+    time_arg: Option<Sp<i32>>,
     kind: JmpKind,
 }
 
