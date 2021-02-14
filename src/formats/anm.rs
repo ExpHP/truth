@@ -50,7 +50,7 @@ impl AnmFile {
         apply_image_source(self, other)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> Result<(), CompileError> {
         write_anm(&mut w, &game_format(game), self)
     }
 
@@ -564,7 +564,7 @@ pub fn auto_script_name(i: u32) -> Ident {
     format!("script{}", i).parse::<Ident>().unwrap()
 }
 
-fn write_anm(f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> WriteResult {
+fn write_anm(f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> Result<(), CompileError> {
     let mut last_entry_pos = None;
     for entry in &file.entries {
         let entry_pos = f.pos()?;
@@ -581,7 +581,7 @@ fn write_anm(f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> Write
     Ok(())
 }
 
-fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) -> WriteResult {
+fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) -> Result<(), CompileError> {
     let instr_format = file_format.instr_format();
 
     let entry_pos = f.pos()?;
@@ -591,12 +591,12 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
         has_data, low_res_scale,
     } = entry.specs;
 
-    fn missing(path: &str, problem: &str) -> anyhow::Error {
+    fn missing(path: &str, problem: &str) -> CompileError {
         const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
-        anyhow::anyhow!(
+        error!(message(
             "entry for '{}' {}\n       {}",
             path, problem, SUGGESTION,
-        )
+        ))
     }
 
     macro_rules! expect {

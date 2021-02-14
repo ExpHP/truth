@@ -70,7 +70,7 @@ impl StdFile {
         compile_std(&*game_format(game), script, ty_ctx)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> Result<(), CompileError> {
         write_std(&mut w, &*game_format(game), self)
     }
 
@@ -373,7 +373,7 @@ fn read_std(reader: &mut dyn BinRead, format: &dyn FileFormat) -> ReadResult<Std
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
-fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> WriteResult {
+fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Result<(), CompileError> {
     let start_pos = f.pos()?;
 
     f.write_u16(std.objects.len() as u16)?;
@@ -426,11 +426,15 @@ fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Wr
 fn read_string_128(f: &mut dyn BinRead) -> ReadResult<Sp<String>> {
     f.read_cstring_masked_exact(128, 0x00)?.decode().map(|x| sp!(x))
 }
-fn write_string_128<S: AsRef<str>>(f: &mut dyn BinWrite, s: &Sp<S>) -> WriteResult {
-    if s.value.as_ref().len() >= 128 {
-        bail!("string too long (max 127 bytes): {:?}", s.as_ref());
+fn write_string_128<S: AsRef<str>>(f: &mut dyn BinWrite, s: &Sp<S>) -> Result<(), CompileError> {
+    let encoded = Encoded::encode(&s)?;
+    if encoded.len() >= 128 {
+        return Err(error!(
+            message("string too long for STD header"),
+            primary(s, "{} bytes (max allowed: 127)", encoded.len()),
+        ));
     }
-    f.write_cstring_masked(&Encoded::encode(&s)?, 128, 0x00)?;
+    f.write_cstring_masked(&encoded, 128, 0x00)?;
     Ok(())
 }
 
@@ -612,7 +616,7 @@ trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
     fn read_extra(&self, f: &mut dyn BinRead) -> ReadResult<StdExtra>;
-    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult;
+    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> Result<(), CompileError>;
     fn instr_format(&self) -> &dyn InstrFormat;
     fn has_strips(&self) -> bool;
 }
@@ -646,7 +650,7 @@ impl FileFormat for FileFormat06 {
         })
     }
 
-    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult {
+    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> Result<(), CompileError> {
         match x {
             StdExtra::Th06 { stage_name, bgm } => {
                 write_string_128(f, stage_name)?;
@@ -683,7 +687,7 @@ impl FileFormat for FileFormat10 {
         Ok(StdExtra::Th10 { anm_path: read_string_128(f)? })
     }
 
-    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> WriteResult {
+    fn write_extra(&self, f: &mut dyn BinWrite, x: &StdExtra) -> Result<(), CompileError> {
         match x {
             StdExtra::Th10 { anm_path } => write_string_128(f, anm_path)?,
             StdExtra::Th06 { .. } => unreachable!(),

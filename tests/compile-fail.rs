@@ -77,7 +77,12 @@ macro_rules! compile_fail_test {
         , main_body: $main_body:expr
 
         // (optional) check that the STDERR text contains a substring.
-        // (it can appear *anywhere*, though, so be careful...)
+        // This helps ensure that compilation is failing for a legitimate reason.
+        //
+        // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
+        // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
+        // Whenever this occurs, just review the new outputs and update the tests.
+        // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
         $(, expected: $expected:expr)?
         $(,)?
     ) => {
@@ -115,7 +120,10 @@ macro_rules! _check_compile_fail_output {
         let stderr = $stderr;
 
         // we don't want internal compiler errors.
-        let was_ice = stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1");
+        let was_ice = (
+            stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1")
+            || stderr.contains("bug!") || stderr.contains("BUG!")
+        );
         assert!(!was_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
 
         $( assert!(stderr.contains($expected), "Error did not contain expected! error: {}", stderr); )?
@@ -581,6 +589,8 @@ meta {
     objects: {},
     instances: [],
 }
+
+sub main() {}
     "#.bytes());
         text
     },
@@ -591,4 +601,57 @@ compile_fail_test!(
     MSG_06, encoding_error_in_arg,
     main_body: r#"  textSet(0, 0, "⏄");  "#,  // character not available in SJIS
     expected: "JIS",
+);
+
+compile_fail_no_transform_test!(
+    STD_08, encoding_error_in_meta,
+    full_source: r#"
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    stage_name: "⏄",
+    bgm: [
+        {path: "bgm/th08_08.mid", name: "dm"},
+        {path: "bgm/th08_09.mid", name: "dm"},
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {},
+    instances: [],
+}
+
+script main {}
+    "#,
+    expected: "JIS",
+);
+
+compile_fail_no_transform_test!(
+    STD_08, std_string128_overflow,
+    full_source: r#"
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    stage_name: "
+0123456789abcdef 0123456789abcdef 0123456789abcdef
+0123456789abcdef 0123456789abcdef 0123456789abcdef
+0123456789abcdef 0123456789abcdef 0123456789abcdef
+0123456789abcdef 0123456789abcdef 0123456789abcdef
+0123456789abcdef 0123456789abcdef 0123456789abcdef
+0123456789abcdef 0123456789abcdef 0123456789abcdef
+",
+    bgm: [
+        {path: "bgm/th08_08.mid", name: "dm"},
+        {path: "bgm/th08_09.mid", name: "dm"},
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {},
+    instances: [],
+}
+
+script main {}
+    "#,
+    expected: "too long",
 );

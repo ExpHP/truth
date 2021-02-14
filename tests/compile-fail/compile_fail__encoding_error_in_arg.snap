@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: string encoding error
+  ┌─ <input>:7:21
+  │
+7 │       textSet(0, 0, "⏄");  
+  │                     ^^^ cannot be encoded using 'Shift_JIS'
+
+
