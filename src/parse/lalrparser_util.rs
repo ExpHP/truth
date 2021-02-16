@@ -28,3 +28,5 @@ pub fn push<T>(mut vec: Vec<T>, item: T) -> Vec<T> {
     vec.push(item);
     vec
 }
+
+pub enum Either<A, B> { This(A), That(B) }

@@ -4,7 +4,7 @@ use crate::meta::{self, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast;
-use super::lalrparser_util::{parse_ascii, u32_from_ascii_radix, push};
+use super::lalrparser_util as util;
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
 
@@ -156,7 +156,7 @@ Script: ast::Script = {
 Items: Vec<Sp<ast::Item>> = {
     => vec![],
 
-    <items:Items> <item:Sp<Item>> => push(items, item),
+    <items:Items> <item:Sp<Item>> => util::push(items, item),
 
     // FIXME: this syntax likely won't stay.  People might be confused that it is treated
     //        in a declarative manner, and I don't know what I want our preprocessing solution
@@ -270,7 +270,7 @@ StmtBody: ast::StmtBody = {
     <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
         => ast::StmtBody::Return { keyword, value },
 
-    <chain: CondChain>
+    <chain:CondChain>
         => ast::StmtBody::CondChain(chain),
 
     <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";"
@@ -322,7 +322,7 @@ StmtTimeLabel: () = {
 StmtLabelsWithTime: (Vec<Sp<ast::StmtLabel>>, i32) = {
     <time: _TimeGetInline> => (vec![], time),
     <out:StmtLabels> StmtTimeLabel <time: _TimeGetInline> => (out, time),
-    <out:StmtLabels> <label:Sp<StmtLabel>> <time: _TimeGetInline> => (push(out, label), time),
+    <out:StmtLabels> <label:Sp<StmtLabel>> <time: _TimeGetInline> => (util::push(out, label), time),
 };
 
 #[inline]
@@ -518,8 +518,8 @@ ExprTerm: ast::Expr = {
     <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")"
         => ast::Expr::Unop(op, e),
 
-    <name:Sp<CallableName>> <args:ExprCallParenArgs>
-        => ast::Expr::Call { name, args },
+    <name:Sp<CallableName>> <args:ExprCallParenArgsWithPseudos>
+        => ast::Expr::Call { name, pseudos: args.0, args: args.1 },
 
     <v:Sp<Var>> => ast::Expr::Var(v),
 
@@ -544,7 +544,64 @@ CallableName: ast::CallableName = {
 };
 
 ExprCallParenArgs: Vec<Sp<ast::Expr>> = {
-    "(" <SeparatedTrailing<Sp<Expr>, ",">> ")",
+    <tup:ExprCallParenArgsWithPseudos> =>? {
+        let (pseudos, args) = tup;
+        match pseudos.len() {
+            0 => Err(error!(
+                message("unexpected pseudo-arg"),
+                primary(pseudos[0].tag_span(), "only permitted in instruction calls"),
+            ).into()),
+            _ => Ok(args),
+        }
+    }
+};
+
+ExprCallParenArgsWithPseudos: (Vec<Sp<ast::PseudoArg>>, Vec<Sp<ast::Expr>>) = {
+    "(" <mut things:SeparatedTrailing<Either<Sp<PseudoArg>, Sp<Expr>>, ",">> ")" =>? {
+        let pseudo_end = things.iter().position(|x| matches!(x, util::Either::That(_))).unwrap_or_else(|| things.len());
+
+        let args = things.drain(pseudo_end..).map(|x| match x {
+            util::Either::That(arg) => Ok(arg),
+            util::Either::This(pseudo) => Err(error!(
+                message("invalid pseudo-arg"),
+                primary(pseudo.tag_span(), "must come before other arguments"),
+            )),
+        }).collect::<Result<_, _>>()?;
+
+        let pseudos = things.into_iter().map(|x| match x {
+            util::Either::This(x) => x,
+            util::Either::That(_) => unreachable!(),
+        }).collect();
+
+        Ok((pseudos, args))
+    },
+};
+
+PseudoArg: ast::PseudoArg = {
+    <at_sign:TokenSpan<"@">> <kind:Sp<PseudoArgKind>> <eq_sign:TokenSpan<"=">> <value:Sp<Expr>>
+        => ast::PseudoArg { at_sign, kind, eq_sign, value }
+};
+
+PseudoArgKind: ast::PseudoArgKind = {
+    <l: @L> <ident:Ident> <r: @R> =>? {
+        const PAIRS: &'static [(&'static str, ast::PseudoArgKind)] = &[
+            ("pop", token![pop]),
+            ("mask", token![mask]),
+            ("args", token![args]),
+        ];
+
+        PAIRS.iter()
+            .filter(|&&(str, _)| ident == *str)
+            .map(|&(_, token)| token)
+            .next().ok_or_else(|| {
+                let expected = PAIRS.iter().map(|x| x.0).collect::<Vec<_>>().join(", ");
+                error!(
+                    message("invalid pseudo-arg"),
+                    primary(Span::from_locs(l, r), "not a pseudo-arg"),
+                    note("valid pseudo-args are: {}", expected),
+                ).into()
+            })
+    },
 };
 
 // ==================================================
@@ -599,7 +656,7 @@ LitFloatUnsigned: f32 = {
         if s.ends_with("f") || s.ends_with("F") {
             s = &s[..s.len()-1];
         }
-        parse_ascii(s).unwrap()
+        util::parse_ascii(s).unwrap()
     },
     <mut s:FLOAT_RAD> => {
         s = &s["rad(".len()..];
@@ -607,7 +664,7 @@ LitFloatUnsigned: f32 = {
         if s.ends_with("f") || s.ends_with("F") {
             s = &s[..s.len()-1];
         }
-        parse_ascii::<_, f32>(s).unwrap().to_radians()
+        util::parse_ascii::<_, f32>(s).unwrap().to_radians()
     },
 };
 
@@ -625,10 +682,10 @@ LitIntUnsigned: i32 = {
 LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
     <l: @L> <s:INT> <r: @R> => {
         #![allow(unused_braces)]  // without these braces, lalrpop can't parse this turbofish
-        parse_ascii::<_, u32>(s)
+        util::parse_ascii::<_, u32>(s)
     },
-    <l: @L> <s:INT_HEX> <r: @R> => u32_from_ascii_radix(&s[2..], 16),
-    <l: @L> <s:INT_BIN> <r: @R> => u32_from_ascii_radix(&s[2..], 2),
+    <l: @L> <s:INT_HEX> <r: @R> => util::u32_from_ascii_radix(&s[2..], 16),
+    <l: @L> <s:INT_BIN> <r: @R> => util::u32_from_ascii_radix(&s[2..], 2),
     "true" => Ok(1),
     "false" => Ok(0),
 };
@@ -743,6 +800,11 @@ TokenSpan<Rule>: Sp<()> = <r:Sp<Rule>> => sp!(r.span => ());
 
 Box<Rule>: Box<Rule> = <r:Rule> => Box::new(r);
 
+Either<A, B>: util::Either<A, B> = {
+    <a: A> => util::Either::This(a),
+    <b: B> => util::Either::That(b),
+};
+
 /// Parse a separated sequence with an optional trailing separator.
 SeparatedTrailing<T, Sep>: Vec<T> = {
     => vec![],
@@ -757,8 +819,5 @@ SeparatedStrict<T, Sep>: Vec<T> = {
 };
 SeparatedStrictNonempty<T, Sep>: Vec<T> = {
     <x:T> => vec![x],
-    <mut xs:SeparatedStrictNonempty<T, Sep>> Sep <x:T> => {
-        xs.push(x);
-        xs
-    },
+    <xs:SeparatedStrictNonempty<T, Sep>> Sep <x:T> => util::push(xs, x),
 };

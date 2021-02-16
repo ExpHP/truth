@@ -275,7 +275,7 @@ impl AstVm {
 
                 ast::StmtBody::Expr(expr) => {
                     match &expr.value {
-                        ast::Expr::Call { name, args } => {
+                        ast::Expr::Call { name, pseudos, args } => {
                             let arg_values = args.iter().map(|arg| self.eval(arg)).collect::<Vec<_>>();
                             match name.value {
                                 ast::CallableName::Ins { opcode } => self.log_instruction(opcode, &arg_values),

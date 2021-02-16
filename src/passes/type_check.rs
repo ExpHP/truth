@@ -238,47 +238,8 @@ impl<'a> Visitor<'a> {
                 Some(left_ty)
             },
 
-            ast::Expr::Call { ref args, ref name } => {
-                let siggy = match self.ty_ctx.func_signature_from_ast(name) {
-                    Ok(siggy) => siggy,
-                    Err(crate::type_system::MissingSigError { opcode }) => return Err(error!(
-                        message("signature not known for opcode {}", opcode),
-                        primary(name, "signature not known"),
-                        note("try adding this instruction's signature to your mapfiles"),
-                    )),
-                };
-
-                let (min_args, max_args) = (siggy.min_args(), siggy.max_args());
-                if !(min_args <= args.len() && args.len() <= max_args) {
-                    let range_str = match min_args == max_args {
-                        true => format!("{}", min_args),
-                        false => format!("{} to {}", min_args, max_args),
-                    };
-                    return Err(error!(
-                        message("wrong number of arguments to '{}'", name),
-                        primary(name, "expects {} arguments, got {}", range_str, args.len()),
-                    ));
-                }
-
-                zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
-                    let arg_ty = self.check_expr(arg)?;
-                    let arg_ty = require_value(arg_ty, name.span, arg.span)?;
-                    if arg_ty != param.ty.value {
-                        return Err(error!(
-                            message("type error"),
-                            primary(arg.span, "{}", arg_ty.descr()),
-                            secondary(name, "expects {} for parameter {}", param.ty.descr(), param_num),
-                        ));
-                    }
-                    Ok::<_, CompileError>(())
-                }).collect_with_recovery()?;
-
-                // HACK: for now just recurse on the args without validating against signature params
-                args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery()?;
-
-                // all calls are currently void-type
-                None
-            },
+            ast::Expr::Call { ref name, ref pseudos, ref args, }
+            => self.check_expr_call(name, pseudos, args)?,
         };
 
         // Most code after this will be using compute_ty, which has a separate implementation.
@@ -352,6 +313,77 @@ impl<'a> Visitor<'a> {
             err.into()
         })
     }
+
+    /// Check a function call, and get its return type.  (None for void)
+    fn check_expr_call(
+        &self,
+        name: &Sp<ast::CallableName>,
+        pseudos: &[Sp<ast::PseudoArg>],
+        args: &[Sp<ast::Expr>],
+    ) -> Result<Option<ScalarType>, CompileError> {
+        // type check pseudos
+        pseudos.iter().map(|pseudo| {
+            let ast::PseudoArg { kind, ref value, at_sign: _, eq_sign: _ } = pseudo.value;
+            let value_ty = self.check_expr(value)?;
+            let value_ty = require_value(value_ty, pseudo.tag_span(), value.span)?;
+            ast::Expr::pseudo_check(kind, value_ty, value.span)
+        }).collect_with_recovery()?;
+
+        // '@args=' is incompatible with normal args
+        for pseudo in pseudos {
+            if pseudo.kind.value == token![args] {
+                if let Some(normal_arg) = args.get(0) {
+                    return Err(error!(
+                        message("cannot supply both normal arguments and an args blob"),
+                        primary(normal_arg, "redundant normal argument"),
+                        secondary(&pseudo.value.value, "represents all args"),
+                    ));
+                }
+
+                // Since there are no normal args to type check, we are done.
+                return Ok(None);  // always void when providing a blob
+            }
+        }
+
+        // Type-check normal args.
+        let siggy = match self.ty_ctx.func_signature_from_ast(name) {
+            Ok(siggy) => siggy,
+            Err(crate::type_system::MissingSigError { opcode }) => return Err(error!(
+                message("signature not known for opcode {}", opcode),
+                primary(name, "signature not known"),
+                note("try adding this instruction's signature to your mapfiles"),
+            )),
+        };
+
+        let (min_args, max_args) = (siggy.min_args(), siggy.max_args());
+        if !(min_args <= args.len() && args.len() <= max_args) {
+            let range_str = match min_args == max_args {
+                true => format!("{}", min_args),
+                false => format!("{} to {}", min_args, max_args),
+            };
+            return Err(error!(
+                message("wrong number of arguments to '{}'", name),
+                primary(name, "expects {} arguments, got {}", range_str, args.len()),
+            ));
+        }
+
+        zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
+            let arg_ty = self.check_expr(arg)?;
+            let arg_ty = require_value(arg_ty, name.span, arg.span)?;
+            if arg_ty != param.ty.value {
+                return Err(error!(
+                    message("type error"),
+                    primary(arg.span, "{}", arg_ty.descr()),
+                    secondary(name, "expects {} for parameter {}", param.ty.descr(), param_num),
+                ));
+            }
+            Ok(())
+        }).collect_with_recovery()?;
+
+        args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery()?;
+
+        Ok(siggy.return_ty.map(|x| x.value))
+    }
 }
 
 impl ast::Expr {
@@ -380,11 +412,13 @@ impl ast::Expr {
             ast::Expr::Ternary { ref left, .. }
             => left.compute_ty(ty_ctx),
 
-            ast::Expr::Call { .. } => {
-                // FIXME: Type check args!
-
-                // all calls are currently void-type
-                None
+            ast::Expr::Call { ref pseudos, ref name, .. } => {
+                if pseudos.iter().any(|x| matches!(x.kind.value, token![args])) {
+                    None  // args blob always produces void
+                } else {
+                    ty_ctx.func_signature_from_ast(name).expect("already type-checked")
+                        .return_ty.map(|x| x.value)
+                }
             },
         }
     }
@@ -466,6 +500,14 @@ impl ast::Expr {
             token![unop _f] => ScalarType::Float,
         }
     }
+
+    fn pseudo_check(kind: Sp<ast::PseudoArgKind>, value_ty: ScalarType, value_span: Span) -> Result<(), CompileError> {
+        match kind.value {
+            token![pop] |
+            token![mask] => require_int(value_ty, kind.span, value_span),
+            token![args] => require_string(value_ty, kind.span, value_span),
+        }
+    }
 }
 
 // =============================================================================
@@ -496,6 +538,10 @@ fn require_int(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), Comp
 
 fn require_float(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
     _require_exact(ty, ScalarType::Float, cause, value_span)
+}
+
+fn require_string(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    _require_exact(ty, ScalarType::String, cause, value_span)
 }
 
 fn _require_exact(ty: ScalarType, expected: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {

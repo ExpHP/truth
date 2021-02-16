@@ -138,6 +138,8 @@ const EXPECTED_TYPE_ERROR: &'static str = "type error";
 const EXPECTED_PARSE_ERROR: &'static str = "unexpected token";
 const EXPECTED_NOT_SUPPORTED_BY_FORMAT: &'static str = "not supported";
 
+// =============================================================================
+
 compile_fail_test!(
     ANM_10, mapfile_does_not_exist,
     items_before: r#"
@@ -292,6 +294,46 @@ compile_fail_test!(
 );
 
 // TODO: STD script requirements (single sub called main...)
+
+compile_fail_test!(
+    ANM_10, pseudo_in_const_call,
+    items_before: r#"
+        const int foo(int x) { return x; }
+    "#,
+    main_body: r#"
+        int x = foo(@mask=0b1, 12);
+    "#,
+    // FIXME: Eventually, this should parse.
+    expected: EXPECTED_PARSE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, pseudo_in_inline_call,
+    items_before: r#"
+        inline void foo(int x) { wait(x); }
+    "#,
+    main_body: r#"
+        foo(@mask=0b1, 12);
+    "#,
+    // FIXME: Eventually, inline funcs in anm will be supported.
+    expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,
+);
+
+compile_fail_test!(
+    ANM_10, pseudo_after_arg,
+    main_body: r#"
+        wait(12, @mask=0b1);
+    "#,
+    expected: "before",
+);
+
+compile_fail_test!(
+    ANM_10, pseudo_blob_with_arg,
+    main_body: r#"
+        wait(@args="0f000000", 15);
+    "#,
+    expected: "blob",
+);
 
 mod type_error {
     use super::*;
@@ -521,6 +563,12 @@ mod type_error {
         MSG_06, stackless__func_arg_neg_str,
         main_body: r#"  textSet(0, 0, -"abc");  "#,
         expected: "string",
+    );
+
+    compile_fail_test!(
+        ANM_10, stackless__pseudo,
+        main_body: r#"  pos(@args=12);  "#,
+        expected: EXPECTED_TYPE_ERROR,
     );
 
     // =========================

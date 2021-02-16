@@ -407,6 +407,17 @@ mod formatter {
     }
 }
 
+enum Either<A, B> { This(A), That(B) }
+
+impl<A: Format, B: Format> Format for Either<A, B> {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        match self {
+            Either::This(x) => out.fmt(x),
+            Either::That(x) => out.fmt(x),
+        }
+    }
+}
+
 //==============================================================================
 
 // Base impls: To write arbitrary text, use a string type.
@@ -821,9 +832,12 @@ impl Format for ast::Expr {
                 out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
             ast::Expr::Binop(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
-            ast::Expr::Call { name, args } => {
+            ast::Expr::Call { name, pseudos, args } => {
                 out.fmt(name)?;
-                out.fmt_comma_separated("(", ")", args)
+                out.fmt_comma_separated("(", ")", Iterator::chain(
+                    pseudos.iter().map(Either::This),
+                    args.iter().map(Either::That),
+                ))
             },
             ast::Expr::Unop(op, x) => match op.value {
                 token![unop -] | token![!]
@@ -847,6 +861,13 @@ impl Format for ast::CallableName {
             ast::CallableName::Ins { opcode } => out.fmt(("ins_", *opcode as i32)),
             ast::CallableName::Normal { ident } => out.fmt(ident),
         }
+    }
+}
+
+impl Format for ast::PseudoArg {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        let ast::PseudoArg { kind, value, at_sign: _, eq_sign: _ } = self;
+        out.fmt(("@", kind, "=", value))
     }
 }
 

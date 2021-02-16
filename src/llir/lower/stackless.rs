@@ -69,7 +69,7 @@ impl Lowerer<'_> {
 
 
                 ast::StmtBody::Expr(expr) => match &expr.value {
-                    ast::Expr::Call { name, args } => {
+                    ast::Expr::Call { name, pseudos, args } => {
                         let opcode = self.lower_func_stmt(stmt, name, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(name);

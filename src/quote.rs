@@ -54,6 +54,10 @@ macro_rules! token {
     ($(cond)? if) => { $crate::ast::CondKeyword::If };
     ($(cond)? unless) => { $crate::ast::CondKeyword::Unless };
 
+    ($(pseudo)? pop) => { $crate::ast::PseudoArgKind::Pop };
+    ($(pseudo)? mask) => { $crate::ast::PseudoArgKind::Mask };
+    ($(pseudo)? args) => { $crate::ast::PseudoArgKind::Args };
+
     // ambiguous ones
     (int) => { ::core::convert::Into::into($crate::quote::KeywordInt) };
     (float) => { ::core::convert::Into::into($crate::quote::KeywordFloat) };

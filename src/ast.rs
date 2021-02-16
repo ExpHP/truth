@@ -397,6 +397,8 @@ pub enum Expr {
         // note: deliberately called 'name' instead of 'ident' so that you can
         //       match both this and the inner ident without shadowing
         name: Sp<CallableName>,
+        /// Args beginning with @ that represent raw pieces of an instruction.
+        pseudos: Vec<Sp<PseudoArg>>,
         args: Vec<Sp<Expr>>,
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
@@ -536,6 +538,30 @@ string_enum! {
 impl UnopKind {
     pub fn is_cast(&self) -> bool {
         matches!(self, token![_S] | token![_f])
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PseudoArg {
+    pub at_sign: Sp<()>,
+    pub kind: Sp<PseudoArgKind>,
+    pub eq_sign: Sp<()>,
+    pub value: Sp<Expr>,
+}
+
+impl PseudoArg {
+    /// Get the span that represents the "heading" of a pseudo arg. (everything but the value)
+    pub fn tag_span(&self) -> Span {
+        self.at_sign.span.merge(self.eq_sign.span)
+    }
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum PseudoArgKind {
+        #[str = "mask"] Mask,
+        #[str = "pop"] Pop,
+        #[str = "args"] Args,
     }
 }
 
@@ -825,7 +851,10 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(a);
                     v.visit_expr(b);
                 },
-                Expr::Call { name: _, args } => {
+                Expr::Call { name: _, args, pseudos } => {
+                    for sp_pat![PseudoArg { value, kind: _, at_sign: _, eq_sign: _ }] in pseudos {
+                        v.visit_expr(value);
+                    }
                     for arg in args {
                         v.visit_expr(arg);
                     }

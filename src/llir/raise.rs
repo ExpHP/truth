@@ -195,7 +195,7 @@ fn raise_instr(
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
     let RaiseInstr { opcode, ref args, .. } = *instr;
-    let encodings = ty_ctx.ins_abi(opcode).expect("checked during reading").arg_encodings().collect::<Vec<_>>();
+    let encodings = expect_abi(instr, ty_ctx).arg_encodings().collect::<Vec<_>>();
 
     match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
@@ -275,8 +275,9 @@ fn raise_instr(
             let abi = expect_abi(instr, ty_ctx);
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
-                args: raise_args(args, abi)?,
                 name: sp!(ast::CallableName::Ins { opcode }),
+                pseudos: vec![],
+                args: raise_args(args, abi)?,
             })))
         }).with_context(|| format!("while decompiling ins_{}", opcode)),
     }
