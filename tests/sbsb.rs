@@ -84,7 +84,7 @@ impl Format {
 // =============================================================================
 
 #[test]
-fn std08_loop() {
+fn loop_simple() {
     STD_08.sbsb_test(r#"
         up(0.0, 1.0, -1.0);
         fov(0.5235988);
@@ -105,7 +105,7 @@ fn std08_loop() {
 }
 
 #[test]
-fn std08_loop_nonzero_time() {
+fn loop_nonzero_time() {
     // like above, but the label has a nonzero label
     STD_08.sbsb_test(r#"
         up(0.0, 1.0, -1.0);
@@ -125,7 +125,7 @@ fn std08_loop_nonzero_time() {
 }
 
 #[test]
-fn std08_loop_previous_instr_time() {
+fn loop_previous_instr_time() {
     // in this one, the jump has the time of the previous instruction.
     // this should still be able to decompile a loop.
     STD_08.sbsb_test(r#"
@@ -147,7 +147,7 @@ fn std08_loop_previous_instr_time() {
 }
 
 #[test]
-fn std08_loop_other_time() {
+fn loop_other_time() {
     // this time the jump time is so weird we can't possibly decompile a loop
     STD_08.sbsb_test(r#"
         up(0.0, 1.0, -1.0);
@@ -166,7 +166,7 @@ fn std08_loop_other_time() {
 }
 
 #[test]
-fn std08_2_loops_1_label() {
+fn two_loops_1_label() {
     STD_08.sbsb_test(r#"
     label:
         up(0.0, 1.0, -1.0);
@@ -181,7 +181,7 @@ fn std08_2_loops_1_label() {
 }
 
 #[test]
-fn std08_empty_loop() {
+fn empty_loop() {
     STD_08.sbsb_test(r#"
     +10:
         posKeyframe(0.0, 0.0, 0.0);
@@ -194,7 +194,7 @@ fn std08_empty_loop() {
 }
 
 #[test]
-fn std08_empty_loop_time() {
+fn empty_loop_time() {
     STD_08.sbsb_test(r#"
     +10:
         posKeyframe(0.0, 0.0, 0.0);
@@ -209,7 +209,7 @@ fn std08_empty_loop_time() {
 }
 
 #[test]
-fn std08_forward_jump() {
+fn forward_jump() {
     STD_08.sbsb_test(r#"
         up(0.0, 1.0, -1.0);
     +10: // 10
@@ -226,7 +226,7 @@ fn std08_forward_jump() {
 // =============================================================================
 
 #[test]
-fn anm10_if_elseif_else() {
+fn if_elseif_else() {
     ANM_10.sbsb_test(r#"
         $I0 = RAND % 3;
         if (I0 != 0) goto not0;
@@ -252,7 +252,7 @@ fn anm10_if_elseif_else() {
 }
 
 #[test]
-fn anm10_if_else_refcount_gt_1() {
+fn if_else_refcount_gt_1() {
     // this one can't be fully decompiled to an if-else chain because one of the labels that would have
     // to be deleted is referenced somewhere else
     ANM_10.sbsb_test(r#"
@@ -273,7 +273,7 @@ fn anm10_if_else_refcount_gt_1() {
 }
 
 #[test]
-fn anm10_if_elseif_decrement() {
+fn if_elseif_decrement() {
     ANM_10.sbsb_test(r#"
         I0 = RAND % 3;
         I0 = I0 + 1;
@@ -293,7 +293,7 @@ fn anm10_if_elseif_decrement() {
 }
 
 #[test]
-fn anm10_if_elseif_time_1() {
+fn if_elseif_time_1() {
     // This mismatched jump time should prevent if-else chain decompilation
     // (on an if jump)
     ANM_10.sbsb_test(r#"
@@ -314,7 +314,7 @@ fn anm10_if_elseif_time_1() {
 }
 
 #[test]
-fn anm10_if_elseif_time_2() {
+fn if_elseif_time_2() {
     // This mismatched jump time should prevent if-else chain decompilation
     // (on an unconditional jump-to-end)
     ANM_10.sbsb_test(r#"
@@ -335,7 +335,7 @@ fn anm10_if_elseif_time_2() {
 }
 
 #[test]
-fn anm10_if_elseif_time_impossible_1() {
+fn if_elseif_time_impossible_1() {
     // This has a time label change in a place where it is impossible to put
     // one in the decompiled 'if-else if' structure.
     ANM_10.sbsb_test(r#"
@@ -357,7 +357,7 @@ fn anm10_if_elseif_time_impossible_1() {
 }
 
 #[test]
-fn anm10_if_elseif_time_sorta_possible() {
+fn if_elseif_time_sorta_possible() {
     // this one can technically be compiled into
     //
     //     if (I0 == 0) {
@@ -388,7 +388,7 @@ fn anm10_if_elseif_time_sorta_possible() {
 }
 
 #[test]
-fn anm10_if_elseif_time_impossible_2() {
+fn if_elseif_time_impossible_2() {
     // another impossible spot for the time label change;
     // this one's basically inside the "else" keyword
     ANM_10.sbsb_test(r#"
@@ -410,7 +410,7 @@ fn anm10_if_elseif_time_impossible_2() {
 }
 
 #[test]
-fn anm10_if_elseif_time_unimpossible() {
+fn if_elseif_time_unimpossible() {
     // despite the pattern of the last three, this one's actually possible.
     // (the time label change is inside the else block)
     ANM_10.sbsb_test(r#"
@@ -432,7 +432,7 @@ fn anm10_if_elseif_time_unimpossible() {
 }
 
 #[test]
-fn anm10_if_elseif_wrong_order() {
+fn if_elseif_wrong_order() {
     // the cases here are not in source order (there's a backwards jump),
     // so they should be at least partially prevented from decompiling.
     ANM_10.sbsb_test(r#"
@@ -457,7 +457,7 @@ fn anm10_if_elseif_wrong_order() {
 }
 
 #[test]
-fn anm10_if_elseif_end_before() {
+fn if_elseif_end_before() {
     // end before the rest.  This should prevent decompilation.
     ANM_10.sbsb_test(r#"
     end:
@@ -478,7 +478,7 @@ fn anm10_if_elseif_end_before() {
 }
 
 #[test]
-fn anm10_goto_different_ends() {
+fn goto_different_ends() {
     ANM_10.sbsb_test(r#"
         $I0 = RAND % 3;
         if (I0 != 0) goto not0;
@@ -499,7 +499,7 @@ fn anm10_goto_different_ends() {
 }
 
 #[test]
-fn anm10_cond_jump_to_end() {
+fn cond_jump_to_end() {
     // this has a conditional jump to the end.  shenanigans!
     ANM_10.sbsb_test(r#"
         $I0 = RAND % 3;
@@ -519,7 +519,7 @@ fn anm10_cond_jump_to_end() {
 }
 
 #[test]
-fn anm10_pseudo_mask_override() {
+fn pseudo_mask_override() {
     // This tests that a user provided @mask overrides the one that gets automatically computed.
     ANM_10.sbsb_test(r#"
         color(@mask=0b100, I2, 10, 20);
