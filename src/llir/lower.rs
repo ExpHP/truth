@@ -43,7 +43,7 @@ enum LowerArgs {
     /// The user provided normal arguments, which at this point we have largely reduced down to immediate
     /// values and registers.
     Known(Vec<Sp<LowerArg>>),
-    /// The user provided `@args=`.  In this case, it is okay for the instruction's ABI to not be known.
+    /// The user provided `@blob=`.  In this case, it is okay for the instruction's ABI to not be known.
     Unknown(Sp<Vec<u8>>),
 }
 

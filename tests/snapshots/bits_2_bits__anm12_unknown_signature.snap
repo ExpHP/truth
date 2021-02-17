@@ -20,7 +20,7 @@ entry {
 
 
 script 0 script0 {
-    hasNameButNoSignature(@mask=0b101, @args="00501c46 00000040 00541c46");
-    ins_1011(@mask=0b101, @args="00501c46 00000040 00541c46");
+    hasNameButNoSignature(@mask=0b101, @blob="00501c46 00000040 00541c46");
+    ins_1011(@mask=0b101, @blob="00501c46 00000040 00541c46");
 }
 

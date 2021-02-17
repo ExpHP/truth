@@ -587,7 +587,7 @@ PseudoArgKind: ast::PseudoArgKind = {
         const PAIRS: &'static [(&'static str, ast::PseudoArgKind)] = &[
             ("pop", token![pop]),
             ("mask", token![mask]),
-            ("args", token![args]),
+            ("blob", token![blob]),
         ];
 
         PAIRS.iter()

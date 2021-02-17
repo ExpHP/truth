@@ -5,7 +5,7 @@ expression: stderr
 error: cannot supply both normal arguments and an args blob
    ┌─ <input>:28:32
    │
-28 │         wait(@args="0f000000", 15);
+28 │         wait(@blob="0f000000", 15);
    │                    ----------  ^^ redundant normal argument
    │                    │            
    │                    represents all args

@@ -56,7 +56,7 @@ macro_rules! token {
 
     ($(pseudo)? pop) => { $crate::ast::PseudoArgKind::Pop };
     ($(pseudo)? mask) => { $crate::ast::PseudoArgKind::Mask };
-    ($(pseudo)? args) => { $crate::ast::PseudoArgKind::Args };
+    ($(pseudo)? blob) => { $crate::ast::PseudoArgKind::Blob };
 
     // ambiguous ones
     (int) => { ::core::convert::Into::into($crate::quote::KeywordInt) };

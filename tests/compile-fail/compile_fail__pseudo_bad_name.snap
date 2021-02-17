@@ -5,9 +5,9 @@ expression: stderr
 error: invalid pseudo-arg
    ┌─ <input>:28:15
    │
-28 │         wait(@argargarg="0f000000");
-   │               ^^^^^^^^^ not a pseudo-arg
+28 │         wait(@blobloblob="0f000000");
+   │               ^^^^^^^^^^ not a pseudo-arg
    │
-   = valid pseudo-args are: pop, mask, args
+   = valid pseudo-args are: pop, mask, blob
 
 

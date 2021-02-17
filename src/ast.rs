@@ -564,7 +564,7 @@ string_enum! {
     pub enum PseudoArgKind {
         #[str = "mask"] Mask,
         #[str = "pop"] Pop,
-        #[str = "args"] Args,
+        #[str = "blob"] Blob,
     }
 }
 

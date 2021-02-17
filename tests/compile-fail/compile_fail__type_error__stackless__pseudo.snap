@@ -5,7 +5,7 @@ expression: stderr
 error: type error
    ┌─ <input>:27:17
    │
-27 │       pos(@args=12);  
+27 │       pos(@blob=12);  
    │            ---- ^^ an integer
    │            │     
    │            expects a string

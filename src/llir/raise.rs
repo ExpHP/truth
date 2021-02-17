@@ -21,7 +21,7 @@ struct RaiseInstr {
 enum RaiseArgs {
     /// The ABI of the instruction was known, so we parsed the argument bytes into arguments.
     Decoded(Vec<SimpleArg>),
-    /// The ABI was not known, so we will be emitting pseudo-args like `@args=`.
+    /// The ABI was not known, so we will be emitting pseudo-args like `@blob=`.
     Unknown(UnknownArgsData),
 }
 
@@ -264,14 +264,14 @@ fn raise_unknown_instr(
     if args.param_mask != 0 {
         pseudos.push(sp!(ast::PseudoArg {
             at_sign: sp!(()), eq_sign: sp!(()),
-            kind: sp!(ast::PseudoArgKind::Mask),
+            kind: sp!(token![mask]),
             value: sp!(ast::Expr::LitInt { value: args.param_mask as i32, radix: ast::IntRadix::Bin }),
         }));
     }
 
     pseudos.push(sp!(ast::PseudoArg {
         at_sign: sp!(()), eq_sign: sp!(()),
-        kind: sp!(ast::PseudoArgKind::Args),
+        kind: sp!(token![blob]),
         value: sp!(crate::pseudo::format_blob(&args.blob).into()),
     }));
 

@@ -329,9 +329,9 @@ impl<'a> Visitor<'a> {
             ast::Expr::pseudo_check(kind, value_ty, value.span)
         }).collect_with_recovery()?;
 
-        // '@args=' is incompatible with normal args
+        // '@blob=' is incompatible with normal args
         for pseudo in pseudos {
-            if pseudo.kind.value == token![args] {
+            if pseudo.kind.value == token![blob] {
                 if let Some(normal_arg) = args.get(0) {
                     return Err(error!(
                         message("cannot supply both normal arguments and an args blob"),
@@ -413,7 +413,7 @@ impl ast::Expr {
             => left.compute_ty(ty_ctx),
 
             ast::Expr::Call { ref pseudos, ref name, .. } => {
-                if pseudos.iter().any(|x| matches!(x.kind.value, token![args])) {
+                if pseudos.iter().any(|x| matches!(x.kind.value, token![blob])) {
                     None  // args blob always produces void
                 } else {
                     ty_ctx.func_signature_from_ast(name).expect("already type-checked")
@@ -505,7 +505,7 @@ impl ast::Expr {
         match kind.value {
             token![pop] |
             token![mask] => require_int(value_ty, kind.span, value_span),
-            token![args] => require_string(value_ty, kind.span, value_span),
+            token![blob] => require_string(value_ty, kind.span, value_span),
         }
     }
 }

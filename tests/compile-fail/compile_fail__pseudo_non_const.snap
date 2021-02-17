@@ -5,7 +5,7 @@ expression: stderr
 error: non-const pseudo-arg
    ┌─ <input>:29:20
    │
-29 │         wait(@mask=I0, @args="10270000");
+29 │         wait(@mask=I0, @blob="10270000");
    │                    ^^ non-const pseudo-arg
 
 

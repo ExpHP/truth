@@ -43,7 +43,7 @@ impl PseudoArgData {
             }
 
             match pseudo.kind.value {
-                ast::PseudoArgKind::Args => set_option!(blob, as_const_str),
+                ast::PseudoArgKind::Blob => set_option!(blob, as_const_str),
                 ast::PseudoArgKind::Mask => set_option!(param_mask, as_const_int),
                 ast::PseudoArgKind::Pop => set_option!(pop, as_const_int),
             }
