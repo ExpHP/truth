@@ -523,7 +523,7 @@ ExprTerm: ast::Expr = {
 
     <v:Sp<Var>> => ast::Expr::Var(v),
 
-    <value:LitIntUnsigned> => ast::Expr::LitInt { value, hex: false },
+    <value:LitIntUnsigned> => ast::Expr::LitInt { value, radix: ast::IntRadix::Dec },
 
     <value:LitFloatUnsigned> => ast::Expr::LitFloat { value },
 

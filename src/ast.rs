@@ -404,14 +404,17 @@ pub enum Expr {
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
     LitInt {
         value: i32,
-        /// A hint to the formatter that it should use hexadecimal.
+        /// A hint to the formatter on how it should write the integer.
         /// (may not necessarily represent the original radix of a parsed token)
-        hex: bool,
+        radix: IntRadix,
     },
     LitFloat { value: f32 },
     LitString(LitString),
     Var(Sp<Var>),
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IntRadix { Dec, Hex, Bin }
 
 impl Expr {
     pub fn zero(ty: type_system::ScalarType) -> Self { match ty {
@@ -566,7 +569,7 @@ string_enum! {
 }
 
 impl From<i32> for Expr {
-    fn from(value: i32) -> Expr { Expr::LitInt { value, hex: false } }
+    fn from(value: i32) -> Expr { Expr::LitInt { value, radix: IntRadix::Dec } }
 }
 impl From<f32> for Expr {
     fn from(value: f32) -> Expr { Expr::LitFloat { value } }
@@ -860,7 +863,7 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 Expr::Unop(_op, x) => v.visit_expr(x),
-                Expr::LitInt { value: _, hex: _ } => {},
+                Expr::LitInt { value: _, radix: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
                 Expr::Var(var) => v.visit_var(var),

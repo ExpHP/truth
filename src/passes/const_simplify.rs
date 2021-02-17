@@ -138,6 +138,15 @@ impl ast::Expr {
         _ => None,
     }}
 
+    /// Get the expression's value, if it is a string literal.
+    ///
+    /// Because const simplification turns expressions into literals, this is the quickest way to
+    /// inspect the final, evaluated result of a constant float expression.
+    pub fn as_const_str(&self) -> Option<&str> { match self {
+        ast::Expr::LitString(ast::LitString { string, .. }) => Some(string),
+        _ => None,
+    }}
+
     /// Get the expression's value, if it is a literal.
     ///
     /// Because const simplification turns expressions into literals, this is the quickest way to

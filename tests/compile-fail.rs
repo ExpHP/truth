@@ -335,6 +335,39 @@ compile_fail_test!(
     expected: "blob",
 );
 
+compile_fail_test!(
+    ANM_10, pseudo_bad_name,
+    main_body: r#"
+        wait(@argargarg="0f000000");
+    "#,
+    expected: "pseudo",
+);
+
+compile_fail_test!(
+    ANM_10, pseudo_len_ndiv_4,
+    main_body: r#"
+        wait(@args="0f0000");
+    "#,
+    expected: "by 4",
+);
+
+compile_fail_test!(
+    ANM_10, pseudo_dupe,
+    main_body: r#"
+        wait(@args="0f000000", @args="0f000000");
+    "#,
+    expected: "duplicate",
+);
+
+compile_fail_test!(
+    ANM_10, pseudo_non_const,
+    main_body: r#"
+        I0 = 1;
+        wait(@mask=I0, @args="10270000");
+    "#,
+    expected: "const",
+);
+
 mod type_error {
     use super::*;
 

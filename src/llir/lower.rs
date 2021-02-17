@@ -30,14 +30,25 @@ enum LowerStmt {
 
 /// An instruction that needs just a bit more postprocessing to convert it into a [`RawInstr`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct LowerInstr {
-    pub time: i32,
-    pub opcode: u16,
-    pub args: Vec<Sp<LowerArg>>,
+struct LowerInstr {
+    time: i32,
+    opcode: u16,
+    /// Value provided by user via `@mask=`, which will override the automatically-computed param mask.
+    user_param_mask: Option<u16>,
+    args: LowerArgs,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum LowerArg {
+enum LowerArgs {
+    /// The user provided normal arguments, which at this point we have largely reduced down to immediate
+    /// values and registers.
+    Known(Vec<Sp<LowerArg>>),
+    /// The user provided `@args=`.  In this case, it is okay for the instruction's ABI to not be known.
+    Unknown(Sp<Vec<u8>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum LowerArg {
     /// A fully encoded argument (an immediate or a register).
     ///
     /// All arguments are eventually lowered to this form.
@@ -106,7 +117,7 @@ fn encode_labels(
 
     code.iter_mut().map(|thing| {
         match thing {
-            LowerStmt::Instr(instr) => for arg in &mut instr.args {
+            LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) => for arg in args {
                 match arg.value {
                     | LowerArg::Label(ref label)
                     | LowerArg::TimeOf(ref label)
@@ -188,10 +199,18 @@ fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_
 }
 
 fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
+    let args = match &instr.args {
+        LowerArgs::Known(args) => args,
+        LowerArgs::Unknown(blob) => {
+            assert!(blob.len() % 4 == 0);  // should be checked already
+            return Ok(blob.len());
+        },
+    };
+
     let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) how did this typecheck with no signature?");
 
     let mut size = 0;
-    for (arg, enc) in zip!(&instr.args, abi.arg_encodings()) {
+    for (arg, enc) in zip!(args, abi.arg_encodings()) {
         match arg.value {
             LowerArg::Raw(_) => match enc {
                 | ArgEncoding::Dword
@@ -222,7 +241,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result
         }
     }
 
-    for enc in abi.arg_encodings().skip(instr.args.len()) {
+    for enc in abi.arg_encodings().skip(args.len()) {
         assert_eq!(enc, ArgEncoding::Padding);
         size += 4;
     }
@@ -233,10 +252,22 @@ fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result
 fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
     use crate::binary_io::BinWrite;
 
-    let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) we already checked this");
+    let args = match &instr.args {
+        LowerArgs::Known(args) => args,
+        LowerArgs::Unknown(blob) => {
+            return Ok(RawInstr {
+                time: instr.time,
+                opcode: instr.opcode,
+                param_mask: instr.user_param_mask.unwrap_or(0),
+                args_blob: blob.value.clone(),
+            });
+        },
+    };
+
+    let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) we already checked sigs for known args");
 
     let mut args_blob = std::io::Cursor::new(vec![]);
-    for (arg, enc) in zip!(&instr.args, abi.arg_encodings()) {
+    for (arg, enc) in zip!(args, abi.arg_encodings()) {
         match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
@@ -262,7 +293,7 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
         }
     }
 
-    for enc in abi.arg_encodings().skip(instr.args.len()) {
+    for enc in abi.arg_encodings().skip(args.len()) {
         assert_eq!(enc, ArgEncoding::Padding);
         args_blob.write_u32(0)?;
     }
@@ -270,7 +301,10 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
     Ok(RawInstr {
         time: instr.time,
         opcode: instr.opcode,
-        param_mask: compute_param_mask(&instr.args)?,
+        param_mask: match instr.user_param_mask {
+            Some(user_provided_mask) => user_provided_mask,
+            None => compute_param_mask(&args)?,
+        },
         args_blob: args_blob.into_inner(),
     })
 }
@@ -309,7 +343,7 @@ fn test_precomputed_string_len() {
     assert_ne!(utf8_len, sjis_len);
 
     let arg = LowerArg::Raw(SimpleArg { value: ScalarValue::String(str.into()), is_reg: false });
-    let instr = LowerInstr { time: 0, opcode: 1, args: vec![sp!(arg)] };
+    let instr = LowerInstr { time: 0, opcode: 1, user_param_mask: None, args: LowerArgs::Known(vec![sp!(arg)]) };
     let mut ty_ctx = TypeSystem::new();
     ty_ctx.set_ins_abi(1, "m".parse().unwrap());
 

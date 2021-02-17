@@ -53,6 +53,8 @@ mod binary_io;
 
 pub mod llir;
 
+pub mod pseudo;
+
 pub mod vm;
 
 pub use value::ScalarValue;

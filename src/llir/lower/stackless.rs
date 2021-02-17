@@ -4,12 +4,13 @@
 
 use std::collections::{HashMap, BTreeSet};
 
-use super::{unsupported, LowerStmt, LowerInstr, LowerArg};
+use super::{unsupported, LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::resolve::{ResolveId, RegId};
+use crate::pseudo::PseudoArgData;
 use crate::type_system::{TypeSystem, ScalarType};
 
 use IntrinsicInstrKind as IKind;
@@ -53,7 +54,8 @@ impl Lowerer<'_> {
                     self.out.push(LowerStmt::Instr(LowerInstr {
                         time: stmt.time,
                         opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
-                        args: vec![sp!(interrupt_id.span => LowerArg::Raw(interrupt_id.value.into()))],
+                        user_param_mask: None,
+                        args: LowerArgs::Known(vec![sp!(interrupt_id.span => LowerArg::Raw(interrupt_id.value.into()))]),
                     }));
                 },
 
@@ -70,7 +72,7 @@ impl Lowerer<'_> {
 
                 ast::StmtBody::Expr(expr) => match &expr.value {
                     ast::Expr::Call { name, pseudos, args } => {
-                        let opcode = self.lower_func_stmt(stmt, name, args)?;
+                        let opcode = self.lower_func_stmt(stmt, name, pseudos, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(name);
                         }
@@ -98,12 +100,13 @@ impl Lowerer<'_> {
         &mut self,
         stmt: &Sp<ast::Stmt>,
         name: &Sp<ast::CallableName>,
+        pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
         // all function statements currently refer to single instructions
         let opcode = self.ty_ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
 
-        self.lower_instruction(stmt, opcode as _, args)
+        self.lower_instruction(stmt, opcode as _, pseudos, args)
     }
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
@@ -111,27 +114,52 @@ impl Lowerer<'_> {
         &mut self,
         stmt: &Sp<ast::Stmt>,
         opcode: u16,
+        pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
-        let mut temp_reses = vec![];
-        let low_level_args = args.iter().map(|expr| {
-            let lowered = match classify_expr(expr, self.ty_ctx)? {
-                ExprClass::Simple(data) => data.lowered,
-                ExprClass::NeedsTemp(data) => {
-                    // Save this expression to a temporary
-                    let (res, _) = self.define_temporary(stmt.time, &data)?;
-                    let lowered = sp!(expr.span => LowerArg::Local { res, read_ty: data.read_ty });
+        let PseudoArgData {
+            // fully unpack because we need to add errors for anything unsupported
+            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask,
+        } = PseudoArgData::from_pseudos(pseudos)?;
 
-                    temp_reses.push(res); // so we can free the register later
-                    lowered
-                },
-            };
-            Ok::<_, CompileError>(lowered)
-        }).collect_with_recovery()?;
+        if let Some(pop) = pseudo_pop {
+            if pop.value != 0 {
+                return Err(unsupported(&pop.span, "stack-pop pseudo argument"));
+            }
+        }
+
+        // records temporaries for function arguments
+        let mut temp_reses = vec![];
+
+        let low_level_args = match pseudo_blob {
+            Some(blob) => {
+                assert!(args.is_empty());
+                LowerArgs::Unknown(sp!(blob.span => blob.to_vec()))
+            },
+
+            None => {
+                // determine whether each argument can be directly used as is, or if it needs a temporary
+                LowerArgs::Known(args.iter().map(|expr| {
+                    let lowered = match classify_expr(expr, self.ty_ctx)? {
+                        ExprClass::Simple(data) => data.lowered,
+                        ExprClass::NeedsTemp(data) => {
+                            // Save this expression to a temporary
+                            let (res, _) = self.define_temporary(stmt.time, &data)?;
+                            let lowered = sp!(expr.span => LowerArg::Local { res, read_ty: data.read_ty });
+
+                            temp_reses.push(res); // so we can free the register later
+                            lowered
+                        },
+                    };
+                    Ok::<_, CompileError>(lowered)
+                }).collect_with_recovery()?)
+            },
+        };
 
         self.out.push(LowerStmt::Instr(LowerInstr {
             time: stmt.time,
             opcode: opcode as _,
+            user_param_mask: pseudo_param_mask.map(|x| x.value),
             args: low_level_args,
         }));
 
@@ -191,7 +219,8 @@ impl Lowerer<'_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time,
                     opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?,
-                    args: vec![lowered_var, lowered_rhs],
+                    user_param_mask: None,
+                    args: LowerArgs::Known(vec![lowered_var, lowered_rhs]),
                 }));
                 return Ok(());
             },
@@ -315,7 +344,8 @@ impl Lowerer<'_> {
         self.out.push(LowerStmt::Instr(LowerInstr {
             time,
             opcode: self.get_opcode(IKind::Binop(binop.value, ty_var), span, "this binary operation")?,
-            args: vec![lowered_var, simple_a.lowered, simple_b.lowered],
+            user_param_mask: None,
+            args: LowerArgs::Known(vec![lowered_var, simple_a.lowered, simple_b.lowered]),
         }));
         Ok(())
     }
@@ -378,7 +408,8 @@ impl Lowerer<'_> {
                     token![sqrt] => self.out.push(LowerStmt::Instr(LowerInstr {
                         time,
                         opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
-                        args: vec![lowered_var, data_b.lowered],
+                        user_param_mask: None,
+                        args: LowerArgs::Known(vec![lowered_var, data_b.lowered]),
                     })),
                 }
                 Ok(())
@@ -396,7 +427,8 @@ impl Lowerer<'_> {
         self.out.push(LowerStmt::Instr(LowerInstr {
             time: stmt_time,
             opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
-            args: vec![label_arg, time_arg],
+            user_param_mask: None,
+            args: LowerArgs::Known(vec![label_arg, time_arg]),
         }));
         Ok(())
     }
@@ -440,7 +472,8 @@ impl Lowerer<'_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?,
-                    args: vec![arg_var, arg_label, arg_time],
+                    user_param_mask: None,
+                    args: LowerArgs::Known(vec![arg_var, arg_label, arg_time]),
                 }));
                 Ok(())
             },
@@ -543,7 +576,8 @@ impl Lowerer<'_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
-                    args: vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time],
+                    user_param_mask: None,
+                    args: LowerArgs::Known(vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time]),
                 }));
             },
         }
@@ -852,9 +886,11 @@ pub (in crate::llir::lower) fn assign_registers(
                     has_anti_scratch_ins = true;
                 }
 
-                for arg in &mut instr.args {
-                    if let LowerArg::Local { res, read_ty } = arg.value {
-                        arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&res].0, read_ty));
+                if let LowerArgs::Known(args) = &mut instr.args {
+                    for arg in args {
+                        if let LowerArg::Local { res, read_ty } = arg.value {
+                            arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&res].0, read_ty));
+                        }
                     }
                 }
             },
@@ -880,7 +916,7 @@ pub (in crate::llir::lower) fn assign_registers(
 fn get_used_regs(func_body: &[LowerStmt]) -> BTreeSet<RegId> {
     func_body.iter()
         .filter_map(|stmt| match stmt {
-            LowerStmt::Instr(LowerInstr { args, .. }) => Some(args),
+            LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. }) => Some(args),
             _ => None
         }).flat_map(|args| args.iter().filter_map(|arg| match &arg.value {
             LowerArg::Raw(arg) => arg.get_reg_id(),

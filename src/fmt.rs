@@ -846,8 +846,9 @@ impl Format for ast::Expr {
                 token![_S] | token![_f] | token![sin] | token![cos] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
-            ast::Expr::LitInt{ value, hex: false } => out.fmt(value),
-            ast::Expr::LitInt{ value, hex: true } => out.fmt(format_args!("{:#x}", value)),
+            ast::Expr::LitInt{ value, radix: ast::IntRadix::Dec } => out.fmt(value),
+            ast::Expr::LitInt{ value, radix: ast::IntRadix::Hex } => out.fmt(format_args!("{:#x}", value)),
+            ast::Expr::LitInt{ value, radix: ast::IntRadix::Bin } => out.fmt(format_args!("{:#b}", value)),
             ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
             ast::Expr::Var(x) => out.fmt(x),

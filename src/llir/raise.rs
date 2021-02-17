@@ -12,12 +12,22 @@ use crate::type_system::{ArgEncoding, TypeSystem, ScalarType, InstrAbi};
 use crate::value::ScalarValue;
 
 /// Intermediate form of an instruction only used during decompilation.
-///
-/// Its arguments have been decoded from the bytes.
-pub struct RaiseInstr {
-    pub time: i32,
-    pub opcode: u16,
-    pub args: Vec<SimpleArg>,
+struct RaiseInstr {
+    time: i32,
+    opcode: u16,
+    args: RaiseArgs,
+}
+
+enum RaiseArgs {
+    /// The ABI of the instruction was known, so we parsed the argument bytes into arguments.
+    Decoded(Vec<SimpleArg>),
+    /// The ABI was not known, so we will be emitting pseudo-args like `@args=`.
+    Unknown(UnknownArgsData),
+}
+
+struct UnknownArgsData {
+    param_mask: u16,
+    blob: Vec<u8>,
 }
 
 pub fn raise_instrs_to_sub_ast(
@@ -174,8 +184,13 @@ fn extract_jump_args_by_signature(
     let mut jump_offset = None;
     let mut jump_time = None;
 
-    let abi = expect_abi(instr, ty_ctx);
-    for (arg, encoding) in zip!(&instr.args, abi.arg_encodings()) {
+    let args = match &instr.args {
+        RaiseArgs::Decoded(args) => args,
+        RaiseArgs::Unknown(_) => return None,
+    };
+
+    let abi = ty_ctx.ins_abi(instr.opcode).expect("decoded, so abi is known");
+    for (arg, encoding) in zip!(args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_immediate_int() as u32)),
             ArgEncoding::JumpTime => jump_time = Some(arg.expect_immediate_int()),
@@ -194,8 +209,49 @@ fn raise_instr(
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
-    let RaiseInstr { opcode, ref args, .. } = *instr;
-    let encodings = expect_abi(instr, ty_ctx).arg_encodings().collect::<Vec<_>>();
+    match &instr.args {
+        RaiseArgs::Decoded(args) => raise_decoded_instr(instr_format, instr, args, ty_ctx, intrinsic_instrs, offset_labels),
+        RaiseArgs::Unknown(args) => raise_unknown_instr(instr, args),
+    }
+}
+
+fn raise_unknown_instr(
+    instr: &RaiseInstr,
+    args: &UnknownArgsData,
+) -> Result<ast::StmtBody, SimpleError> {
+    let mut pseudos = vec![];
+    if args.param_mask != 0 {
+        pseudos.push(sp!(ast::PseudoArg {
+            at_sign: sp!(()), eq_sign: sp!(()),
+            kind: sp!(ast::PseudoArgKind::Mask),
+            value: sp!(ast::Expr::LitInt { value: args.param_mask as i32, radix: ast::IntRadix::Bin }),
+        }));
+    }
+
+    pseudos.push(sp!(ast::PseudoArg {
+        at_sign: sp!(()), eq_sign: sp!(()),
+        kind: sp!(ast::PseudoArgKind::Args),
+        value: sp!(crate::pseudo::format_blob(&args.blob).into()),
+    }));
+
+    Ok(ast::StmtBody::Expr(sp!(Expr::Call {
+        name: sp!(ast::CallableName::Ins { opcode: instr.opcode }),
+        pseudos,
+        args: vec![],
+    })))
+}
+
+fn raise_decoded_instr(
+    instr_format: &dyn InstrFormat,
+    instr: &RaiseInstr,
+    args: &[SimpleArg],
+    ty_ctx: &TypeSystem,
+    intrinsic_instrs: &IntrinsicInstrs,
+    offset_labels: &BTreeMap<u64, Label>,
+) -> Result<ast::StmtBody, SimpleError> {
+    let opcode = instr.opcode;
+    let abi = ty_ctx.ins_abi(instr.opcode).expect("decoded, so abi is known");
+    let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
@@ -270,8 +326,8 @@ fn raise_instr(
         }).with_context(|| format!("while decompiling a conditional jump")),
 
 
+        // Default behavior for general instructions
         None => group_anyhow(|| {
-            // Default behavior for general instructions
             let abi = expect_abi(instr, ty_ctx);
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
@@ -357,7 +413,7 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
         }))),
 
         | ArgEncoding::Color
-        => Ok(Expr::LitInt { value: raw.expect_int(), hex: true }),
+        => Ok(Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
 
         | ArgEncoding::Float
         => Ok(Expr::from(raw.expect_float())),
@@ -412,7 +468,25 @@ fn raise_jump_args(
 fn decode_args(instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, SimpleError> {
     use crate::binary_io::BinRead;
 
-    let siggy = require_abi_raw(instr, ty_ctx)?;
+    let siggy = match ty_ctx.ins_abi(instr.opcode) {
+        Some(siggy) => siggy,
+        None => {
+            // TODO: would be nice to collect all affected opcodes and generate a single warning
+            //       listing all of them at the very end of decompilation, rather than spamming
+            //       the console.  Unfortunately this requires retaining some sort of state between
+            //       calls to raise_instr
+            fast_warning!("unknown signature for ins_{}; decompiling to raw args blob", instr.opcode);
+
+            return Ok(RaiseInstr {
+                time: instr.time,
+                opcode: instr.opcode,
+                args: RaiseArgs::Unknown(UnknownArgsData {
+                    param_mask: instr.param_mask,
+                    blob: instr.args_blob.to_vec(),
+                }),
+            });
+        },
+    };
 
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
@@ -465,15 +539,7 @@ fn decode_args(instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, Simp
     Ok(RaiseInstr {
         time: instr.time,
         opcode: instr.opcode,
-        args,
-    })
-}
-
-// truth requires all used opcodes to have signatures, so use this when needing the signature for a RawInstr
-fn require_abi_raw<'a>(instr: &RawInstr, ty_ctx: &'a TypeSystem) -> Result<&'a InstrAbi, SimpleError> {
-    ty_ctx.ins_abi(instr.opcode).ok_or_else(|| {
-        let bytes_str = instr.args_blob.iter().map(|&b| format!("{:02x}", b)).collect::<Vec<_>>().join("");
-        anyhow::anyhow!("signature not known for opcode {} (arg bytes: [{}])", instr.opcode, bytes_str)
+        args: RaiseArgs::Decoded(args),
     })
 }
 
