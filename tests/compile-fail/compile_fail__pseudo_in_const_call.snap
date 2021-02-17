@@ -1,0 +1,14 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: unexpected token `const`
+   ┌─ <input>:25:9
+   │
+25 │         const int foo(int x) { return x; }
+   │         ^^^^^ unexpected token
+   │
+   = 
+     Expected one of "#", ",", "]", "anim", "ecli", "entry", "float", "inline", "int", "meta", "script", "sub", "timeline", "void" or "}"
+
+

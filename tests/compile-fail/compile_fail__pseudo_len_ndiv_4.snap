@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: number of bytes in blob not divisible by 4 (remainder: 3)
+   ┌─ <input>:28:20
+   │
+28 │         wait(@args="0f0000");
+   │                    ^^^^^^^^ invalid blob literal
+
+

@@ -71,30 +71,37 @@ fn file(fname: &str) -> std::path::PathBuf {
 }
 
 macro_rules! b2b_test {
-    ($format:expr, $game:expr, $map:literal, $test_name:ident, $fname:literal) => {
+    (   $format:expr,
+        $game:expr, $map:expr, $test_name:ident, $fname:literal
+        // Expected strings, all of which must be contained somewhere in the output for the test to succeed.
+        // These can serve to help clarify what the test is actually testing for, and they serve as an
+        // additional speed-bump against accidentally accepting a broken snapshot.
+        //
+        // Some tests don't have any expected strings; those tests are most likely only concerned that the
+        // data can be round-tripped back to binary.
+        $(, expected=$expected:literal)*
+        $(,)?
+    ) => {
         #[test]
         fn $test_name() {
-            bits_to_bits($format, $game, file($fname), $map, |s| insta::assert_snapshot!(s));
+            bits_to_bits($format, $game, file($fname), $map, |s| {
+                $( assert!(s.contains($expected)); )*
+                insta::assert_snapshot!(s)
+            });
         }
     }
 }
 
 macro_rules! std_b2b_test {
-    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
-        b2b_test!{"trustd", $game, $map, $test_name, $fname}
-    }
+    ($($args:tt)*) => { b2b_test!{"trustd", $($args)*} };
 }
 
 macro_rules! anm_b2b_test {
-    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
-        b2b_test!{"truanm", $game, $map, $test_name, $fname}
-    }
+    ($($args:tt)*) => { b2b_test!{"truanm", $($args)*} };
 }
 
 macro_rules! msg_b2b_test {
-    ($game:expr, $map:literal, $test_name:ident, $fname:literal) => {
-        b2b_test!{"trumsg", $game, $map, $test_name, $fname}
-    }
+    ($($args:tt)+) => { b2b_test!{"trumsg", $($args)*} };
 }
 
 // a dumb test to make sure that we don't just dump files in the input directory and
@@ -119,6 +126,7 @@ fn all_files_tested() {
     }
 }
 
+// STD metadata.
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_rects, "th08-rects.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_strip, "th08-strip.std");
 std_b2b_test!(Game::Th08, "map/any.stdm", std08_instance_order, "th08-instance-order.std");
@@ -127,13 +135,42 @@ std_b2b_test!(Game::Th08, "map/any.stdm", std08_empty_script, "th08-empty-script
 std_b2b_test!(Game::Th06, "map/any.stdm", std06_general, "th06-general.std");
 std_b2b_test!(Game::Th12, "map/any.stdm", std12_general, "th12-general.std");
 
-anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_registers, "th12-registers.anm");
-anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");
-anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_script_args, "th12-sprite-script-args.anm");
-anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_unset, "th12-sprite-unset.anm");
-anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_non_sequential, "th12-sprite-non-sequential.anm");
-anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_sprite_duplicates, "th12-sprite-duplicates.anm");
+// Test that named regs use are named in the output.
+anm_b2b_test!(
+    Game::Th12, "map/any.anmm", anm12_registers, "th12-registers.anm",
+    expected="I1",
+);
+// Decompilation of instructions with no signature.
+anm_b2b_test!(
+    Game::Th12, file("th12-unknown-signature.anmm"), anm12_unknown_signature, "th12-unknown-signature.anm",
+    expected="hasNameButNoSignature",  // there's a named instr with no signature in the mapfile...
+    expected="ins_1011",  // ...as well as an unnamed one.
+);
 
+// Decompilation of word-sized arguments.
+anm_b2b_test!(Game::Th12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");
+
+// Decompilation of sprite/script args to use names when appropriate.
+anm_b2b_test!(
+    Game::Th12, "map/any.anmm", anm12_sprite_script_args, "th12-sprite-script-args.anm",
+    expected="scriptNew(script1)",
+    expected="sprite(sprite0)",
+);
+anm_b2b_test!(
+    Game::Th12, "map/any.anmm", anm12_sprite_unset, "th12-sprite-unset.anm",
+    expected="sprite(-1)",
+);
+anm_b2b_test!(
+    Game::Th12, "map/any.anmm", anm12_sprite_non_sequential, "th12-sprite-non-sequential.anm",
+    expected="sprite47",
+);
+anm_b2b_test!(
+    Game::Th12, "map/any.anmm", anm12_sprite_duplicates, "th12-sprite-duplicates.anm",
+);
+
+// MSG script table funny business.
 msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_multiple_scripts, "th06-multiple-scripts.msg");
+
+// Decoding of string arguments.
 msg_b2b_test!(Game::Th06, "map/any.msgm", msg06_z_string, "th06-z-string.msg");
 msg_b2b_test!(Game::Th08, "map/any.msgm", msg08_m_string, "th08-m-string.msg");

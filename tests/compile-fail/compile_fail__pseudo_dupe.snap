@@ -1,0 +1,13 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: duplicate pseudo-arg
+   ┌─ <input>:28:38
+   │
+28 │         wait(@args="0f000000", @args="0f000000");
+   │                    ----------        ^^^^^^^^^^ duplicate pseudo-arg
+   │                    │                  
+   │                    previously supplied here
+
+
