@@ -242,7 +242,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
 
     let old_stmts = parsed_block.0;
     let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, &mut ty_ctx)?;
-    let mut new_block = ast::Block(llir::raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx)?);
+    let mut new_block = ast::Block(llir::Raiser::new().raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx)?);
     truth::passes::resolve_names::aliases_to_raw(&mut new_block, &mut ty_ctx)?;
 
     let mut old_vm = base_vm.clone();

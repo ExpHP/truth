@@ -520,7 +520,7 @@ fn anm10_cond_jump_to_end() {
 
 #[test]
 fn anm10_pseudo_mask_override() {
-    /// This tests that a user provided @mask overrides the one that gets automatically computed.
+    // This tests that a user provided @mask overrides the one that gets automatically computed.
     ANM_10.sbsb_test(r#"
         color(@mask=0b100, I2, 10, 20);
     "#, |decompiled| {

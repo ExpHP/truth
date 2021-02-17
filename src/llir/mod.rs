@@ -14,7 +14,7 @@ use crate::resolve::{RegId};
 pub use lower::lower_sub_ast_to_instrs;
 mod lower;
 
-pub use raise::raise_instrs_to_sub_ast;
+pub use raise::Raiser;
 mod raise;
 
 /// The lowest level representation of an instruction that is common between all games.

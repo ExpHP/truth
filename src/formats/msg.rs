@@ -47,11 +47,12 @@ fn decompile(
     ty_ctx: &TypeSystem,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
+    let mut raiser = llir::Raiser::new();
     let mut script = ast::Script {
         mapfiles: ty_ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items: msg.scripts.iter().map(|(&id, instrs)| {
-            let code = llir::raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
+            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
 
             Ok(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id as _)),

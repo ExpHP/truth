@@ -30,14 +30,55 @@ struct UnknownArgsData {
     blob: Vec<u8>,
 }
 
-pub fn raise_instrs_to_sub_ast(
+/// Type that provides methods to raise instructions to AST nodes.
+///
+/// It tracks some state related to diagnostics, so that some consolidated warnings
+/// can be given at the end of decompilation.
+pub struct Raiser {
+    opcodes_without_abis: BTreeSet<u16>,
+}
+
+impl Drop for Raiser {
+    fn drop(&mut self) {
+        self.generate_warnings();
+    }
+}
+
+impl Raiser {
+    pub fn new() -> Self {
+        Raiser { opcodes_without_abis: Default::default() }
+    }
+
+    pub fn raise_instrs_to_sub_ast(
+        &mut self,
+        instr_format: &dyn InstrFormat,
+        raw_script: &[RawInstr],
+        ty_ctx: &TypeSystem,
+    ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
+        raise_instrs_to_sub_ast(self, instr_format, raw_script, ty_ctx)
+    }
+
+    pub fn generate_warnings(&mut self) {
+        if !self.opcodes_without_abis.is_empty() {
+            fast_warning!("\
+                Instructions with unknown signatures were decompiled to byte blobs.  \
+                \n   The following opcodes were affected: {}\
+            ", self.opcodes_without_abis.iter().map(|opcode| opcode.to_string()).collect::<Vec<_>>().join(", "));
+        }
+
+        self.opcodes_without_abis.clear();
+    }
+}
+
+fn raise_instrs_to_sub_ast(
+    raiser: &mut Raiser,
     instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
     ty_ctx: &TypeSystem,
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
-    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| decode_args(raw_instr, ty_ctx)).collect::<Result<_, _>>()?;
+    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(raw_instr, ty_ctx)).collect::<Result<_, _>>()?;
 
     let jump_data = gather_jump_time_args(&script, ty_ctx, instr_format)?;
     let offset_labels = generate_offset_labels(&script, &instr_offsets, &jump_data)?;
@@ -465,28 +506,30 @@ fn raise_jump_args(
 
 // =============================================================================
 
-fn decode_args(instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, SimpleError> {
+impl Raiser {
+    fn decode_args(&mut self, instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, SimpleError> {
+        match ty_ctx.ins_abi(instr.opcode) {
+            Some(abi) => decode_args_with_abi(instr, abi),
+
+            // No ABI. Fall back to decompiling as a blob.
+            None => {
+                self.opcodes_without_abis.insert(instr.opcode);
+
+                Ok(RaiseInstr {
+                    time: instr.time,
+                    opcode: instr.opcode,
+                    args: RaiseArgs::Unknown(UnknownArgsData {
+                        param_mask: instr.param_mask,
+                        blob: instr.args_blob.to_vec(),
+                    }),
+                })
+            },
+        }
+    }
+}
+
+fn decode_args_with_abi(instr: &RawInstr, siggy: &InstrAbi) -> Result<RaiseInstr, SimpleError> {
     use crate::binary_io::BinRead;
-
-    let siggy = match ty_ctx.ins_abi(instr.opcode) {
-        Some(siggy) => siggy,
-        None => {
-            // TODO: would be nice to collect all affected opcodes and generate a single warning
-            //       listing all of them at the very end of decompilation, rather than spamming
-            //       the console.  Unfortunately this requires retaining some sort of state between
-            //       calls to raise_instr
-            fast_warning!("unknown signature for ins_{}; decompiling to raw args blob", instr.opcode);
-
-            return Ok(RaiseInstr {
-                time: instr.time,
-                opcode: instr.opcode,
-                args: RaiseArgs::Unknown(UnknownArgsData {
-                    param_mask: instr.param_mask,
-                    blob: instr.args_blob.to_vec(),
-                }),
-            });
-        },
-    };
 
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
