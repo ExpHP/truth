@@ -1,6 +1,6 @@
 ---
 source: src/parse/tests.rs
-expression: "expect_parse_error::<ast::Expr>(\"\", r#\" \"abcefg\\\"#).trim()"
+expression: "expect_parse_error::<ast::Expr>(\"token\", r#\" \"abcefg\\\"#).trim()"
 ---
 error: invalid token
   ┌─ <input>:1:2

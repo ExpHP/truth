@@ -303,21 +303,21 @@ fn vars() {
         }"#),
         // (check with a raw register access)
         ("simple_test_with_raw", SIMPLE_FOUR_VAR_SPEC, r#"{
-            int x = 4 + 3 * [1001], y;
+            int x = 4 + 3 * $REG[1001], y;
             y = x * x;
             A = x;
         }"#),
         // (check with a read of a non-scratch register)
         ("simple_test_with_nonscratch", SIMPLE_FOUR_VAR_SPEC, r#"{
-            int x = 4 + 3 * [1001], y;
+            int x = 4 + 3 * $REG[1001], y;
             y = x * COUNT;
             A = x;
         }"#),
         // (expression compilation should not require a mapfile to work)
         ("simple_test_nomap", NOMAP_FOUR_VAR_SPEC, r#"{
-            int x = 4 + 3 * [1001], y;
+            int x = 4 + 3 * $REG[1001], y;
             y = x * x;
-            [1000] = x;
+            $REG[1000] = x;
         }"#),
     ];
 

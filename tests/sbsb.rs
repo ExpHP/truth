@@ -241,9 +241,9 @@ fn if_elseif_else() {
     end:
     "#, |decompiled| {
         assert!(decompiled.contains(r#"
-    if ([10000] == 0) {
+    if ($REG[10000] == 0) {
         ins_3(sprite2);
-    } else if ([10000] == 1) {
+    } else if ($REG[10000] == 1) {
         ins_3(sprite3);
     } else {
         ins_3(sprite1);
