@@ -138,6 +138,7 @@ define_token_enum! {
         #[token("sqrt")] Sqrt,
         #[token("_S")] CastI,
         #[token("_f")] CastF,
+        #[token("REG")] Reg,
 
         #[regex(r##""([^\\"]|\\.)*""##)] LitString(&'a str),
         #[regex(r##"[0-9]+(\.([0-9]*f|[0-9]+)|f)"##)] LitFloat(&'a str),

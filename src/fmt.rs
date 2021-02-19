@@ -5,7 +5,6 @@ use crate::meta::{self, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::Sp;
 
-// NOTE: We can't impl Display because that's UTF-8 based.
 /// Trait for displaying Touhou script code.
 ///
 /// Typically you do not need to import this if you want to display stuff; instead,
@@ -874,15 +873,18 @@ impl Format for ast::PseudoArg {
 
 impl Format for ast::Var {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match *self {
-            ast::Var::Named { ty_sigil, ref ident } => match ty_sigil {
-                None => out.fmt(ident),
-                Some(ty_sigil) => out.fmt((ty_sigil.sigil(), ident)),
-            },
-            ast::Var::Reg { reg, ty_sigil } => match ty_sigil {
-                ast::VarReadType::Int => out.fmt(("[", reg.0, "]")),
-                ast::VarReadType::Float => out.fmt(("[", reg.0 as f32, "]")),
-            },
+        match self.ty_sigil {
+            None => out.fmt(&self.name),
+            Some(ty_sigil) => out.fmt((ty_sigil.sigil(), &self.name)),
+        }
+    }
+}
+
+impl Format for ast::VarName {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        match self {
+            ast::VarName::Normal { ident } => out.fmt(ident),
+            ast::VarName::Reg { reg } => out.fmt(("REG[", reg.0, "]")),
         }
     }
 }

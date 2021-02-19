@@ -184,9 +184,9 @@ impl Lowerer<'_> {
 
         for pair in vars {
             let (var, expr) = &pair.value;
-            match var.value {
-                ast::Var::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
-                ast::Var::Named { ref ident, .. } => {
+            match var.name {
+                ast::VarName::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
+                ast::VarName::Normal { ref ident, .. } => {
                     let res = ident.expect_res();
                     self.out.push(LowerStmt::RegAlloc { res, cause: var.span });
 
@@ -663,7 +663,7 @@ impl Lowerer<'_> {
 
         let mut read_var = var.clone();
         let read_ty_sigil = get_temporary_read_ty(data.read_ty, var.span)?;
-        read_var.set_ty_sigil(Some(read_ty_sigil));
+        read_var.ty_sigil = Some(read_ty_sigil);
         Ok(sp!(var.span => ast::Expr::Var(read_var)))
     }
 
@@ -688,7 +688,7 @@ impl Lowerer<'_> {
         let sigil = get_temporary_read_ty(tmp_ty, span)?;
         let res = ident.expect_res();
 
-        let var = sp!(span => ast::Var::Named { ty_sigil: Some(sigil), ident: ident.value });
+        let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
         self.out.push(LowerStmt::RegAlloc { res, cause: span });
 
         Ok((res, var))
@@ -783,7 +783,7 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(Sp<Lower
 
     // Up to this point in compilation, register aliases use Var::Named.
     // But now, we want both registers and their aliases to be resolved to a register
-    let arg = match ty_ctx.var_reg_from_ast(var) {
+    let arg = match ty_ctx.var_reg_from_ast(&var.name) {
         Ok(reg) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
         Err(res) => LowerArg::Local { res, read_ty },
     };
@@ -809,7 +809,7 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
 
     impl Visit for Visitor<'_> {
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
-            if self.var.eq_upto_ty(var) {
+            if self.var.name == var.name {
                 self.found = true;
             }
         }
@@ -848,8 +848,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 let required_ty = ty_ctx.var_inherent_ty(*res).expect("(bug!) this should have been type-checked!");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
-                    let ty_as_sigil = ast::VarReadType::from_ty(required_ty).expect("reg ty is always numeric");
-                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.reg_to_ast(reg, ty_as_sigil));
+                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.reg_to_ast(reg));
 
                     let mut error = crate::error::Diagnostic::error();
                     error.message(format!("script too complex to compile"));

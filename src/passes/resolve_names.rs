@@ -13,7 +13,7 @@ pub fn run<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<()
     v.finish()
 }
 
-/// Convert any register aliases and instruction aliases to `[10000]` and `ins_32` syntax.
+/// Convert any register aliases and instruction aliases to `REG[10000]` and `ins_32` syntax.
 ///
 /// Requires name resolution to have been performed.
 pub fn aliases_to_raw<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
@@ -22,8 +22,20 @@ pub fn aliases_to_raw<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Re
     Ok(())
 }
 
-/// Convert any raw register references (e.g. `[10000]`) and raw instructions (`ins_32`) to aliases
+/// Convert any raw register references (e.g. `REG[10000]`) and raw instructions (`ins_32`) to aliases
 /// when they are available.
+///
+/// When it converts a register to an alias, it will strip the type sigil if it isn't needed.
+/// (sigils are left on registers it doesn't convert
+///
+/// FIXME: Stripping the sigil seems like a surprising side-effect.
+///  Or rather, while it's true that we DO want redundant sigils on REG and not on other things,
+///  this particular function is an odd place to implement this behavior!
+///  (it's only here for historical reasons, back when raw registers always had a `VarReadType`)
+///  &nbsp;
+///  I did try separating this into two passes (one that switches to aliases, another that strips sigils
+///  from non-`REG`s) but ran into https://github.com/ExpHP/truth/issues/13 when the second pass
+///  encountered things like `sprite24`.
 pub fn raw_to_aliases<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
     let mut v = RawToAliasesVisitor { ty_ctx };
     ast.visit_mut_with(&mut v);
@@ -38,11 +50,9 @@ struct AliasesToRawVisitor<'a> {
 
 impl ast::VisitMut for AliasesToRawVisitor<'_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
-        if let ast::Var::Named { .. } = &var.value {
-            if let Ok(reg) = self.ty_ctx.var_reg_from_ast(var) {
-                let read_ty = self.ty_ctx.var_read_ty_from_ast(var).expect("shoulda been typechecked!");
-                let ty_sigil = read_ty.sigil().expect("regs have numeric types");
-                var.value = ast::Var::Reg { reg, ty_sigil };
+        if let ast::VarName::Normal { .. } = &var.name {
+            if let Ok(reg) = self.ty_ctx.var_reg_from_ast(&var.name) {
+                var.name = reg.into();
             }
         }
     }
@@ -63,8 +73,13 @@ struct RawToAliasesVisitor<'a> {
 
 impl ast::VisitMut for RawToAliasesVisitor<'_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
-        if let ast::Var::Reg { ty_sigil, reg } = var.value {
-            var.value = self.ty_ctx.reg_to_ast(reg, ty_sigil);
+        if let ast::VarName::Reg { reg } = var.name {
+            var.name = self.ty_ctx.reg_to_ast(reg);
+
+            // did it succeed?
+            if var.name.is_named() {
+                self.ty_ctx.var_simplify_ty_sigil(&mut var.value);
+            }
         }
     }
 

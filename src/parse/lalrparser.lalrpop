@@ -104,6 +104,7 @@ extern {
         "sqrt" => Token::Sqrt,
         "_S" => Token::CastI,
         "_f" => Token::CastF,
+        "REG" => Token::Reg,
         // Virtual tokens for parsable nonterminals
         Dispatch_Script => Token::VirtualDispatch(crate::parse::AnythingTag::Script),
         Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
@@ -694,34 +695,25 @@ LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
 // Variables
 
 Var: ast::Var = {
-    VarIdent,
-    "$" <ident:ResIdent> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Int), ident },
-    "%" <ident:ResIdent> => ast::Var::Named { ty_sigil: Some(ast::VarReadType::Float), ident },
-    "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]" =>? {
-        Ok(ast::Var::Reg { ty_sigil: ast::VarReadType::Int, reg: i32::wrapping_mul(x, sign).into() })
-    },
-    <l: @L> "[" <sign:OptionalMinus> <x:LitFloatUnsigned> "]" <r: @R> =>? {
-        if x < i32::min_value() as f32 || x > i32::max_value() as f32 {
-            return Err(error!(
-                message("register ID overflow"),
-                primary(Span::from_locs(l, r), "register ID overflow")
-            ).into());
-        }
-        let reg = i32::wrapping_mul(x as i32, sign);
-        if reg as f32 != x * sign as f32 {
-            return Err(error!(
-                message("non-integer register ID"),
-                primary(Span::from_locs(l, r), "non-integer register ID")
-            ).into());
-        }
-        Ok(ast::Var::Reg {
-            ty_sigil: ast::VarReadType::Float,
-            reg: reg.into(),
-        })
-    },
+    <ty_sigil:VarReadSigil> <name:VarName> => ast::Var { ty_sigil, name },
 };
 
-VarIdent: ast::Var = <ident:ResIdent> => ast::Var::Named { ty_sigil: None, ident };
+#[inline]
+VarReadSigil: Option<ast::VarReadType> = {
+    => None,
+    "$" => Some(ast::VarReadType::Int),
+    "%" => Some(ast::VarReadType::Float),
+};
+
+VarName: ast::VarName = {
+    <ident:ResIdent>
+        => ast::VarName::Normal { ident },
+
+    "REG" "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]"
+        => ast::VarName::Reg { reg: i32::wrapping_mul(x, sign).into() },
+};
+
+VarIdent: ast::Var = <ident:ResIdent> => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident } };
 
 VarDeclKeyword: ast::VarDeclKeyword = {
     "int" => token![int],

@@ -65,7 +65,7 @@ impl<'a> Desugarer<'a> {
                             let ident = sp!(count.span => self.ty_ctx.gensym("count").into());
                             let ident = self.ty_ctx.add_local(ident, Some(ScalarType::Int)).value;
                             let res = ident.expect_res();
-                            let var = sp!(count.span => ast::Var::Named { ident, ty_sigil: None });
+                            let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.into() });
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,

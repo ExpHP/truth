@@ -180,13 +180,13 @@ impl ast::VisitMut for Visitor<'_> {
 
         // now inspect this expression
         match &e.value {
-            ast::Expr::Var(var) => match var.value {
-                ast::Var::Named { ref ident, ty_sigil } => {
+            ast::Expr::Var(var) => match var.name {
+                ast::VarName::Normal { ref ident } => {
                     if let Some(value) = self.ty_ctx.var_const_value(ident.expect_res()) {
-                        e.value = value.apply_sigil(ty_sigil).expect("shoulda been type-checked").into();
+                        e.value = value.apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
                     }
                 },
-                ast::Var::Reg { .. } => {}, // can't simplify register
+                ast::VarName::Reg { .. } => {}, // can't simplify register
             },
 
             ast::Expr::Unop(op, b) => {

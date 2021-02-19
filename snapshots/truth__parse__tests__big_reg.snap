@@ -1,0 +1,9 @@
+---
+source: src/parse/tests.rs
+expression: "expect_parse_error::<ast::Stmt>(\"too large\",\n                                \"float x = %REG[1234258905623];\").trim()"
+---
+error: bad integer literal
+  ┌─ <input>:1:16
+  │
+1 │ float x = %REG[1234258905623];
+  │                ^^^^^^^^^^^^^ number too large to fit in target type

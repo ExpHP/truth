@@ -35,7 +35,7 @@ fn expr_parse() {
         "(1 == 3) ? 1 : ((3 == 3) ? 2 : 0)",
         2,
     );
-    check_exprs_same!("1 + [1]", "1 + [1]");
+    check_exprs_same!("1 + $REG[1]", "1 + $REG[1]");
 }
 
 #[test]
@@ -131,15 +131,14 @@ fn var_parse() {
     use ast::{Var, VarReadType};
     use crate::resolve::RegId;
 
-    assert_eq!(Var::parse("[244]").unwrap(), Var::Reg { ty_sigil: VarReadType::Int, reg: RegId(244) });
-    assert_eq!(Var::parse("[-99998]").unwrap(), Var::Reg { ty_sigil: VarReadType::Int, reg: RegId(-99998) });
-    assert_eq!(Var::parse("[244f]").unwrap(), Var::Reg { ty_sigil: VarReadType::Float, reg: RegId(244) });
-    assert_eq!(Var::parse("[-99998.0]").unwrap(), Var::Reg { ty_sigil: VarReadType::Float, reg: RegId(-99998) });
-    assert!(Var::parse("[-99998.5]").is_err());
-    assert!(Var::parse("[-99998e5]").is_err());
-    assert!(matches!(Var::parse("lmao").unwrap(), Var::Named { ty_sigil: None, .. }));
-    assert!(matches!(Var::parse("$lmao").unwrap(), Var::Named { ty_sigil: Some(VarReadType::Int), .. }));
-    assert!(matches!(Var::parse("%lmao").unwrap(), Var::Named { ty_sigil: Some(VarReadType::Float), .. }));
+    assert_eq!(Var::parse("$REG[244]").unwrap(), Var { ty_sigil: Some(VarReadType::Int), name: RegId(244).into() });
+    assert_eq!(Var::parse("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarReadType::Int), name: RegId(-99998).into() });
+    assert_eq!(Var::parse("REG[244]").unwrap(), Var { ty_sigil: None, name: RegId(244).into() });
+    assert_eq!(Var::parse("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarReadType::Float), name: RegId(-99998).into() });
+    assert!(Var::parse("REG[-99998999999]").is_err());
+    assert!(matches!(Var::parse("lmao").unwrap(), Var { ty_sigil: None, .. }));
+    assert!(matches!(Var::parse("$lmao").unwrap(), Var { ty_sigil: Some(VarReadType::Int), .. }));
+    assert!(matches!(Var::parse("%lmao").unwrap(), Var { ty_sigil: Some(VarReadType::Float), .. }));
 }
 
 #[test]
@@ -172,14 +171,13 @@ parse_error_snapshot_test!(invalid_token, expect("token"), <ast::Expr> "(32 + \u
 parse_error_snapshot_test!(integer_overflow, expect("too large"), <ast::Expr> "124712894724479");
 parse_error_snapshot_test!(unexpected_token, expect("unexpected"), <ast::Stmt> "int x = int;");
 parse_error_snapshot_test!(unexpected_eof, expect("EOF"), <ast::Stmt> "int x = 3");
-parse_error_snapshot_test!(big_float_reg, expect("overflow"), <ast::Stmt> "int x = [1234258905623.0];");
+parse_error_snapshot_test!(big_reg, expect("too large"), <ast::Stmt> "float x = %REG[1234258905623];");
 parse_error_snapshot_test!(bad_escape, expect("escape"), <ast::Expr> r#" "abc\jefg" "#);
 parse_error_snapshot_test!(bad_escape_end, expect("token"), <ast::Expr> r#" "abcefg\"#);
 parse_error_snapshot_test!(bad_ins_identifier, expect("instruction"), <ast::Expr> r#" ins_04() "#);
 parse_error_snapshot_test!(bad_ins_identifier_2, expect("instruction"), <ast::Expr> r#" ins_a() "#);
 parse_error_snapshot_test!(bad_ins_empty, expect("instruction"), <ast::Expr> r#" ins_() "#);
 parse_error_snapshot_test!(bad_ins_overflow, expect("instruction"), <ast::Expr> r#" ins_99999999999999() "#);
-parse_error_snapshot_test!(non_int_float_reg, expect("non-integer"), <ast::Expr> "32 * [101.32f]");
 parse_error_snapshot_test!(unclosed_comment, expect("token"), <ast::Script> r#" /* comment "#);
 parse_error_snapshot_test!(duplicate_meta_key, expect("duplicate"), <meta::Meta> r#"{
   a: {

@@ -445,46 +445,31 @@ pub enum CallableName {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Var {
+pub struct Var {
     /// A variable mentioned by name, possibly with a type sigil.
-    Named {
-        ty_sigil: Option<VarReadType>,
-        ident: ResIdent,
-    },
-    /// A raw register access. (e.g. `[10004.0]`)
-    Reg {
-        ty_sigil: VarReadType,
-        reg: RegId,
-    },
+    pub ty_sigil: Option<VarReadType>,
+    pub name: VarName,
 }
 
-impl Var {
-    pub fn eq_upto_ty(&self, other: &Var) -> bool {
-        match (self, other) {
-            (Var::Named { ident: a, .. }, Var::Named { ident: b, .. }) => a.expect_res() == b.expect_res(),
-            (Var::Reg { reg: a, .. }, Var::Reg { reg: b, .. }) => a == b,
-            _ => false,
-        }
-    }
+impl VarName {
+    pub fn is_named(&self) -> bool { match self {
+        VarName::Normal { .. } => true,
+        VarName::Reg { .. } => false,
+    }}
+}
 
-    /// Get the *explicitly annotated* read type.  If there isn't one, returns `None`.
-    ///
-    /// Because this does not use the type system, it is unable to determine anything in the case
-    /// that there is no type sigil.  [`crate::type_system::TypeSystem::var_read_ty_from_ast`] for a
-    /// more reliable way of determining the type of a [`Var`].
-    pub fn read_ty(&self) -> Option<VarReadType> {
-        match *self {
-            Var::Named { ty_sigil, .. } => ty_sigil,
-            Var::Reg { ty_sigil, .. } => Some(ty_sigil),
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub enum VarName {
+    Normal { ident: ResIdent },
+    Reg { reg: RegId },
+}
 
-    pub fn set_ty_sigil(&mut self, ty_sigil: Option<VarReadType>) {
-        match self {
-            Var::Named { ty_sigil: ptr, .. } => *ptr = ty_sigil,
-            Var::Reg { ty_sigil: ptr, .. } => *ptr = ty_sigil.expect("can't erase type sigil of register"),
-        }
-    }
+impl From<RegId> for VarName {
+    fn from(reg: RegId) -> Self { VarName::Reg { reg } }
+}
+
+impl From<ResIdent> for VarName {
+    fn from(ident: ResIdent) -> Self { VarName::Normal { ident } }
 }
 
 string_enum! {
@@ -873,9 +858,10 @@ macro_rules! generate_visitor_stuff {
         pub fn walk_var<V>(_v: &mut V, x: & $($mut)? Sp<Var>)
         where V: ?Sized + $Visit,
         {
-            match & $($mut)? x.value {
-                Var::Named { ty_sigil: _, ident: _ } => {},
-                Var::Reg { ty_sigil: _, reg: _ } => {},
+            let Var { name, ty_sigil: _ } = & $($mut)? x.value;
+            match name {
+                VarName::Normal { ident: _ } => {},
+                VarName::Reg { reg: _ } => {},
             }
         }
     };

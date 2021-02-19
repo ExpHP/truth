@@ -260,9 +260,7 @@ mod resolve_vars {
 
                     for pair in vars {
                         let (var, init_value) = &mut pair.value;
-                        if let ast::Var::Named { ty_sigil, ident } = &mut var.value {
-                            assert!(ty_sigil.is_none());
-
+                        if let ast::VarName::Normal { ident } = &mut var.value.name {
                             // a variable should not be allowed to appear in its own initializer, so walk the expression first.
                             if let Some(init_value) = init_value {
                                 self.visit_expr(init_value);
@@ -285,7 +283,7 @@ mod resolve_vars {
         }
 
         fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
-            if let ast::Var::Named { ref mut ident, .. } = var.value {
+            if let ast::VarName::Normal { ref mut ident, .. } = var.name {
                 match self.resolver.resolve(ident, Namespace::Vars) {
                     Err(ResolutionError) => self.errors.append(error!(
                         message("unknown variable '{}'", ident),

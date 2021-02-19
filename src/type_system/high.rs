@@ -443,21 +443,18 @@ impl TypeSystem {
     /// cast as a float using `%I0`.
     ///
     /// This returns [`ScalarType`] instead of [`ast::VarReadType`] because const vars could be strings.
-    pub fn var_read_ty_from_ast(&self, var: &Sp<ast::Var>) -> VarType {
-        match var.value {
-            ast::Var::Reg { ty_sigil, .. } => Some(ty_sigil.into()),
-            ast::Var::Named { ty_sigil: Some(ty_sigil), .. } => Some(ty_sigil.into()),
-            ast::Var::Named { ty_sigil: None, ref ident } => self.var_inherent_ty(ident.expect_res()),
-        }
+    pub fn var_read_ty_from_ast(&self, var: &ast::Var) -> VarType {
+        var.ty_sigil.map(Into::into)
+            .or_else(|| self.var_inherent_ty_from_ast(var))
     }
 
     /// Get the innate type of a variable at a place where it is referenced, ignoring its sigils.
     ///
     /// `None` means it has no inherent type. (is untyped, e.g. via `var` keyword)
-    pub fn var_inherent_ty_from_ast(&self, var: &Sp<ast::Var>) -> VarType {
-        match var.value {
-            ast::Var::Reg { reg, .. } => self.reg_inherent_ty(reg),
-            ast::Var::Named { ref ident, .. } => self.var_inherent_ty(ident.expect_res()),
+    pub fn var_inherent_ty_from_ast(&self, var: &ast::Var) -> VarType {
+        match var.name {
+            ast::VarName::Reg { reg, .. } => self.reg_inherent_ty(reg),
+            ast::VarName::Normal { ref ident, .. } => self.var_inherent_ty(ident.expect_res()),
         }
     }
 
@@ -476,10 +473,10 @@ impl TypeSystem {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn var_reg_from_ast(&self, var: &ast::Var) -> Result<RegId, ResolveId> {
+    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<RegId, ResolveId> {
         match var {
-            &ast::Var::Reg { reg, .. } => Ok(reg),  // register
-            ast::Var::Named { ident, .. } => {
+            &ast::VarName::Reg { reg, .. } => Ok(reg),  // register
+            ast::VarName::Normal { ident, .. } => {
                 match self.var_reg(ident.expect_res()) {
                     Some(reg) => Ok(reg),  // register alias
                     None => Err(ident.expect_res()),  // something else
@@ -504,24 +501,22 @@ impl TypeSystem {
         }
     }
 
-    /// Produces a var from a name-resolved ident, suppressing the type sigil if it is unnecessary.
-    fn nice_ident_to_var(&self, ident: ResIdent, read_ty: ast::VarReadType) -> ast::Var {
-        let inherent_ty = self.var_inherent_ty(ident.expect_res());
-        match inherent_ty == Some(ScalarType::from(read_ty)) {
-            true => ast::Var::Named { ident, ty_sigil: None },
-            false => ast::Var::Named { ident, ty_sigil: Some(read_ty) },
+    /// Suppress the type sigil of a variable if it is unnecessary.
+    pub fn var_simplify_ty_sigil(&self, var: &mut ast::Var) {
+        let inherent_ty = self.var_inherent_ty_from_ast(var);
+        if let Some(read_ty) = var.ty_sigil {
+            if inherent_ty == Some(ScalarType::from(read_ty)) {
+                var.ty_sigil = None;
+            }
         }
     }
 
     /// Generate an AST node with the ideal appearance for a register, automatically using
     /// an alias if one exists.
-    pub fn reg_to_ast(&self, reg: RegId, read_ty: ast::VarReadType) -> ast::Var {
+    pub fn reg_to_ast(&self, reg: RegId) -> ast::VarName {
         match self.reg_aliases.get(&reg) {
-            None => ast::Var::Reg { reg, ty_sigil: read_ty },
-            Some(&res) => {
-                let ident = self.var_name(res).clone();
-                self.nice_ident_to_var(ident, read_ty)
-            },
+            None => reg.into(),
+            Some(&res) => self.var_name(res).clone().into(),
         }
     }
 

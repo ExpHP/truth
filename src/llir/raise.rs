@@ -441,15 +441,15 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
         | ArgEncoding::Sprite
         => match raw.expect_int() {
             -1 => Ok(Expr::from(-1)),
-            id => Ok(Expr::Var(sp!(ast::Var::Named {
-                ident: crate::formats::anm::auto_sprite_name(id as _).into(),
+            id => Ok(Expr::Var(sp!(ast::Var {
+                name: ast::VarName::Normal { ident: crate::formats::anm::auto_sprite_name(id as _).into() },
                 ty_sigil: None,
             }))),
         },
 
         | ArgEncoding::Script
-        => Ok(Expr::Var(sp!(ast::Var::Named {
-            ident: crate::formats::anm::auto_script_name(raw.expect_int() as _).into(),
+        => Ok(Expr::Var(sp!(ast::Var {
+            name: ast::VarName::Normal { ident: crate::formats::anm::auto_script_name(raw.expect_int() as _).into() },
             ty_sigil: None,
         }))),
 
@@ -487,7 +487,7 @@ fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleE
             RegId(float_reg as i32)
         },
     };
-    Ok(ast::Var::Reg { reg, ty_sigil })
+    Ok(ast::Var { ty_sigil: Some(ty_sigil), name: reg.into() })
 }
 
 fn raise_jump_args(

@@ -394,10 +394,10 @@ impl AstVm {
         }
     }
 
-    fn _var_data(&self, var: &ast::Var) -> (VarId, Option<ast::VarReadType>) {
+    fn var_id_from_name(&self, var: &ast::VarName) -> VarId {
         match *var {
-            ast::Var::Named { ref ident, ty_sigil } => (VarId::Other(ident.expect_res()), ty_sigil),
-            ast::Var::Reg { reg, ty_sigil } => (VarId::Reg(reg), Some(ty_sigil)),
+            ast::VarName::Normal { ref ident } => VarId::Other(ident.expect_res()),
+            ast::VarName::Reg { reg } => VarId::Reg(reg),
         }
     }
 
@@ -410,14 +410,14 @@ impl AstVm {
     pub fn get_reg(&self, reg: RegId) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
 
     fn set_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue) {
-        let (key, _) = self._var_data(var);
+        let key = self.var_id_from_name(&var.name);
         self.var_values.insert(key, value);
     }
 
     fn read_var_by_ast(&self, var: &ast::Var) -> ScalarValue {
-        let (var_id, ty_sigil) = self._var_data(var);
-        self.get_var(var_id).unwrap_or_else(|| panic!("read of uninitialized var: {:?}", var))
-            .apply_sigil(ty_sigil).unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var, ty_sigil))
+        let var_id = self.var_id_from_name(&var.name);
+        self.get_var(var_id).unwrap_or_else(|| panic!("read of uninitialized var: {:?}", var.name))
+            .apply_sigil(var.ty_sigil).unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var.name, var.ty_sigil))
     }
 
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto) -> Option<usize> {

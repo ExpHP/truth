@@ -277,7 +277,7 @@ impl<'a> Visitor<'a> {
     /// nor written, such as in `int x;`.
     fn check_var_weak(&self, var: &Sp<ast::Var>) -> Result<(), CompileError> {
         let inherent_ty = self.ty_ctx.var_inherent_ty_from_ast(var);
-        let read_ty = var.read_ty();
+        let read_ty = var.ty_sigil;
         match inherent_ty {
             // no restrictions on these
             | None
@@ -306,7 +306,7 @@ impl<'a> Visitor<'a> {
             let mut err = crate::error::Diagnostic::error();
             err.message(format!("variable requires a type prefix"));
             err.primary(var, format!("needs a '$' or '%' prefix"));
-            match self.ty_ctx.var_reg_from_ast(var) {
+            match self.ty_ctx.var_reg_from_ast(&var.name) {
                 Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
                 Ok(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
             };
