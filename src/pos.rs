@@ -408,7 +408,27 @@ mod test {
 /// This type generally tries to behave like `T`.  It implements `Deref`, and the span is not
 /// included in comparisons or hashes.
 ///
-/// Use [`sp!`](sp) without a span to construct new AST nodes that are not derived from textual input.
+/// Use the [`sp!`][`sp`] macro to construct it.
+///
+/// ## Should functions take `&Sp<T>` or `Sp<&T>`?
+///
+/// **Prefer `&Sp<T>` where possible, use `Sp<&T>` where necessary.**
+///
+/// General wisdom for `Option<T>` is that it is better for functions to take `Option<&T>`
+/// than `&Option<T>`, because the latter can easily be converted into the former but not
+/// the other way around.  This comes at an ergonomic cost because parameters are now different
+/// from other Options (the vast majority of non-parameter options will still be `Option<T>`).
+/// Thankfully, `match` default bindings helps paper over this, because `let Some(x) = opt`
+/// produces the same result for both `opt: &Option<T>` and `opt: &Option<T>`.
+///
+/// In the case of `Sp<T>`, however, we normally match on `sp.value`, so this distinction gets
+/// more annoying.  Meanwhile, it turns out that it really isn't that hard to ensure that `&Sp<T>`
+/// can be constructed in 99% of places that need it.  In most contexts where you need to apply a
+/// new span to something, you're already required to clone it for at least one other reason.
+///
+/// One notable downside is that things like [`Expr::Var`] end up needing an `Sp<Var>` instead
+/// of a [`Var`], even though the span will be identical to the span on the surrounding `Sp<Expr>`.
+/// Currently, however, there's only a rare few instances of this sort of problem.
 #[derive(Copy, Clone, Default)]
 pub struct Sp<T: ?Sized> {
     pub span: Span,

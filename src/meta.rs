@@ -2,16 +2,17 @@ use std::collections::HashSet;
 
 use indexmap::IndexMap as Map;
 use thiserror::Error;
+
+use crate::ast;
 use crate::pos::Sp;
 use crate::ident::Ident;
 use crate::fmt::Formatter;
+use crate::value::ScalarValue;
 
+// FIXME: move the enum to AST but keep the traits here
 #[derive(Debug, Clone, PartialEq)]
 pub enum Meta {
-    Int(i32),
-    Float(f32),
-    Bool(bool),
-    String(String),
+    Scalar(Sp<ast::Expr>),
     // { key: value, ... }
     Object(Sp<Fields>),
     // [ value, ... ]
@@ -60,12 +61,17 @@ pub trait ToMeta {
     fn to_meta(&self) -> Meta;
 }
 
+// FIXME: why does this derive(Error)?  We should just be converting to crate::error::CompileError really...
 #[derive(Error, Debug)]
 pub enum FromMetaError<'a> {
     #[error("expected {}, got {}", .expected, .got)]
     TypeError {
         expected: &'static str,
         got: &'a Sp<Meta>,
+    },
+    #[error("non-const expr in meta: {:?}", .expr)]
+    NonConstExpr {
+        expr: Sp<&'a ast::Expr>,
     },
     #[error("object is missing field {:?}", .missing)]
     MissingField {
@@ -92,8 +98,12 @@ impl<'a> FromMetaError<'a> {
 impl From<FromMetaError<'_>> for crate::error::CompileError {
     fn from(e: FromMetaError<'_>) -> Self { match e {
         FromMetaError::TypeError { expected, got } => error!(
-            message("metadata type error"),
+            message("type error"),
             primary(got, "expected {}", expected),
+        ),
+        FromMetaError::NonConstExpr { expr } => error!(
+            message("const expression required"),
+            primary(expr, "non-const expression"),
         ),
         FromMetaError::MissingField { fields, missing } => error!(
             message("incomplete metadata object"),
@@ -330,10 +340,22 @@ impl<T: FromMeta> FromMeta for Sp<T> {
     }
 }
 
+impl FromMeta for ScalarValue {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match &meta.value {
+            Meta::Scalar(expr) => match expr.to_const() {
+                Some(x) => return Ok(x),
+                None => Err(FromMetaError::NonConstExpr { expr: sp!(meta.span => expr) }),
+            },
+            _ => Err(FromMetaError::expected("an expr", meta)),
+        }
+    }
+}
+
 impl FromMeta for i32 {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match meta.value {
-            Meta::Int(x) => Ok(x),
+        match ScalarValue::from_meta(meta)? {
+            ScalarValue::Int(x) => Ok(x),
             _ => Err(FromMetaError::expected("an integer", meta)),
         }
     }
@@ -347,29 +369,23 @@ impl FromMeta for u32 {
 
 impl FromMeta for f32 {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match &meta.value {
-            Meta::Int(x) => Ok(*x as f32),
-            Meta::Float(x) => Ok(*x),
-            _ => Err(FromMetaError::expected("a number", meta)),
+        match ScalarValue::from_meta(meta)? {
+            ScalarValue::Float(x) => Ok(x),
+            _ => Err(FromMetaError::expected("a float", meta)),
         }
     }
 }
 
 impl FromMeta for bool {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match meta.value {
-            Meta::Int(0) => Ok(false),
-            Meta::Int(_) => Ok(true),
-            Meta::Bool(b) => Ok(b),
-            _ => Err(FromMetaError::expected("a boolean", meta)),
-        }
+        Ok(i32::from_meta(meta)? != 0)
     }
 }
 
 impl FromMeta for String {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match &meta.value {
-            Meta::String(x) => Ok(x.clone()),
+        match ScalarValue::from_meta(meta)? {
+            ScalarValue::String(x) => Ok(x),
             _ => Err(FromMetaError::expected("a string", meta)),
         }
     }
@@ -436,22 +452,25 @@ impl<T: ToMeta + ?Sized> ToMeta for Box<T> {
     fn to_meta(&self) -> Meta { ToMeta::to_meta(&**self) }
 }
 impl ToMeta for i32 {
-    fn to_meta(&self) -> Meta { Meta::Int(*self) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!((*self).into())) }
 }
 impl ToMeta for u32 {
-    fn to_meta(&self) -> Meta { Meta::Int(*self as i32) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!((*self as i32).into())) }
 }
 impl ToMeta for f32 {
-    fn to_meta(&self) -> Meta { Meta::Float(*self) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!((*self).into())) }
 }
 impl ToMeta for bool {
-    fn to_meta(&self) -> Meta { Meta::Bool(*self) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(ast::Expr::LitInt { value: *self as i32, radix: ast::IntRadix::Bool })) }
 }
 impl ToMeta for String {
-    fn to_meta(&self) -> Meta { Meta::String(self.to_owned()) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(self.to_owned().into())) }
 }
 impl ToMeta for str {
-    fn to_meta(&self) -> Meta { Meta::String(self.to_owned()) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(self.to_owned().into())) }
+}
+impl ToMeta for ast::Expr {
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(self.clone())) }
 }
 impl<T: ToMeta> ToMeta for Vec<T> {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }

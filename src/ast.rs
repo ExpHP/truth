@@ -414,7 +414,16 @@ pub enum Expr {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum IntRadix { Dec, Hex, Bin }
+pub enum IntRadix {
+    /// Display as decimal.
+    Dec,
+    /// Display as hexadecimal, with an `0x` prefix.
+    Hex,
+    /// Display as binary, with an `0b` prefix.
+    Bin,
+    /// Use `true` and `false` if the value is `1` or `0`.  Otherwise, fall back to decimal.
+    Bool,
+}
 
 impl Expr {
     pub fn zero(ty: type_system::ScalarType) -> Self { match ty {
@@ -705,6 +714,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
             fn visit_goto(&mut self, e: & $($mut)? StmtGoto) { walk_goto(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
+            fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
         }
 
@@ -732,6 +742,31 @@ macro_rules! generate_visitor_stuff {
                 },
                 Item::Meta { .. } => {},
                 Item::FileList { .. } => {},
+            }
+        }
+
+        pub fn walk_meta<V>(v: &mut V, x: & $($mut)? Sp<meta::Meta>)
+        where V: ?Sized + $Visit,
+        {
+            match & $($mut)? x.value {
+                meta::Meta::Scalar(expr) => {
+                    v.visit_expr(expr);
+                },
+                meta::Meta::Array(array) => {
+                    for value in array {
+                        v.visit_meta(value);
+                    }
+                },
+                meta::Meta::Object(fields) => {
+                    for (_key, value) in & $($mut)? fields.value {
+                        v.visit_meta(value);
+                    }
+                },
+                meta::Meta::Variant { name: _, fields } => {
+                    for (_key, value) in & $($mut)? fields.value {
+                        v.visit_meta(value);
+                    }
+                },
             }
         }
 
@@ -892,6 +927,7 @@ pub use self::mut_::{
     VisitMut,
     walk_script as walk_script_mut,
     walk_item as walk_item_mut,
+    walk_meta as walk_meta_mut,
     walk_block as walk_block_mut,
     walk_stmt as walk_stmt_mut,
     walk_goto as walk_goto_mut,
@@ -902,6 +938,5 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_block, walk_stmt, walk_goto, walk_expr,
+    Visit, walk_script, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr,
 };
-

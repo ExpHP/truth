@@ -108,7 +108,7 @@ impl Entry {
             .opt_field("offset_x", offset_x.as_ref())
             .opt_field("offset_y", offset_y.as_ref())
             .opt_field("format", format.as_ref())
-            .opt_field("colorkey", colorkey.as_ref())
+            .opt_field("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
             .opt_field("memory_priority", memory_priority.as_ref())
             .opt_field("low_res_scale", low_res_scale.as_ref())
             .with_mut(|b| if let Some(texture) = &self.texture {

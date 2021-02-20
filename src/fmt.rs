@@ -541,10 +541,7 @@ impl Format for ast::Script {
 impl Format for Meta {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            Meta::Int(x) => out.fmt(x),
-            Meta::Float(x) => out.fmt(x),
-            Meta::Bool(x) => out.fmt(x),
-            Meta::String(x) => out.fmt(ast::LitString { string: x.clone() }),
+            Meta::Scalar(x) => out.fmt(x),
             Meta::Object(fields) => out.fmt(fields),
             Meta::Array(xs) => out.fmt_comma_separated("[", "]", xs),
             Meta::Variant { name, fields } => out.fmt((name, " ", fields)),
@@ -845,9 +842,12 @@ impl Format for ast::Expr {
                 token![_S] | token![_f] | token![sin] | token![cos] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
-            ast::Expr::LitInt{ value, radix: ast::IntRadix::Dec } => out.fmt(value),
-            ast::Expr::LitInt{ value, radix: ast::IntRadix::Hex } => out.fmt(format_args!("{:#x}", value)),
-            ast::Expr::LitInt{ value, radix: ast::IntRadix::Bin } => out.fmt(format_args!("{:#b}", value)),
+            ast::Expr::LitInt { value: 0, radix: ast::IntRadix::Bool } => out.fmt("false"),
+            ast::Expr::LitInt { value: 1, radix: ast::IntRadix::Bool } => out.fmt("true"),
+            ast::Expr::LitInt { value, radix: ast::IntRadix::Bool } => out.fmt(value),
+            ast::Expr::LitInt { value, radix: ast::IntRadix::Dec } => out.fmt(value),
+            ast::Expr::LitInt { value, radix: ast::IntRadix::Hex } => out.fmt(format_args!("{:#x}", value)),
+            ast::Expr::LitInt { value, radix: ast::IntRadix::Bin } => out.fmt(format_args!("{:#b}", value)),
             ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
             ast::Expr::Var(x) => out.fmt(x),

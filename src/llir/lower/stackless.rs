@@ -584,17 +584,17 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Lowers `if (<A> || <B>) goto label @ time;` and similar
-    fn lower_cond_jump_logic_binop(
-        &mut self,
-        stmt_span: Span,
-        stmt_time: i32,
-        keyword: &Sp<ast::CondKeyword>,
-        a: &Sp<Expr>,
-        binop: &Sp<ast::BinopKind>,
-        b: &Sp<Expr>,
-        goto: &ast::StmtGoto,
-    ) -> Result<(), CompileError> {
+  /// Lowers `if (<A> || <B>) goto label @ time;` and similar
+  fn lower_cond_jump_logic_binop(
+      &mut self,
+      stmt_span: Span,
+      stmt_time: i32,
+      keyword: &Sp<ast::CondKeyword>,
+      a: &Sp<Expr>,
+      binop: &Sp<ast::BinopKind>,
+      b: &Sp<Expr>,
+      goto: &ast::StmtGoto,
+  ) -> Result<(), CompileError> {
         let is_easy_case = match (keyword.value, binop.value) {
             (token![if], token![||]) => true,
             (token![if], token![&&]) => false,

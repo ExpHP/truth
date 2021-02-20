@@ -35,27 +35,33 @@ fn bits_to_bits(
     };
     let decompiled = output.stdout;
     if !output.stderr.is_empty() {
-        eprintln!("== BINARY STDERR:");
+        eprintln!("== DECOMPILE STDERR:");
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
     }
     if !output.status.success() {
-        panic!("process failed")
+        panic!("process failed");
     }
 
     do_with_text(&String::from_utf8_lossy(&decompiled));
 
     std::fs::write(temp.join("test.spec"), &decompiled).unwrap();
 
-    assert!({
+    let output = {
         Command::cargo_bin(command).unwrap()
             .arg("compile")
             .arg("-g").arg(format!("{}", game))
             .arg("-m").arg(mapfile.as_ref())
             .arg(temp.join("test.spec"))
             .arg("-o").arg(temp.join("test.bin"))
-            .status().expect("failed to execute process")
-            .success()
-    });
+            .output().expect("failed to execute process")
+    };
+    if !output.stderr.is_empty() {
+        eprintln!("== RECOMPILE STDERR:");
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    if !output.status.success() {
+        panic!("process failed");
+    }
 
     let original = std::fs::read(infile).unwrap();
     let recompiled = std::fs::read(temp.join("test.bin")).unwrap();
