@@ -2,13 +2,6 @@
 source: tests/compile-fail.rs
 expression: stderr
 ---
-error: feature not supported by format
-   ┌─ <input>:25:9
-   │  
-25 │ ╭         inline void foo(int x) { wait(x); }
-26 │ │     
-27 │ │ 
-28 │ │ script script0 {
-   │ ╰^ not supported by ANM files
-
+thread 'main' panicked at 'not implemented: need to create signatures for user funcs!', src/type_system/high.rs:255:61
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 

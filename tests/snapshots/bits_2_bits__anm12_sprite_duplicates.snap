@@ -12,13 +12,13 @@ entry {
     offset_x: 0,
     offset_y: 0,
     format: 3,
-    colorkey: 0,
+    colorkey: 0x0,
     memory_priority: 0,
     low_res_scale: false,
     sprites: {
-        sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
-        sprite1: {id: 1, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
-        sprite2: {id: 2, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite2: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
     },
 }
 
@@ -31,13 +31,13 @@ entry {
     offset_x: 0,
     offset_y: 0,
     format: 3,
-    colorkey: 0,
+    colorkey: 0x0,
     memory_priority: 0,
     low_res_scale: false,
     sprites: {
-        sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
-        sprite1: {id: 1, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
-        sprite2: {id: 2, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 0},
+        sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite2: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
     },
 }
 

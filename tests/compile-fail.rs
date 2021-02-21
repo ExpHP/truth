@@ -81,7 +81,8 @@ macro_rules! compile_fail_test {
         //
         // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
         // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
-        // Whenever this occurs, just review the new outputs and update the tests.
+        // Whenever this occurs, just review the new outputs and make sure that the new errors are still
+        // related to what they were originally testing.
         // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
         $(, expected: $expected:expr)?
         $(,)?
@@ -116,26 +117,32 @@ macro_rules! compile_fail_no_transform_test {
 }
 
 macro_rules! _check_compile_fail_output {
-    ($stderr:expr $(, expected: $expected:expr)?) => {
+    ($stderr:expr $(, expected: $expected:expr)?) => {{
+        #![allow(unused_mut)]
+
         let stderr = $stderr;
 
         // we don't want internal compiler errors.
-        let was_ice = (
+        let is_ice = (
             stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1")
             || stderr.contains("bug!") || stderr.contains("BUG!")
         );
-        assert!(!was_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
+        // hitting `unimplemented!` macro is okay if that's the expected error
+        let is_accepted_ice = false $(|| ($expected == EXPECTED_UNIMPLEMENTED && stderr.contains($expected)))?;
+        let is_bad_ice = is_ice && !is_accepted_ice;
+        assert!(!is_bad_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
 
         $( assert!(stderr.contains($expected), "Error did not contain expected! error: {}", stderr); )?
         insta::with_settings!{{snapshot_path => snapshot_path!()}, {
             insta::assert_snapshot!{stderr};
         }}
-    }
+    }}
 }
 
 // stderr search strings for ubiquitous error messages
 const EXPECTED_TYPE_ERROR: &'static str = "type error";
 const EXPECTED_PARSE_ERROR: &'static str = "unexpected token";
+const EXPECTED_UNIMPLEMENTED: &'static str = "not implemented";
 const EXPECTED_NOT_SUPPORTED_BY_FORMAT: &'static str = "not supported";
 
 // =============================================================================
@@ -316,7 +323,7 @@ compile_fail_test!(
         foo(@mask=0b1, 12);
     "#,
     // FIXME: Eventually, inline funcs in anm will be supported.
-    expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT,
+    expected: EXPECTED_UNIMPLEMENTED,
 );
 
 compile_fail_test!(
@@ -365,6 +372,25 @@ compile_fail_test!(
         I0 = 1;
         wait(@mask=I0, @blob="10270000");
     "#,
+    expected: "const",
+);
+
+compile_fail_test!(
+    ANM_10, meta_non_const,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    memory_priority: 3 * I0,
+    low_res_scale: false,
+    sprites: {
+        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 200},
+    },
+}
+    "#,
+    main_body: "",
+    // NOTE: be careful changing this.  If the new error complains about missing fields
+    // or missing image data, fix the test input instead.
     expected: "const",
 );
 
