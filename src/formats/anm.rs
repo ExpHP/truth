@@ -294,6 +294,7 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     Ok(())
 }
 
+// =============================================================================
 
 fn compile(
     format: &FileFormat,
@@ -596,7 +597,23 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
         }
         reader.seek_to(entry_pos + header_data.next_offset)?;
     }
-    Ok(AnmFile { entries })
+
+    let mut anm = AnmFile { entries };
+    strip_unnecessary_sprite_ids(&mut anm);
+    Ok(anm)
+}
+
+fn strip_unnecessary_sprite_ids(anm: &mut AnmFile) {
+    let mut next_auto_sprite_id = 0;
+    for entry in &mut anm.entries {
+        for sprite in entry.sprites.values_mut() {
+            let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
+            if actual_id == next_auto_sprite_id {
+                sprite.id = None;
+            }
+            next_auto_sprite_id = actual_id + 1;
+        }
+    }
 }
 
 pub fn auto_sprite_name(i: u32) -> Ident {
