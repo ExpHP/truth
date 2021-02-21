@@ -311,6 +311,7 @@ pub trait GatherErrorIteratorExt {
 impl<Ts, T, E> GatherErrorIteratorExt for Ts
 where
     Ts: Iterator<Item=Result<T, E>>,
+    // FIXME next commit: do we need this Into conversion? It seems inconvenient.
     E: Into<CompileError>,
 {
     type OkItem = T;

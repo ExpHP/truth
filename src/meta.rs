@@ -125,6 +125,7 @@ impl From<FromMetaError<'_>> for crate::error::CompileError {
 pub struct ParseObject<'a> {
     map: &'a Sp<Fields>,
     valid_fields: HashSet<&'static str>,
+    allow_unrecognized: bool,
 }
 
 /// Used to parse a variant.
@@ -157,6 +158,8 @@ impl Sp<Meta> {
         }
     }
 
+    /// Parse a heterogeneous variant. (one where there is only a limited set of possible leading idents,
+    /// each of which parses the fields differently)
     pub fn parse_variant<T>(&self) -> Result<ParseVariant<'_, T>, FromMetaError<'_>> {
         match &self.value {
             Meta::Variant { name, fields } => Ok(ParseVariant {
@@ -167,6 +170,8 @@ impl Sp<Meta> {
         }
     }
 
+    /// Parse a homogeneous variant. (one where any ident is accepted, and the ident has no effect on the
+    /// parsing of the fields)
     pub fn parse_any_variant<'a, T>(
         &'a self,
         func: impl FnOnce(&'a Sp<Ident>, &mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
@@ -185,7 +190,7 @@ impl<'a> ParseObject<'a> {
     /// then it is preferable to use [`Sp<Meta>::parse_object`] instead which will automatically call
     /// the `finish` method for you.
     pub fn new(map: &'a Sp<Fields>) -> Self {
-        ParseObject { map, valid_fields: HashSet::new() }
+        ParseObject { map, valid_fields: HashSet::new(), allow_unrecognized: false }
     }
 
     /// Briefly construct a [`ParseObject`] for the duration of a closure.
@@ -202,6 +207,7 @@ impl<'a> ParseObject<'a> {
         Ok(value)
     }
 
+    /// Read a field from the object or variant, if it is present.
     pub fn get_field<T: FromMeta>(&mut self, field: &'static str) -> Result<Option<T>, FromMetaError<'a>> {
         self.valid_fields.insert(field);
         match self.map.get(field) {
@@ -216,15 +222,26 @@ impl<'a> ParseObject<'a> {
         Ok(())
     }
 
+    /// Read a field from the object or variant, failing with a canned error message if it is not present.
     pub fn expect_field<T: FromMeta>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
         self.get_field(field)?.ok_or(FromMetaError::MissingField { fields: &self.map, missing: field })
     }
 
-    /// Check for any user-supplied fields that were not parsed and emit errors on them.
+    /// Do not error on any unrecognized fields.
+    pub fn allow_unrecognized_fields(&mut self) -> Result<(), FromMetaError<'a>> {
+        self.allow_unrecognized = true;
+        Ok(())
+    }
+
+    /// Emit errors that can only be emitted once all fields are parsed.
+    ///
+    /// For instance, this will emit errors on any user-supplied fields that were not parsed.
     pub fn finish(self) -> Result<(), FromMetaError<'a>> {
-        for key in self.map.keys() {
-            if !self.valid_fields.iter().map(|x| -> &str { x.as_ref() }).any(|x| x == key) {
-                return Err(FromMetaError::UnrecognizedField { invalid: key });
+        if !self.allow_unrecognized {
+            for key in self.map.keys() {
+                if !self.valid_fields.iter().map(|x| -> &str { x.as_ref() }).any(|x| x == key) {
+                    return Err(FromMetaError::UnrecognizedField { invalid: key });
+                }
             }
         }
         Ok(())
@@ -232,6 +249,7 @@ impl<'a> ParseObject<'a> {
 }
 
 impl<'a, T> ParseVariant<'a, T> {
+    /// Define how to parse the fields for a specific variant.
     pub fn variant(
         &mut self,
         variant: &str,

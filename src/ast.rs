@@ -714,8 +714,8 @@ macro_rules! generate_visitor_stuff {
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
             fn visit_goto(&mut self, e: & $($mut)? StmtGoto) { walk_goto(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
-            fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
+            fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
         }
 
         pub fn walk_script<V>(v: &mut V, x: & $($mut)? Script)
@@ -740,7 +740,9 @@ macro_rules! generate_visitor_stuff {
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
-                Item::Meta { .. } => {},
+                Item::Meta { keyword: _, ident: _, fields } => {
+                    walk_meta_fields(v, fields);
+                },
                 Item::FileList { .. } => {},
             }
         }
@@ -758,15 +760,19 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 meta::Meta::Object(fields) => {
-                    for (_key, value) in & $($mut)? fields.value {
-                        v.visit_meta(value);
-                    }
+                    walk_meta_fields(v, fields);
                 },
                 meta::Meta::Variant { name: _, fields } => {
-                    for (_key, value) in & $($mut)? fields.value {
-                        v.visit_meta(value);
-                    }
+                    walk_meta_fields(v, fields);
                 },
+            }
+        }
+
+        fn walk_meta_fields<V>(v: &mut V, x: & $($mut)? Sp<meta::Fields>)
+        where V: ?Sized + $Visit,
+        {
+            for (_key, value) in & $($mut)? x.value {
+                v.visit_meta(value);
             }
         }
 

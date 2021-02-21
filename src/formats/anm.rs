@@ -173,7 +173,7 @@ impl fmt::Debug for Texture {
 
 #[derive(Debug, Clone)]
 pub struct Sprite {
-    pub id: u32,
+    pub id: Option<u32>,
     pub offset: [f32; 2],
     pub size: [f32; 2],
 }
@@ -182,11 +182,11 @@ impl ToMeta for Sprite {
     fn to_meta(&self) -> Meta {
         let &Sprite { id, offset, size } = self;
         Meta::make_object()
-            .field("id", &id)
             .field("x", &offset[0])
             .field("y", &offset[1])
             .field("w", &size[0])
             .field("h", &size[1])
+            .opt_field("id", id.as_ref())
             .build()
     }
 }
@@ -194,7 +194,7 @@ impl ToMeta for Sprite {
 impl FromMeta for Sprite {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Sprite {
-            id: m.expect_field("id")?,
+            id: m.get_field("id")?,
             offset: [m.expect_field("x")?, m.expect_field("y")?],
             size: [m.expect_field("w")?, m.expect_field("h")?],
         }))
@@ -302,9 +302,32 @@ fn compile(
 ) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
+    // an early pass to define global constants for sprite and script names
+    let sprite_ids = gather_sprite_ids(ast)?;
+    let script_ids = gather_script_ids(ast)?;
+    for (script_name, &id) in &script_ids {
+        let script_name = sp!(script_name.span => script_name.value.clone().into());
+        ty_ctx.add_global_const_var(script_name, ScalarValue::Int(id as i32));
+    }
+    for (sprite_name, &id) in &sprite_ids {
+        let sprite_name = sp!(sprite_name.span => sprite_name.value.clone().into());
+        ty_ctx.add_global_const_var(sprite_name, ScalarValue::Int(id as i32));
+    }
+
+    // preprocess
+    let ast = {
+        let mut ast = ast.clone();
+
+        crate::passes::resolve_names::run(&mut ast, ty_ctx)?;
+        crate::passes::type_check::run(&ast, ty_ctx)?;
+        crate::passes::const_simplify::run(&mut ast, ty_ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ty_ctx)?;
+        ast
+    };
+
     // group scripts by entry
     let mut groups = vec![];
-    let mut cur_entry = None;
+    let mut cur_entry = None::<Entry>;
     let mut cur_group = vec![];
     let mut script_names = vec![];
     for item in &ast.items {
@@ -316,13 +339,13 @@ fn compile(
                 cur_entry = Some(Entry::from_fields(fields)?);
                 cur_group = vec![];
             },
-            &ast::Item::AnmScript { number, ref ident, ref code, .. } => {
+            &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
                 if cur_entry.is_none() { return Err(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),
                     note("at least one `entry` must come before scripts in an ANM file"),
                 ))}
-                cur_group.push((number, ident, code));
+                cur_group.push((ident, code));
                 script_names.push(ident);
             },
             _ => return Err(error!(
@@ -337,83 +360,16 @@ fn compile(
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
     }
 
-    let sprite_ids = gather_sprite_ids(groups.iter().map(|(entry, _)| entry))?;
-
-    // Create automatic 'const' items for all sprites and scripts
-    for (index, script_name) in script_names.into_iter().enumerate() {
-        let script_name = sp!(script_name.span => script_name.value.clone().into());
-        ty_ctx.add_global_const_var(script_name, ScalarValue::Int(index as i32));
-    }
-    for (sprite_name, id) in sprite_ids {
-        let sprite_name = sp!(sprite_name.span => sprite_name.value.clone().into());
-        ty_ctx.add_global_const_var(sprite_name, ScalarValue::Int(id as i32));
-    }
-
-    let mut next_auto_id = 0;
     let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
-        for (given_number, name, code) in ast_scripts {
-            let id = given_number.map(|sp| sp.value).unwrap_or(next_auto_id);
-            next_auto_id = id + 1;
+        for (name, code) in ast_scripts {
+            let id = script_ids[name];
+            let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
 
-            // FIXME: We should be running these passes on the whole file, not on each script.
-            //        (running it on each script will prevent us from having `const` items & inline functions).
-            //        However, currently it is done to individual scripts because const simplification
-            //        requires script & sprite names, which require handling the Meta.
-            //        (we'll need to rework our first pass over the script to just gather global names)
-            let code = {
-                let mut code = code.clone();
-
-                crate::passes::resolve_names::run(&mut code, ty_ctx)?;
-                crate::passes::type_check::run(&code, ty_ctx)?;
-                crate::passes::const_simplify::run(&mut code, ty_ctx)?;
-                crate::passes::desugar_blocks::run(&mut code, ty_ctx)?;
-                code
-            };
-
-            match entry.scripts.entry(name.clone()) {
-                indexmap::map::Entry::Vacant(e) => {
-                    let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
-                    e.insert(Script { id, instrs });
-                },
-                indexmap::map::Entry::Occupied(e) => {
-                    let old = e.key();
-                    return Err(error!{
-                        message("duplicate script '{}'", name),
-                        primary(name, "redefined here"),
-                        secondary(old, "originally defined here"),
-                    });
-                },
-            }
+            entry.scripts.insert(name.clone(), Script { id, instrs });
         }
-        Ok(entry)
+        Ok::<_, CompileError>(entry)
     }).collect_with_recovery()?;
     Ok(AnmFile { entries })
-}
-
-fn gather_sprite_ids<'a>(entries: impl IntoIterator<Item=&'a Entry>) -> Result<Vec<(Sp<Ident>, u32)>, CompileError> {
-    // It is okay for two sprites to have the same name (this occurs in decompiled output),
-    // but they must also have the same ID, or else the name becomes ambiguous as a const.
-    let mut sprite_ids = IndexMap::new();
-    for entry in entries {
-        for (name, sprite) in &entry.sprites {
-            match sprite_ids.entry(name.clone()) {
-                indexmap::map::Entry::Vacant(e) => {
-                    e.insert((name.span, sprite.id));
-                },
-                indexmap::map::Entry::Occupied(e) => {
-                    let &(prev_span, prev_id) = e.get();
-                    if prev_id != sprite.id {
-                        return Err(error!(
-                            message("name clash between sprites"),
-                            primary(prev_span, "definition with ID {}", prev_id),
-                            primary(name, "redefinition with ID {}", sprite.id),
-                        ));
-                    }
-                },
-            }
-        }
-    }
-    Ok(sprite_ids.into_iter().map(|(ident, (_, id))| (ident, id)).collect())
 }
 
 fn write_thecl_defs(
@@ -428,6 +384,90 @@ fn write_thecl_defs(
         }
     }
     Ok(())
+}
+
+// =============================================================================
+
+fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, CompileError> {
+    let all_entries = ast.items.iter().filter_map(|item| match &item.value {
+        ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
+        _ => None,
+    });
+
+    let mut next_auto_sprite = 0;
+    let mut sprite_ids = IndexMap::new();
+    for entry_fields in all_entries {
+        let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite>>("sprites")?;
+        for (name, sprite) in sprites {
+            let sprite_id = sprite.id.unwrap_or(next_auto_sprite);
+            next_auto_sprite = sprite_id + 1;
+
+            match sprite_ids.entry(name.clone()) {
+                indexmap::map::Entry::Vacant(e) => {
+                    e.insert((name.span, sprite_id));
+                },
+                // name clashes between sprites in different entries are allowed (this happens in decompiled output)
+                // but the IDs must match.
+                indexmap::map::Entry::Occupied(e) => {
+                    let &(prev_span, prev_id) = e.get();
+                    if prev_id != sprite_id {
+                        return Err(error!(
+                            message("name clash between sprites"),
+                            primary(name, "redefinition with ID {}", sprite_id),
+                            secondary(prev_span, "definition with ID {}", prev_id),
+                        ));
+                    }
+                },
+            }
+        }
+    }
+
+    Ok(sprite_ids.into_iter().map(|(name, (_, sprite_id))| (name, sprite_id)).collect())
+}
+
+/// A type that's parsed from the Meta in an early pass just to gather sprite names.
+#[derive(Debug, Clone)]
+pub struct ProtoSprite {
+    pub id: Option<u32>,
+}
+
+impl FromMeta for ProtoSprite {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        meta.parse_object(|m| {
+            let id = m.get_field("id")?;
+            m.allow_unrecognized_fields()?;
+            Ok(ProtoSprite { id })
+        })
+    }
+}
+
+fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, i32>, CompileError> {
+    let mut next_auto_script = 0;
+    let mut script_ids = IndexMap::new();
+    for item in &ast.items {
+        match &item.value {
+            &ast::Item::AnmScript { number, ref ident, .. } => {
+                let script_id = number.map(|x| x.value).unwrap_or(next_auto_script);
+                next_auto_script = script_id + 1;
+
+                match script_ids.entry(ident.clone()) {
+                    indexmap::map::Entry::Vacant(e) => {
+                        e.insert((ident.span, script_id));
+                    },
+                    indexmap::map::Entry::Occupied(e) => {
+                        let &(prev_span, _) = e.get();
+                        return Err(error!(
+                            message("duplicate script '{}'", ident),
+                            primary(ident, "redefined here"),
+                            secondary(prev_span, "originally defined here"),
+                        ));
+                    },
+                }
+            },
+            _ => {},
+        }
+    }
+    Ok(script_ids.into_iter().map(|(name, (_, script_id))| (name, script_id)).collect())
 }
 
 // =============================================================================
@@ -491,12 +531,13 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
         let sprites = sprite_offsets.iter().map(|&offset| {
             reader.seek_to(entry_pos + offset as u64)?;
             let sprite = read_sprite(reader)?;
+            let sprite_id = sprite.id.expect("(bug!) sprite read from binary must always have id");
 
             // Note: Duplicate IDs do happen between different entries, so we don't check that.
-            if !sprites_seen_in_entry.insert(sprite.id) {
-                fast_warning!("sprite ID {} appeared twice in same entry; only one will be kept", sprite.id);
+            if !sprites_seen_in_entry.insert(sprite_id) {
+                fast_warning!("sprite ID {} appeared twice in same entry; only one will be kept", sprite_id);
             }
-            let key = sp!(auto_sprite_name(sprite.id as u32));
+            let key = sp!(auto_sprite_name(sprite_id as u32));
 
             Ok((key, sprite))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
@@ -567,6 +608,7 @@ pub fn auto_script_name(i: u32) -> Ident {
 
 fn write_anm(f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> Result<(), CompileError> {
     let mut last_entry_pos = None;
+    let mut next_auto_sprite_id = 0;
     for entry in &file.entries {
         let entry_pos = f.pos()?;
         if let Some(last_entry_pos) = last_entry_pos {
@@ -575,14 +617,20 @@ fn write_anm(f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> Resul
             f.seek_to(entry_pos)?;
         }
 
-        write_entry(f, &format, entry)?;
+        write_entry(f, &format, entry, &mut next_auto_sprite_id)?;
 
         last_entry_pos = Some(entry_pos);
     }
     Ok(())
 }
 
-fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) -> Result<(), CompileError> {
+fn write_entry(
+    f: &mut dyn BinWrite,
+    file_format: &FileFormat,
+    entry: &Entry,
+    // automatic numbering state that needs to persist from one entry to the next
+    next_auto_sprite_id: &mut u32,
+) -> Result<(), CompileError> {
     let instr_format = file_format.instr_format();
 
     let entry_pos = f.pos()?;
@@ -645,7 +693,11 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
 
     let sprite_offsets = entry.sprites.iter().map(|(_, sprite)| {
         let sprite_offset = f.pos()? - entry_pos;
-        write_sprite(f, sprite)?;
+
+        let sprite_id = sprite.id.unwrap_or(*next_auto_sprite_id);
+        *next_auto_sprite_id = sprite_id + 1;
+
+        write_sprite(f, sprite_id, sprite)?;
         Ok(sprite_offset)
     }).collect::<WriteResult<Vec<_>>>()?;
 
@@ -701,14 +753,18 @@ fn write_entry(f: &mut dyn BinWrite, file_format: &FileFormat, entry: &Entry) ->
 
 fn read_sprite(f: &mut dyn BinRead) -> ReadResult<Sprite> {
     Ok(Sprite {
-        id: f.read_u32()?,
+        id: Some(f.read_u32()?),
         offset: f.read_f32s_2()?,
         size: f.read_f32s_2()?,
     })
 }
 
-fn write_sprite(f: &mut dyn BinWrite, sprite: &Sprite) -> WriteResult {
-    f.write_u32(sprite.id as _)?;
+fn write_sprite(
+    f: &mut dyn BinWrite,
+    sprite_id: u32,  // we ignore sprite.id because that can be None
+    sprite: &Sprite,
+) -> WriteResult {
+    f.write_u32(sprite_id)?;
     f.write_f32s(&sprite.offset)?;
     f.write_f32s(&sprite.size)
 }
