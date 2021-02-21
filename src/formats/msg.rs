@@ -131,7 +131,7 @@ fn compile(
         script_table_len,
         scripts: scripts_by_id.into_iter().map(|(id, (_, script_ast))| {
             let compiled = llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ty_ctx)?;
-            Ok::<_, CompileError>((id, compiled))
+            Ok((id, compiled))
         }).collect_with_recovery()?,
     })
 }

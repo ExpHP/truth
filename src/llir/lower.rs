@@ -176,7 +176,7 @@ fn gather_label_info(
             },
             _ => {},
         }
-        Ok::<_, CompileError>(())
+        Ok(())
     }).collect_with_recovery()?;
 
     Ok(out)

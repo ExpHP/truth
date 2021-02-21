@@ -308,11 +308,9 @@ pub trait GatherErrorIteratorExt {
     fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, CompileError>;
 }
 
-impl<Ts, T, E> GatherErrorIteratorExt for Ts
+impl<Ts, T> GatherErrorIteratorExt for Ts
 where
-    Ts: Iterator<Item=Result<T, E>>,
-    // FIXME next commit: do we need this Into conversion? It seems inconvenient.
-    E: Into<CompileError>,
+    Ts: Iterator<Item=Result<T, CompileError>>,
 {
     type OkItem = T;
 

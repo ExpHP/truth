@@ -151,7 +151,7 @@ impl Lowerer<'_> {
                             lowered
                         },
                     };
-                    Ok::<_, CompileError>(lowered)
+                    Ok(lowered)
                 }).collect_with_recovery()?)
             },
         };
