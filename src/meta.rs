@@ -54,8 +54,12 @@ impl Meta {
     }
 }
 
-pub trait FromMeta: Sized {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>>;
+/// A trait for constructing a type from [`Meta`].
+///
+/// The lifetime parameter is there to permit impls for [`&Meta`][`Meta`], [`&ast::Expr`][`ast::Expr`],
+/// and [spanned][`Sp`] versions of these.
+pub trait FromMeta<'a>: Sized {
+    fn from_meta(meta: &'a Sp<Meta>) -> Result<Self, FromMetaError<'a>>;
 }
 pub trait ToMeta {
     fn to_meta(&self) -> Meta;
@@ -138,16 +142,24 @@ pub struct ParseVariant<'a, T> {
 
 impl Sp<Meta> {
     /// Call [`FromMeta::from_meta`] to parse a [`Meta`] into a value.
-    pub fn parse<T: FromMeta>(&self) -> Result<T, FromMetaError<'_>> {
+    ///
+    /// Generally speaking you do not usually ever need to call this.  When dealing with an object,
+    /// [`ParseObject::get_field`] and [`ParseObject::expect_field`] will automatically use [`FromMeta`]
+    /// on the fields.
+    pub fn parse<'a, T: FromMeta<'a>>(&'a self) -> Result<T, FromMetaError<'a>> {
         T::from_meta(self)
     }
 
-    /// Parse an object.
+    /// Parse an object into a struct with heterogeneous fields.
     ///
-    /// Any field not parsed by the closure will produce an 'unrecognized field' error
-    /// when the closure finishes.
+    /// The [`ParseObject`] argument is a special type that provides methods for extracting fields.
+    /// Any field not parsed by the closure will produce an 'unrecognized field' error when the
+    /// closure finishes.
     ///
     /// If you only have access to a [`Fields`] and not a [`Meta`], then see [`ParseObject::new`].
+    ///
+    /// For parsing to a homogenous collection, try the impl of [`FromMeta`] for [`index_map::IndexMap`],
+    /// or alternatively [`Self::parse_map_with`].
     pub fn parse_object<'a, T>(
         &'a self,
         func: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
@@ -181,6 +193,41 @@ impl Sp<Meta> {
             _ => Err(FromMetaError::expected("a variant", self)),
         }
     }
+
+    // FIXME: These are things that I thought would help with automatic sprite numbering but they weren't needed.
+    //        I think they still might help deal with --encoding/-u options.
+    //        If they're still unused after we add that feature, delete them and all mention of them in other
+    //        doc comments.
+    //
+    // /// Parse an array by calling a closure on each item.
+    // ///
+    // /// This is for advanced cases of array parsing (e.g. cases where some external state is required).
+    // /// For simpler use cases, it is easier to implement [`FromMeta`] and then take advantage of the
+    // /// generic impl of [`FromMeta`] for `Vec<T>`. (by calling [`Meta::parse`], or, more likely,
+    // /// [`ParseObject::expect_field`])
+    // pub fn parse_array_with<'a, T, Ts: std::iter::FromIterator<T>>(
+    //     &'a self,
+    //     func: impl FnMut(&'a Sp<Meta>) -> Result<T, FromMetaError<'a>>,
+    // ) -> Result<Ts, FromMetaError<'_>> {
+    //     match &self.value {
+    //         Meta::Array(xs) => xs.iter().map(func).collect(),
+    //         _ => Err(FromMetaError::expected("an array", self)),
+    //     }
+    // }
+    //
+    // /// Parse an object into a homogeneous collection by calling a closure on each key-value pair.
+    // ///
+    // /// Typically this is used to parse a type like [`std::collections::HashMap`], so `T` will usually
+    // /// be some `(K, V)` tuple; but more generally you can create any type that can be `collect`ed.
+    // pub fn parse_map_with<'a, T, Ts: std::iter::FromIterator<T>>(
+    //     &'a self,
+    //     func: impl FnMut(&'a Sp<Ident>, &'a Sp<Meta>) -> Result<T, FromMetaError<'a>>,
+    // ) -> Result<Ts, FromMetaError<'_>> {
+    //     match &self.value {
+    //         Meta::Object(xs) => xs.iter().map(|(k, v)| func(k, v)).collect(),
+    //         _ => Err(FromMetaError::expected("an object", self)),
+    //     }
+    // }
 }
 
 impl<'a> ParseObject<'a> {
@@ -208,12 +255,25 @@ impl<'a> ParseObject<'a> {
     }
 
     /// Read a field from the object or variant, if it is present.
-    pub fn get_field<T: FromMeta>(&mut self, field: &'static str) -> Result<Option<T>, FromMetaError<'a>> {
+    ///
+    /// The field is automatically parsed into an output type using [`FromMeta`].  If you would rather parse
+    /// it manually, try supplying `::<&Sp<Meta>>`. (this will give access to some advanced methods like
+    /// [`Sp<Meta>::parse_array_with`]).
+    pub fn get_field<T: FromMeta<'a>>(&mut self, field: &'static str) -> Result<Option<T>, FromMetaError<'a>> {
         self.valid_fields.insert(field);
         match self.map.get(field) {
             Some(x) => x.parse().map(Some),
             None => Ok(None),
         }
+    }
+
+    /// Read a field from the object or variant, failing with a canned error message if it is not present.
+    ///
+    /// The field is automatically parsed into an output type using [`FromMeta`].  If you would rather parse
+    /// it manually, try supplying `::<&Sp<Meta>>`. (this will give access to some advanced methods like
+    /// [`Sp<Meta>::parse_array_with`]).
+    pub fn expect_field<T: FromMeta<'a>>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
+        self.get_field(field)?.ok_or(FromMetaError::MissingField { fields: &self.map, missing: field })
     }
 
     /// Mark a field as valid without attempting to parse it.
@@ -222,20 +282,13 @@ impl<'a> ParseObject<'a> {
         Ok(())
     }
 
-    /// Read a field from the object or variant, failing with a canned error message if it is not present.
-    pub fn expect_field<T: FromMeta>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
-        self.get_field(field)?.ok_or(FromMetaError::MissingField { fields: &self.map, missing: field })
-    }
-
     /// Do not error on any unrecognized fields.
     pub fn allow_unrecognized_fields(&mut self) -> Result<(), FromMetaError<'a>> {
         self.allow_unrecognized = true;
         Ok(())
     }
 
-    /// Emit errors that can only be emitted once all fields are parsed.
-    ///
-    /// For instance, this will emit errors on any user-supplied fields that were not parsed.
+    /// Check for any user-supplied fields that were not parsed and emit errors on them.
     pub fn finish(self) -> Result<(), FromMetaError<'a>> {
         if !self.allow_unrecognized {
             for key in self.map.keys() {
@@ -249,7 +302,6 @@ impl<'a> ParseObject<'a> {
 }
 
 impl<'a, T> ParseVariant<'a, T> {
-    /// Define how to parse the fields for a specific variant.
     pub fn variant(
         &mut self,
         variant: &str,
@@ -352,25 +404,45 @@ impl BuildObject {
 
 // =============================================================================
 
-impl<T: FromMeta> FromMeta for Sp<T> {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        T::from_meta(meta).map(|value| sp!(meta.span => value))
-    }
+impl<'m> FromMeta<'m> for &'m Sp<Meta> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> { Ok(meta) }
 }
 
-impl FromMeta for ScalarValue {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+impl<'m> FromMeta<'m> for &'m Meta {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> { Ok(&meta.value) }
+}
+
+impl<'m> FromMeta<'m> for &'m Sp<ast::Expr> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
         match &meta.value {
-            Meta::Scalar(expr) => match expr.to_const() {
-                Some(x) => return Ok(x),
-                None => Err(FromMetaError::NonConstExpr { expr: sp!(meta.span => expr) }),
-            },
+            Meta::Scalar(expr) => Ok(expr),
             _ => Err(FromMetaError::expected("an expr", meta)),
         }
     }
 }
 
-impl FromMeta for i32 {
+impl<'m> FromMeta<'m> for &'m ast::Expr {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
+        <&Sp<ast::Expr>>::from_meta(meta).map(|x| &x.value)
+    }
+}
+
+impl<'m, T: FromMeta<'m>> FromMeta<'m> for Sp<T> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
+        T::from_meta(meta).map(|value| sp!(meta.span => value))
+    }
+}
+
+impl FromMeta<'_> for ScalarValue {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        <&Sp<ast::Expr>>::from_meta(meta).and_then(|expr| match expr.to_const() {
+            Some(x) => Ok(x),
+            None => Err(FromMetaError::NonConstExpr { expr: sp!(meta.span => expr) }),
+        })
+    }
+}
+
+impl FromMeta<'_> for i32 {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match ScalarValue::from_meta(meta)? {
             ScalarValue::Int(x) => Ok(x),
@@ -379,13 +451,13 @@ impl FromMeta for i32 {
     }
 }
 
-impl FromMeta for u32 {
+impl FromMeta<'_> for u32 {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         Ok(i32::from_meta(meta)? as u32)
     }
 }
 
-impl FromMeta for f32 {
+impl FromMeta<'_> for f32 {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match ScalarValue::from_meta(meta)? {
             ScalarValue::Float(x) => Ok(x),
@@ -394,13 +466,13 @@ impl FromMeta for f32 {
     }
 }
 
-impl FromMeta for bool {
+impl FromMeta<'_> for bool {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         Ok(i32::from_meta(meta)? != 0)
     }
 }
 
-impl FromMeta for String {
+impl FromMeta<'_> for String {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match ScalarValue::from_meta(meta)? {
             ScalarValue::String(x) => Ok(x),
@@ -409,8 +481,8 @@ impl FromMeta for String {
     }
 }
 
-impl<T: FromMeta> FromMeta for Vec<T> {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+impl<'m, T: FromMeta<'m>> FromMeta<'m> for Vec<T> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         match &meta.value {
             Meta::Array(xs) => xs.into_iter().map(|x| x.parse()).collect(),
             _ => Err(FromMetaError::expected("an array", meta)),
@@ -418,44 +490,27 @@ impl<T: FromMeta> FromMeta for Vec<T> {
     }
 }
 
-impl<T: FromMeta> FromMeta for [T; 2] {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match &meta.value {
-            Meta::Array(xs) => match xs.len() {
-                2 => Ok([xs[0].parse()?, xs[1].parse()?]),
-                _ => Err(FromMetaError::expected("an array of length 2", meta)),
-            },
-            _ => Err(FromMetaError::expected("an array", meta)),
+macro_rules! impl_from_meta_array {
+    ($n:literal; $($i:literal),*) => {
+        impl<'m, T: FromMeta<'m>> FromMeta<'m> for [T; $n] {
+            fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
+                match &meta.value {
+                    Meta::Array(xs) => match xs.len() {
+                        $n => Ok([ $(xs[$i].parse()?,)* ]),
+                        _ => Err(FromMetaError::expected(concat!("an array of length ", stringify!($n)), meta)),
+                    },
+                    _ => Err(FromMetaError::expected("an array", meta)),
+                }
+            }
         }
-    }
+    };
 }
+impl_from_meta_array!(2; 0, 1);
+impl_from_meta_array!(3; 0, 1, 2);
+impl_from_meta_array!(4; 0, 1, 2, 3);
 
-impl<T: FromMeta> FromMeta for [T; 3] {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match &meta.value {
-            Meta::Array(xs) => match xs.len() {
-                3 => Ok([xs[0].parse()?, xs[1].parse()?, xs[2].parse()?]),
-                _ => Err(FromMetaError::expected("an array of length 3", meta)),
-            },
-            _ => Err(FromMetaError::expected("an array", meta)),
-        }
-    }
-}
-
-impl<T: FromMeta> FromMeta for [T; 4] {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        match &meta.value {
-            Meta::Array(xs) => match xs.len() {
-                4 => Ok([xs[0].parse()?, xs[1].parse()?, xs[2].parse()?, xs[3].parse()?]),
-                _ => Err(FromMetaError::expected("an array of length 4", meta)),
-            },
-            _ => Err(FromMetaError::expected("an array", meta)),
-        }
-    }
-}
-
-impl<T: FromMeta> FromMeta for indexmap::IndexMap<Sp<Ident>, T> {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+impl<'m, T: FromMeta<'m>> FromMeta<'m> for indexmap::IndexMap<Sp<Ident>, T> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
         match &meta.value {
             Meta::Object(kvs) => kvs.iter().map(|(k, v)| v.parse().map(|v| (k.clone(), v))).collect(),
             _ => Err(FromMetaError::expected("an object", meta)),
@@ -490,18 +545,13 @@ impl ToMeta for str {
 impl ToMeta for ast::Expr {
     fn to_meta(&self) -> Meta { Meta::Scalar(sp!(self.clone())) }
 }
-impl<T: ToMeta> ToMeta for Vec<T> {
+impl<T: ToMeta> ToMeta for [T] {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
 }
-impl<T: ToMeta> ToMeta for [T; 2] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
-}
-impl<T: ToMeta> ToMeta for [T; 3] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
-}
-impl<T: ToMeta> ToMeta for [T; 4] {
-    fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
-}
+impl<T: ToMeta> ToMeta for Vec<T> { fn to_meta(&self) -> Meta { self[..].to_meta() } }
+impl<T: ToMeta> ToMeta for [T; 2] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
+impl<T: ToMeta> ToMeta for [T; 3] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
+impl<T: ToMeta> ToMeta for [T; 4] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
 
 impl<T: ToMeta> ToMeta for indexmap::IndexMap<Sp<Ident>, T> {
     fn to_meta(&self) -> Meta {
@@ -533,7 +583,7 @@ mod tests {
         B { b: i32 },
     }
 
-    impl FromMeta for Outer {
+    impl FromMeta<'_> for Outer {
         fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
             meta.parse_object(|m| Ok(Outer {
                 abc: m.expect_field("abc")?,
@@ -542,12 +592,12 @@ mod tests {
             }))
         }
     }
-    impl FromMeta for Inner {
+    impl FromMeta<'_> for Inner {
         fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
             meta.parse_object(|m| Ok(Inner { x: m.expect_field("x")? }))
         }
     }
-    impl FromMeta for Enum {
+    impl FromMeta<'_> for Enum {
         fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
             meta.parse_variant()?
                 .variant("A", |m| Ok(Enum::A { a: m.expect_field("a")? }))

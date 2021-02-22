@@ -43,7 +43,7 @@ pub struct Std06Bgm {
     pub name: Sp<String>,
 }
 
-impl FromMeta for Std06Bgm {
+impl FromMeta<'_> for Std06Bgm {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Std06Bgm {
             path: m.expect_field("path")?,
@@ -111,7 +111,7 @@ pub struct Object {
     pub quads: Vec<Quad>,
 }
 
-impl FromMeta for Object {
+impl FromMeta<'_> for Object {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Object {
             unknown: m.expect_field::<i32>("unknown")? as u16,
@@ -154,7 +154,7 @@ pub enum QuadExtra {
     }
 }
 
-impl FromMeta for Quad {
+impl FromMeta<'_> for Quad {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_variant()?
             .variant("rect", |m| Ok(Quad {
@@ -207,7 +207,7 @@ pub struct Instance {
     pub pos: [f32; 3],
 }
 
-impl FromMeta for Instance {
+impl FromMeta<'_> for Instance {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_any_variant(|ident, meta| Ok(Instance {
             object: ident.clone(),

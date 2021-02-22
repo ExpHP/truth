@@ -191,7 +191,7 @@ impl ToMeta for Sprite {
     }
 }
 
-impl FromMeta for Sprite {
+impl FromMeta<'_> for Sprite {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Sprite {
             id: m.get_field("id")?,
@@ -398,9 +398,32 @@ fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, Comp
     let mut next_auto_sprite = 0;
     let mut sprite_ids = IndexMap::new();
     for entry_fields in all_entries {
-        let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite>>("sprites")?;
+        let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite<'_>>>("sprites")?;
         for (name, sprite) in sprites {
-            let sprite_id = sprite.id.unwrap_or(next_auto_sprite);
+            let given_sprite_id = sprite.id_expr.map(|id_expr| {
+                // So this bit is a little annoying.
+                // const simplification hasn't been performed because we can't even do name resolution yet,
+                // as global consts still need to be defined for sprites.
+                //
+                // But a negative number can show up here.  (PCB has a sprite with -1 ID).  Normally that'd
+                // be handled by const simplification
+                //
+                // FIXME: Once we have lazy const computation, we should simply add the expr as is to the dependency graph instead.
+                let error = || error!(
+                    message("expression not supported in sprite ID"),
+                    primary(id_expr, "unsupported expression"),
+                );
+                match id_expr.value {
+                    ast::Expr::LitInt { value, .. } => Ok(value),
+                    ast::Expr::Unop(sp_pat!(token![unop -]), ref x) => match x.value {
+                        ast::Expr::LitInt { value, .. } => Ok(-value),
+                        _ => Err(error()),  // FIXME support eventually
+                    },
+                    _ => Err(error()),  // FIXME support eventually
+                }
+            }).transpose()?;
+
+            let sprite_id = given_sprite_id.unwrap_or(next_auto_sprite);
             next_auto_sprite = sprite_id + 1;
 
             match sprite_ids.entry(name.clone()) {
@@ -423,21 +446,22 @@ fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, Comp
         }
     }
 
-    Ok(sprite_ids.into_iter().map(|(name, (_, sprite_id))| (name, sprite_id)).collect())
+    Ok(sprite_ids.into_iter().map(|(name, (_, sprite_id))| (name, sprite_id as u32)).collect())
 }
 
 /// A type that's parsed from the Meta in an early pass just to gather sprite names.
 #[derive(Debug, Clone)]
-pub struct ProtoSprite {
-    pub id: Option<u32>,
+pub struct ProtoSprite<'a> {
+    /// const simplification has not yet been performed so we can at best extract an Expr
+    pub id_expr: Option<&'a Sp<ast::Expr>>,
 }
 
-impl FromMeta for ProtoSprite {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+impl<'m> FromMeta<'m> for ProtoSprite<'m> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
         meta.parse_object(|m| {
-            let id = m.get_field("id")?;
+            let id_expr = m.get_field("id")?;
             m.allow_unrecognized_fields()?;
-            Ok(ProtoSprite { id })
+            Ok(ProtoSprite { id_expr })
         })
     }
 }

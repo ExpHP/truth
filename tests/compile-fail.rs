@@ -394,6 +394,23 @@ entry {
     expected: "const",
 );
 
+compile_fail_test!(
+    ANM_10, meta_sprite_id_non_const,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    memory_priority: 3 * I0,
+    low_res_scale: false,
+    sprites: {
+        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+    },
+}
+    "#,
+    main_body: "",
+    expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT, // FIXME:  eventually this should instead error about not being const
+);
+
 mod type_error {
     use super::*;
 
@@ -470,6 +487,12 @@ mod type_error {
     compile_fail_test!(
         ANM_10, const__sine,
         main_body: r#"  F0 = sin(1);  "#,
+        expected: EXPECTED_TYPE_ERROR,
+    );
+
+    compile_fail_test!(
+        ANM_10, const__sprite,
+        main_body: r#"  F0 = sprite0;  "#,
         expected: EXPECTED_TYPE_ERROR,
     );
 

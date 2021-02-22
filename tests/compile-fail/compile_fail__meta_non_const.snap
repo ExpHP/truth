@@ -1,0 +1,11 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: const expression required
+   ┌─ <input>:28:22
+   │
+28 │     memory_priority: 3 * I0,
+   │                      ^^^^^^ non-const expression
+
+
