@@ -59,13 +59,13 @@ impl<'a> Desugarer<'a> {
                 },
 
                 ast::StmtBody::Times { clobber, count, block, .. } => {
-                    let (clobber, temp_res) = match clobber {
+                    let (clobber, temp_def) = match clobber {
                         Some(var) => (var, None),
                         None => {
-                            let ident = sp!(count.span => self.ty_ctx.gensym("count").into());
-                            let ident = self.ty_ctx.add_local(ident, Some(ScalarType::Int)).value;
-                            let res = ident.expect_res();
-                            let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.into() });
+                            let ident = self.ty_ctx.gensym("count");
+                            let ident = sp!(count.span => self.ty_ctx.resolutions.attach_fresh_res(ident));
+                            let def_id = self.ty_ctx.add_local(ident.clone(), Some(ScalarType::Int));
+                            let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.value.into() });
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
@@ -75,17 +75,17 @@ impl<'a> Desugarer<'a> {
                                 },
                             }));
 
-                            (var, Some(res))
+                            (var, Some(def_id))
                         },
                     };
                     let (end_span, end_time) = (block.end_span(), block.end_time());
 
                     self.desugar_times(outer_time, clobber, count, block);
 
-                    if let Some(res) = temp_res {
+                    if let Some(def_id) = temp_def {
                         self.out.push(sp!(end_span => ast::Stmt {
                             time: end_time,
-                            body: ast::StmtBody::ScopeEnd(res),
+                            body: ast::StmtBody::ScopeEnd(def_id),
                         }));
                     }
                 },

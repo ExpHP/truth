@@ -2,14 +2,35 @@ use crate::ast;
 use crate::pos::Sp;
 use crate::type_system::TypeSystem;
 use crate::error::CompileError;
+use crate::ident::ResIdent;
 
-/// Resolve names in a script parsed from text, replacing all variables with unique [`crate::resolve::VarId`]s.
+/// Assign [`ResId`]s to names in a script parsed from text.
 ///
-/// After calling this, information containing the names and declared types of all variables
-/// will be stored on the [`crate::resolve::Variables`] type.
-pub fn run<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    let mut v = crate::resolve::ResolveVarsVisitor::new(ty_ctx);
+/// This is an extremely early preprocessing pass, preferably done immediately after parsing.
+/// (it can't be done during parsing because parsing should not require access to [`TypeSystem`])
+pub fn assign_res_ids<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
+    let mut v = AssignResIdsVisitor { ty_ctx };
     ast.visit_mut_with(&mut v);
+    Ok(())
+}
+
+/// Resolve names in a script parsed from text.
+///
+/// All [`ResId`]s will be mapped to a unique [`DefId`] during this pass.  These mappings are available
+/// through the [`crate::resolve::Resolutions`] type.
+///
+/// While some definitions are recorded before this (notably eclmap stuff, and things from meta),
+/// the majority of definitions are discovered during this pass; this includes user-defined functions,
+/// consts, and locals.  All of these will receive [`DefId`]s, and their names and type information
+/// will be recorded in [`TypeSystem`].
+///
+/// **Note:** It is worth noting that that this pass takes `&A`; i.e. it **does not** modify the AST.
+/// This means that, if you clone an AST node and then run name resolution on the original, then the
+/// names will also be resolved in the copy.  This property is important to helping make some parts
+/// of `const` evaluation tractable.  (especially consts defined in meta, like sprite ids)
+pub fn run<A: ast::Visitable>(ast: &A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
+    let mut v = crate::resolve::ResolveVarsVisitor::new(ty_ctx);
+    ast.visit_with(&mut v);
     v.finish()
 }
 
@@ -43,6 +64,16 @@ pub fn raw_to_aliases<A: ast::Visitable>(ast: &mut A, ty_ctx: &TypeSystem) -> Re
 }
 
 // =============================================================================
+
+struct AssignResIdsVisitor<'a> {
+    ty_ctx: &'a mut TypeSystem,
+}
+
+impl ast::VisitMut for AssignResIdsVisitor<'_> {
+    fn visit_res_ident(&mut self, ident: &mut ResIdent) {
+        ident.res.get_or_insert_with(|| self.ty_ctx.resolutions.fresh_res());
+    }
+}
 
 struct AliasesToRawVisitor<'a> {
     ty_ctx: &'a TypeSystem,

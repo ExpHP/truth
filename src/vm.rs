@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
-use crate::resolve::{ResolveId, RegId};
+use crate::resolve::{DefId, RegId};
 use crate::value::ScalarValue;
 
 /// A VM that runs on the AST, which can be used to help verify the validity of AST transforms
@@ -38,7 +38,7 @@ pub struct AstVm {
 #[derive(Copy, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarId {
     Reg(RegId),
-    Other(ResolveId),
+    Other(DefId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,7 +66,7 @@ impl fmt::Display for AstVm {
         for (&var_id, value) in &self.var_values {
             match var_id {
                 VarId::Reg(reg) => regs.push((reg, value.clone())),
-                VarId::Other(res) => others.push((res, value.clone())),
+                VarId::Other(def_id) => others.push((def_id, value.clone())),
             }
         }
         others.sort_by_key(|&(id, _)| id);
@@ -395,10 +395,11 @@ impl AstVm {
     }
 
     fn var_id_from_name(&self, var: &ast::VarName) -> VarId {
-        match *var {
-            ast::VarName::Normal { ref ident } => VarId::Other(ident.expect_res()),
-            ast::VarName::Reg { reg } => VarId::Reg(reg),
-        }
+        unimplemented!("FIXME");
+        // match *var {
+        //     ast::VarName::Normal { ref ident } => VarId::Other(ident.expect_res()),
+        //     ast::VarName::Reg { reg } => VarId::Reg(reg),
+        // }
     }
 
     pub fn set_var(&mut self, var_id: VarId, value: ScalarValue) { self.var_values.insert(var_id, value); }

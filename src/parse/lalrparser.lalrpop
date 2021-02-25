@@ -178,7 +178,7 @@ Item: ast::Item = {
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
         => ast::Item::Func { inline, keyword, ident, params, code },
 
-    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
+    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<ResIdent>> _TimeStackEnter <code:Block> _TimeStackPop
         => ast::Item::AnmScript { keyword, number, ident, code },
 
     <keyword:Sp<MetaKeyword>> <ident:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
@@ -725,7 +725,7 @@ OptionalMinus: i32 = {
 };
 
 #[inline]
-ResIdent: ResIdent = <ident:Ident> => ident.into();
+ResIdent: ResIdent = <ident:Ident> => ResIdent::new_null(ident);
 
 Ident: Ident = {
     <l: @L> <tok:IdentStr> <r: @R> => {

@@ -19,20 +19,15 @@
 //! let mut files = Files::new();
 //! let mut ty_ctx = TypeSystem::new();
 //!
-//! let text = b"(3 == 3) ? (3.0 + 0.5) * 2.0 : 4.0";
+//! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4.0";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
 //! const_simplify::run(&mut expr, &mut ty_ctx).expect("failed to simplify");
 //!
-//! let text_simplified = b"7.0";
+//! let text_simplified = b"3.5 * x";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```
-//!
-//! **Note:** a more instructive example might be `(3 == 3) ? (3.0 + 0.5) * x : 4.0`
-//! (where `x` is not a `const` variable), which after const simplification becomes
-//! `3.5 * x`.  (It is difficult to demonstrate this example though because variables require
-//! name resolution, and name resolution messes with equality tests on the AST.)
 
 use crate::value::ScalarValue;
 use crate::ast;
@@ -182,7 +177,8 @@ impl ast::VisitMut for Visitor<'_> {
         match &e.value {
             ast::Expr::Var(var) => match var.name {
                 ast::VarName::Normal { ref ident } => {
-                    if let Some(value) = self.ty_ctx.var_const_value(ident.expect_res()) {
+                    let def_id = self.ty_ctx.resolutions.expect_def(ident);
+                    if let Some(value) = self.ty_ctx.var_const_value(def_id) {
                         e.value = value.apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
                     }
                 },

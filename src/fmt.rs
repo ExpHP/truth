@@ -87,7 +87,7 @@ impl Config {
         self.target_width = width - 1; self
     }
 
-    /// Causes any identifiers subject to name resolution to have their [`ResolveId`]s appended,
+    /// Causes any identifiers subject to name resolution to have their [`DefId`]s appended,
     /// (e.g. showing `foo_24` instead of `foo`), allowing the reader to visually inspect how they
     /// have been differentiated by scope.
     ///

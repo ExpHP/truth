@@ -10,7 +10,7 @@ use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::game::Game;
-use crate::ident::Ident;
+use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
@@ -225,7 +225,7 @@ fn decompile(
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
-                ident: name.clone(),
+                ident: name.clone().sp_map(ResIdent::new_null),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }));
@@ -304,15 +304,13 @@ fn compile(
     let instr_format = format.instr_format();
 
     // an early pass to define global constants for sprite and script names
-    let sprite_ids = gather_sprite_ids(ast)?;
+    let sprite_ids = gather_sprite_ids(ast, ty_ctx)?;
     let script_ids = gather_script_ids(ast)?;
-    for (script_name, &id) in &script_ids {
-        let script_name = sp!(script_name.span => script_name.value.clone().into());
-        ty_ctx.add_global_const_var(script_name, ScalarValue::Int(id as i32));
+    for &(ref script_name, id) in script_ids.values() {
+        ty_ctx.add_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
     }
-    for (sprite_name, &id) in &sprite_ids {
-        let sprite_name = sp!(sprite_name.span => sprite_name.value.clone().into());
-        ty_ctx.add_global_const_var(sprite_name, ScalarValue::Int(id as i32));
+    for &(ref sprite_name, id) in sprite_ids.values() {
+        ty_ctx.add_global_const_var(sprite_name.clone(), ScalarValue::Int(id as i32));
     }
 
     // preprocess
@@ -363,10 +361,10 @@ fn compile(
 
     let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
-            let id = script_ids[name];
+            let (_, id) = script_ids[name.as_raw()];
             let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
 
-            entry.scripts.insert(name.clone(), Script { id, instrs });
+            entry.scripts.insert(sp!(name.span => name.as_raw().clone()), Script { id, instrs });
         }
         Ok::<_, CompileError>(entry)
     }).collect_with_recovery()?;
@@ -389,7 +387,7 @@ fn write_thecl_defs(
 
 // =============================================================================
 
-fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, CompileError> {
+fn gather_sprite_ids(ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<IndexMap<Ident, (Sp<ResIdent>, u32)>, CompileError> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
@@ -414,9 +412,9 @@ fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, Comp
                     primary(id_expr, "unsupported expression"),
                 );
                 match id_expr.value {
-                    ast::Expr::LitInt { value, .. } => Ok(value),
+                    ast::Expr::LitInt { value, .. } => Ok(value as u32),
                     ast::Expr::Unop(sp_pat!(token![unop -]), ref x) => match x.value {
-                        ast::Expr::LitInt { value, .. } => Ok(-value),
+                        ast::Expr::LitInt { value, .. } => Ok((-value) as u32),
                         _ => Err(error()),  // FIXME support eventually
                     },
                     _ => Err(error()),  // FIXME support eventually
@@ -426,19 +424,21 @@ fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, Comp
             let sprite_id = given_sprite_id.unwrap_or(next_auto_sprite);
             next_auto_sprite = sprite_id + 1;
 
-            match sprite_ids.entry(name.clone()) {
+            match sprite_ids.entry(name.value.clone()) {
                 indexmap::map::Entry::Vacant(e) => {
-                    e.insert((name.span, sprite_id));
+                    // since these are just meta keys we have to synthesize new ResIds
+                    let res_ident = name.sp_map(|name| ty_ctx.resolutions.attach_fresh_res(name.clone()));
+                    e.insert((res_ident, sprite_id));
                 },
                 // name clashes between sprites in different entries are allowed (this happens in decompiled output)
                 // but the IDs must match.
                 indexmap::map::Entry::Occupied(e) => {
-                    let &(prev_span, prev_id) = e.get();
+                    let &(ref prev_name, prev_id) = e.get();
                     if prev_id != sprite_id {
                         return Err(error!(
                             message("name clash between sprites"),
                             primary(name, "redefinition with ID {}", sprite_id),
-                            secondary(prev_span, "definition with ID {}", prev_id),
+                            secondary(prev_name, "definition with ID {}", prev_id),
                         ));
                     }
                 },
@@ -446,7 +446,7 @@ fn gather_sprite_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, u32>, Comp
         }
     }
 
-    Ok(sprite_ids.into_iter().map(|(name, (_, sprite_id))| (name, sprite_id as u32)).collect())
+    Ok(sprite_ids)
 }
 
 /// A type that's parsed from the Meta in an early pass just to gather sprite names.
@@ -466,7 +466,7 @@ impl<'m> FromMeta<'m> for ProtoSprite<'m> {
     }
 }
 
-fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, i32>, CompileError> {
+fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Ident, (Sp<ResIdent>, i32)>, CompileError> {
     let mut next_auto_script = 0;
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
@@ -475,16 +475,16 @@ fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, i32>, Comp
                 let script_id = number.map(|x| x.value).unwrap_or(next_auto_script);
                 next_auto_script = script_id + 1;
 
-                match script_ids.entry(ident.clone()) {
+                match script_ids.entry(ident.as_raw().clone()) {
                     indexmap::map::Entry::Vacant(e) => {
-                        e.insert((ident.span, script_id));
+                        e.insert((ident.clone(), script_id));
                     },
                     indexmap::map::Entry::Occupied(e) => {
-                        let &(prev_span, _) = e.get();
+                        let (prev_ident, _) = e.get();
                         return Err(error!(
                             message("duplicate script '{}'", ident),
                             primary(ident, "redefined here"),
-                            secondary(prev_span, "originally defined here"),
+                            secondary(prev_ident, "originally defined here"),
                         ));
                     },
                 }
@@ -492,7 +492,7 @@ fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Sp<Ident>, i32>, Comp
             _ => {},
         }
     }
-    Ok(script_ids.into_iter().map(|(name, (_, script_id))| (name, script_id)).collect())
+    Ok(script_ids)
 }
 
 // =============================================================================

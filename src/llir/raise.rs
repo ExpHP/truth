@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, ensure, bail};
 
 use crate::ast::{self, Expr};
-use crate::ident::Ident;
+use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
@@ -442,14 +442,14 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
         => match raw.expect_int() {
             -1 => Ok(Expr::from(-1)),
             id => Ok(Expr::Var(sp!(ast::Var {
-                name: ast::VarName::Normal { ident: crate::formats::anm::auto_sprite_name(id as _).into() },
+                name: ast::VarName::Normal { ident: ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _)) },
                 ty_sigil: None,
             }))),
         },
 
         | ArgEncoding::Script
         => Ok(Expr::Var(sp!(ast::Var {
-            name: ast::VarName::Normal { ident: crate::formats::anm::auto_script_name(raw.expect_int() as _).into() },
+            name: ast::VarName::Normal { ident: ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _)) },
             ty_sigil: None,
         }))),
 

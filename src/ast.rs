@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::meta;
-use crate::resolve::{ResolveId, RegId};
+use crate::resolve::{DefId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
@@ -80,7 +80,7 @@ pub enum Item {
     AnmScript {
         keyword: TokenSpan,
         number: Option<Sp<i32>>,
-        ident: Sp<Ident>,
+        ident: Sp<ResIdent>,
         code: Block,
     },
     Meta {
@@ -219,7 +219,7 @@ pub enum StmtBody {
     /// Blocks are eliminated during early compilation passes, leaving behind these as the only
     /// remaining way of identifying the end of a variable's scope.  They are used during lowering
     /// to determine when to release resources (like registers) held by locals.
-    ScopeEnd(ResolveId),
+    ScopeEnd(DefId),
 
     /// A virtual instruction that completely disappears during compilation.
     ///
@@ -716,6 +716,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
+            fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
         }
 
         pub fn walk_script<V>(v: &mut V, x: & $($mut)? Script)
@@ -731,13 +732,19 @@ macro_rules! generate_visitor_stuff {
         {
             match & $($mut)? x.value {
                 Item::Func {
-                    code, inline: _, keyword: _, ident: _, params: _,
+                    code, inline: _, keyword: _, ident, params,
                 } => {
+                    v.visit_res_ident(ident);
                     if let Some(code) = code {
                         v.visit_root_block(code);
                     }
+
+                    for (_, ident) in params {
+                        v.visit_res_ident(ident);
+                    }
                 },
-                Item::AnmScript { keyword: _, number: _, ident: _, code } => {
+                Item::AnmScript { keyword: _, number: _, ident, code } => {
+                    v.visit_res_ident(ident);
                     v.visit_root_block(code);
                 },
                 Item::Meta { keyword: _, ident: _, fields } => {
@@ -880,7 +887,8 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(a);
                     v.visit_expr(b);
                 },
-                Expr::Call { name: _, args, pseudos } => {
+                Expr::Call { name, args, pseudos } => {
+                    walk_callable_name(v, name);
                     for sp_pat![PseudoArg { value, kind: _, at_sign: _, eq_sign: _ }] in pseudos {
                         v.visit_expr(value);
                     }
@@ -896,12 +904,21 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        pub fn walk_var<V>(_v: &mut V, x: & $($mut)? Sp<Var>)
+        fn walk_callable_name<V>(v: &mut V, x: & $($mut)? Sp<CallableName>)
+        where V: ?Sized + $Visit,
+        {
+            match & $($mut)? x.value {
+                CallableName::Normal { ident } => v.visit_res_ident(ident),
+                CallableName::Ins { opcode: _ } => {},
+            }
+        }
+
+        pub fn walk_var<V>(v: &mut V, x: & $($mut)? Sp<Var>)
         where V: ?Sized + $Visit,
         {
             let Var { name, ty_sigil: _ } = & $($mut)? x.value;
             match name {
-                VarName::Normal { ident: _ } => {},
+                VarName::Normal { ident } => v.visit_res_ident(ident),
                 VarName::Reg { reg: _ } => {},
             }
         }
@@ -938,11 +955,12 @@ pub use self::mut_::{
     walk_stmt as walk_stmt_mut,
     walk_goto as walk_goto_mut,
     walk_expr as walk_expr_mut,
+    walk_var as walk_var_mut,
 };
 mod ref_ {
     use super::*;
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr,
+    Visit, walk_script, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
 };

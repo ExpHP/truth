@@ -8,7 +8,7 @@ use crate::ast;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent, GensymContext};
-use crate::resolve::{RegId, Namespace, ResolveId};
+use crate::resolve::{RegId, Namespace, DefId, ResId, Resolutions};
 use crate::eclmap::Eclmap;
 use crate::value::ScalarValue;
 use crate::type_system::{ScalarType, InstrAbi};
@@ -18,14 +18,16 @@ use crate::type_system::{ScalarType, InstrAbi};
 pub struct TypeSystem {
     mapfiles: Vec<PathBuf>,
 
-    vars: HashMap<ResolveId, VarData>,
-    funcs: HashMap<ResolveId, FuncData>,
+    pub resolutions: Resolutions,
+
+    vars: HashMap<DefId, VarData>,
+    funcs: HashMap<DefId, FuncData>,
     regs: HashMap<RegId, RegData>,
     instrs: HashMap<u16, InsData>,
 
     // Preferred aliases.  These are used during decompilation to make the output readable.
-    reg_aliases: HashMap<RegId, ResolveId>,
-    ins_aliases: HashMap<u16, ResolveId>,
+    reg_aliases: HashMap<RegId, DefId>,
+    ins_aliases: HashMap<u16, DefId>,
 
     /// Ids for names available in the global scope.  These form the baseline set of names
     /// available to name resolution.
@@ -33,7 +35,7 @@ pub struct TypeSystem {
     /// NOTE: This is specifically for *externally-defined things* that are defined before name
     /// resolution even begins.  Things like user-defined functions are not included here;
     /// name resolution handles those in the same way it handles anything else.
-    global_ids: Vec<(Namespace, ResolveId)>,
+    global_ids: Vec<(Namespace, DefId)>,
 
     unused_ids: UnusedIds,
     gensym: GensymContext,
@@ -45,6 +47,7 @@ impl TypeSystem {
     pub fn new() -> Self {
         TypeSystem {
             mapfiles: Default::default(),
+            resolutions: Default::default(),
             vars: Default::default(),
             funcs: Default::default(),
             regs: Default::default(),
@@ -60,14 +63,6 @@ impl TypeSystem {
 
 /// # General modification and adding new entries
 impl TypeSystem {
-    /// Takes a [`ResIdent`] that has no name resolution id, and assigns it a new one.
-    #[track_caller]
-    fn make_resolvable(&mut self, mut ident: ResIdent) -> ResIdent {
-        assert!(ident.res().is_none(), "tried to assign multiple ids to {}", ident);
-        ident.set_res(self.unused_ids.next());
-        ident
-    }
-
     /// Set the inherent type of a register.
     pub fn set_reg_ty(&mut self, reg: RegId, ty: VarType) {
         self.regs.insert(reg, RegData { ty });
@@ -76,29 +71,28 @@ impl TypeSystem {
     /// Add an alias for a register from a mapfile, attaching a brand new ID to the ident.
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
-    pub fn add_global_reg_alias(&mut self, reg: RegId, ident: ResIdent) -> ResIdent {
-        let ident = self.make_resolvable(ident);
-        let res = ident.expect_res();
+    pub fn add_global_reg_alias(&mut self, reg: RegId, ident: Ident) -> DefId {
+        let res_ident = self.resolutions.attach_fresh_res(ident);
+        let def_id = self.create_new_def_id(&res_ident);
 
-        self.vars.insert(res, VarData {
+        self.vars.insert(def_id, VarData {
             ty: None,
-            kind: VarKind::RegisterAlias { reg, ident: ident.clone() },
+            kind: VarKind::RegisterAlias { reg, ident: res_ident },
         });
-        self.reg_aliases.insert(reg, res);
-        self.global_ids.push((Namespace::Vars, res));
-        ident
+        self.reg_aliases.insert(reg, def_id);
+        self.global_ids.push((Namespace::Vars, def_id));
+        def_id
     }
 
     /// Declare a local variable, attaching a brand new ID to the ident.
-    pub fn add_local(&mut self, ident: Sp<ResIdent>, ty: VarType) -> Sp<ResIdent> {
-        let ident = sp!(ident.span => self.make_resolvable(ident.value));
-        let res = ident.expect_res();
+    pub fn add_local(&mut self, ident: Sp<ResIdent>, ty: VarType) -> DefId {
+        let def_id = self.create_new_def_id(&ident);
 
-        self.vars.insert(res, VarData {
+        self.vars.insert(def_id, VarData {
             ty: Some(ty),
-            kind: VarKind::Local { ident: ident.clone() },
+            kind: VarKind::Local { ident },
         });
-        ident
+        def_id
     }
 
     /// Set the low-level ABI of an instruction.
@@ -113,39 +107,50 @@ impl TypeSystem {
     /// Add an alias for an instruction from a mapfile, attaching a brand new ID for name resolution to the ident.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    pub fn add_global_ins_alias(&mut self, opcode: u16, ident: ResIdent) -> ResIdent {
-        let ident = self.make_resolvable(ident);
-        let res = ident.expect_res();
+    pub fn add_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> DefId {
+        let res_ident = self.resolutions.attach_fresh_res(ident);
+        let def_id = self.create_new_def_id(&res_ident);
 
-        self.funcs.insert(res, FuncData {
+        self.funcs.insert(def_id, FuncData {
             sig: None,
-            kind: FuncKind::InstructionAlias { opcode, ident: ident.clone() },
+            kind: FuncKind::InstructionAlias { opcode, ident: res_ident },
         });
-        self.ins_aliases.insert(opcode, res);
-        self.global_ids.push((Namespace::Funcs, res));
-        ident
+        self.ins_aliases.insert(opcode, def_id);
+        self.global_ids.push((Namespace::Funcs, def_id));
+        def_id
     }
 
     /// Add a user-defined function.
     ///
     /// FIXME: Should take signature, inline/const-ness, etc.
-    pub fn add_user_func(&mut self, ident: Sp<ResIdent>) -> Sp<ResIdent> {
-        let ident = sp!(ident.span => self.make_resolvable(ident.value));
-        let res = ident.expect_res();
+    pub fn add_user_func(&mut self, ident: Sp<ResIdent>) -> DefId {
+        let def_id = self.create_new_def_id(&ident);
 
-        self.funcs.insert(res, FuncData {
+        self.funcs.insert(def_id, FuncData {
             sig: None,  // FIXME
-            kind: FuncKind::User { ident: ident.clone() },
+            kind: FuncKind::User { ident },
         });
-        ident
+        def_id
     }
+
+    /// Create a [`DefId`] for the name in a declaration.
+    fn create_new_def_id(&mut self, ident: &ResIdent) -> DefId {
+        let def_id = synthesize_def_id_from_res_id(ident.expect_res());
+        self.resolutions.record_resolution(ident, def_id);
+        def_id
+    }
+}
+
+fn synthesize_def_id_from_res_id(res: ResId) -> DefId {
+    // no need to invent new numbers
+    DefId(res.0)
 }
 
 /// # Global names
 impl TypeSystem {
     /// Iterate over all things that are available to the initial (global) scope during
     /// name resolution.
-    pub fn globals(&self) -> impl Iterator<Item=(Namespace, ResolveId)> + '_ {
+    pub fn globals(&self) -> impl Iterator<Item=(Namespace, DefId)> + '_ {
         self.global_ids.iter().copied()
     }
 }
@@ -163,8 +168,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_reg(&self, res: ResolveId) -> Option<RegId> {
-        match self.vars[&res] {
+    pub fn var_reg(&self, def_id: DefId) -> Option<RegId> {
+        match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => Some(reg),
             _ => None,
         }
@@ -177,8 +182,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_opcode(&self, res: ResolveId) -> Option<u16> {
-        match self.funcs[&res] {
+    pub fn func_opcode(&self, def_id: DefId) -> Option<u16> {
+        match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => Some(opcode),
             _ => None,
         }
@@ -200,10 +205,10 @@ impl TypeSystem {
     ///
     /// (FIXME: this is silly because TypeSystem ought to know what namespace each
     ///         id belongs to without having to be reminded...)
-    pub fn name(&self, ns: Namespace, res: ResolveId) -> &ResIdent {
+    pub fn name(&self, ns: Namespace, def_id: DefId) -> &ResIdent {
         match ns {
-            Namespace::Vars => self.var_name(res),
-            Namespace::Funcs => self.func_name(res),
+            Namespace::Vars => self.var_name(def_id),
+            Namespace::Funcs => self.func_name(def_id),
         }
     }
 
@@ -212,8 +217,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_name(&self, res: ResolveId) -> &ResIdent {
-        match self.vars[&res] {
+    pub fn var_name(&self, def_id: DefId) -> &ResIdent {
+        match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::Local { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::Const { ref ident, .. }, .. } => ident,
@@ -225,8 +230,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn func_name(&self, res: ResolveId) -> &ResIdent {
-        match self.funcs[&res] {
+    pub fn func_name(&self, def_id: DefId) -> &ResIdent {
+        match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { ref ident, .. }, .. } => ident,
             FuncData { kind: FuncKind::User { ref ident, .. }, .. } => ident,
         }
@@ -237,8 +242,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_inherent_ty(&self, res: ResolveId) -> VarType {
-        match self.vars[&res] {
+    pub fn var_inherent_ty(&self, def_id: DefId) -> VarType {
+        match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => self.reg_inherent_ty(reg),
             VarData { ty, .. } => ty.expect("shouldn't be alias"),
         }
@@ -249,8 +254,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_signature(&self, res: ResolveId) -> Result<&Signature, MissingSigError> {
-        match self.funcs[&res] {
+    pub fn func_signature(&self, def_id: DefId) -> Result<&Signature, MissingSigError> {
+        match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => self.ins_signature(opcode),
             FuncData { kind: FuncKind::User { .. }, .. } => unimplemented!("need to create signatures for user funcs!"),
         }
@@ -260,7 +265,7 @@ impl TypeSystem {
     pub fn func_signature_from_ast(&self, name: &ast::CallableName) -> Result<&Signature, MissingSigError> {
         match *name {
             ast::CallableName::Ins { opcode } => self.ins_signature(opcode),
-            ast::CallableName::Normal { ref ident } => self.func_signature(ident.expect_res()),
+            ast::CallableName::Normal { ref ident } => self.func_signature(self.resolutions.expect_def(ident)),
         }
     }
 
@@ -278,8 +283,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_decl_span(&self, res: ResolveId) -> Option<Span> {
-        match &self.vars[&res] {
+    pub fn var_decl_span(&self, def_id: DefId) -> Option<Span> {
+        match &self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { .. }, .. } => None,
             VarData { kind: VarKind::Local { ident, .. }, .. } => Some(ident.span),
             VarData { kind: VarKind::Const { ident, .. }, .. } => Some(ident.span),
@@ -292,8 +297,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_decl_span(&self, res: ResolveId) -> Option<Span> {
-        match &self.funcs[&res] {
+    pub fn func_decl_span(&self, def_id: DefId) -> Option<Span> {
+        match &self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { .. }, .. } => None,
             FuncData { kind: FuncKind::User { ident, .. }, .. } => Some(ident.span),
         }
@@ -303,14 +308,13 @@ impl TypeSystem {
 impl TypeSystem {
     /// Declare a fully-evaluated compile-time constant variable, attaching a brand new ID to the ident.
     pub fn add_global_const_var(&mut self, ident: Sp<ResIdent>, value: ScalarValue) -> Sp<ResIdent> {
-        let ident = sp!(ident.span => self.make_resolvable(ident.value));
-        let res = ident.expect_res();
+        let def_id = self.create_new_def_id(&ident);
 
-        self.vars.insert(res, VarData {
+        self.vars.insert(def_id, VarData {
             ty: Some(Some(value.ty())),
             kind: VarKind::Const { ident: ident.clone(), value },
         });
-        self.global_ids.push((Namespace::Vars, res));
+        self.global_ids.push((Namespace::Vars, def_id));
         ident
     }
 
@@ -319,8 +323,8 @@ impl TypeSystem {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_const_value(&mut self, res: ResolveId) -> Option<ScalarValue> {
-        match &self.vars[&res] {
+    pub fn var_const_value(&mut self, def_id: DefId) -> Option<ScalarValue> {
+        match &self.vars[&def_id] {
             VarData { kind: VarKind::Const { value, .. }, .. } => Some(value.clone()),
             _ => None,
         }
@@ -337,14 +341,14 @@ impl TypeSystem {
         }
 
         for (&opcode, ident) in &eclmap.ins_names {
-            self.add_global_ins_alias(opcode as u16, ResIdent::from(ident.clone()));
+            self.add_global_ins_alias(opcode as u16, ident.clone());
         }
         for (&opcode, abi_str) in &eclmap.ins_signatures {
             let abi = abi_str.parse().with_context(|| format!("in signature for opcode {}", opcode))?;
             self.set_ins_abi(opcode as u16, abi);
         }
         for (&reg, ident) in &eclmap.gvar_names {
-            self.add_global_reg_alias(RegId(reg), ResIdent::from(ident.clone()));
+            self.add_global_reg_alias(RegId(reg), ident.clone());
         }
         for (&reg, value) in &eclmap.gvar_types {
             let ty = match &value[..] {
@@ -370,9 +374,9 @@ impl TypeSystem {
 #[derive(Debug, Clone)]
 struct UnusedIds(std::ops::RangeFrom<u64>);
 impl UnusedIds {
-    fn next(&mut self) -> ResolveId {
+    fn next(&mut self) -> DefId {
         let num = self.0.next().expect("too many names!");
-        ResolveId(NonZeroU64::new(num).expect("range started from 1"))
+        DefId(NonZeroU64::new(num).expect("range started from 1"))
     }
 }
 
@@ -454,7 +458,7 @@ impl TypeSystem {
     pub fn var_inherent_ty_from_ast(&self, var: &ast::Var) -> VarType {
         match var.name {
             ast::VarName::Reg { reg, .. } => self.reg_inherent_ty(reg),
-            ast::VarName::Normal { ref ident, .. } => self.var_inherent_ty(ident.expect_res()),
+            ast::VarName::Normal { ref ident, .. } => self.var_inherent_ty(self.resolutions.expect_def(ident)),
         }
     }
 
@@ -473,13 +477,14 @@ impl TypeSystem {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<RegId, ResolveId> {
+    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<RegId, DefId> {
         match var {
             &ast::VarName::Reg { reg, .. } => Ok(reg),  // register
             ast::VarName::Normal { ident, .. } => {
-                match self.var_reg(ident.expect_res()) {
+                let def_id = self.resolutions.expect_def(ident);
+                match self.var_reg(def_id) {
                     Some(reg) => Ok(reg),  // register alias
-                    None => Err(ident.expect_res()),  // something else
+                    None => Err(def_id),  // something else
                 }
             },
         }
@@ -489,13 +494,14 @@ impl TypeSystem {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<u16, ResolveId> {
+    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<u16, DefId> {
         match name {
             &ast::CallableName::Ins { opcode, .. } => Ok(opcode),  // instruction
             ast::CallableName::Normal { ident, .. } => {
-                match self.func_opcode(ident.expect_res()) {
+                let def_id = self.resolutions.expect_def(ident);
+                match self.func_opcode(def_id) {
                     Some(opcode) => Ok(opcode),  // instruction alias
-                    None => Err(ident.expect_res()),  // something else
+                    None => Err(def_id),  // something else
                 }
             },
         }
@@ -516,7 +522,7 @@ impl TypeSystem {
     pub fn reg_to_ast(&self, reg: RegId) -> ast::VarName {
         match self.reg_aliases.get(&reg) {
             None => reg.into(),
-            Some(&res) => self.var_name(res).clone().into(),
+            Some(&def_id) => self.var_name(def_id).clone().into(),
         }
     }
 
@@ -525,7 +531,7 @@ impl TypeSystem {
     pub fn ins_to_ast(&self, opcode: u16) -> ast::CallableName {
         match self.ins_aliases.get(&opcode) {
             None => ast::CallableName::Ins { opcode },
-            Some(&res) => ast::CallableName::Normal { ident: self.func_name(res).clone() },
+            Some(&def_id) => ast::CallableName::Normal { ident: self.func_name(def_id).clone() },
         }
     }
 
@@ -586,10 +592,10 @@ impl Signature {
         let mut first_optional = None;
         for param in self.params.iter() {
             if param.default.is_some() {
-                first_optional = Some(param.name.clone());
+                first_optional = Some(&param.name);
             } else if let Some(optional) = first_optional {
-                let opt_span = ty_ctx.var_decl_span(optional.expect_res()).expect("func params must have spans");
-                let non_span = ty_ctx.var_decl_span(param.name.expect_res()).expect("func params must have spans");
+                let opt_span = ty_ctx.var_decl_span(ty_ctx.resolutions.expect_def(optional)).expect("func params must have spans");
+                let non_span = ty_ctx.var_decl_span(ty_ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
                 return Err(error!(
                     message("invalid function signature"),
                     primary(non_span, "non-optional parameter after optional"),
