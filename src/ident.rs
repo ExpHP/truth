@@ -42,6 +42,10 @@ pub struct ResIdent {
 }
 
 impl ResIdent {
+    pub fn new(ident: Ident, res: ResId) -> ResIdent {
+        ResIdent { ident, res: Some(res) }
+    }
+
     /// Construct a [`ResIdent`] with no [`ResId`].
     ///
     /// Usage of this is niche and should be reserved for code that lacks mutable access to [`Resolutions`].

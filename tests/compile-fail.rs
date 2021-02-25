@@ -264,6 +264,27 @@ compile_fail_test!(
 );
 
 compile_fail_test!(
+    // this is going to become grammatically correct soon; the test is here to make
+    // sure it fails gracefully from the getgo
+    ANM_10, local_named_after_reg,
+    main_body: r#"
+        int REG[100] = 3;
+    "#,
+    expected: EXPECTED_PARSE_ERROR,
+);
+
+compile_fail_test!(
+    // this is going to become grammatically correct soon; the test is here to make
+    // sure it fails gracefully from the getgo
+    ANM_10, func_param_named_after_reg,
+    items_before: r#"
+        void foo(int REG[100]) {}
+    "#,
+    main_body: "",
+    expected: EXPECTED_PARSE_ERROR,
+);
+
+compile_fail_test!(
     ANM_10, const_string_to_int,
     main_body: r#"
         const string x = "hi";

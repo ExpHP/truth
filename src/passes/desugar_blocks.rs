@@ -1,19 +1,88 @@
-//! Structured code desugaring.
-//!
-//! This desugars all block structures in the code, reducing everything into a single block.
+//! See [`run`].
 
 use crate::error::CompileError;
 use crate::ast::{self, VisitMut};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident};
+use crate::resolve::{DefId, Resolutions};
 use crate::type_system::{ScalarType, TypeSystem};
 
+/// Structured code desugaring.
+///
+/// This desugars all block structures in the code (conditional blocks, loops), reducing everything
+/// into a single block.
+///
+/// This pass is not idempotent, because it inserts [`ast::StmtBody::ScopeEnd`] statements.
 pub fn run<V: ast::Visitable>(ast: &mut V, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
+    insert_scope_ends(ast, ty_ctx);
+
     let mut visitor = Visitor { ty_ctx };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
 
+fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
+    let mut v = InsertLocalScopeEndsVisitor { resolutions: &ty_ctx.resolutions, stack: vec![] };
+    ast.visit_mut_with(&mut v);
+    Ok(())
+}
+
+// =============================================================================
+
+/// Inserts [`ast::StmtBody::ScopeEnd`] statements for locals declared in each block.  These allow the
+/// compiler to continue to take advantage of lexical scope information (to e.g. free registers) even
+/// after block desugaring.
+struct InsertLocalScopeEndsVisitor<'a> {
+    resolutions: &'a Resolutions,
+    stack: Vec<BlockState>,
+}
+
+pub struct BlockState {
+    /// List of local variables whose scope end at the end of this block.
+    locals_declared_at_this_level: Vec<DefId>,
+}
+
+impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
+    fn visit_block(&mut self, x: &mut ast::Block) {
+        self.stack.push(BlockState {
+            locals_declared_at_this_level: vec![],
+        });
+
+        ast::walk_block_mut(self, x);
+
+        let popped = self.stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
+
+        // emit statements that will free resources during lowering
+        for def_id in popped.locals_declared_at_this_level {
+            let span = x.last_stmt().span.end_span();
+            x.0.push(sp!(span => ast::Stmt {
+                time: x.end_time(),
+                body: ast::StmtBody::ScopeEnd(def_id),
+            }));
+        }
+    }
+
+    fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
+        match &x.body {
+            ast::StmtBody::Declaration { keyword, vars } => {
+                for pair in vars {
+                    let (var, _) = &pair.value;
+                    if let ast::VarName::Normal { ident } = &var.value.name {
+                        let def_id = self.resolutions.expect_def(ident);
+                        self.stack.last_mut().expect("(bug?) empty stack?")
+                            .locals_declared_at_this_level.push(def_id);
+
+                    } else {
+                        unreachable!("impossible var name in declaration {:?}", var.value.name);
+                    }
+                }
+            },
+            _ => ast::walk_stmt_mut(self, x),
+        }
+    }
+}
+
+// =============================================================================
 
 struct Visitor<'a> {
     ty_ctx: &'a mut TypeSystem,
@@ -249,6 +318,7 @@ mod tests {
             for &(_, reg, _) in &self.globals {
                 assert_eq!(vm_before.get_reg(reg), vm_after.get_reg(reg), "{}\n{}", vm_before, vm_after);
             }
+
             vm_after
         }
     }

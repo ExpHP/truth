@@ -154,25 +154,14 @@ mod resolve_vars {
     /// but instead call [`crate::passes::resolve_names::run`].
     pub struct Visitor<'ts> {
         resolver: NameResolver,
-        stack: Vec<BlockState>,
         errors: CompileError,
         ty_ctx: &'ts mut TypeSystem,
-    }
-
-    pub struct BlockState {
-        /// List of local variables whose scope end at the end of this block.
-        ///
-        /// We track this actually not for name resolution purposes, but so that "ScopeEnd"
-        /// statements can be inserted (which are used during lowering to free resources
-        /// like registers that are held by the locals)
-        locals_declared_at_this_level: Vec<DefId>,
     }
 
     impl<'ts> Visitor<'ts> {
         pub fn new(ty_ctx: &'ts mut TypeSystem) -> Self {
             Visitor {
                 resolver: NameResolver::init_from_ty_ctx(ty_ctx),
-                stack: vec![],
                 errors: CompileError::new_empty(),
                 ty_ctx,
             }
@@ -238,22 +227,7 @@ mod resolve_vars {
         fn visit_block(&mut self, x: &ast::Block) {
             let outer_scope_depth = self.resolver.current_depth();
 
-            self.stack.push(BlockState {
-                locals_declared_at_this_level: vec![],
-            });
-
             ast::walk_block(self, x);
-
-            let popped = self.stack.pop().expect("(BUG!) unbalanced scope_stack usage!");
-
-            // emit statements that will free resources during lowering
-            for def_id in popped.locals_declared_at_this_level {
-                let span = x.last_stmt().span.end_span();
-                x.0.push(sp!(span => ast::Stmt {
-                    time: x.end_time(),
-                    body: ast::StmtBody::ScopeEnd(def_id),
-                }));
-            }
 
             // make names defined within the block no longer resolvable
             self.resolver.return_to_ancestor(outer_scope_depth);
@@ -278,8 +252,8 @@ mod resolve_vars {
                             // so that it can be used in future expressions
                             self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
 
-                            self.stack.last_mut().expect("(bug?) empty stack?")
-                                .locals_declared_at_this_level.push(def_id);
+                        } else {
+                            unreachable!("impossible var name in declaration {:?}", var.value.name);
                         }
                     }
                 },
@@ -393,7 +367,7 @@ impl Resolutions {
     }
 
     pub fn attach_fresh_res(&mut self, ident: Ident) -> ResIdent {
-        ResIdent { ident, res: Some(self.fresh_res()) }
+        ResIdent::new(ident, self.fresh_res())
     }
 
     pub fn record_resolution(&mut self, ident: &ResIdent, def: DefId) {
