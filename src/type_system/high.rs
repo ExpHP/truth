@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::num::NonZeroU64;
 
 use anyhow::Context;
 
@@ -37,7 +36,6 @@ pub struct TypeSystem {
     /// name resolution handles those in the same way it handles anything else.
     global_ids: Vec<(Namespace, DefId)>,
 
-    unused_ids: UnusedIds,
     gensym: GensymContext,
 }
 
@@ -55,7 +53,6 @@ impl TypeSystem {
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
             global_ids: Default::default(),
-            unused_ids: UnusedIds(1..),
             gensym: GensymContext::new(),
         }
     }
@@ -366,17 +363,6 @@ impl TypeSystem {
             let string = s.to_str().expect("unpaired surrogate not supported!").into();
             sp!(ast::LitString { string })
         }).collect()
-    }
-}
-
-// Really small helper that *would* have just been a `fn next_res_id(&mut self) -> ResolveId` helper method
-// on TypeSystem, but can't be because we want to call it in places where other fields of self are borrowed.
-#[derive(Debug, Clone)]
-struct UnusedIds(std::ops::RangeFrom<u64>);
-impl UnusedIds {
-    fn next(&mut self) -> DefId {
-        let num = self.0.next().expect("too many names!");
-        DefId(NonZeroU64::new(num).expect("range started from 1"))
     }
 }
 

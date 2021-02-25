@@ -422,8 +422,8 @@ mod tests {
         ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
 
         let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
-        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ty_ctx);
-        match crate::passes::resolve_names::run(&mut parsed, &mut ty_ctx) {
+        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ty_ctx).unwrap();
+        match crate::passes::resolve_names::run(&parsed, &mut ty_ctx) {
             Ok(()) => Ok(parsed),
             Err(e) => Err((files, e)),
         }
@@ -541,8 +541,8 @@ mod tests {
 
         let mut def = files.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
         let mut cloned = files.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
-        crate::passes::resolve_names::assign_res_ids(&mut def, &mut ty_ctx);
-        crate::passes::resolve_names::assign_res_ids(&mut cloned, &mut ty_ctx);
+        crate::passes::resolve_names::assign_res_ids(&mut def, &mut ty_ctx).unwrap();
+        crate::passes::resolve_names::assign_res_ids(&mut cloned, &mut ty_ctx).unwrap();
 
         let block = ast::Block(vec![def, cloned.clone(), cloned]);
 

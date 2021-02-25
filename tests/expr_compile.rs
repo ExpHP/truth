@@ -234,7 +234,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
-        truth::passes::resolve_names::run(&mut block, &mut ty_ctx)?;
+        truth::passes::resolve_names::run(&block, &mut ty_ctx)?;
         truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx)?;
         truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx)?;
         block
@@ -248,8 +248,8 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
     eprintln!("{}", truth::fmt::stringify(&new_block));
-    old_vm.run(&old_stmts);
-    new_vm.run(&new_block.0);
+    old_vm.run(&old_stmts, &ty_ctx.resolutions);
+    new_vm.run(&new_block.0, &ty_ctx.resolutions);
 
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");
@@ -272,7 +272,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
-        truth::passes::resolve_names::run(&mut block, &mut ty_ctx).unwrap();
+        truth::passes::resolve_names::run(&block, &mut ty_ctx).unwrap();
         truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx).unwrap();
         truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx).unwrap();
         block
@@ -359,7 +359,6 @@ fn float_uses_detected() {
         assert_eq!(old_vm.get_reg(REG_C), new_vm.get_reg(REG_C));
         assert_eq!(old_vm.get_reg(REG_D), new_vm.get_reg(REG_D));
     }
-
 }
 
 #[test]

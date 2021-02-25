@@ -317,7 +317,7 @@ fn compile(
     let ast = {
         let mut ast = ast.clone();
 
-        crate::passes::resolve_names::run(&mut ast, ty_ctx)?;
+        crate::passes::resolve_names::run(&ast, ty_ctx)?;
         crate::passes::type_check::run(&ast, ty_ctx)?;
         crate::passes::const_simplify::run(&mut ast, ty_ctx)?;
         crate::passes::desugar_blocks::run(&mut ast, ty_ctx)?;

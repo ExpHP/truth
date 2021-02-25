@@ -14,7 +14,7 @@ use crate::type_system::{ScalarType, TypeSystem};
 ///
 /// This pass is not idempotent, because it inserts [`ast::StmtBody::ScopeEnd`] statements.
 pub fn run<V: ast::Visitable>(ast: &mut V, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    insert_scope_ends(ast, ty_ctx);
+    insert_scope_ends(ast, ty_ctx)?;
 
     let mut visitor = Visitor { ty_ctx };
     ast.visit_mut_with(&mut visitor);
@@ -64,7 +64,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
 
     fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
         match &x.body {
-            ast::StmtBody::Declaration { keyword, vars } => {
+            ast::StmtBody::Declaration { keyword: _, vars } => {
                 for pair in vars {
                     let (var, _) = &pair.value;
                     if let ast::VarName::Normal { ident } = &var.value.name {
@@ -301,16 +301,17 @@ mod tests {
                 ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
             }
-            crate::passes::resolve_names::run(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::run(&ast.value, &mut ty_ctx).unwrap();
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ty_ctx).unwrap();
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
-            vm_before.run(&ast.0);
+            vm_before.run(&ast.0, &ty_ctx.resolutions);
 
             crate::passes::desugar_blocks::run(&mut ast.value, &mut ty_ctx).unwrap();
 
             let mut vm_after = AstVm::new().with_max_iterations(1000);
-            vm_after.run(&ast.0);
+            vm_after.run(&ast.0, &ty_ctx.resolutions);
 
             assert_eq!(vm_before.time, vm_after.time, "{}\n{}", vm_before, vm_after);
             assert_eq!(vm_before.real_time, vm_after.real_time, "{}\n{}", vm_before, vm_after);
