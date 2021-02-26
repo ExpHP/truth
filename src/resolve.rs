@@ -416,7 +416,7 @@ mod tests {
 21 func21
 "#;
 
-    fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<A, (Files, CompileError)> {
+    fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, TypeSystem), (Files, CompileError)> {
         let mut files = Files::new();
         let mut ty_ctx = TypeSystem::new();
         ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
@@ -424,15 +424,18 @@ mod tests {
         let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
         crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ty_ctx).unwrap();
         match crate::passes::resolve_names::run(&parsed, &mut ty_ctx) {
-            Ok(()) => Ok(parsed),
+            Ok(()) => Ok((parsed, ty_ctx)),
             Err(e) => Err((files, e)),
         }
     }
 
     fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
-        let parsed = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
+        let (mut parsed, ty_ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
 
-        crate::fmt::stringify_with(&parsed, crate::fmt::Config::new().show_res(true))
+        // add suffixes so we can visualize the effects of name resolution
+        crate::passes::debug::make_idents_unique::run(&mut parsed, &ty_ctx.resolutions).unwrap();
+
+        crate::fmt::stringify(&parsed)
     }
 
     fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
@@ -508,6 +511,7 @@ mod tests {
     }
 
     script script0 {
+        int x = 3;
         foo(x);  // should match `foo` definition
     }"#);
 

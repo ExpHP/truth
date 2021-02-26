@@ -16,13 +16,11 @@ pub trait Format {
 /// Lossily write a value to string, for `eprintln` debugging.
 ///
 /// Defaults to a fairly large max width, mostly to reduce console spam for `eprintln`.
-#[doc(hidden)]
 pub fn stringify<T: Format>(value: &T) -> String {
     stringify_with(value, Config::new().max_columns(1000))
 }
 
 /// Lossily write a value to string, for `eprintln` debugging and `insta` tests.
-#[doc(hidden)]
 pub fn stringify_with<T: Format>(value: &T, config: Config) -> String {
     let mut f = Formatter::with_config(vec![], config);
     f.fmt(value).expect("failed to write to vec!?");
@@ -58,14 +56,12 @@ impl From<io::Error> for Error {
 #[derive(Debug, Clone)]
 pub struct Config {
     target_width: usize,
-    show_res: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
             target_width: 99,
-            show_res: false,
         }
     }
 }
@@ -85,16 +81,6 @@ impl Config {
         //        inline mode, then the comma after the item will surpass the width
         //        without triggering backtracking on the item.
         self.target_width = width - 1; self
-    }
-
-    /// Causes any identifiers subject to name resolution to have their [`DefId`]s appended,
-    /// (e.g. showing `foo_24` instead of `foo`), allowing the reader to visually inspect how they
-    /// have been differentiated by scope.
-    ///
-    /// This can be useful for testing or debugging name resolution, though the output can be
-    /// fairly unstable.
-    pub fn show_res(mut self, show_res: bool) -> Self {
-        self.show_res = show_res; self
     }
 }
 
@@ -894,10 +880,7 @@ impl Format for ast::VarName {
 
 impl Format for ResIdent {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match out.config.show_res {
-            true => out.fmt(format_args!("{}_{}", self.as_raw(), self.expect_res())),
-            false => out.fmt(format_args!("{}", self.as_raw())),
-        }
+        out.fmt(self.as_raw())
     }
 }
 

@@ -8,6 +8,10 @@ pub mod desugar_blocks;
 pub mod decompile_loop;
 pub mod resolve_names;
 pub mod type_check;
+pub mod debug {
+    //! Passes that exist for **debugging/testing purposes only.**
+    pub mod make_idents_unique;
+}
 
 pub enum DecompileKind { Simple, Fancy }
 

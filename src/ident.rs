@@ -54,9 +54,8 @@ impl ResIdent {
         ResIdent { ident, res: None }
     }
 
-    pub fn as_raw(&self) -> &Ident {
-        &self.ident
-    }
+    pub fn as_raw(&self) -> &Ident { &self.ident }
+    pub fn as_raw_mut(&mut self) -> &mut Ident { &mut self.ident }
 
     /// Exposes the key for resolving this ident.
     #[track_caller]
