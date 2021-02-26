@@ -272,6 +272,7 @@ fn compile_std(
     let script = {
         let mut script = script.clone();
 
+        crate::passes::resolve_names::assign_res_ids(&mut script, ty_ctx)?;
         crate::passes::resolve_names::run(&script, ty_ctx)?;
         crate::passes::type_check::run(&script, ty_ctx)?;
         crate::passes::const_simplify::run(&mut script, ty_ctx)?;

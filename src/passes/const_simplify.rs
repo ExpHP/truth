@@ -14,17 +14,17 @@
 //! ```
 //! use truth::{ast, pos::{Files, Sp}};
 //! use truth::type_system::TypeSystem;
-//! use truth::passes::const_simplify;
+//! use truth::passes;
 //!
 //! let mut files = Files::new();
 //! let mut ty_ctx = TypeSystem::new();
 //!
-//! let text = b"(3 == 3) ? (3.0 + 0.5) * x : 4.0";
+//! let text = b"(3 == 3) ? (3.0 + 0.5) * %REG[100] : 4.0";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
-//! const_simplify::run(&mut expr, &mut ty_ctx).expect("failed to simplify");
+//! passes::const_simplify::run(&mut expr, &mut ty_ctx).expect("failed to simplify");
 //!
-//! let text_simplified = b"3.5 * x";
+//! let text_simplified = b"3.5 * %REG[100]";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```

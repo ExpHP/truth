@@ -234,6 +234,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
+        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ty_ctx).unwrap();
         truth::passes::resolve_names::run(&block, &mut ty_ctx)?;
         truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx)?;
         truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx)?;
@@ -272,6 +273,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
+        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ty_ctx).unwrap();
         truth::passes::resolve_names::run(&block, &mut ty_ctx).unwrap();
         truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx).unwrap();
         truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx).unwrap();

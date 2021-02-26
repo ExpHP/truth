@@ -1,0 +1,14 @@
+---
+source: tests/compile-fail.rs
+expression: stderr
+---
+error: unexpected token `REG`
+   ┌─ <input>:28:13
+   │
+28 │         int REG[100] = 3;
+   │             ^^^ unexpected token
+   │
+   = 
+     Expected one of ";", "anim", "ecli", "entry", "mapfile", "script", "timeline" or IDENT
+
+
