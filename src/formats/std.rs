@@ -7,7 +7,7 @@ use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult};
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
-use crate::ident::{Ident, ResIdent};
+use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
@@ -245,7 +245,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, de
             }),
             sp!(ast::Item::AnmScript {
                 number: None,
-                ident: sp!(ResIdent::new_null("main".parse().unwrap())),
+                ident: sp!("main".parse().unwrap()),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }),
@@ -305,7 +305,7 @@ fn compile_std(
                     primary(number, "unexpected number"),
                 )),
                 Item::AnmScript { number: None, ident, code, .. } => {
-                    if ident.as_raw() != "main" {
+                    if ident != "main" {
                         return Err(error!(
                             message("STD script must be called 'main'"),
                             primary(ident, "invalid name for STD script"),

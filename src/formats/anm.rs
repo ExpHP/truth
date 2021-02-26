@@ -225,7 +225,7 @@ fn decompile(
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
-                ident: name.clone().sp_map(ResIdent::new_null),
+                ident: name.clone(),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }));
@@ -305,7 +305,7 @@ fn compile(
 
     // an early pass to define global constants for sprite and script names
     let sprite_ids = gather_sprite_ids(ast, ty_ctx)?;
-    let script_ids = gather_script_ids(ast)?;
+    let script_ids = gather_script_ids(ast, ty_ctx)?;
     for &(ref script_name, id) in script_ids.values() {
         ty_ctx.add_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
     }
@@ -361,10 +361,10 @@ fn compile(
 
     let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
-            let (_, id) = script_ids[name.as_raw()];
+            let (_, id) = script_ids[&name.value];
             let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
 
-            entry.scripts.insert(sp!(name.span => name.as_raw().clone()), Script { id, instrs });
+            entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }
         Ok::<_, CompileError>(entry)
     }).collect_with_recovery()?;
@@ -466,7 +466,7 @@ impl<'m> FromMeta<'m> for ProtoSprite<'m> {
     }
 }
 
-fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Ident, (Sp<ResIdent>, i32)>, CompileError> {
+fn gather_script_ids(ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<IndexMap<Ident, (Sp<ResIdent>, i32)>, CompileError> {
     let mut next_auto_script = 0;
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
@@ -475,9 +475,10 @@ fn gather_script_ids(ast: &ast::Script) -> Result<IndexMap<Ident, (Sp<ResIdent>,
                 let script_id = number.map(|x| x.value).unwrap_or(next_auto_script);
                 next_auto_script = script_id + 1;
 
-                match script_ids.entry(ident.as_raw().clone()) {
+                match script_ids.entry(ident.value.clone()) {
                     indexmap::map::Entry::Vacant(e) => {
-                        e.insert((ident.clone(), script_id));
+                        let res_ident = ident.clone().sp_map(|name| ty_ctx.resolutions.attach_fresh_res(name.clone()));
+                        e.insert((res_ident, script_id));
                     },
                     indexmap::map::Entry::Occupied(e) => {
                         let (prev_ident, _) = e.get();

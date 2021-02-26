@@ -80,7 +80,7 @@ pub enum Item {
     AnmScript {
         keyword: TokenSpan,
         number: Option<Sp<i32>>,
-        ident: Sp<ResIdent>,
+        ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
         code: Block,
     },
     Meta {
@@ -743,8 +743,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_res_ident(ident);
                     }
                 },
-                Item::AnmScript { keyword: _, number: _, ident, code } => {
-                    v.visit_res_ident(ident);
+                Item::AnmScript { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { keyword: _, ident: _, fields } => {

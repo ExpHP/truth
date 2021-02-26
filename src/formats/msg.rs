@@ -5,7 +5,6 @@ use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
 use crate::game::Game;
-use crate::ident::ResIdent;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
 use crate::type_system::TypeSystem;
@@ -57,7 +56,7 @@ fn decompile(
 
             Ok(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id as _)),
-                ident: sp!(ResIdent::new_null("main".parse().unwrap())),
+                ident: sp!("main".parse().unwrap()),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }))

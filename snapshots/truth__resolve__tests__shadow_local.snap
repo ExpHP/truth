@@ -3,14 +3,14 @@ source: src/resolve.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        if (true) {\n            int a = 4;\n            int b = a * a;  // should use inner `a`\n        }\n        int c = a * a;  // should use outer `a`\n        if (true) {\n            int a = 4;  // should be different from other inner `a`\n            int b = a * a;  // should use new inner `a`\n        }\n    }\"#).trim()"
 ---
 {
-    int a_4 = 3;
+    int a_0 = 3;
     if (1) {
-        int a_5 = 4;
-        int b_6 = (a_5 * a_5);
+        int a_1 = 4;
+        int b_0 = (a_1 * a_1);
     }
-    int c_7 = (a_4 * a_4);
+    int c_0 = (a_0 * a_0);
     if (1) {
-        int a_8 = 4;
-        int b_9 = (a_8 * a_8);
+        int a_2 = 4;
+        int b_1 = (a_2 * a_2);
     }
 }

@@ -3,5 +3,5 @@ source: src/resolve.rs
 expression: "resolve_reformat::<ast::Block>(r#\"{\n        ins_21(A, X);\n    }\"#).trim()"
 ---
 {
-    ins_21(A_2, X_3);
+    ins_21(A_0, X_0);
 }
