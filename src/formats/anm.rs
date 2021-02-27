@@ -13,7 +13,7 @@ use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
-use crate::pos::Sp;
+use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
@@ -303,22 +303,24 @@ fn compile(
 ) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
+    let mut ast = ast.clone();
+    crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+
     // an early pass to define global constants for sprite and script names
-    let sprite_ids = gather_sprite_ids(ast, ctx)?;
-    let script_ids = gather_script_ids(ast, ctx)?;
+    let script_ids = gather_script_ids(&ast, ctx)?;
     for &(ref script_name, id) in script_ids.values() {
-        ctx.define_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
+        ctx.define_global_const_var(script_name.clone(), id.sp_map(ast::Expr::from));
     }
-    for &(ref sprite_name, id) in sprite_ids.values() {
-        ctx.define_global_const_var(sprite_name.clone(), ScalarValue::Int(id as i32));
+    let sprite_ids = gather_sprite_id_exprs(&ast, ctx)?;
+    for &(ref sprite_name, ref id_expr) in sprite_ids.values() {
+        ctx.define_global_const_var(sprite_name.clone(), id_expr.clone());
     }
 
     // preprocess
     let ast = {
-        let mut ast = ast.clone();
-
-        crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+        let mut ast = ast;
         crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
         crate::passes::desugar_blocks::run(&mut ast, ctx)?;
@@ -355,6 +357,28 @@ fn compile(
         }
     }
 
+    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
+    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
+    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
+    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
+
+    // match sprite_ids.entry(name.value.clone()) {
+    //     indexmap::map::Entry::Vacant(e) => {
+    //     },
+    //     // name clashes between sprites in different entries are allowed (this happens in decompiled output)
+    //     // but the IDs must match.
+    //     indexmap::map::Entry::Occupied(e) => {
+    //         let &(ref prev_name, prev_id) = e.get();
+    //         if prev_id != sprite_id {
+    //             return Err(error!(
+    //                 message("name clash between sprites"),
+    //                 primary(name, "redefinition with ID {}", sprite_id),
+    //                 secondary(prev_name, "definition with ID {}", prev_id),
+    //             ));
+    //         }
+    //     },
+    // }
+
     match cur_entry {
         None => return Err(error!("empty ANM script")),
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
@@ -362,7 +386,7 @@ fn compile(
 
     let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
-            let (_, id) = script_ids[&name.value];
+            let (_, sp_pat![id]) = script_ids[&name.value];
             let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
@@ -388,66 +412,38 @@ fn write_thecl_defs(
 
 // =============================================================================
 
-fn gather_sprite_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, u32)>, CompileError> {
+fn gather_sprite_id_exprs(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<ast::Expr>)>, CompileError> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
     });
 
-    let mut next_auto_sprite = 0;
+    let mut auto_sprites = sequential_int_exprs(sp!(0.into()));
     let mut sprite_ids = IndexMap::new();
     for entry_fields in all_entries {
         let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite<'_>>>("sprites")?;
-        for (name, sprite) in sprites {
-            let given_sprite_id = sprite.id_expr.map(|id_expr| {
-                // So this bit is a little annoying.
-                // const simplification hasn't been performed because we can't even do name resolution yet,
-                // as global consts still need to be defined for sprites.
-                //
-                // But a negative number can show up here.  (PCB has a sprite with -1 ID).  Normally that'd
-                // be handled by const simplification
-                //
-                // FIXME: Once we have lazy const computation, we should simply add the expr as is to the dependency graph instead.
-                let error = || error!(
-                    message("expression not supported in sprite ID"),
-                    primary(id_expr, "unsupported expression"),
-                );
-                match id_expr.value {
-                    ast::Expr::LitInt { value, .. } => Ok(value as u32),
-                    ast::Expr::Unop(sp_pat!(token![unop -]), ref x) => match x.value {
-                        ast::Expr::LitInt { value, .. } => Ok((-value) as u32),
-                        _ => Err(error()),  // FIXME support eventually
-                    },
-                    _ => Err(error()),  // FIXME support eventually
-                }
-            }).transpose()?;
+        for (ident, sprite) in sprites {
+            if let Some(id_expr) = sprite.id_expr.cloned() {
+                auto_sprites = sequential_int_exprs(id_expr);
+            };
 
-            let sprite_id = given_sprite_id.unwrap_or(next_auto_sprite);
-            next_auto_sprite = sprite_id + 1;
+            let sprite_id = sp!(ident.span => auto_sprites.next().unwrap());
 
-            match sprite_ids.entry(name.value.clone()) {
-                indexmap::map::Entry::Vacant(e) => {
-                    // since these are just meta keys we have to synthesize new ResIds
-                    let res_ident = name.sp_map(|name| ctx.resolutions.attach_fresh_res(name.clone()));
-                    e.insert((res_ident, sprite_id));
-                },
-                // name clashes between sprites in different entries are allowed (this happens in decompiled output)
-                // but the IDs must match.
-                indexmap::map::Entry::Occupied(e) => {
-                    let &(ref prev_name, prev_id) = e.get();
-                    if prev_id != sprite_id {
-                        return Err(error!(
-                            message("name clash between sprites"),
-                            primary(name, "redefinition with ID {}", sprite_id),
-                            secondary(prev_name, "definition with ID {}", prev_id),
-                        ));
-                    }
-                },
-            }
+            // since these are just meta keys we have to synthesize new ResIds
+            let res_ident = ident.clone().sp_map(|ident| ctx.resolutions.attach_fresh_res(ident));
+            sprite_ids.insert(ident.value.clone(), (res_ident, sprite_id));
         }
     }
 
     Ok(sprite_ids)
+}
+
+// for an expr `<e>`, produces `<e> + 0`, `<e> + 1`, `<e> + 2`...
+fn sequential_int_exprs(e: Sp<ast::Expr>) -> impl Iterator<Item=ast::Expr> {
+    (0..).map(move |i| {
+        let addend: ast::Expr = i.into();
+        rec_sp!(Span::NULL => expr_binop!(#(e.clone()) + #addend)).value
+    })
 }
 
 /// A type that's parsed from the Meta in an early pass just to gather sprite names.
@@ -467,14 +463,14 @@ impl<'m> FromMeta<'m> for ProtoSprite<'m> {
     }
 }
 
-fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, i32)>, CompileError> {
+fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<i32>)>, CompileError> {
     let mut next_auto_script = 0;
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
         match &item.value {
             &ast::Item::AnmScript { number, ref ident, .. } => {
-                let script_id = number.map(|x| x.value).unwrap_or(next_auto_script);
-                next_auto_script = script_id + 1;
+                let script_id = number.unwrap_or(sp!(ident.span => next_auto_script));
+                next_auto_script = script_id.value + 1;
 
                 match script_ids.entry(ident.value.clone()) {
                     indexmap::map::Entry::Vacant(e) => {

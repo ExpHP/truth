@@ -7,8 +7,11 @@
 //! This is a crucial part of STD compilation, as STD has no mechanism for using variables at
 //! runtime.  For other formats, it is moreso just an optimization.
 //!
-//! This pass expects that [type checking](`crate::passes::type_check`) has already been performed,
-//! and may panic or misbehave if a type error is encountered.
+//! # Requirements
+//!
+//! * Expects that [type checking][`crate::passes::type_check`] has already been performed,
+//!   and may panic or misbehave if a type error is encountered.
+//! * Expects that [const vars have been evaluated][`crate::passes::evaluate_const_vars`].
 //!
 //! # Example
 //! ```
@@ -169,6 +172,9 @@ struct Visitor<'a> {
 }
 
 impl ast::VisitMut for Visitor<'_> {
+    // !!! IMPORTANT !!!
+    // This function must be updated in sync with the DFS const evaluator.
+    // (it did not seem possible to factor the shared logic out...)
     fn visit_expr(&mut self, e: &mut Sp<ast::Expr>) {
         // simplify subexpressions first
         ast::walk_expr_mut(self, e);
@@ -178,8 +184,8 @@ impl ast::VisitMut for Visitor<'_> {
             ast::Expr::Var(var) => match var.name {
                 ast::VarName::Normal { ref ident } => {
                     let def_id = self.ctx.resolutions.expect_def(ident);
-                    if let Some(value) = self.ctx.defs.var_const_value(def_id) {
-                        e.value = value.apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
+                    if let Some(value) = self.ctx.consts.get_cached_value(def_id) {
+                        e.value = value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
                     }
                 },
                 ast::VarName::Reg { .. } => {}, // can't simplify register

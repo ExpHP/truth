@@ -9,7 +9,7 @@ use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, ResId};
 use crate::eclmap::Eclmap;
-use crate::value::{ScalarValue, ScalarType};
+use crate::value::ScalarType;
 use crate::llir::InstrAbi;
 
 /// Retains information about all definitions in the program.
@@ -57,7 +57,7 @@ impl CompilerContext {
         self.defs.regs.insert(reg, RegData { ty });
     }
 
-    /// Add an alias for a register from a mapfile, attaching a brand new ID to the ident.
+    /// Add an alias for a register from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
     pub fn define_global_reg_alias(&mut self, reg: RegId, ident: Ident) -> DefId {
@@ -73,7 +73,7 @@ impl CompilerContext {
         def_id
     }
 
-    /// Declare a local variable, attaching a brand new ID to the ident.
+    /// Declare a local variable, resolving the ident to a brand new [`DefId`].
     pub fn define_local(&mut self, ident: Sp<ResIdent>, ty: VarType) -> DefId {
         let def_id = self.create_new_def_id(&ident);
 
@@ -84,16 +84,17 @@ impl CompilerContext {
         def_id
     }
 
-    /// Declare a fully-evaluated compile-time constant variable, attaching a brand new ID to the ident.
-    pub fn define_global_const_var(&mut self, ident: Sp<ResIdent>, value: ScalarValue) -> Sp<ResIdent> {
+    /// Declare a compile-time constant variable, resolving the ident to a brand new [`DefId`].
+    pub fn define_global_const_var(&mut self, ident: Sp<ResIdent>, expr: Sp<ast::Expr>) -> DefId {
         let def_id = self.create_new_def_id(&ident);
 
         self.defs.vars.insert(def_id, VarData {
-            ty: Some(Some(value.ty())),
-            kind: VarKind::Const { ident: ident.clone(), value },
+            ty: Some(expr.compute_ty(self)),
+            kind: VarKind::Const { ident: ident.clone(), expr },
         });
+        self.consts.defer_evaluation_of(def_id);
         self.defs.global_ids.push((Namespace::Vars, def_id));
-        ident
+        def_id
     }
 
     /// Set the low-level ABI of an instruction.
@@ -107,7 +108,7 @@ impl CompilerContext {
         self.defs.instrs.insert(opcode, InsData { abi, sig });
     }
 
-    /// Add an alias for an instruction from a mapfile, attaching a brand new ID for name resolution to the ident.
+    /// Add an alias for an instruction from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
     pub fn define_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> DefId {
@@ -123,7 +124,7 @@ impl CompilerContext {
         def_id
     }
 
-    /// Add a user-defined function.
+    /// Add a user-defined function, resolving the ident to a brand new [`DefId`]
     ///
     /// FIXME: Should take signature, inline/const-ness, etc.
     pub fn define_user_func(&mut self, ident: Sp<ResIdent>) -> DefId {
@@ -317,9 +318,9 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_const_value(&mut self, def_id: DefId) -> Option<ScalarValue> {
+    pub fn var_const_expr(&self, def_id: DefId) -> Option<&Sp<ast::Expr>> {
         match &self.vars[&def_id] {
-            VarData { kind: VarKind::Const { value, .. }, .. } => Some(value.clone()),
+            VarData { kind: VarKind::Const { expr, .. }, .. } => Some(expr),
             _ => None,
         }
     }
@@ -391,7 +392,7 @@ enum VarKind {
     },
     Const {
         ident: Sp<ResIdent>,
-        value: ScalarValue,
+        expr: Sp<ast::Expr>,
     }
 }
 

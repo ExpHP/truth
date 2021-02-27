@@ -8,6 +8,9 @@ use crate::resolve::Resolutions;
 pub use defs::Defs;
 pub mod defs;
 
+pub use consts::Consts;
+pub mod consts;
+
 /// Context object for the majority of compilation.
 ///
 /// This is a context object that holds a significant portion of the mutable state that is shared between
@@ -47,6 +50,8 @@ pub struct CompilerContext {
     pub defs: Defs,
     /// For generating identifiers.
     pub gensym: GensymContext,
+    /// Cached const values.
+    pub consts: Consts,
 }
 
 impl CompilerContext {

@@ -421,7 +421,7 @@ compile_fail_test!(
 entry {
     path: "subdir/file-2.png",
     has_data: false,
-    memory_priority: 3 * I0,
+    memory_priority: 3,
     low_res_scale: false,
     sprites: {
         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
@@ -429,7 +429,7 @@ entry {
 }
     "#,
     main_body: "",
-    expected: EXPECTED_NOT_SUPPORTED_BY_FORMAT, // FIXME:  eventually this should instead error about not being const
+    expected: "const",
 );
 
 mod type_error {
