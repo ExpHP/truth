@@ -232,7 +232,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, de
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = llir::Raiser::new().raise_instrs_to_sub_ast(instr_format, script, ty_ctx)?;
+    let code = llir::Raiser::new().raise_instrs_to_sub_ast(instr_format, script, &ty_ctx.defs)?;
 
     let mut script = ast::Script {
         mapfiles: ty_ctx.mapfiles_to_ast(),

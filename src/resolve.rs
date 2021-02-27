@@ -2,7 +2,7 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::collections::HashMap;
 use crate::ident::{Ident, ResIdent};
-use crate::type_system::{TypeSystem};
+use crate::type_system::{TypeSystem, Defs};
 
 /// A "resolvable ID."  Identifies a instance in the source code of an identifier that *can*
 /// be resolved to something.
@@ -105,10 +105,10 @@ mod name_resolver {
 
         /// Create a new [`NameResolver`] sitting in a scope that is pre-populated with all
         /// externally-defined names.
-        pub fn init_from_ty_ctx(ty_ctx: &TypeSystem) -> Self {
+        pub fn init_from_defs(defs: &Defs) -> Self {
             let mut this = Self::new();
-            for (ns, def_id) in ty_ctx.globals() {
-                let ident = ty_ctx.name(ns, def_id);
+            for (ns, def_id) in defs.globals() {
+                let ident = defs.name(ns, def_id);
                 this.enter_child(ident.as_raw().clone(), ns, def_id);
             }
             this
@@ -161,7 +161,7 @@ mod resolve_vars {
     impl<'ts> Visitor<'ts> {
         pub fn new(ty_ctx: &'ts mut TypeSystem) -> Self {
             Visitor {
-                resolver: NameResolver::init_from_ty_ctx(ty_ctx),
+                resolver: NameResolver::init_from_defs(&ty_ctx.defs),
                 errors: CompileError::new_empty(),
                 ty_ctx,
             }
@@ -189,7 +189,7 @@ mod resolve_vars {
                     }
                     funcs_at_this_level.insert(ident.as_raw().clone(), ident.span);
 
-                    let def_id = self.ty_ctx.add_user_func(ident.clone());
+                    let def_id = self.ty_ctx.define_user_func(ident.clone());
 
                     // add it to the current scope
                     self.resolver.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
@@ -207,7 +207,7 @@ mod resolve_vars {
                         // we have to put the parameters in scope
                         let outer_scope_depth = self.resolver.current_depth();
                         for (ty_keyword, ident) in params {
-                            let def_id = self.ty_ctx.add_local(ident.clone(), ty_keyword.ty());
+                            let def_id = self.ty_ctx.define_local(ident.clone(), ty_keyword.ty());
 
                             self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
                         }
@@ -246,7 +246,7 @@ mod resolve_vars {
                                 self.visit_expr(init_value);
                             }
 
-                            let def_id = self.ty_ctx.add_local(sp!(var.span => ident.clone()), ty);
+                            let def_id = self.ty_ctx.define_local(sp!(var.span => ident.clone()), ty);
 
                             // record the variable in our resolution tree and enter its scope
                             // so that it can be used in future expressions

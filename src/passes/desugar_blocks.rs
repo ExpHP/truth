@@ -131,9 +131,9 @@ impl<'a> Desugarer<'a> {
                     let (clobber, temp_def) = match clobber {
                         Some(var) => (var, None),
                         None => {
-                            let ident = self.ty_ctx.gensym("count");
+                            let ident = self.ty_ctx.gensym.gensym("count");
                             let ident = sp!(count.span => self.ty_ctx.resolutions.attach_fresh_res(ident));
-                            let def_id = self.ty_ctx.add_local(ident.clone(), Some(ScalarType::Int));
+                            let def_id = self.ty_ctx.define_local(ident.clone(), Some(ScalarType::Int));
                             let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.value.into() });
 
                             self.out.push(sp!(count.span => ast::Stmt {
@@ -160,7 +160,7 @@ impl<'a> Desugarer<'a> {
                 },
 
                 ast::StmtBody::CondChain(chain) => {
-                    let veryend = self.ty_ctx.gensym("@cond_veryend#");
+                    let veryend = self.ty_ctx.gensym.gensym("@cond_veryend#");
 
                     let mut prev_end_time = outer_time;
                     for cond_block in chain.cond_blocks {
@@ -201,7 +201,7 @@ impl<'a> Desugarer<'a> {
         cond: Sp<ast::Cond>,
         inner: impl FnOnce(&mut Self),
     ) {
-        let skip_label = self.ty_ctx.gensym("@cond#");
+        let skip_label = self.ty_ctx.gensym.gensym("@cond#");
         self.out.push(rec_sp!(condjmp_span =>
             stmt_cond_goto!(at #condjmp_time, #(keyword.negate()) #cond goto #(skip_label.clone()))
         ));
@@ -220,7 +220,7 @@ impl<'a> Desugarer<'a> {
         ));
 
         // unless count is statically known to be nonzero, we need an initial zero test
-        let skip_label = self.ty_ctx.gensym("@times_zero#");
+        let skip_label = self.ty_ctx.gensym.gensym("@times_zero#");
         if let None | Some(0) = count_as_const {
             self.out.push(rec_sp!(span =>
                 stmt_cond_goto!(at #init_time, if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone()))
@@ -236,7 +236,7 @@ impl<'a> Desugarer<'a> {
 
     // desugars a `loop { .. }` or `do { ... } while (<cond>);`
     fn desugar_loop_body(&mut self, block: ast::Block, cond: JumpInfo) {
-        let label = self.ty_ctx.gensym("@loop#");
+        let label = self.ty_ctx.gensym.gensym("@loop#");
         self.make_label(block.start_span(), block.start_time(), label.clone());
         self.desugar_block(block);
         self.make_goto_after_block(cond, label);
@@ -298,7 +298,7 @@ mod tests {
 
             let mut ty_ctx = TypeSystem::new();
             for &(name, reg, ty) in &self.globals {
-                ty_ctx.add_global_reg_alias(reg, name.parse().unwrap());
+                ty_ctx.define_global_reg_alias(reg, name.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ty_ctx).unwrap();

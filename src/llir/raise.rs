@@ -8,7 +8,7 @@ use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::resolve::{RegId};
-use crate::type_system::{ArgEncoding, TypeSystem, ScalarType, InstrAbi};
+use crate::type_system::{ArgEncoding, ScalarType, InstrAbi, Defs};
 use crate::value::ScalarValue;
 
 /// Intermediate form of an instruction only used during decompilation.
@@ -53,9 +53,9 @@ impl Raiser {
         &mut self,
         instr_format: &dyn InstrFormat,
         raw_script: &[RawInstr],
-        ty_ctx: &TypeSystem,
+        defs: &Defs,
     ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
-        raise_instrs_to_sub_ast(self, instr_format, raw_script, ty_ctx)
+        raise_instrs_to_sub_ast(self, instr_format, raw_script, defs)
     }
 
     pub fn generate_warnings(&mut self) {
@@ -74,13 +74,13 @@ fn raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
     instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
 ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
-    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(raw_instr, ty_ctx)).collect::<Result<_, _>>()?;
+    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(raw_instr, defs)).collect::<Result<_, _>>()?;
 
-    let jump_data = gather_jump_time_args(&script, ty_ctx, instr_format)?;
+    let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
     let offset_labels = generate_offset_labels(&script, &instr_offsets, &jump_data)?;
     let mut out = vec![sp!(ast::Stmt {
         time: script.get(0).map(|x| x.time).unwrap_or(0),
@@ -93,7 +93,7 @@ fn raise_instrs_to_sub_ast(
             out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
         }
 
-        let body = raise_instr(instr_format, instr, ty_ctx, &intrinsic_instrs, &offset_labels)?;
+        let body = raise_instr(instr_format, instr, defs, &intrinsic_instrs, &offset_labels)?;
         out.push(rec_sp!(Span::NULL => stmt!(at #(instr.time), #body)));
     }
 
@@ -139,13 +139,13 @@ fn gather_instr_offsets(
 
 fn gather_jump_time_args(
     script: &[RaiseInstr],
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
     instr_format: &dyn InstrFormat,
 ) -> Result<JumpData, SimpleError> {
     let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
 
     for instr in script {
-        if let Some((jump_offset, jump_time)) = extract_jump_args_by_signature(instr_format, instr, ty_ctx) {
+        if let Some((jump_offset, jump_time)) = extract_jump_args_by_signature(instr_format, instr, defs) {
             all_offset_args.entry(jump_offset).or_default().insert(jump_time);
         }
     }
@@ -220,7 +220,7 @@ fn test_generate_label_at_offset() {
 fn extract_jump_args_by_signature(
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
 ) -> Option<(u64, Option<i32>)> {
     let mut jump_offset = None;
     let mut jump_time = None;
@@ -230,7 +230,7 @@ fn extract_jump_args_by_signature(
         RaiseArgs::Unknown(_) => return None,
     };
 
-    let abi = ty_ctx.ins_abi(instr.opcode).expect("decoded, so abi is known");
+    let abi = defs.ins_abi(instr.opcode).expect("decoded, so abi is known");
     for (arg, encoding) in zip!(args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_immediate_int() as u32)),
@@ -246,12 +246,12 @@ fn extract_jump_args_by_signature(
 fn raise_instr(
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
     match &instr.args {
-        RaiseArgs::Decoded(args) => raise_decoded_instr(instr_format, instr, args, ty_ctx, intrinsic_instrs, offset_labels),
+        RaiseArgs::Decoded(args) => raise_decoded_instr(instr_format, instr, args, defs, intrinsic_instrs, offset_labels),
         RaiseArgs::Unknown(args) => raise_unknown_instr(instr, args),
     }
 }
@@ -286,12 +286,12 @@ fn raise_decoded_instr(
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
     args: &[SimpleArg],
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, SimpleError> {
     let opcode = instr.opcode;
-    let abi = ty_ctx.ins_abi(instr.opcode).expect("decoded, so abi is known");
+    let abi = defs.ins_abi(instr.opcode).expect("decoded, so abi is known");
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     match intrinsic_instrs.get_intrinsic(opcode) {
@@ -369,7 +369,7 @@ fn raise_decoded_instr(
 
         // Default behavior for general instructions
         None => group_anyhow(|| {
-            let abi = expect_abi(instr, ty_ctx);
+            let abi = expect_abi(instr, defs);
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 name: sp!(ast::CallableName::Ins { opcode }),
@@ -507,8 +507,8 @@ fn raise_jump_args(
 // =============================================================================
 
 impl Raiser {
-    fn decode_args(&mut self, instr: &RawInstr, ty_ctx: &TypeSystem) -> Result<RaiseInstr, SimpleError> {
-        match ty_ctx.ins_abi(instr.opcode) {
+    fn decode_args(&mut self, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, SimpleError> {
+        match defs.ins_abi(instr.opcode) {
             Some(abi) => decode_args_with_abi(instr, abi),
 
             // No ABI. Fall back to decompiling as a blob.
@@ -586,10 +586,10 @@ fn decode_args_with_abi(instr: &RawInstr, siggy: &InstrAbi) -> Result<RaiseInstr
     })
 }
 
-fn expect_abi<'a>(instr: &RaiseInstr, ty_ctx: &'a TypeSystem) -> &'a InstrAbi {
+fn expect_abi<'a>(instr: &RaiseInstr, defs: &'a Defs) -> &'a InstrAbi {
     // if we have Instr then we already must have used the signature earlier to decode the arg bytes,
     // so we can just panic
-    ty_ctx.ins_abi(instr.opcode).unwrap_or_else(|| {
+    defs.ins_abi(instr.opcode).unwrap_or_else(|| {
         unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
     })
 }

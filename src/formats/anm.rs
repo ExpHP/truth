@@ -221,7 +221,7 @@ fn decompile(
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, ty_ctx)?;
+            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ty_ctx.defs)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -307,10 +307,10 @@ fn compile(
     let sprite_ids = gather_sprite_ids(ast, ty_ctx)?;
     let script_ids = gather_script_ids(ast, ty_ctx)?;
     for &(ref script_name, id) in script_ids.values() {
-        ty_ctx.add_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
+        ty_ctx.define_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
     }
     for &(ref sprite_name, id) in sprite_ids.values() {
-        ty_ctx.add_global_const_var(sprite_name.clone(), ScalarValue::Int(id as i32));
+        ty_ctx.define_global_const_var(sprite_name.clone(), ScalarValue::Int(id as i32));
     }
 
     // preprocess

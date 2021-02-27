@@ -209,6 +209,18 @@ impl GensymContext {
         GensymContext { next_id: 0 }
     }
 
+    /// Generate a new, raw identifier.
+    ///
+    /// E.g. for a prefix of `"temp_"`, this could create an ident like `"temp_23"`.
+    ///
+    /// In an ideal world, this perhaps wouldn't be needed, since we already have [`DefId`]
+    /// for representing unique identifiers.  But we need it anyways since those ids are stored
+    /// on [`ResIdent`], which requires an [`Ident`].
+    ///
+    /// FIXME: The generated name can potentially clash with existing user-defined names.
+    /// For now, to protect against this, any identifier that is gensym-ed should either be a
+    /// [`ResIdent`] (and have a new [`DefId`] assigned to it immediately), or it should
+    /// contain a non-identifier character.
     pub fn gensym(&mut self, prefix: &str) -> Ident {
         let id = self.next_id();
         format!("{}{}", prefix, id).parse().expect("invalid prefix")

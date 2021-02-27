@@ -176,7 +176,7 @@ fn abi_to_signature(abi: &InstrAbi, ty_ctx: &mut TypeSystem) -> Signature {
                 => (ScalarType::String, None),
             };
             let name = sp!(ty_ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
-            ty_ctx.add_local(name.clone(), Some(ty));
+            ty_ctx.define_local(name.clone(), Some(ty));
 
             SignatureParam { default, name, ty: sp!(ty) }
         }).collect(),

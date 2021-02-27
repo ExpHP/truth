@@ -486,7 +486,7 @@ impl Lowerer<'_> {
                 //        goto label
                 //     skip:
 
-                let skip_label = sp!(keyword.span => self.ty_ctx.gensym("@unless_predec_skip#"));
+                let skip_label = sp!(keyword.span => self.ty_ctx.gensym.gensym("@unless_predec_skip#"));
                 let if_keyword = sp!(keyword.span => token![if]);
                 let if_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
 
@@ -620,7 +620,7 @@ impl Lowerer<'_> {
             //      skip:
 
             let negated_kw = sp!(keyword.span => keyword.negate());
-            let skip_label = sp!(binop.span => self.ty_ctx.gensym("@unless_predec_skip#"));
+            let skip_label = sp!(binop.span => self.ty_ctx.gensym.gensym("@unless_predec_skip#"));
             let skip_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
 
             self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, a, &skip_goto)?;
@@ -683,9 +683,9 @@ impl Lowerer<'_> {
         tmp_ty: ScalarType,
     ) -> Result<(DefId, Sp<ast::Var>), CompileError> {
         // FIXME: It bothers me that we have to actually allocate an identifier here.
-        let ident = self.ty_ctx.gensym("temp");
+        let ident = self.ty_ctx.gensym.gensym("temp");
         let ident = sp!(span => self.ty_ctx.resolutions.attach_fresh_res(ident));
-        let def_id = self.ty_ctx.add_local(ident.clone(), Some(tmp_ty));
+        let def_id = self.ty_ctx.define_local(ident.clone(), Some(tmp_ty));
         let sigil = get_temporary_read_ty(tmp_ty, span)?;
 
         let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
@@ -845,7 +845,7 @@ pub (in crate::llir::lower) fn assign_registers(
             LowerStmt::RegAlloc { def_id, ref cause } => {
                 has_used_scratch.get_or_insert(*cause);
 
-                let required_ty = ty_ctx.var_inherent_ty(*def_id).expect("(bug!) this should have been type-checked!");
+                let required_ty = ty_ctx.defs.var_inherent_ty(*def_id).expect("(bug!) this should have been type-checked!");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
                     let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.reg_to_ast(reg));
@@ -876,7 +876,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 assert!(local_regs.insert(*def_id, (reg, required_ty, *cause)).is_none());
             },
             LowerStmt::RegFree { def_id } => {
-                let inherent_ty = ty_ctx.var_inherent_ty(*def_id).expect("(bug!) we allocated a reg so it must have a type");
+                let inherent_ty = ty_ctx.defs.var_inherent_ty(*def_id).expect("(bug!) we allocated a reg so it must have a type");
                 let (reg, _, _) = local_regs.remove(&def_id).expect("(bug!) RegFree without RegAlloc!");
                 unused_regs[inherent_ty].push(reg);
             },

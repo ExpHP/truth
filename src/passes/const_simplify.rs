@@ -178,7 +178,7 @@ impl ast::VisitMut for Visitor<'_> {
             ast::Expr::Var(var) => match var.name {
                 ast::VarName::Normal { ref ident } => {
                     let def_id = self.ty_ctx.resolutions.expect_def(ident);
-                    if let Some(value) = self.ty_ctx.var_const_value(def_id) {
+                    if let Some(value) = self.ty_ctx.defs.var_const_value(def_id) {
                         e.value = value.apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
                     }
                 },

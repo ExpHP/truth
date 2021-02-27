@@ -7,7 +7,7 @@ use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::resolve::DefId;
 use crate::ident::{Ident};
-use crate::type_system::{TypeSystem, ArgEncoding, ScalarType};
+use crate::type_system::{TypeSystem, ArgEncoding, ScalarType, Defs};
 use crate::binary_io::Encoded;
 
 mod stackless;
@@ -93,11 +93,11 @@ pub fn lower_sub_ast_to_instrs(
     let mut out = lowerer.out;
 
     // And now postprocess
-    encode_labels(&mut out, instr_format, 0, ty_ctx)?;
-    assign_registers(&mut out, instr_format, ty_ctx)?;
+    encode_labels(&mut out, instr_format, 0, &ty_ctx.defs)?;
+    assign_registers(&mut out, instr_format, &ty_ctx)?;
 
     out.into_iter().filter_map(|x| match x {
-        LowerStmt::Instr(instr) => Some(encode_args(&instr, ty_ctx)),
+        LowerStmt::Instr(instr) => Some(encode_args(&instr, &ty_ctx.defs)),
         LowerStmt::Label { .. } => None,
         LowerStmt::RegAlloc { .. } => None,
         LowerStmt::RegFree { .. } => None,
@@ -111,9 +111,9 @@ fn encode_labels(
     code: &mut [LowerStmt],
     format: &dyn InstrFormat,
     initial_offset: u64,
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
 ) -> Result<(), CompileError> {
-    let label_info = gather_label_info(format, initial_offset, code, ty_ctx)?;
+    let label_info = gather_label_info(format, initial_offset, code, defs)?;
 
     code.iter_mut().map(|thing| {
         match thing {
@@ -149,7 +149,7 @@ fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: u64,
     code: &[LowerStmt],
-    ty_ctx: &TypeSystem,
+    defs: &Defs,
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
     use std::collections::hash_map::Entry;
 
@@ -158,7 +158,7 @@ fn gather_label_info(
     code.iter().map(|thing| {
         match *thing {
             LowerStmt::Instr(ref instr) => {
-                offset += precompute_instr_size(instr, format, ty_ctx)? as u64;
+                offset += precompute_instr_size(instr, format, defs)? as u64;
             },
             LowerStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
@@ -188,17 +188,17 @@ fn gather_label_info(
 //
 /// Determine what the final total size of the instruction will be based on the arguments and signature.
 ///
-/// Typically we work with InstrRaw when we need to know the size of an instruction, but
+/// Typically we work with [`InstrRaw`] when we need to know the size of an instruction, but
 /// fixing jump labels requires us to know the size before the args are fully encoded.
 ///
 /// Unlike [`encode_args`], this has to deal with variants of [`LowerArg`] that are not the raw argument.
-fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
-    let arg_size = precompute_instr_args_size(instr, ty_ctx)?;
+fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, defs: &Defs) -> Result<usize, CompileError> {
+    let arg_size = precompute_instr_args_size(instr, defs)?;
 
     Ok(instr_format.instr_header_size() + arg_size)
 }
 
-fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<usize, CompileError> {
+fn precompute_instr_args_size(instr: &LowerInstr, defs: &Defs) -> Result<usize, CompileError> {
     let args = match &instr.args {
         LowerArgs::Known(args) => args,
         LowerArgs::Unknown(blob) => {
@@ -207,7 +207,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result
         },
     };
 
-    let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) how did this typecheck with no signature?");
+    let abi = defs.ins_abi(instr.opcode).expect("(bug!) how did this typecheck with no signature?");
 
     let mut size = 0;
     for (arg, enc) in zip!(args, abi.arg_encodings()) {
@@ -249,7 +249,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result
     Ok(size)
 }
 
-fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, CompileError> {
+fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError> {
     use crate::binary_io::BinWrite;
 
     let args = match &instr.args {
@@ -264,7 +264,7 @@ fn encode_args(instr: &LowerInstr, ty_ctx: &TypeSystem) -> Result<RawInstr, Comp
         },
     };
 
-    let abi = ty_ctx.ins_abi(instr.opcode).expect("(bug!) we already checked sigs for known args");
+    let abi = defs.ins_abi(instr.opcode).expect("(bug!) we already checked sigs for known args");
 
     let mut args_blob = std::io::Cursor::new(vec![]);
     for (arg, enc) in zip!(args, abi.arg_encodings()) {
@@ -347,8 +347,8 @@ fn test_precomputed_string_len() {
     let mut ty_ctx = TypeSystem::new();
     ty_ctx.set_ins_abi(1, "m".parse().unwrap());
 
-    let actual = precompute_instr_args_size(&instr, &ty_ctx).unwrap();
-    let expected = encode_args(&instr, &ty_ctx).unwrap().args_blob.len();
+    let actual = precompute_instr_args_size(&instr, &ty_ctx.defs).unwrap();
+    let expected = encode_args(&instr, &ty_ctx.defs).unwrap().args_blob.len();
     assert_eq!(actual, expected);
 
     // the written length should be *slightly more* than sjis_len because there's the null terminator

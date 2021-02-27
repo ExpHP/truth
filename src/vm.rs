@@ -460,7 +460,7 @@ mod tests {
 
             let mut ty_ctx = TypeSystem::new();
             for &(alias, reg, ty) in &self.globals {
-                ty_ctx.add_global_reg_alias(reg, alias.parse().unwrap());
+                ty_ctx.define_global_reg_alias(reg, alias.parse().unwrap());
                 ty_ctx.set_reg_ty(reg, Some(ty));
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ty_ctx).unwrap();
