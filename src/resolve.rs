@@ -1,8 +1,9 @@
 use std::fmt;
 use std::num::NonZeroU64;
 use std::collections::HashMap;
+
 use crate::ident::{Ident, ResIdent};
-use crate::type_system::{TypeSystem, Defs};
+use crate::context::{CompilerContext, Defs};
 
 /// A "resolvable ID."  Identifies a instance in the source code of an identifier that *can*
 /// be resolved to something.
@@ -30,7 +31,7 @@ pub struct ResId(pub NonZeroU64);
 /// Represents some sort of definition; a unique thing (an item, a local variable, a globally-defined
 /// register alias, etc.) that a name can possibly be resolved to.
 ///
-/// [`DefId`]s are created by the methods on [`TypeSystem`], and can be obtained after creation
+/// [`DefId`]s are created by the methods on [`CompilerContext`], and can be obtained after creation
 /// from [`Resolutions`].
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DefId(pub NonZeroU64);
@@ -155,15 +156,15 @@ mod resolve_vars {
     pub struct Visitor<'ts> {
         resolver: NameResolver,
         errors: CompileError,
-        ty_ctx: &'ts mut TypeSystem,
+        ctx: &'ts mut CompilerContext,
     }
 
     impl<'ts> Visitor<'ts> {
-        pub fn new(ty_ctx: &'ts mut TypeSystem) -> Self {
+        pub fn new(ctx: &'ts mut CompilerContext) -> Self {
             Visitor {
-                resolver: NameResolver::init_from_defs(&ty_ctx.defs),
+                resolver: NameResolver::init_from_defs(&ctx.defs),
                 errors: CompileError::new_empty(),
-                ty_ctx,
+                ctx,
             }
         }
 
@@ -189,7 +190,7 @@ mod resolve_vars {
                     }
                     funcs_at_this_level.insert(ident.as_raw().clone(), ident.span);
 
-                    let def_id = self.ty_ctx.define_user_func(ident.clone());
+                    let def_id = self.ctx.define_user_func(ident.clone());
 
                     // add it to the current scope
                     self.resolver.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
@@ -207,7 +208,7 @@ mod resolve_vars {
                         // we have to put the parameters in scope
                         let outer_scope_depth = self.resolver.current_depth();
                         for (ty_keyword, ident) in params {
-                            let def_id = self.ty_ctx.define_local(ident.clone(), ty_keyword.ty());
+                            let def_id = self.ctx.define_local(ident.clone(), ty_keyword.ty());
 
                             self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
                         }
@@ -246,7 +247,7 @@ mod resolve_vars {
                                 self.visit_expr(init_value);
                             }
 
-                            let def_id = self.ty_ctx.define_local(sp!(var.span => ident.clone()), ty);
+                            let def_id = self.ctx.define_local(sp!(var.span => ident.clone()), ty);
 
                             // record the variable in our resolution tree and enter its scope
                             // so that it can be used in future expressions
@@ -268,7 +269,7 @@ mod resolve_vars {
                         message("unknown variable '{}'", ident),
                         primary(var, "not found in this scope"),
                     )),
-                    Ok(def_id) => self.ty_ctx.resolutions.record_resolution(ident, def_id),
+                    Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 };
             }
         }
@@ -281,7 +282,7 @@ mod resolve_vars {
                             message("unknown function '{}'", name),
                             primary(name, "not found in this scope"),
                         )),
-                        Ok(def_id) => self.ty_ctx.resolutions.record_resolution(ident, def_id),
+                        Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }
                 }
             }
@@ -402,7 +403,7 @@ mod tests {
     use crate::fmt::Format;
     use crate::error::CompileError;
     use crate::eclmap::Eclmap;
-    use crate::type_system::TypeSystem;
+    use crate::context::CompilerContext;
     use crate::ast;
 
     const ECLMAP: &'static str = r#"!eclmap
@@ -416,24 +417,24 @@ mod tests {
 21 func21
 "#;
 
-    fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, TypeSystem), (Files, CompileError)> {
+    fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, CompilerContext), (Files, CompileError)> {
         let mut files = Files::new();
-        let mut ty_ctx = TypeSystem::new();
-        ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
+        let mut ctx = CompilerContext::new();
+        ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
 
         let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
-        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ty_ctx).unwrap();
-        match crate::passes::resolve_names::run(&parsed, &mut ty_ctx) {
-            Ok(()) => Ok((parsed, ty_ctx)),
+        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
+        match crate::passes::resolve_names::run(&parsed, &mut ctx) {
+            Ok(()) => Ok((parsed, ctx)),
             Err(e) => Err((files, e)),
         }
     }
 
     fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
-        let (mut parsed, ty_ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
+        let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
 
         // add suffixes so we can visualize the effects of name resolution
-        crate::passes::debug::make_idents_unique::run(&mut parsed, &ty_ctx.resolutions).unwrap();
+        crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
 
         crate::fmt::stringify(&parsed)
     }
@@ -540,16 +541,16 @@ mod tests {
     #[test]
     fn panics_on_cloned_res() {
         let mut files = Files::new();
-        let mut ty_ctx = TypeSystem::new();
-        ty_ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
+        let mut ctx = CompilerContext::new();
+        ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
 
         let mut def = files.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
         let mut cloned = files.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
-        crate::passes::resolve_names::assign_res_ids(&mut def, &mut ty_ctx).unwrap();
-        crate::passes::resolve_names::assign_res_ids(&mut cloned, &mut ty_ctx).unwrap();
+        crate::passes::resolve_names::assign_res_ids(&mut def, &mut ctx).unwrap();
+        crate::passes::resolve_names::assign_res_ids(&mut cloned, &mut ctx).unwrap();
 
         let block = ast::Block(vec![def, cloned.clone(), cloned]);
 
-        crate::passes::resolve_names::run(&block, &mut ty_ctx).unwrap();
+        crate::passes::resolve_names::run(&block, &mut ctx).unwrap();
     }
 }

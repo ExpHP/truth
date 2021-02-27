@@ -26,8 +26,8 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
-pub use type_system::{TypeSystem, ScalarType};
-pub mod type_system;
+pub use context::{CompilerContext};
+pub mod context;
 
 pub use passes::DecompileKind;
 pub mod passes;
@@ -57,11 +57,10 @@ pub mod pseudo;
 
 pub mod vm;
 
-pub use value::ScalarValue;
+pub use value::{ScalarValue, ScalarType};
 mod value {
     use std::fmt;
     use crate::ast;
-    use crate::type_system::ScalarType;
 
     /// The value of an expression.
     #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -125,6 +124,42 @@ mod value {
                 ScalarValue::String(x) => write!(f, "{:?}", x),
                 ScalarValue::Float(x) => write!(f, "{:?}", x),
                 ScalarValue::Int(x) => write!(f, "{}", x),
+            }
+        }
+    }
+
+    /// The type of an expression.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(enum_map::Enum)]
+    pub enum ScalarType {
+        Int,
+        Float,
+        String,
+    }
+
+    impl ScalarType {
+        /// Textual description, e.g. `"an integer"`.
+        pub fn descr(self) -> &'static str {
+            match self {
+                ScalarType::Int => "an integer",
+                ScalarType::Float => "a float",
+                ScalarType::String => "a string",
+            }
+        }
+
+        pub fn descr_plural(self) -> &'static str {
+            match self {
+                ScalarType::Int => "integers",
+                ScalarType::Float => "floats",
+                ScalarType::String => "strings",
+            }
+        }
+
+        pub fn sigil(self) -> Option<ast::VarReadType> {
+            match self {
+                ScalarType::Int => Some(ast::VarReadType::Int),
+                ScalarType::Float => Some(ast::VarReadType::Float),
+                ScalarType::String => None,
             }
         }
     }

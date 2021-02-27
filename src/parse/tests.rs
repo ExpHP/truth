@@ -3,11 +3,11 @@ use crate::meta;
 use crate::pos::Files;
 use crate::parse::Parse;
 use crate::error::CompileError;
-use crate::type_system::TypeSystem;
+use crate::context::CompilerContext;
 
 fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
     let mut expr = sp!(expr);
-    crate::passes::const_simplify::run(&mut expr, &mut TypeSystem::new())?;
+    crate::passes::const_simplify::run(&mut expr, &mut CompilerContext::new())?;
 
     Ok(expr.value)
 }

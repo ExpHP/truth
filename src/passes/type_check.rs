@@ -10,21 +10,21 @@
 use crate::ast;
 use crate::error::{GatherErrorIteratorExt, CompileError, Diagnostic};
 use crate::pos::{Sp, Span};
-use crate::type_system::ScalarType;
-use crate::type_system::TypeSystem;
+use crate::value::ScalarType;
+use crate::context::CompilerContext;
 use crate::ast::VarDeclKeyword;
 
 /// Performs type-checking.
 ///
 /// See the [the module-level documentation][self] for more details.
-pub fn run<A: ast::Visitable>(ast: &A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    let mut v = Visitor { ty_ctx, errors: CompileError::new_empty() };
+pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+    let mut v = Visitor { ctx, errors: CompileError::new_empty() };
     ast.visit_with(&mut v);
     v.errors.into_result(())
 }
 
 struct Visitor<'a> {
-    ty_ctx: &'a TypeSystem,
+    ctx: &'a CompilerContext,
     errors: CompileError,
 }
 
@@ -212,7 +212,7 @@ impl<'a> Visitor<'a> {
                 let b_ty = require_value(b_ty, op.span, b.span)?;
 
                 ast::Expr::binop_check(op, (a_ty, b_ty), (a.span, b.span))?;
-                Some(ast::Expr::binop_ty(op.value, &a.value, self.ty_ctx))
+                Some(ast::Expr::binop_ty(op.value, &a.value, self.ctx))
             },
 
             ast::Expr::Unop(op, ref x)
@@ -221,7 +221,7 @@ impl<'a> Visitor<'a> {
                 let x_ty = require_value(x_ty, op.span, x.span)?;
 
                 ast::Expr::unop_check(op, x_ty, x.span)?;
-                Some(ast::Expr::unop_ty(op.value, &x.value, self.ty_ctx))
+                Some(ast::Expr::unop_ty(op.value, &x.value, self.ctx))
             },
 
             ast::Expr::Ternary { ref cond, question, ref left, colon, ref right }
@@ -244,7 +244,7 @@ impl<'a> Visitor<'a> {
 
         // Most code after this will be using compute_ty, which has a separate implementation.
         // Let's check that it produces consistent results.
-        debug_assert_eq!(out, expr.compute_ty(self.ty_ctx));
+        debug_assert_eq!(out, expr.compute_ty(self.ctx));
         Ok(out)
     }
 
@@ -259,7 +259,7 @@ impl<'a> Visitor<'a> {
 
         // forbid 'int %x;'
         if let Some(decl_ty) = keyword.ty() {
-            let var_ty = self.ty_ctx.var_read_ty_from_ast(var).expect("must be Some since var is typed");
+            let var_ty = self.ctx.var_read_ty_from_ast(var).expect("must be Some since var is typed");
             _require_exact(decl_ty, var_ty, keyword.span, var.span)?;
         }
 
@@ -276,7 +276,7 @@ impl<'a> Visitor<'a> {
     /// Weaker version of [`Self::check_var`] that applies even in places where the variable is neither read
     /// nor written, such as in `int x;`.
     fn check_var_weak(&self, var: &Sp<ast::Var>) -> Result<(), CompileError> {
-        let inherent_ty = self.ty_ctx.var_inherent_ty_from_ast(var);
+        let inherent_ty = self.ctx.var_inherent_ty_from_ast(var);
         let read_ty = var.ty_sigil;
         match inherent_ty {
             // no restrictions on these
@@ -302,11 +302,11 @@ impl<'a> Visitor<'a> {
     fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
         self.check_var_weak(var)?;
 
-        self.ty_ctx.var_read_ty_from_ast(var).ok_or_else(|| {
+        self.ctx.var_read_ty_from_ast(var).ok_or_else(|| {
             let mut err = crate::error::Diagnostic::error();
             err.message(format!("variable requires a type prefix"));
             err.primary(var, format!("needs a '$' or '%' prefix"));
-            match self.ty_ctx.var_reg_from_ast(&var.name) {
+            match self.ctx.var_reg_from_ast(&var.name) {
                 Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
                 Ok(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
             };
@@ -346,9 +346,9 @@ impl<'a> Visitor<'a> {
         }
 
         // Type-check normal args.
-        let siggy = match self.ty_ctx.func_signature_from_ast(name) {
+        let siggy = match self.ctx.func_signature_from_ast(name) {
             Ok(siggy) => siggy,
-            Err(crate::type_system::MissingSigError { opcode }) => return Err(error!(
+            Err(crate::context::defs::MissingSigError { opcode }) => return Err(error!(
                 message("signature not known for opcode {}", opcode),
                 primary(name, "signature not known"),
                 note("try adding this instruction's signature to your mapfiles"),
@@ -394,29 +394,29 @@ impl ast::Expr {
     /// This may need to recurse into subexpressions, though it tries to generally do minimal work.
     /// It assumes that the expression has already been type-checked.  When provided an invalid
     /// expression, it may return anything.
-    pub fn compute_ty(&self, ty_ctx: &TypeSystem) -> Option<ScalarType> {
+    pub fn compute_ty(&self, ctx: &CompilerContext) -> Option<ScalarType> {
         match self {
             ast::Expr::LitFloat { .. } => Some(ScalarType::Float),
             ast::Expr::LitInt { .. } => Some(ScalarType::Int),
             ast::Expr::LitString { .. } => Some(ScalarType::String),
 
             ast::Expr::Var(ref var)
-            => Some(ty_ctx.var_read_ty_from_ast(var).expect("already type-checked")),
+            => Some(ctx.var_read_ty_from_ast(var).expect("already type-checked")),
 
             ast::Expr::Binop(ref a, op, _)
-            => Some(ast::Expr::binop_ty(op.value, &a.value, ty_ctx)),
+            => Some(ast::Expr::binop_ty(op.value, &a.value, ctx)),
 
             ast::Expr::Unop(op, ref x)
-            => Some(ast::Expr::unop_ty(op.value, &x.value, ty_ctx)),
+            => Some(ast::Expr::unop_ty(op.value, &x.value, ctx)),
 
             ast::Expr::Ternary { ref left, .. }
-            => left.compute_ty(ty_ctx),
+            => left.compute_ty(ctx),
 
             ast::Expr::Call { ref pseudos, ref name, .. } => {
                 if pseudos.iter().any(|x| matches!(x.kind.value, token![blob])) {
                     None  // args blob always produces void
                 } else {
-                    ty_ctx.func_signature_from_ast(name).expect("already type-checked")
+                    ctx.func_signature_from_ast(name).expect("already type-checked")
                         .return_ty.map(|x| x.value)
                 }
             },
@@ -451,12 +451,12 @@ impl ast::Expr {
     ///
     /// This assumes that the expression has already been type-checked.  When provided an
     /// invalid combination of operator and arguments, it may return anything.
-    pub fn binop_ty(op: ast::BinopKind, arg: &ast::Expr, ty_ctx: &TypeSystem) -> ScalarType {
+    pub fn binop_ty(op: ast::BinopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
         use ast::BinopKind as B;
 
         match op {
             | B::Add | B::Sub | B::Mul | B::Div | B::Rem
-            => arg.compute_ty(ty_ctx).expect("shouldn't be void"),
+            => arg.compute_ty(ctx).expect("shouldn't be void"),
 
             | B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge
             => ScalarType::Int,
@@ -487,9 +487,9 @@ impl ast::Expr {
     ///
     /// This assumes that the expression has already been type-checked.  When provided an
     /// invalid combination of operator and arguments, it may return anything.
-    pub fn unop_ty(op: ast::UnopKind, arg: &ast::Expr, ty_ctx: &TypeSystem) -> ScalarType {
+    pub fn unop_ty(op: ast::UnopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
         match op {
-            token![unop -] => arg.compute_ty(ty_ctx).expect("shouldn't be void"),
+            token![unop -] => arg.compute_ty(ctx).expect("shouldn't be void"),
             token![unop !] => ScalarType::Int,
 
             token![unop sin] |

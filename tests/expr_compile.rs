@@ -4,7 +4,7 @@
 #[macro_use]
 extern crate truth;
 use truth::{ast, llir, vm::AstVm, CompileError};
-use truth::{Files, Eclmap, TypeSystem, ScalarValue, ScalarType as Ty, RegId};
+use truth::{Files, Eclmap, CompilerContext, ScalarValue, ScalarType as Ty, RegId};
 
 use rand::Rng;
 
@@ -224,33 +224,33 @@ fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
 fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(AstVm, AstVm), CompileError> {
     truth::setup_for_test_harness();
 
-    let mut ty_ctx = TypeSystem::new();
+    let mut ctx = CompilerContext::new();
 
     let eclmap = make_eclmap(vars);
     let instr_format = make_instr_format(vars);
     let base_vm = make_randomized_vm(vars);
-    ty_ctx.extend_from_eclmap(None, &eclmap).unwrap();
+    ctx.extend_from_eclmap(None, &eclmap).unwrap();
 
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
-        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ty_ctx).unwrap();
-        truth::passes::resolve_names::run(&block, &mut ty_ctx)?;
-        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx)?;
-        truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx)?;
+        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ctx).unwrap();
+        truth::passes::resolve_names::run(&block, &mut ctx)?;
+        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ctx)?;
+        truth::passes::desugar_blocks::run(&mut block, &mut ctx)?;
         block
     };
 
     let old_stmts = parsed_block.0;
-    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, &mut ty_ctx)?;
-    let mut new_block = ast::Block(llir::Raiser::new().raise_instrs_to_sub_ast(&instr_format, &instrs, &ty_ctx.defs)?);
-    truth::passes::resolve_names::aliases_to_raw(&mut new_block, &mut ty_ctx)?;
+    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, &mut ctx)?;
+    let mut new_block = ast::Block(llir::Raiser::new().raise_instrs_to_sub_ast(&instr_format, &instrs, &ctx.defs)?);
+    truth::passes::resolve_names::aliases_to_raw(&mut new_block, &mut ctx)?;
 
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
     eprintln!("{}", truth::fmt::stringify(&new_block));
-    old_vm.run(&old_stmts, &ty_ctx.resolutions);
-    new_vm.run(&new_block.0, &ty_ctx.resolutions);
+    old_vm.run(&old_stmts, &ctx.resolutions);
+    new_vm.run(&new_block.0, &ctx.resolutions);
 
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");
@@ -264,23 +264,23 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     truth::setup_for_test_harness();
 
     let mut files = Files::new();
-    let mut ty_ctx = TypeSystem::new();
+    let mut ctx = CompilerContext::new();
 
     let eclmap = make_eclmap(vars);
     let instr_format = make_instr_format(vars);
-    ty_ctx.extend_from_eclmap(None, &eclmap).unwrap();
+    ctx.extend_from_eclmap(None, &eclmap).unwrap();
 
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
-        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ty_ctx).unwrap();
-        truth::passes::resolve_names::run(&block, &mut ty_ctx).unwrap();
-        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ty_ctx).unwrap();
-        truth::passes::desugar_blocks::run(&mut block, &mut ty_ctx).unwrap();
+        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ctx).unwrap();
+        truth::passes::resolve_names::run(&block, &mut ctx).unwrap();
+        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ctx).unwrap();
+        truth::passes::desugar_blocks::run(&mut block, &mut ctx).unwrap();
         block
     };
 
-    let err = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, &mut ty_ctx).unwrap_err();
+    let err = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, &mut ctx).unwrap_err();
     let err_s = err.to_string(&files).unwrap();
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }

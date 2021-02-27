@@ -5,7 +5,7 @@ use crate::resolve::{DefId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::error::CompileError;
-use crate::type_system;
+use crate::value;
 
 // Quick little util for stringly enums.
 macro_rules! string_enum {
@@ -426,10 +426,10 @@ pub enum IntRadix {
 }
 
 impl Expr {
-    pub fn zero(ty: type_system::ScalarType) -> Self { match ty {
-        type_system::ScalarType::Int => 0.into(),
-        type_system::ScalarType::Float => 0.0.into(),
-        type_system::ScalarType::String => panic!("Expr::zero() called on type String"),
+    pub fn zero(ty: value::ScalarType) -> Self { match ty {
+        value::ScalarType::Int => 0.into(),
+        value::ScalarType::Float => 0.0.into(),
+        value::ScalarType::String => panic!("Expr::zero() called on type String"),
     }}
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
@@ -597,10 +597,10 @@ string_enum! {
 }
 
 impl VarDeclKeyword {
-    pub fn ty(self) -> Option<type_system::ScalarType> {
+    pub fn ty(self) -> Option<value::ScalarType> {
         match self {
-            VarDeclKeyword::Int => Some(type_system::ScalarType::Int),
-            VarDeclKeyword::Float => Some(type_system::ScalarType::Float),
+            VarDeclKeyword::Int => Some(value::ScalarType::Int),
+            VarDeclKeyword::Float => Some(value::ScalarType::Float),
             VarDeclKeyword::Var => None,
         }
     }
@@ -617,11 +617,11 @@ pub enum VarReadType {
 }
 
 impl VarReadType {
-    pub fn from_ty(x: type_system::ScalarType) -> Option<VarReadType> {
+    pub fn from_ty(x: value::ScalarType) -> Option<VarReadType> {
         match x {
-            type_system::ScalarType::Int => Some(VarReadType::Int),
-            type_system::ScalarType::Float => Some(VarReadType::Float),
-            type_system::ScalarType::String => None,
+            value::ScalarType::Int => Some(VarReadType::Int),
+            value::ScalarType::Float => Some(VarReadType::Float),
+            value::ScalarType::String => None,
         }
     }
 
@@ -633,11 +633,11 @@ impl VarReadType {
     }
 }
 
-impl From<VarReadType> for type_system::ScalarType {
-    fn from(x: VarReadType) -> type_system::ScalarType {
+impl From<VarReadType> for value::ScalarType {
+    fn from(x: VarReadType) -> value::ScalarType {
         match x {
-            VarReadType::Int => type_system::ScalarType::Int,
-            VarReadType::Float => type_system::ScalarType::Float,
+            VarReadType::Int => value::ScalarType::Int,
+            VarReadType::Float => value::ScalarType::Float,
         }
     }
 }

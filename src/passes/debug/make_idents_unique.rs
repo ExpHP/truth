@@ -12,7 +12,7 @@ use crate::ident::{Ident, ResIdent};
 /// The renumbering scheme is deterministic and tries to be vaguely robust to spurious changes
 /// that could arise from compiler implementation details, but it is otherwise unspecified.
 ///
-/// Note that [`TypeSystem`] and spans will still refer to the old identifiers.  To get the
+/// Note that [`CompilerContext`] and spans will still refer to the old identifiers.  To get the
 /// most out of this, try formatting the modified node [to a string][`crate::fmt::stringify`].
 pub fn run<A: ast::Visitable>(ast: &mut A, resolutions: &Resolutions) -> Result<(), CompileError> {
     let mut v = Visitor {

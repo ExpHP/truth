@@ -11,7 +11,8 @@ use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::resolve::{DefId, RegId};
 use crate::pseudo::PseudoArgData;
-use crate::type_system::{TypeSystem, ScalarType};
+use crate::value::ScalarType;
+use crate::context::CompilerContext;
 
 use IntrinsicInstrKind as IKind;
 
@@ -20,7 +21,7 @@ pub (in crate::llir::lower) struct Lowerer<'ts> {
     pub out: Vec<LowerStmt>,
     pub intrinsic_instrs: IntrinsicInstrs,
     pub instr_format: &'ts dyn InstrFormat,
-    pub ty_ctx: &'ts mut TypeSystem,
+    pub ctx: &'ts mut CompilerContext,
 }
 
 impl Lowerer<'_> {
@@ -104,7 +105,7 @@ impl Lowerer<'_> {
         args: &[Sp<Expr>],
     ) -> Result<u16, CompileError> {
         // all function statements currently refer to single instructions
-        let opcode = self.ty_ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
+        let opcode = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
 
         self.lower_instruction(stmt, opcode as _, pseudos, args)
     }
@@ -140,7 +141,7 @@ impl Lowerer<'_> {
             None => {
                 // determine whether each argument can be directly used as is, or if it needs a temporary
                 LowerArgs::Known(args.iter().map(|expr| {
-                    let lowered = match classify_expr(expr, self.ty_ctx)? {
+                    let lowered = match classify_expr(expr, self.ctx)? {
                         ExprClass::Simple(data) => data.lowered,
                         ExprClass::NeedsTemp(data) => {
                             // Save this expression to a temporary
@@ -187,7 +188,7 @@ impl Lowerer<'_> {
             match var.name {
                 ast::VarName::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
                 ast::VarName::Normal { ref ident, .. } => {
-                    let def_id = self.ty_ctx.resolutions.expect_def(ident);
+                    let def_id = self.ctx.resolutions.expect_def(ident);
                     self.out.push(LowerStmt::RegAlloc { def_id, cause: var.span });
 
                     if let Some(expr) = expr {
@@ -209,9 +210,9 @@ impl Lowerer<'_> {
         assign_op: &Sp<ast::AssignOpKind>,
         rhs: &Sp<ast::Expr>,
     ) -> Result<(), CompileError> {
-        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
 
-        let data_rhs = match classify_expr(rhs, self.ty_ctx)? {
+        let data_rhs = match classify_expr(rhs, self.ctx)? {
             // a = <atom>;
             // a += <atom>;
             ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
@@ -298,7 +299,7 @@ impl Lowerer<'_> {
         //     v = tmp * <B>;  // recursive call
 
         // Evaluate the first subexpression if necessary.
-        let simple_a = match classify_expr(a, self.ty_ctx)? {
+        let simple_a = match classify_expr(a, self.ctx)? {
             ExprClass::NeedsTemp(data_a) => {
                 if data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
                     // we can reuse the output variable!
@@ -318,7 +319,7 @@ impl Lowerer<'_> {
         // FIXME: This is somewhat copy-pasta-y.  It's possible to write this and the above into a loop with two
         //        iterations, but the end result looked pretty awkward last time I tried.
         // First guy is simple.  Evaluate the second subexpression if necessary.
-        let simple_b = match classify_expr(b, self.ty_ctx)? {
+        let simple_b = match classify_expr(b, self.ctx)? {
             ExprClass::NeedsTemp(data_b) => {
                 // similar conditions apply...
                 if data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var) {
@@ -337,8 +338,8 @@ impl Lowerer<'_> {
         };
 
         // They're both simple.  Emit a primitive instruction.
-        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-        let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ty_ctx);
+        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
+        let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
         assert_eq!(ty_var, ty_rhs, "already type-checked");
 
         self.out.push(LowerStmt::Instr(LowerInstr {
@@ -363,14 +364,14 @@ impl Lowerer<'_> {
     ) -> Result<(), CompileError> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == token![-] {
-            let ty = b.compute_ty(self.ty_ctx).expect("type-checked so not void");
+            let ty = b.compute_ty(self.ctx).expect("type-checked so not void");
             let zero = sp!(unop.span => ast::Expr::zero(ty));
             let minus = sp!(unop.span => token![-]);
             self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
             return Ok(());
         }
 
-        match classify_expr(b, self.ty_ctx)? {
+        match classify_expr(b, self.ctx)? {
             ExprClass::NeedsTemp(data_b) => {
                 // Unary operations can reuse their destination register as long as it's the same type.
                 if data_b.tmp_ty == data_b.read_ty {
@@ -389,8 +390,8 @@ impl Lowerer<'_> {
             },
 
             ExprClass::Simple(data_b) => {
-                let (lowered_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
-                let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ty_ctx);
+                let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
+                let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ctx);
                 assert_eq!(ty_var, ty_rhs, "already type-checked");
                 let ty = ty_var;
 
@@ -459,7 +460,7 @@ impl Lowerer<'_> {
         match keyword.value {
             // 'if (--var) goto label'
             token![if] => {
-                let (arg_var, ty_var) = lower_var_to_arg(var, self.ty_ctx)?;
+                let (arg_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 let (arg_label, arg_time) = lower_goto_args(goto);
                 if ty_var != ScalarType::Int {
                     return Err(error!(
@@ -486,7 +487,7 @@ impl Lowerer<'_> {
                 //        goto label
                 //     skip:
 
-                let skip_label = sp!(keyword.span => self.ty_ctx.gensym.gensym("@unless_predec_skip#"));
+                let skip_label = sp!(keyword.span => self.ctx.gensym.gensym("@unless_predec_skip#"));
                 let if_keyword = sp!(keyword.span => token![if]);
                 let if_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
 
@@ -528,7 +529,7 @@ impl Lowerer<'_> {
 
             // other arbitrary expressions: use `<if|unless> (<expr> != 0)`
             _ => {
-                let ty = expr.compute_ty(self.ty_ctx).expect("type-checked so not void");
+                let ty = expr.compute_ty(self.ctx).expect("type-checked so not void");
                 let zero = sp!(expr.span => ast::Expr::zero(ty));
                 let ne_sign = sp!(expr.span => token![!=]);
                 self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
@@ -547,7 +548,7 @@ impl Lowerer<'_> {
         b: &Sp<Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), CompileError>{
-        match (classify_expr(a, self.ty_ctx)?, classify_expr(b, self.ty_ctx)?) {
+        match (classify_expr(a, self.ctx)?, classify_expr(b, self.ctx)?) {
             // `if (<A> != <B>) ...` (or `unless (<A> != <B>) ...`)
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
             (ExprClass::NeedsTemp(data_a), _) => {
@@ -571,7 +572,7 @@ impl Lowerer<'_> {
                     token![unless] => binop.negate_comparison().expect("lower_cond_jump_comparison called with non-comparison operator"),
                 });
 
-                let ty_arg = ast::Expr::binop_ty(binop.value, &a.value, self.ty_ctx);
+                let ty_arg = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
                 let (lowered_label, lowered_time) = lower_goto_args(goto);
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
@@ -620,7 +621,7 @@ impl Lowerer<'_> {
             //      skip:
 
             let negated_kw = sp!(keyword.span => keyword.negate());
-            let skip_label = sp!(binop.span => self.ty_ctx.gensym.gensym("@unless_predec_skip#"));
+            let skip_label = sp!(binop.span => self.ctx.gensym.gensym("@unless_predec_skip#"));
             let skip_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
 
             self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, a, &skip_goto)?;
@@ -683,9 +684,9 @@ impl Lowerer<'_> {
         tmp_ty: ScalarType,
     ) -> Result<(DefId, Sp<ast::Var>), CompileError> {
         // FIXME: It bothers me that we have to actually allocate an identifier here.
-        let ident = self.ty_ctx.gensym.gensym("temp");
-        let ident = sp!(span => self.ty_ctx.resolutions.attach_fresh_res(ident));
-        let def_id = self.ty_ctx.define_local(ident.clone(), Some(tmp_ty));
+        let ident = self.ctx.gensym.gensym("temp");
+        let ident = sp!(span => self.ctx.resolutions.attach_fresh_res(ident));
+        let def_id = self.ctx.define_local(ident.clone(), Some(tmp_ty));
         let sigil = get_temporary_read_ty(tmp_ty, span)?;
 
         let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
@@ -732,7 +733,7 @@ struct TemporaryExpr<'a> {
     read_ty: ScalarType,
 }
 
-fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<ExprClass<'a>, CompileError> {
+fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<ExprClass<'a>, CompileError> {
     match arg.value {
         ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
             lowered: sp!(arg.span => LowerArg::Raw(value.into())),
@@ -747,7 +748,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
             ty: ScalarType::String,
         })),
         ast::Expr::Var(ref var) => {
-            let (lowered, ty) = lower_var_to_arg(var, ty_ctx)?;
+            let (lowered, ty) = lower_var_to_arg(var, ctx)?;
             Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))
         },
 
@@ -772,18 +773,18 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ty_ctx: &TypeSystem) -> Result<Expr
 
         // Anything else needs a temporary of the same type, consisting of the whole expression.
         _ => Ok(ExprClass::NeedsTemp({
-            let ty = arg.compute_ty(ty_ctx).expect("shouldn't be void");
+            let ty = arg.compute_ty(ctx).expect("shouldn't be void");
             TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
         })),
     }
 }
 
-fn lower_var_to_arg(var: &Sp<ast::Var>, ty_ctx: &TypeSystem) -> Result<(Sp<LowerArg>, ScalarType), CompileError> {
-    let read_ty = ty_ctx.var_read_ty_from_ast(var).expect("shoulda been type-checked");
+fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<LowerArg>, ScalarType), CompileError> {
+    let read_ty = ctx.var_read_ty_from_ast(var).expect("shoulda been type-checked");
 
     // Up to this point in compilation, register aliases use Var::Named.
     // But now, we want both registers and their aliases to be resolved to a register
-    let arg = match ty_ctx.var_reg_from_ast(&var.name) {
+    let arg = match ctx.var_reg_from_ast(&var.name) {
         Ok(reg) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
         Err(def_id) => LowerArg::Local { def_id, read_ty },
     };
@@ -826,7 +827,7 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
 pub (in crate::llir::lower) fn assign_registers(
     code: &mut [LowerStmt],
     format: &dyn InstrFormat,
-    ty_ctx: &TypeSystem,
+    ctx: &CompilerContext,
 ) -> Result<(), CompileError> {
     let used_regs = get_used_regs(code);
 
@@ -845,10 +846,10 @@ pub (in crate::llir::lower) fn assign_registers(
             LowerStmt::RegAlloc { def_id, ref cause } => {
                 has_used_scratch.get_or_insert(*cause);
 
-                let required_ty = ty_ctx.defs.var_inherent_ty(*def_id).expect("(bug!) this should have been type-checked!");
+                let required_ty = ctx.defs.var_inherent_ty(*def_id).expect("(bug!) this should have been type-checked!");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
-                    let stringify_reg = |reg| crate::fmt::stringify(&ty_ctx.reg_to_ast(reg));
+                    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(reg));
 
                     let mut error = crate::error::Diagnostic::error();
                     error.message(format!("script too complex to compile"));
@@ -876,7 +877,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 assert!(local_regs.insert(*def_id, (reg, required_ty, *cause)).is_none());
             },
             LowerStmt::RegFree { def_id } => {
-                let inherent_ty = ty_ctx.defs.var_inherent_ty(*def_id).expect("(bug!) we allocated a reg so it must have a type");
+                let inherent_ty = ctx.defs.var_inherent_ty(*def_id).expect("(bug!) we allocated a reg so it must have a type");
                 let (reg, _, _) = local_regs.remove(&def_id).expect("(bug!) RegFree without RegAlloc!");
                 unused_regs[inherent_ty].push(reg);
             },

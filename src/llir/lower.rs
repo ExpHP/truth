@@ -1,13 +1,13 @@
 use std::collections::{HashMap};
 
 use super::{unsupported, SimpleArg};
-use crate::llir::{RawInstr, InstrFormat};
+use crate::llir::{RawInstr, InstrFormat, ArgEncoding, ScalarType};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::resolve::DefId;
 use crate::ident::{Ident};
-use crate::type_system::{TypeSystem, ArgEncoding, ScalarType, Defs};
+use crate::context::{CompilerContext, Defs};
 use crate::binary_io::Encoded;
 
 mod stackless;
@@ -79,25 +79,25 @@ impl LowerArg {
 pub fn lower_sub_ast_to_instrs(
     instr_format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
-    ty_ctx: &mut TypeSystem,
+    ctx: &mut CompilerContext,
 ) -> Result<Vec<RawInstr>, CompileError> {
     use stackless::{Lowerer, assign_registers};
 
     let mut lowerer = Lowerer {
         out: vec![],
         intrinsic_instrs: instr_format.intrinsic_instrs(),
-        ty_ctx,
+        ctx,
         instr_format,
     };
     lowerer.lower_sub_ast(code)?;
     let mut out = lowerer.out;
 
     // And now postprocess
-    encode_labels(&mut out, instr_format, 0, &ty_ctx.defs)?;
-    assign_registers(&mut out, instr_format, &ty_ctx)?;
+    encode_labels(&mut out, instr_format, 0, &ctx.defs)?;
+    assign_registers(&mut out, instr_format, &ctx)?;
 
     out.into_iter().filter_map(|x| match x {
-        LowerStmt::Instr(instr) => Some(encode_args(&instr, &ty_ctx.defs)),
+        LowerStmt::Instr(instr) => Some(encode_args(&instr, &ctx.defs)),
         LowerStmt::Label { .. } => None,
         LowerStmt::RegAlloc { .. } => None,
         LowerStmt::RegFree { .. } => None,
@@ -344,11 +344,11 @@ fn test_precomputed_string_len() {
 
     let arg = LowerArg::Raw(SimpleArg { value: ScalarValue::String(str.into()), is_reg: false });
     let instr = LowerInstr { time: 0, opcode: 1, user_param_mask: None, args: LowerArgs::Known(vec![sp!(arg)]) };
-    let mut ty_ctx = TypeSystem::new();
-    ty_ctx.set_ins_abi(1, "m".parse().unwrap());
+    let mut ctx = CompilerContext::new();
+    ctx.set_ins_abi(1, "m".parse().unwrap());
 
-    let actual = precompute_instr_args_size(&instr, &ty_ctx.defs).unwrap();
-    let expected = encode_args(&instr, &ty_ctx.defs).unwrap().args_blob.len();
+    let actual = precompute_instr_args_size(&instr, &ctx.defs).unwrap();
+    let expected = encode_args(&instr, &ctx.defs).unwrap().args_blob.len();
     assert_eq!(actual, expected);
 
     // the written length should be *slightly more* than sjis_len because there's the null terminator

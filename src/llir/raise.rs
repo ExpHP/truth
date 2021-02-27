@@ -8,8 +8,9 @@ use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::resolve::{RegId};
-use crate::type_system::{ArgEncoding, ScalarType, InstrAbi, Defs};
-use crate::value::ScalarValue;
+use crate::context::Defs;
+use crate::llir::{ArgEncoding, InstrAbi};
+use crate::value::{ScalarValue, ScalarType};
 
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {

@@ -11,7 +11,7 @@ use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
-use crate::type_system::TypeSystem;
+use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -62,12 +62,12 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
-        decompile_std(&*game_format(game), self, ty_ctx, decompile_kind)
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+        decompile_std(&*game_format(game), self, ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
-        compile_std(&*game_format(game), script, ty_ctx)
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, CompileError> {
+        compile_std(&*game_format(game), script, ctx)
     }
 
     pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> Result<(), CompileError> {
@@ -228,14 +228,14 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+fn decompile_std(format: &dyn FileFormat, std: &StdFile, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = llir::Raiser::new().raise_instrs_to_sub_ast(instr_format, script, &ty_ctx.defs)?;
+    let code = llir::Raiser::new().raise_instrs_to_sub_ast(instr_format, script, &ctx.defs)?;
 
     let mut script = ast::Script {
-        mapfiles: ty_ctx.mapfiles_to_ast(),
+        mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items: vec! [
             sp!(ast::Item::Meta {
@@ -251,7 +251,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ty_ctx: &TypeSystem, de
             }),
         ],
     };
-    crate::passes::postprocess_decompiled(&mut script, ty_ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut script, ctx, decompile_kind)?;
     Ok(script)
 }
 
@@ -265,18 +265,18 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 fn compile_std(
     format: &dyn FileFormat,
     script: &ast::Script,
-    ty_ctx: &mut TypeSystem,
+    ctx: &mut CompilerContext,
 ) -> Result<StdFile, CompileError> {
     use ast::Item;
 
     let script = {
         let mut script = script.clone();
 
-        crate::passes::resolve_names::assign_res_ids(&mut script, ty_ctx)?;
-        crate::passes::resolve_names::run(&script, ty_ctx)?;
-        crate::passes::type_check::run(&script, ty_ctx)?;
-        crate::passes::const_simplify::run(&mut script, ty_ctx)?;
-        crate::passes::desugar_blocks::run(&mut script, ty_ctx)?;
+        crate::passes::resolve_names::assign_res_ids(&mut script, ctx)?;
+        crate::passes::resolve_names::run(&script, ctx)?;
+        crate::passes::type_check::run(&script, ctx)?;
+        crate::passes::const_simplify::run(&mut script, ctx)?;
+        crate::passes::desugar_blocks::run(&mut script, ctx)?;
         script
     };
 
@@ -332,7 +332,7 @@ fn compile_std(
     };
 
     let mut out = StdFile::init_from_meta(format, meta)?;
-    out.script = crate::llir::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ty_ctx)?;
+    out.script = crate::llir::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ctx)?;
     Ok(out)
 }
 

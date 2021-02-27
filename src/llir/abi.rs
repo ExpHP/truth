@@ -1,5 +1,6 @@
 use crate::error::SimpleError;
-use crate::type_system::{ScalarType, Signature, SignatureParam, TypeSystem};
+use crate::context::{CompilerContext, defs};
+use crate::value::ScalarType;
 
 use ArgEncoding as Enc;
 
@@ -69,8 +70,8 @@ impl InstrAbi {
         self.encodings.iter().copied()
     }
 
-    pub fn create_signature(&self, ty_ctx: &mut TypeSystem) -> Signature {
-        abi_to_signature(self, ty_ctx)
+    pub fn create_signature(&self, ctx: &mut CompilerContext) -> defs::Signature {
+        abi_to_signature(self, ctx)
     }
 }
 
@@ -152,8 +153,8 @@ impl std::str::FromStr for InstrAbi {
     }
 }
 
-fn abi_to_signature(abi: &InstrAbi, ty_ctx: &mut TypeSystem) -> Signature {
-    Signature {
+fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext) -> defs::Signature {
+    defs::Signature {
         return_ty: None,
         params: abi.encodings.iter().enumerate().map(|(index, &enc)| {
             let (ty, default) = match enc {
@@ -175,10 +176,10 @@ fn abi_to_signature(abi: &InstrAbi, ty_ctx: &mut TypeSystem) -> Signature {
                 | ArgEncoding::String { .. }
                 => (ScalarType::String, None),
             };
-            let name = sp!(ty_ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
-            ty_ctx.define_local(name.clone(), Some(ty));
+            let name = sp!(ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
+            ctx.define_local(name.clone(), Some(ty));
 
-            SignatureParam { default, name, ty: sp!(ty) }
+            defs::SignatureParam { default, name, ty: sp!(ty) }
         }).collect(),
     }
 }

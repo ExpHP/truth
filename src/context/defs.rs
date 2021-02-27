@@ -1,57 +1,16 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use anyhow::Context;
 
 use crate::ast;
+use crate::context::CompilerContext;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
-use crate::ident::{Ident, ResIdent, GensymContext};
-use crate::resolve::{RegId, Namespace, DefId, ResId, Resolutions};
+use crate::ident::{Ident, ResIdent};
+use crate::resolve::{RegId, Namespace, DefId, ResId};
 use crate::eclmap::Eclmap;
-use crate::value::ScalarValue;
-use crate::type_system::{ScalarType, InstrAbi};
-
-/// Context object for the majority of compilation.
-///
-/// This is a context object that holds a significant portion of the mutable state that is shared between
-/// compiler passes (in particular passes that traverse the AST or that convert between the AST and
-/// low-level representations).
-///
-/// It provides some methods for creating definitions and returning [`DefId`]s.  This is partly historical,
-/// but also because it's not clear how to move these methods to [`Defs`] where they might conceptually belong.
-///
-/// # Limitation of scope
-///
-//   NOTE: To the future me who is about to delete this section from the documentation:
-//         Please consider the examples of concessions in the section.
-//         Are you absolutely certain you cannot do something similar to achieve your current goal?
-//
-/// While there is no doubt a great deal of code which depends on this type (or at least on one or more of
-/// its fields), there are a number of phases of compilation that are **forbidden** to depend on this type
-/// or any of its fields, just as a matter of principle.  These are:
-///
-/// * Parsing of text to AST
-/// * Formatting of AST to text
-/// * Reading binary files to the low-level representation
-/// * Writing the low-level representation to a binary file
-///
-/// There have been numerous instances of things in the past which appeared that they may require breaking
-/// this rule, but it has always been found possible to make concessions in favor of keeping this separation.
-/// (e.g. [`llir::RawInstr`] holds an args blob so that reading/writing doesn't require signatures.
-/// [`crate::passes::resolve_names::assign_res_ids`] allows the parser to not require `Resolutions`, and
-/// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
-#[derive(Debug, Clone)]
-pub struct TypeSystem {
-    /// Catalogues all loaded mapfiles for generating imports.
-    mapfiles: Vec<PathBuf>,
-    /// Results of name resolution.  Maps [`ResId`]s to [`DefId`]s.
-    pub resolutions: Resolutions,
-    /// Stores information about [`DefId`]s.
-    pub defs: Defs,
-    /// For generating identifiers.
-    pub gensym: GensymContext,
-}
+use crate::value::{ScalarValue, ScalarType};
+use crate::llir::InstrAbi;
 
 /// Retains information about all definitions in the program.
 ///
@@ -62,7 +21,7 @@ pub struct TypeSystem {
 /// It is also currently the type responsible for holding type information about registers and opcodes,
 /// despite these not having [`DefId`]s.
 ///
-/// **Note:** The methods for creating new definitions are currently on [`TypeSystem`], where they can
+/// **Note:** The methods for creating new definitions are currently on [`CompilerContext`], where they can
 /// more easily record information for name resolution.
 #[derive(Debug, Clone, Default)]
 pub struct Defs {
@@ -87,23 +46,12 @@ pub struct Defs {
 
 // =============================================================================
 
-impl TypeSystem {
-    pub fn new() -> Self {
-        TypeSystem {
-            mapfiles: Default::default(),
-            resolutions: Default::default(),
-            defs: Default::default(),
-            gensym: Default::default(),
-        }
-    }
-}
-
 impl Defs {
     pub fn new() -> Self { Default::default() }
 }
 
 /// # Definitions
-impl TypeSystem {
+impl CompilerContext {
     /// Set the inherent type of a register.
     pub fn set_reg_ty(&mut self, reg: RegId, ty: VarType) {
         self.defs.regs.insert(reg, RegData { ty });
@@ -377,7 +325,7 @@ impl Defs {
     }
 }
 
-impl TypeSystem {
+impl CompilerContext {
     /// Add info from an eclmap.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
@@ -475,7 +423,7 @@ pub enum FuncKind {
 
 // =============================================================================
 
-impl TypeSystem {
+impl CompilerContext {
     /// Get the effective type of a variable at a place where it is referenced.
     ///
     /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be
@@ -600,18 +548,18 @@ pub struct SignatureParam {
 }
 
 impl Signature {
-    pub(crate) fn validate(&self, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
-        self._check_non_optional_after_optional(ty_ctx)
+    pub(crate) fn validate(&self, ctx: &CompilerContext) -> Result<(), CompileError> {
+        self._check_non_optional_after_optional(ctx)
     }
 
-    fn _check_non_optional_after_optional(&self, ty_ctx: &TypeSystem) -> Result<(), CompileError> {
+    fn _check_non_optional_after_optional(&self, ctx: &CompilerContext) -> Result<(), CompileError> {
         let mut first_optional = None;
         for param in self.params.iter() {
             if param.default.is_some() {
                 first_optional = Some(&param.name);
             } else if let Some(optional) = first_optional {
-                let opt_span = ty_ctx.defs.var_decl_span(ty_ctx.resolutions.expect_def(optional)).expect("func params must have spans");
-                let non_span = ty_ctx.defs.var_decl_span(ty_ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
+                let opt_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(optional)).expect("func params must have spans");
+                let non_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
                 return Err(error!(
                     message("invalid function signature"),
                     primary(non_span, "non-optional parameter after optional"),

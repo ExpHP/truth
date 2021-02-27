@@ -7,9 +7,11 @@ use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
 use crate::error::CompileError;
 use crate::pos::{Span};
-use crate::type_system::ScalarType;
-use crate::value::ScalarValue;
+use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
+
+pub use abi::{InstrAbi, ArgEncoding};
+mod abi;
 
 pub use lower::lower_sub_ast_to_instrs;
 mod lower;

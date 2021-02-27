@@ -14,8 +14,8 @@ use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
-use crate::value::ScalarValue;
-use crate::type_system::{ScalarType, TypeSystem};
+use crate::value::{ScalarValue, ScalarType};
+use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::resolve::RegId;
 
@@ -28,12 +28,12 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
-        decompile(&game_format(game), self, ty_ctx, decompile_kind)
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+        decompile(&game_format(game), self, ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
-        compile(&game_format(game), ast, ty_ctx)
+    pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, CompileError> {
+        compile(&game_format(game), ast, ctx)
     }
 
     /// Uses `other` as a source for any missing metadata from the entries, as well as for embedded images.
@@ -206,7 +206,7 @@ impl FromMeta<'_> for Sprite {
 fn decompile(
     format: &FileFormat,
     anm_file: &AnmFile,
-    ty_ctx: &TypeSystem,
+    ctx: &CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
@@ -221,7 +221,7 @@ fn decompile(
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ty_ctx.defs)?;
+            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ctx.defs)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -233,14 +233,14 @@ fn decompile(
     }
     let mut out = ast::Script {
         items,
-        mapfiles: ty_ctx.mapfiles_to_ast(),
+        mapfiles: ctx.mapfiles_to_ast(),
         // NOTE: here, we *could* choose to populate this, causing a `#pragma image_source` line
         //       to automatically be added to the file.  However, the big reason we do this for
         //       mapfiles is to encourage people to check their mapfiles into VCS, and I do not
         //       want to encourage people checking in vanilla ANM files.
         image_sources: vec![],
     };
-    crate::passes::postprocess_decompiled(&mut out, ty_ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_kind)?;
     Ok(out)
 }
 
@@ -299,29 +299,29 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
 fn compile(
     format: &FileFormat,
     ast: &ast::Script,
-    ty_ctx: &mut TypeSystem,
+    ctx: &mut CompilerContext,
 ) -> Result<AnmFile, CompileError> {
     let instr_format = format.instr_format();
 
     // an early pass to define global constants for sprite and script names
-    let sprite_ids = gather_sprite_ids(ast, ty_ctx)?;
-    let script_ids = gather_script_ids(ast, ty_ctx)?;
+    let sprite_ids = gather_sprite_ids(ast, ctx)?;
+    let script_ids = gather_script_ids(ast, ctx)?;
     for &(ref script_name, id) in script_ids.values() {
-        ty_ctx.define_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
+        ctx.define_global_const_var(script_name.clone(), ScalarValue::Int(id as i32));
     }
     for &(ref sprite_name, id) in sprite_ids.values() {
-        ty_ctx.define_global_const_var(sprite_name.clone(), ScalarValue::Int(id as i32));
+        ctx.define_global_const_var(sprite_name.clone(), ScalarValue::Int(id as i32));
     }
 
     // preprocess
     let ast = {
         let mut ast = ast.clone();
 
-        crate::passes::resolve_names::assign_res_ids(&mut ast, ty_ctx)?;
-        crate::passes::resolve_names::run(&ast, ty_ctx)?;
-        crate::passes::type_check::run(&ast, ty_ctx)?;
-        crate::passes::const_simplify::run(&mut ast, ty_ctx)?;
-        crate::passes::desugar_blocks::run(&mut ast, ty_ctx)?;
+        crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+        crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::type_check::run(&ast, ctx)?;
+        crate::passes::const_simplify::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
         ast
     };
 
@@ -363,7 +363,7 @@ fn compile(
     let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
             let (_, id) = script_ids[&name.value];
-            let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ty_ctx)?;
+            let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }
@@ -388,7 +388,7 @@ fn write_thecl_defs(
 
 // =============================================================================
 
-fn gather_sprite_ids(ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<IndexMap<Ident, (Sp<ResIdent>, u32)>, CompileError> {
+fn gather_sprite_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, u32)>, CompileError> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
@@ -428,7 +428,7 @@ fn gather_sprite_ids(ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Index
             match sprite_ids.entry(name.value.clone()) {
                 indexmap::map::Entry::Vacant(e) => {
                     // since these are just meta keys we have to synthesize new ResIds
-                    let res_ident = name.sp_map(|name| ty_ctx.resolutions.attach_fresh_res(name.clone()));
+                    let res_ident = name.sp_map(|name| ctx.resolutions.attach_fresh_res(name.clone()));
                     e.insert((res_ident, sprite_id));
                 },
                 // name clashes between sprites in different entries are allowed (this happens in decompiled output)
@@ -467,7 +467,7 @@ impl<'m> FromMeta<'m> for ProtoSprite<'m> {
     }
 }
 
-fn gather_script_ids(ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<IndexMap<Ident, (Sp<ResIdent>, i32)>, CompileError> {
+fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, i32)>, CompileError> {
     let mut next_auto_script = 0;
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
@@ -478,7 +478,7 @@ fn gather_script_ids(ast: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Index
 
                 match script_ids.entry(ident.value.clone()) {
                     indexmap::map::Entry::Vacant(e) => {
-                        let res_ident = ident.clone().sp_map(|name| ty_ctx.resolutions.attach_fresh_res(name.clone()));
+                        let res_ident = ident.clone().sp_map(|name| ctx.resolutions.attach_fresh_res(name.clone()));
                         e.insert((res_ident, script_id));
                     },
                     indexmap::map::Entry::Occupied(e) => {

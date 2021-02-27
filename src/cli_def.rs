@@ -117,7 +117,7 @@ pub mod anm_decompile {
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        let ty_ctx = init_ty_ctx(game, map_path, &crate::anm::game_core_mapfile(game))?;
+        let ctx = init_context(game, map_path, &crate::anm::game_core_mapfile(game))?;
 
         let script = {
             // Here we don't use fs_read because seeking can skip costly reads of megabytes of image data.
@@ -125,7 +125,7 @@ pub mod anm_decompile {
             // Seeking drops the buffer though, so use a tiny buffer.
             let reader = io::BufReader::with_capacity(64, fs_open(&path)?);
             crate::AnmFile::read_from_stream(reader, game, false)
-                .and_then(|anm| anm.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
+                .and_then(|anm| anm.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
@@ -160,13 +160,13 @@ pub mod anm_compile {
         map_path: Option<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = init_ty_ctx(game, map_path, &crate::anm::game_core_mapfile(game))?;
+        let mut ctx = init_context(game, map_path, &crate::anm::game_core_mapfile(game))?;
 
         let ast = files.read_file::<ast::Script>(&script_path)?;
 
-        load_mapfiles_from_pragmas(game, &mut ty_ctx, &ast)?;
+        load_mapfiles_from_pragmas(game, &mut ctx, &ast)?;
 
-        let mut compiled = crate::AnmFile::compile_from_ast(game, &ast, &mut ty_ctx)?;
+        let mut compiled = crate::AnmFile::compile_from_ast(game, &ast, &mut ctx)?;
 
         // image sources referenced in file take precedence
         let mut image_source_paths = vec![];
@@ -284,13 +284,13 @@ pub mod std_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = init_ty_ctx(game, map_path, &crate::std::game_core_mapfile(game))?;
+        let mut ctx = init_context(game, map_path, &crate::std::game_core_mapfile(game))?;
 
         let script = files.read_file::<ast::Script>(&path)?;
-        load_mapfiles_from_pragmas(game, &mut ty_ctx, &script)?;
+        load_mapfiles_from_pragmas(game, &mut ctx, &script)?;
         script.expect_no_image_sources()?;
 
-        let std = crate::StdFile::compile_from_ast(game, &script, &mut ty_ctx)?;
+        let std = crate::StdFile::compile_from_ast(game, &script, &mut ctx)?;
 
         let out = fs_create(outpath)?;
         std.write_to_stream(&mut io::BufWriter::new(out), game)?;
@@ -317,12 +317,12 @@ pub mod std_decompile {
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
-        let ty_ctx = init_ty_ctx(game, map_path, &crate::std::game_core_mapfile(game))?;
+        let ctx = init_context(game, map_path, &crate::std::game_core_mapfile(game))?;
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
             crate::StdFile::read_from_stream(reader, game)
-                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
+                .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
@@ -386,13 +386,13 @@ pub mod msg_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ty_ctx = init_ty_ctx(game, map_path, &crate::msg::game_core_mapfile(game))?;
+        let mut ctx = init_context(game, map_path, &crate::msg::game_core_mapfile(game))?;
 
         let script = files.read_file::<ast::Script>(&path)?;
-        load_mapfiles_from_pragmas(game, &mut ty_ctx, &script)?;
+        load_mapfiles_from_pragmas(game, &mut ctx, &script)?;
         script.expect_no_image_sources()?;
 
-        let std = crate::MsgFile::compile_from_ast(game, &script, &mut ty_ctx)?;
+        let std = crate::MsgFile::compile_from_ast(game, &script, &mut ctx)?;
 
         let out = fs_create(outpath)?;
         std.write_to_stream(&mut io::BufWriter::new(out), game)?;
@@ -419,12 +419,12 @@ pub mod msg_decompile {
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-        let ty_ctx = init_ty_ctx(game, map_path, &crate::msg::game_core_mapfile(game))?;
+        let ctx = init_context(game, map_path, &crate::msg::game_core_mapfile(game))?;
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
             crate::MsgFile::read_from_stream(reader, game)
-                .and_then(|parsed| parsed.decompile_to_ast(game, &ty_ctx, crate::DecompileKind::Fancy))
+                .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
@@ -447,32 +447,32 @@ fn maybe_use_default_mapfile_for_decomp(
 }
 
 /// Loads the user's mapfile and the core mapfile.
-fn init_ty_ctx(
+fn init_context(
     game: Game,
     mapfile_arg: Option<PathBuf>,
     core_mapfile_source: &str,
-) -> Result<crate::TypeSystem, CompileError> {
+) -> Result<crate::CompilerContext, CompileError> {
     use crate::Eclmap;
 
-    let mut ty_ctx = crate::TypeSystem::new();
-    ty_ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source)?).expect("failed to parse core mapfile!?");
+    let mut ctx = crate::CompilerContext::new();
+    ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source)?).expect("failed to parse core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
         let eclmap = Eclmap::load(&mapfile_arg, Some(game))?;
-        ty_ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap)
+        ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap)
             .with_context(|| format!("while applying '{}'", mapfile_arg.display()))?;
     }
-    Ok(ty_ctx)
+    Ok(ctx)
 }
 
 /// Loads mapfiles from a parsed script.
-fn load_mapfiles_from_pragmas(game: Game, ty_ctx: &mut crate::TypeSystem, script: &ast::Script) -> Result<(), CompileError> {
+fn load_mapfiles_from_pragmas(game: Game, ctx: &mut crate::CompilerContext, script: &ast::Script) -> Result<(), CompileError> {
     for path_literal in &script.mapfiles {
         let path: &Path = path_literal.string.as_ref();
 
         crate::error::group_anyhow(|| {
             let eclmap = crate::Eclmap::load(&path, Some(game))?;
-            ty_ctx.extend_from_eclmap(Some(path), &eclmap)?;
+            ctx.extend_from_eclmap(Some(path), &eclmap)?;
             Ok(())
         }).map_err(|e| crate::error!(
             message("{:#}", e), primary(path_literal, "error loading mapfile"),

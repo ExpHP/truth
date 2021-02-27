@@ -7,7 +7,7 @@ use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
-use crate::type_system::TypeSystem;
+use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -22,12 +22,12 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ty_ctx: &TypeSystem, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
-        decompile(&*game_format(game), self, ty_ctx, decompile_kind)
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+        decompile(&*game_format(game), self, ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ty_ctx: &mut TypeSystem) -> Result<Self, CompileError> {
-        compile(&*game_format(game), script, ty_ctx)
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, CompileError> {
+        compile(&*game_format(game), script, ctx)
     }
 
     pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game) -> WriteResult {
@@ -44,15 +44,15 @@ impl MsgFile {
 fn decompile(
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
-    ty_ctx: &TypeSystem,
+    ctx: &CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
     let mut raiser = llir::Raiser::new();
     let mut script = ast::Script {
-        mapfiles: ty_ctx.mapfiles_to_ast(),
+        mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items: msg.scripts.iter().map(|(&id, instrs)| {
-            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ty_ctx.defs)?;
+            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ctx.defs)?;
 
             Ok(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id as _)),
@@ -62,7 +62,7 @@ fn decompile(
             }))
         }).collect::<Result<_, SimpleError>>()?
     };
-    crate::passes::postprocess_decompiled(&mut script, ty_ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut script, ctx, decompile_kind)?;
     Ok(script)
 }
 
@@ -76,18 +76,18 @@ fn unsupported(span: &crate::pos::Span) -> CompileError {
 fn compile(
     instr_format: &dyn InstrFormat,
     ast: &ast::Script,
-    ty_ctx: &mut TypeSystem,
+    ctx: &mut CompilerContext,
 ) -> Result<MsgFile, CompileError> {
     use ast::Item;
 
     let ast = {
         let mut ast = ast.clone();
 
-        crate::passes::resolve_names::assign_res_ids(&mut ast, ty_ctx)?;
-        crate::passes::resolve_names::run(&ast, ty_ctx)?;
-        crate::passes::type_check::run(&ast, ty_ctx)?;
-        crate::passes::const_simplify::run(&mut ast, ty_ctx)?;
-        crate::passes::desugar_blocks::run(&mut ast, ty_ctx)?;
+        crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+        crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::type_check::run(&ast, ctx)?;
+        crate::passes::const_simplify::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
         ast
     };
 
@@ -131,7 +131,7 @@ fn compile(
     Ok(MsgFile {
         script_table_len,
         scripts: scripts_by_id.into_iter().map(|(id, (_, script_ast))| {
-            let compiled = llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ty_ctx)?;
+            let compiled = llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ctx)?;
             Ok((id, compiled))
         }).collect_with_recovery()?,
     })

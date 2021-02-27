@@ -13,16 +13,16 @@
 //! # Example
 //! ```
 //! use truth::{ast, pos::{Files, Sp}};
-//! use truth::type_system::TypeSystem;
+//! use truth::context::CompilerContext;
 //! use truth::passes;
 //!
 //! let mut files = Files::new();
-//! let mut ty_ctx = TypeSystem::new();
+//! let mut ctx = CompilerContext::new();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * %REG[100] : 4.0";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
-//! passes::const_simplify::run(&mut expr, &mut ty_ctx).expect("failed to simplify");
+//! passes::const_simplify::run(&mut expr, &mut ctx).expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * %REG[100]";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
@@ -33,7 +33,7 @@ use crate::value::ScalarValue;
 use crate::ast;
 use crate::error::{CompileError};
 use crate::pos::Sp;
-use crate::type_system::TypeSystem;
+use crate::context::CompilerContext;
 
 #[track_caller]
 fn uncaught_type_error() -> ! {
@@ -157,14 +157,14 @@ impl ast::Expr {
 /// Performs const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.
-pub fn run<V: ast::Visitable>(ast: &mut V, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    let mut visitor = Visitor { errors: CompileError::new_empty(), ty_ctx };
+pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+    let mut visitor = Visitor { errors: CompileError::new_empty(), ctx };
     ast.visit_mut_with(&mut visitor);
     visitor.errors.into_result(())
 }
 
 struct Visitor<'a> {
-    ty_ctx: &'a mut TypeSystem,
+    ctx: &'a mut CompilerContext,
     errors: CompileError,
 }
 
@@ -177,8 +177,8 @@ impl ast::VisitMut for Visitor<'_> {
         match &e.value {
             ast::Expr::Var(var) => match var.name {
                 ast::VarName::Normal { ref ident } => {
-                    let def_id = self.ty_ctx.resolutions.expect_def(ident);
-                    if let Some(value) = self.ty_ctx.defs.var_const_value(def_id) {
+                    let def_id = self.ctx.resolutions.expect_def(ident);
+                    if let Some(value) = self.ctx.defs.var_const_value(def_id) {
                         e.value = value.apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
                     }
                 },

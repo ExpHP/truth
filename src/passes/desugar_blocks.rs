@@ -3,9 +3,10 @@
 use crate::error::CompileError;
 use crate::ast::{self, VisitMut};
 use crate::pos::{Sp, Span};
-use crate::ident::{Ident};
+use crate::ident::Ident;
 use crate::resolve::{DefId, Resolutions};
-use crate::type_system::{ScalarType, TypeSystem};
+use crate::value::ScalarType;
+use crate::context::CompilerContext;
 
 /// Structured code desugaring.
 ///
@@ -13,16 +14,16 @@ use crate::type_system::{ScalarType, TypeSystem};
 /// into a single block.
 ///
 /// This pass is not idempotent, because it inserts [`ast::StmtBody::ScopeEnd`] statements.
-pub fn run<V: ast::Visitable>(ast: &mut V, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    insert_scope_ends(ast, ty_ctx)?;
+pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+    insert_scope_ends(ast, ctx)?;
 
-    let mut visitor = Visitor { ty_ctx };
+    let mut visitor = Visitor { ctx };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
 
-fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ty_ctx: &mut TypeSystem) -> Result<(), CompileError> {
-    let mut v = InsertLocalScopeEndsVisitor { resolutions: &ty_ctx.resolutions, stack: vec![] };
+fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+    let mut v = InsertLocalScopeEndsVisitor { resolutions: &ctx.resolutions, stack: vec![] };
     ast.visit_mut_with(&mut v);
     Ok(())
 }
@@ -85,12 +86,12 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
 // =============================================================================
 
 struct Visitor<'a> {
-    ty_ctx: &'a mut TypeSystem,
+    ctx: &'a mut CompilerContext,
 }
 
 impl VisitMut for Visitor<'_> {
     fn visit_block(&mut self, block: &mut ast::Block) {
-        let mut desugarer = Desugarer { out: vec![], ty_ctx: self.ty_ctx };
+        let mut desugarer = Desugarer { out: vec![], ctx: self.ctx };
 
         desugarer.desugar_block(std::mem::replace(block, ast::Block(vec![])));
         block.0 = desugarer.out;
@@ -103,7 +104,7 @@ impl VisitMut for Visitor<'_> {
 
 struct Desugarer<'a> {
     out: Vec<Sp<ast::Stmt>>,
-    ty_ctx: &'a mut TypeSystem,
+    ctx: &'a mut CompilerContext,
 }
 
 impl<'a> Desugarer<'a> {
@@ -131,9 +132,9 @@ impl<'a> Desugarer<'a> {
                     let (clobber, temp_def) = match clobber {
                         Some(var) => (var, None),
                         None => {
-                            let ident = self.ty_ctx.gensym.gensym("count");
-                            let ident = sp!(count.span => self.ty_ctx.resolutions.attach_fresh_res(ident));
-                            let def_id = self.ty_ctx.define_local(ident.clone(), Some(ScalarType::Int));
+                            let ident = self.ctx.gensym.gensym("count");
+                            let ident = sp!(count.span => self.ctx.resolutions.attach_fresh_res(ident));
+                            let def_id = self.ctx.define_local(ident.clone(), Some(ScalarType::Int));
                             let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.value.into() });
 
                             self.out.push(sp!(count.span => ast::Stmt {
@@ -160,7 +161,7 @@ impl<'a> Desugarer<'a> {
                 },
 
                 ast::StmtBody::CondChain(chain) => {
-                    let veryend = self.ty_ctx.gensym.gensym("@cond_veryend#");
+                    let veryend = self.ctx.gensym.gensym("@cond_veryend#");
 
                     let mut prev_end_time = outer_time;
                     for cond_block in chain.cond_blocks {
@@ -201,7 +202,7 @@ impl<'a> Desugarer<'a> {
         cond: Sp<ast::Cond>,
         inner: impl FnOnce(&mut Self),
     ) {
-        let skip_label = self.ty_ctx.gensym.gensym("@cond#");
+        let skip_label = self.ctx.gensym.gensym("@cond#");
         self.out.push(rec_sp!(condjmp_span =>
             stmt_cond_goto!(at #condjmp_time, #(keyword.negate()) #cond goto #(skip_label.clone()))
         ));
@@ -220,7 +221,7 @@ impl<'a> Desugarer<'a> {
         ));
 
         // unless count is statically known to be nonzero, we need an initial zero test
-        let skip_label = self.ty_ctx.gensym.gensym("@times_zero#");
+        let skip_label = self.ctx.gensym.gensym("@times_zero#");
         if let None | Some(0) = count_as_const {
             self.out.push(rec_sp!(span =>
                 stmt_cond_goto!(at #init_time, if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone()))
@@ -236,7 +237,7 @@ impl<'a> Desugarer<'a> {
 
     // desugars a `loop { .. }` or `do { ... } while (<cond>);`
     fn desugar_loop_body(&mut self, block: ast::Block, cond: JumpInfo) {
-        let label = self.ty_ctx.gensym.gensym("@loop#");
+        let label = self.ctx.gensym.gensym("@loop#");
         self.make_label(block.start_span(), block.start_time(), label.clone());
         self.desugar_block(block);
         self.make_goto_after_block(cond, label);
@@ -280,11 +281,10 @@ type JumpInfo = Option<(Sp<ast::CondKeyword>, ast::Cond)>;
 mod tests {
     use crate::ast;
     use crate::pos::Files;
-    use crate::type_system::TypeSystem;
+    use crate::context::CompilerContext;
     use crate::resolve::RegId;
     use crate::vm::{AstVm, LoggedCall};
-    use crate::value::ScalarValue::{Int};
-    use crate::type_system::ScalarType as Ty;
+    use crate::value::{ScalarValue::{Int}, ScalarType as Ty};
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId, Ty)>,
@@ -296,22 +296,22 @@ mod tests {
             let mut files = Files::new();
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
-            let mut ty_ctx = TypeSystem::new();
+            let mut ctx = CompilerContext::new();
             for &(name, reg, ty) in &self.globals {
-                ty_ctx.define_global_reg_alias(reg, name.parse().unwrap());
-                ty_ctx.set_reg_ty(reg, Some(ty));
+                ctx.define_global_reg_alias(reg, name.parse().unwrap());
+                ctx.set_reg_ty(reg, Some(ty));
             }
-            crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ty_ctx).unwrap();
-            crate::passes::resolve_names::run(&ast.value, &mut ty_ctx).unwrap();
-            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ctx).unwrap();
+            crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();
+            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
-            vm_before.run(&ast.0, &ty_ctx.resolutions);
+            vm_before.run(&ast.0, &ctx.resolutions);
 
-            crate::passes::desugar_blocks::run(&mut ast.value, &mut ty_ctx).unwrap();
+            crate::passes::desugar_blocks::run(&mut ast.value, &mut ctx).unwrap();
 
             let mut vm_after = AstVm::new().with_max_iterations(1000);
-            vm_after.run(&ast.0, &ty_ctx.resolutions);
+            vm_after.run(&ast.0, &ctx.resolutions);
 
             assert_eq!(vm_before.time, vm_after.time, "{}\n{}", vm_before, vm_after);
             assert_eq!(vm_before.real_time, vm_after.real_time, "{}\n{}", vm_before, vm_after);
