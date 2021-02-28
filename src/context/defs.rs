@@ -85,11 +85,11 @@ impl CompilerContext {
     }
 
     /// Declare a compile-time constant variable, resolving the ident to a brand new [`DefId`].
-    pub fn define_global_const_var(&mut self, ident: Sp<ResIdent>, expr: Sp<ast::Expr>) -> DefId {
+    pub fn define_global_const_var(&mut self, ident: Sp<ResIdent>, ty: ScalarType, expr: Sp<ast::Expr>) -> DefId {
         let def_id = self.create_new_def_id(&ident);
 
         self.defs.vars.insert(def_id, VarData {
-            ty: Some(expr.compute_ty(self)),
+            ty: Some(Some(ty)),
             kind: VarKind::Const { ident: ident.clone(), expr },
         });
         self.consts.defer_evaluation_of(def_id);

@@ -309,13 +309,13 @@ fn compile(
     // an early pass to define global constants for sprite and script names
     let script_ids = gather_script_ids(&ast, ctx)?;
     for &(ref script_name, id) in script_ids.values() {
-        ctx.define_global_const_var(script_name.clone(), id.sp_map(ast::Expr::from));
+        ctx.define_global_const_var(script_name.clone(), ScalarType::Int, id.sp_map(ast::Expr::from));
     }
     let sprite_ids = gather_sprite_id_exprs(&ast, ctx)?;
     for data_for_name in sprite_ids.values() {
         // use the first definition with this name
         let (sprite_name, id_expr) = data_for_name[0].clone();
-        ctx.define_global_const_var(sprite_name, id_expr);
+        ctx.define_global_const_var(sprite_name, ScalarType::Int, id_expr);
     }
 
     // preprocess
