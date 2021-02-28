@@ -141,7 +141,7 @@ mod no_source {
     compile_fail_test!(Game::Th12, err_missing_image, file("th12-err-missing-image.anm.spec"));
 }
 
-// compile_fail_test!(Game::Th12, err_sprite_clash, file("th12-err-sprite-clash.anm.spec"));
+compile_fail_test!(Game::Th12, err_sprite_clash, file("th12-err-sprite-clash.anm.spec"));
 
 #[test]
 fn multiple_match() {

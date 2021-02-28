@@ -312,8 +312,10 @@ fn compile(
         ctx.define_global_const_var(script_name.clone(), id.sp_map(ast::Expr::from));
     }
     let sprite_ids = gather_sprite_id_exprs(&ast, ctx)?;
-    for &(ref sprite_name, ref id_expr) in sprite_ids.values() {
-        ctx.define_global_const_var(sprite_name.clone(), id_expr.clone());
+    for data_for_name in sprite_ids.values() {
+        // use the first definition with this name
+        let (sprite_name, id_expr) = data_for_name[0].clone();
+        ctx.define_global_const_var(sprite_name, id_expr);
     }
 
     // preprocess
@@ -326,6 +328,8 @@ fn compile(
         crate::passes::desugar_blocks::run(&mut ast, ctx)?;
         ast
     };
+
+    validate_sprite_id_exprs(&sprite_ids, ctx)?;
 
     // group scripts by entry
     let mut groups = vec![];
@@ -356,28 +360,6 @@ fn compile(
             )),
         }
     }
-
-    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
-    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
-    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
-    // FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME
-
-    // match sprite_ids.entry(name.value.clone()) {
-    //     indexmap::map::Entry::Vacant(e) => {
-    //     },
-    //     // name clashes between sprites in different entries are allowed (this happens in decompiled output)
-    //     // but the IDs must match.
-    //     indexmap::map::Entry::Occupied(e) => {
-    //         let &(ref prev_name, prev_id) = e.get();
-    //         if prev_id != sprite_id {
-    //             return Err(error!(
-    //                 message("name clash between sprites"),
-    //                 primary(name, "redefinition with ID {}", sprite_id),
-    //                 secondary(prev_name, "definition with ID {}", prev_id),
-    //             ));
-    //         }
-    //     },
-    // }
 
     match cur_entry {
         None => return Err(error!("empty ANM script")),
@@ -412,7 +394,11 @@ fn write_thecl_defs(
 
 // =============================================================================
 
-fn gather_sprite_id_exprs(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<ast::Expr>)>, CompileError> {
+// the Vec is because name clashes between sprites in different entries are allowed
+// (this happens in decompiled output) but the IDs must match.
+type CollectedSpriteIds = IndexMap<Ident, Vec<(Sp<ResIdent>, Sp<ast::Expr>)>>;
+
+fn gather_sprite_id_exprs(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<CollectedSpriteIds, CompileError> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
@@ -431,11 +417,51 @@ fn gather_sprite_id_exprs(ast: &ast::Script, ctx: &mut CompilerContext) -> Resul
 
             // since these are just meta keys we have to synthesize new ResIds
             let res_ident = ident.clone().sp_map(|ident| ctx.resolutions.attach_fresh_res(ident));
-            sprite_ids.insert(ident.value.clone(), (res_ident, sprite_id));
+            sprite_ids.entry(ident.value.clone()).or_insert_with(Vec::new)
+                .push((res_ident, sprite_id));
         }
     }
 
     Ok(sprite_ids)
+}
+
+// validate that sprites with the same name have matching IDs, after having evaluated all const vars.
+fn validate_sprite_id_exprs(sprite_ids: &CollectedSpriteIds, ctx: &CompilerContext) -> Result<(), CompileError> {
+    for data_for_name in sprite_ids.values() {
+        // So now we have all of the exprs that were assigned to sprites with a specific name.
+        // The first of these was used to generate a const var; we can retrieve its cached value now.
+        let (ref first_ident, _) = data_for_name[0];
+        let first_def_id = ctx.resolutions.expect_def(&first_ident);
+        let first_value = ctx.consts.get_cached_value(first_def_id).expect("known const");
+
+        // As for the rest, we don't even know if they're const at this point.
+        // The const_simplification pass may have simplified them in the AST, but these exprs were cloned
+        // prior to that.  We'll just have to run the pass again on these clones.  :/
+        for (other_ident, other_expr) in data_for_name[1..].iter() {
+            let mut simplified_expr = other_expr.clone();
+            crate::passes::const_simplify::run(&mut simplified_expr, &ctx)?;
+            match simplified_expr.value.to_const() {
+                Some(other_value@ScalarValue::Int(_)) => {
+                    if first_value != &other_value {
+                        return Err(error!(
+                            message("name clash between sprites"),
+                            primary(other_ident, "redefinition with ID {}", other_value),
+                            secondary(first_ident, "definition with ID {}", first_value),
+                        ));
+                    }
+                },
+                // FIXME type_check was supposed to be the end-all place for all type errors.
+                //       how should we factor this out?
+                Some(other_value) => return Err(error!(
+                    message("type error"),
+                    primary(other_expr, "{}", other_value.ty().descr()),
+                    secondary(other_ident, "expected an integer"),
+                )),
+                None => return Err(crate::context::consts::non_const_error(other_expr.span).into()),
+            }
+        }
+    }
+    Ok(())
 }
 
 // for an expr `<e>`, produces `<e> + 0`, `<e> + 1`, `<e> + 2`...

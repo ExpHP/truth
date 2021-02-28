@@ -25,7 +25,7 @@
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * %REG[100] : 4.0";
 //! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
 //!
-//! passes::const_simplify::run(&mut expr, &mut ctx).expect("failed to simplify");
+//! passes::const_simplify::run(&mut expr, &ctx).expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * %REG[100]";
 //! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
@@ -160,14 +160,14 @@ impl ast::Expr {
 /// Performs const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.
-pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &CompilerContext) -> Result<(), CompileError> {
     let mut visitor = Visitor { errors: CompileError::new_empty(), ctx };
     ast.visit_mut_with(&mut visitor);
     visitor.errors.into_result(())
 }
 
 struct Visitor<'a> {
-    ctx: &'a mut CompilerContext,
+    ctx: &'a CompilerContext,
     errors: CompileError,
 }
 

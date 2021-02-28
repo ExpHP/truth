@@ -150,13 +150,18 @@ impl<'a> Evaluator<'a> {
     }
 
     fn non_const_error(&self, non_const_span: Span) -> CompileError {
-        let mut diag = Diagnostic::error();
-        diag.message(format!("const evaluation error"));
-        diag.primary(non_const_span, format!("non-const expression"));
+        let mut diag = non_const_error(non_const_span);
         if let Some(&def_id) = self.eval_stack.last() {
             let cur_def_span = self.defs.var_decl_span(def_id).expect("consts always have name spans");
             diag.secondary(cur_def_span, format!("while evaluating this const"));
         }
         diag.into()
     }
+}
+
+pub fn non_const_error(non_const_span: Span) -> Diagnostic {
+    let mut diag = Diagnostic::error();
+    diag.message(format!("const evaluation error"));
+    diag.primary(non_const_span, format!("non-const expression"));
+    diag
 }
