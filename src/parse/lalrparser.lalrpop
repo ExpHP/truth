@@ -366,10 +366,10 @@ CondChain: ast::StmtCondChain = {
     },
 };
 CondChainWithoutElse: ast::StmtCondChain = {
-    <cond_block:Sp<CondBlock>> => {
+    <cond_block:CondBlock> => {
         ast::StmtCondChain { cond_blocks: vec![cond_block], else_block: None }
     },
-    <mut chain:CondChainWithoutElse> "else" <cond_block:Sp<CondBlock>> => {
+    <mut chain:CondChainWithoutElse> "else" <cond_block:CondBlock> => {
         chain.cond_blocks.push(cond_block);
         chain
     },

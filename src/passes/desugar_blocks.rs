@@ -164,9 +164,7 @@ impl<'a> Desugarer<'a> {
                     let veryend = self.ctx.gensym.gensym("@cond_veryend#");
 
                     let mut prev_end_time = outer_time;
-                    for cond_block in chain.cond_blocks {
-                        let ast::CondBlock { keyword, cond, block } = cond_block.value;
-
+                    for ast::CondBlock { keyword, cond, block } in chain.cond_blocks {
                         let (end_span, end_time) = (block.end_span(), block.end_time());
                         self.desugar_conditional_region(cond.span, prev_end_time, keyword, cond, |self_| {
                             self_.desugar_block(block);

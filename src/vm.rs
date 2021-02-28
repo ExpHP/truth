@@ -192,8 +192,7 @@ impl AstVm {
                     let ast::StmtCondChain { cond_blocks, else_block } = chain;
 
                     let mut branch_taken = false;
-                    for cond_block in cond_blocks {
-                        let ast::CondBlock { keyword, cond, block } = &cond_block.value;
+                    for ast::CondBlock { keyword, cond, block } in cond_blocks {
                         if self.eval_cond(cond, resolutions) == (keyword == &token![if]) {
                             branch_taken = true;
                             self.time = block.start_time();

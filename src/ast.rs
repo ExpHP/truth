@@ -265,8 +265,7 @@ pub struct StmtGoto {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtCondChain {
-    // FIXME why do these have spans
-    pub cond_blocks: Vec<Sp<CondBlock>>,
+    pub cond_blocks: Vec<CondBlock>,
     pub else_block: Option<Block>,
 }
 
@@ -809,7 +808,7 @@ macro_rules! generate_visitor_stuff {
                 },
                 StmtBody::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
-                    for sp_pat!(CondBlock { cond, block, keyword: _ }) in cond_blocks {
+                    for CondBlock { cond, block, keyword: _ } in cond_blocks {
                         v.visit_cond(cond);
                         v.visit_block(block);
                     }

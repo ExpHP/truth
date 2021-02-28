@@ -150,17 +150,22 @@ fn parse_seqmap(text: &str) -> Result<SeqMap, SimpleError> {
         } else if line.starts_with("!") {
             let name = match SEQMAP_START_RE.captures(line) {
                 Some(captures) => captures[1].to_string(),
-                None => panic!("parse error"), // FIXME return Error
+                None => bail!("bad section start: {:?}", line),
             };
             cur_section = Some(name.clone());
             cur_map = Some(maps.entry(name).or_insert_with(BTreeMap::new));
         } else {
             match SEQMAP_ITEM_RE.captures(line) {
-                None => panic!("parse error"), // FIXME return Error
+                None => bail!("parse error at line: {:?}", line),
                 Some(captures) => {
                     let number = captures[1].parse().unwrap();
                     let value = captures[2].to_string();
-                    if let Some(_) = cur_map.as_mut().expect("missing section header").insert(number, value) { // FIXME return error
+
+                    let cur_map = match &mut cur_map {
+                        None => bail!("missing section header"),
+                        Some(cur_map) => cur_map,
+                    };
+                    if let Some(_) = cur_map.insert(number, value) {
                         let section_name = cur_section.as_ref().expect("can't be None if cur_map is Some");
                         bail!("duplicate key error for id {} in section '{}'", number, section_name);
                     }

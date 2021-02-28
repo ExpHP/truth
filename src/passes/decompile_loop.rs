@@ -77,11 +77,11 @@ impl VisitMut for IfElseVisitor {
                         inner_block.0[0].body = ast::StmtBody::NoInstruction;  // replace conditional jump with bookend
                         inner_block.0[0].span = cond_block_span.end_span();
 
-                        cond_block_asts.push(sp!(cond_block_span => ast::CondBlock {
+                        cond_block_asts.push(ast::CondBlock {
                             keyword: cond_block.keyword,
                             cond: cond_block.cond,
                             block: inner_block,
-                        }));
+                        });
                     }
 
                     let else_block;

@@ -291,7 +291,7 @@ pub trait InstrFormat {
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
 
-    /// Get the number of bytes in the binary encoding of an instruction.
+    /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).
     fn instr_header_size(&self) -> usize;
 
     /// Read a single script instruction from an input stream.
@@ -336,7 +336,8 @@ pub trait InstrFormat {
     fn encode_label(&self, offset: u64) -> u32 { offset as _ }
     fn decode_label(&self, bits: u32) -> u64 { bits as _ }
 
-    // FIXME: remove this
+    /// Helper method that returns the total instruction size, including the arguments.
+    /// There should be no need to override this.
     fn instr_size(&self, instr: &RawInstr) -> usize { self.instr_header_size() + instr.args_blob.len() }
 }
 
@@ -346,7 +347,7 @@ pub struct TestFormat {
     pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
-    /// For simulating the existence of an instruction like ANM ins_509
+    /// For simulating the existence of an instruction like ANM `ins_509`
     pub anti_scratch_opcode: Option<u16>,
 }
 impl InstrFormat for TestFormat {
