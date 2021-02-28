@@ -416,13 +416,26 @@ entry {
 );
 
 compile_fail_test!(
+    ANM_10, meta_sprite_id_type_error,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+    },
+}
+    "#,
+    main_body: "",
+    expected: EXPECTED_TYPE_ERROR,
+);
+
+compile_fail_test!(
     ANM_10, meta_sprite_id_non_const,
     items_before: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
-    memory_priority: 3,
-    low_res_scale: false,
     sprites: {
         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
     },
@@ -430,6 +443,69 @@ entry {
     "#,
     main_body: "",
     expected: "const",
+);
+
+// At the time of writing, the ID expressions for duplicate sprites annoyingly get handled
+// in a totally different way from non-dupes, so we need to check this.
+compile_fail_test!(
+    ANM_10, meta_sprite_id_dupe_type_error,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
+    },
+}
+entry {
+    path: "subdir/file-3.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+    },
+}
+    "#,
+    main_body: "",
+    expected: EXPECTED_TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, meta_sprite_id_dupe_non_const,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
+    },
+}
+entry {
+    path: "subdir/file-3.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+    },
+}
+    "#,
+    main_body: "",
+    expected: "const",
+);
+
+compile_fail_test!(
+    ANM_10, meta_sprite_id_circular_dependency,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
+        bestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolestSprite * 3},
+        coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
+    },
+}
+    "#,
+    main_body: "",
+    expected: "depends on its own value",
 );
 
 mod type_error {

@@ -1,0 +1,14 @@
+---
+source: tests/anm_compile.rs
+expression: "compile_fail_stderr(Game::Th12,\n                    file(\"th12-err-sprite-clash-implicit.anm.spec\"))"
+---
+error: name clash between sprites
+   ┌─ tests/anm-compile/th12-err-sprite-clash-implicit.anm.spec:16:15
+   │
+ 9 │     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
+   │               --------- definition with ID 1
+   ·
+16 │     sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
+   │               ^^^^^^^^^ redefinition with ID 2
+
+

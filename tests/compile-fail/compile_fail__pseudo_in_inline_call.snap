@@ -2,6 +2,6 @@
 source: tests/compile-fail.rs
 expression: stderr
 ---
-thread 'main' panicked at 'not implemented: need to create signatures for user funcs!', src/context/defs.rs:276:61
+thread 'main' panicked at 'not implemented: need to create signatures for user funcs!', src/context/defs.rs:277:61
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 

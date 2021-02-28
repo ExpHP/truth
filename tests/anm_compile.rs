@@ -142,6 +142,7 @@ mod no_source {
 }
 
 compile_fail_test!(Game::Th12, err_sprite_clash, file("th12-err-sprite-clash.anm.spec"));
+compile_fail_test!(Game::Th12, err_sprite_clash_implicit, file("th12-err-sprite-clash-implicit.anm.spec"));
 
 #[test]
 fn multiple_match() {
@@ -172,4 +173,16 @@ fn thecl_defs() {
     let defs = compile_for_thecl_defs(Game::Th12, file("th12-thecl-defs-input.anm.spec"));
     let expected = std::fs::read_to_string(file("th12-thecl-defs-expected.ecs")).unwrap();
     assert_eq!(defs, expected);
+}
+
+
+#[test]
+fn sprite_ids_gone_wild() {
+    let anm = compile(Game::Th12, file("th12-sprite-ids-gone-wild.anm.spec"));
+    assert_eq!(anm.entries[0].sprites[0].id, Some(2));
+    assert_eq!(anm.entries[0].sprites[1].id, None);  // 3
+    assert_eq!(anm.entries[0].sprites[2].id, Some(53));
+    assert_eq!(anm.entries[0].sprites[3].id, Some(400));
+    assert_eq!(anm.entries[1].sprites[0].id, None);  // 401
+    assert_eq!(anm.entries[1].sprites[1].id, Some(404));
 }

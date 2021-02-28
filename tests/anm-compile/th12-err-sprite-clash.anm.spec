@@ -6,14 +6,14 @@
 entry {
     path: "subdir/file1.png",
     has_data: false,
-    sprites: {my_sprite: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
 }
 
 
 entry {
     path: "subdir/file2.png",
     has_data: false,
-    sprites: {my_sprite: {id: 1, x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
+    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0, id: 1}},
 }
 
 
