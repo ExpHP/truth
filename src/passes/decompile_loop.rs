@@ -381,10 +381,10 @@ enum Direction { Forwards, Backwards }
 impl JmpInfo {
     fn from_stmt(ast: &ast::Stmt, label_info: &HashMap<Ident, LabelInfo>) -> Option<Self> {
         let (goto, kind) = match ast.body {
-            ast::StmtBody::Jump(ref goto) => (goto, JmpKind::Uncond),
+            ast::StmtBody::Goto(ref goto) => (goto, JmpKind::Uncond),
 
-            ast::StmtBody::CondJump { keyword, ref cond, ref jump } => match keyword.value {
-                ast::CondKeyword::If => (jump, JmpKind::Cond { keyword, cond: cond.clone() }),
+            ast::StmtBody::CondGoto { keyword, ref cond, ref goto } => match keyword.value {
+                ast::CondKeyword::If => (goto, JmpKind::Cond { keyword, cond: cond.clone() }),
                 ast::CondKeyword::Unless => unimplemented!(),  // not present in decompiled code
             }
 

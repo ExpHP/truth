@@ -272,8 +272,8 @@ StmtBody: ast::StmtBody = {
     <chain:CondChain>
         => ast::StmtBody::CondChain(chain),
 
-    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtGoto> ";"
-        => ast::StmtBody::CondJump { keyword, cond, jump },
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <goto:StmtGoto> ";"
+        => ast::StmtBody::CondGoto { keyword, cond, goto },
 
     <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
         => ast::StmtBody::While { do_keyword: Some(do_keyword), while_keyword, cond, block },
@@ -287,8 +287,8 @@ StmtBody: ast::StmtBody = {
     <keyword:TokenSpan<"loop">> <block:StmtOrBlock>
         => ast::StmtBody::Loop { keyword, block },
 
-    <jump:StmtGoto> ";"
-        => ast::StmtBody::Jump(jump),
+    <goto:StmtGoto> ";"
+        => ast::StmtBody::Goto(goto),
 
     <e:Sp<Expr>> ";"
         => ast::StmtBody::Expr(e),

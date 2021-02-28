@@ -176,11 +176,11 @@ impl AstVm {
             //      some way of storing or communicating a "instruction pointer", which
             //      doesn't exist due to the nested nature of the AST.
             match &stmts[stmt_index].body {
-                ast::StmtBody::Jump(goto) => handle_goto!(goto),
+                ast::StmtBody::Goto(goto) => handle_goto!(goto),
 
-                ast::StmtBody::CondJump { keyword, cond, jump } => {
+                ast::StmtBody::CondGoto { keyword, cond, goto } => {
                     if self.eval_cond(cond, resolutions) == (keyword == &token![if]) {
-                        handle_goto!(jump);
+                        handle_goto!(goto);
                     }
                 },
 

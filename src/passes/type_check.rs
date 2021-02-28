@@ -69,9 +69,9 @@ impl ast::Visit for Visitor<'_> {
             // statement types where there's nothing additional to check beyond what
             // would already be done by recursively walking the node
             | ast::StmtBody::CondChain { .. }
-            | ast::StmtBody::CondJump { .. }
+            | ast::StmtBody::CondGoto { .. }
             | ast::StmtBody::While { .. }
-            | ast::StmtBody::Jump { .. }
+            | ast::StmtBody::Goto { .. }
             | ast::StmtBody::Loop { .. } => {
                 ast::walk_stmt(self, stmt)
             },

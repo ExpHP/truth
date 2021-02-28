@@ -41,7 +41,7 @@ impl Lowerer<'_> {
             }
 
             match &stmt.body {
-                ast::StmtBody::Jump(goto) => {
+                ast::StmtBody::Goto(goto) => {
                     self.lower_uncond_jump(stmt.span, stmt.time, goto)?;
                 },
 
@@ -61,8 +61,8 @@ impl Lowerer<'_> {
                 },
 
 
-                ast::StmtBody::CondJump { keyword, cond, jump } => {
-                    self.lower_cond_jump(stmt.span, stmt.time, keyword, cond, jump)?;
+                ast::StmtBody::CondGoto { keyword, cond, goto } => {
+                    self.lower_cond_jump(stmt.span, stmt.time, keyword, cond, goto)?;
                 },
 
 

@@ -52,9 +52,9 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
             ast::walk_stmt(self, x);
 
             match &x.body {
-                | ast::StmtBody::Jump(jump)
-                | ast::StmtBody::CondJump { jump, .. }
-                => { self.labels.insert(jump.destination.value.clone()); },
+                | ast::StmtBody::Goto(goto)
+                | ast::StmtBody::CondGoto { goto, .. }
+                => { self.labels.insert(goto.destination.value.clone()); }
 
                 _ => {},
             };

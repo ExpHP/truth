@@ -640,7 +640,7 @@ impl Format for ast::StmtLabel {
 impl Format for ast::StmtBody {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::StmtBody::Jump(jump) => out.fmt((jump, ";")),
+            ast::StmtBody::Goto(goto) => out.fmt((goto, ";")),
 
             ast::StmtBody::Return { value, keyword: _ } => {
                 out.fmt("return")?;
@@ -650,8 +650,8 @@ impl Format for ast::StmtBody {
                 out.fmt(";")
             },
 
-            ast::StmtBody::CondJump { keyword, cond, jump } => {
-                out.fmt((keyword, " (", SuppressParens(cond), ") ", jump, ";"))
+            ast::StmtBody::CondGoto { keyword, cond, goto } => {
+                out.fmt((keyword, " (", SuppressParens(cond), ") ", goto, ";"))
             },
 
             ast::StmtBody::Loop { block, keyword: _ } => {

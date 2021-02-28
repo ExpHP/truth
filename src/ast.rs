@@ -149,13 +149,11 @@ pub enum StmtLabel {
 /// without any labels.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtBody {
-    // FIXME: rename to Goto
-    Jump(StmtGoto),
-    // FIXME: rename to CondGoto
-    CondJump {
+    Goto(StmtGoto),
+    CondGoto {
         keyword: Sp<CondKeyword>,
         cond: Sp<Cond>,
-        jump: StmtGoto,
+        goto: StmtGoto,
     },
     Return {
         keyword: TokenSpan,
@@ -238,8 +236,8 @@ pub enum StmtBody {
 
 impl StmtBody {
     pub fn descr(&self) -> &'static str { match self {
-        StmtBody::Jump { .. } => "goto",
-        StmtBody::CondJump { .. } => "conditional goto",
+        StmtBody::Goto { .. } => "goto",
+        StmtBody::CondGoto { .. } => "conditional goto",
         StmtBody::Return { .. } => "return statement",
         StmtBody::CondChain { .. } => "conditional chain",
         StmtBody::Loop { .. } => "loop",
@@ -793,7 +791,7 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.body {
-                StmtBody::Jump(goto) => {
+                StmtBody::Goto(goto) => {
                     v.visit_goto(goto);
                 },
                 StmtBody::Return { value, keyword: _ } => {
@@ -802,9 +800,9 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 StmtBody::Loop { block, keyword: _ } => v.visit_block(block),
-                StmtBody::CondJump { cond, jump, keyword: _ } => {
+                StmtBody::CondGoto { cond, goto, keyword: _ } => {
                     v.visit_cond(cond);
-                    v.visit_goto(jump);
+                    v.visit_goto(goto);
                 },
                 StmtBody::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
