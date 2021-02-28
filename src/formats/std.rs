@@ -275,6 +275,7 @@ fn compile_std(
         crate::passes::resolve_names::assign_res_ids(&mut script, ctx)?;
         crate::passes::resolve_names::run(&script, ctx)?;
         crate::passes::type_check::run(&script, ctx)?;
+        crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut script, ctx)?;
         crate::passes::desugar_blocks::run(&mut script, ctx)?;
         script

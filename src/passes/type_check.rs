@@ -23,6 +23,22 @@ pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), 
     v.errors.into_result(())
 }
 
+/// Performs additional, shallow type checks that couldn't be done by [`run`] or the checks in
+/// [`FromMeta`] for whatever reason.
+pub fn extra_checks(checks: &[ShallowTypeCheck], ctx: &CompilerContext) -> Result<(), CompileError> {
+    checks.iter().map(|check| perform_shallow_type_check(check, ctx))
+        .collect_with_recovery()
+}
+
+/// Represents an auxilliary type-check that isn't normally performed by the `type_check` pass.
+pub struct ShallowTypeCheck {
+    pub expr: Sp<ast::Expr>,
+    pub ty: Option<ScalarType>,
+    pub cause: Option<Span>,
+}
+
+// =============================================================================
+
 struct Visitor<'a> {
     ctx: &'a CompilerContext,
     errors: CompileError,
@@ -507,6 +523,21 @@ impl ast::Expr {
             token![mask] => require_int(value_ty, kind.span, value_span),
             token![blob] => require_string(value_ty, kind.span, value_span),
         }
+    }
+}
+
+// =============================================================================
+
+fn perform_shallow_type_check(check: &ShallowTypeCheck, ctx: &CompilerContext) -> Result<(), CompileError> {
+    let &ShallowTypeCheck { ref expr, ty: expected_ty, cause } = check;
+    let actual_ty = expr.compute_ty(ctx);
+    let cause = cause.unwrap_or(expr.span);
+    match expected_ty {
+        None => require_void(actual_ty, expr.span, "expected void type"),
+        Some(expected_ty) => {
+            let actual_ty = require_value(actual_ty, cause, expr.span)?;
+            _require_exact(actual_ty, expected_ty, cause, expr.span)
+        },
     }
 }
 

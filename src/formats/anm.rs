@@ -306,12 +306,14 @@ fn compile(
     let mut ast = ast.clone();
     crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
 
+    let mut extra_type_checks = vec![];
+
     // an early pass to define global constants for sprite and script names
     let script_ids = gather_script_ids(&ast, ctx)?;
     for &(ref script_name, id) in script_ids.values() {
         ctx.define_global_const_var(script_name.clone(), ScalarType::Int, id.sp_map(ast::Expr::from));
     }
-    let sprite_ids = gather_sprite_id_exprs(&ast, ctx)?;
+    let sprite_ids = gather_sprite_id_exprs(&ast, ctx, &mut extra_type_checks)?;
     for data_for_name in sprite_ids.values() {
         // use the first definition with this name
         let (sprite_name, id_expr) = data_for_name[0].clone();
@@ -322,8 +324,9 @@ fn compile(
     let ast = {
         let mut ast = ast;
         crate::passes::resolve_names::run(&ast, ctx)?;
-        crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
+        crate::passes::type_check::extra_checks(&extra_type_checks, ctx)?;
+        crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
         crate::passes::desugar_blocks::run(&mut ast, ctx)?;
         ast
@@ -398,7 +401,11 @@ fn write_thecl_defs(
 // (this happens in decompiled output) but the IDs must match.
 type CollectedSpriteIds = IndexMap<Ident, Vec<(Sp<ResIdent>, Sp<ast::Expr>)>>;
 
-fn gather_sprite_id_exprs(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<CollectedSpriteIds, CompileError> {
+fn gather_sprite_id_exprs(
+    ast: &ast::Script,
+    ctx: &mut CompilerContext,
+    extra_type_checks: &mut Vec<crate::passes::type_check::ShallowTypeCheck>,
+) -> Result<CollectedSpriteIds, CompileError> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
@@ -410,10 +417,20 @@ fn gather_sprite_id_exprs(ast: &ast::Script, ctx: &mut CompilerContext) -> Resul
         let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite<'_>>>("sprites")?;
         for (ident, sprite) in sprites {
             if let Some(id_expr) = sprite.id_expr.cloned() {
+                // currently nothing else can really type-check this before const evaluation, so add a deferred check
+                extra_type_checks.push(crate::passes::type_check::ShallowTypeCheck {
+                    expr: id_expr.clone(),
+                    ty: Some(ScalarType::Int),
+                    cause: None,
+                });
+                // restart numbering from the new id
                 auto_sprites = sequential_int_exprs(id_expr);
             };
 
-            let sprite_id = sp!(ident.span => auto_sprites.next().unwrap());
+            // (errors are unlikely to occur on lines with auto IDs, but if they do, fall back to the ident's span)
+            let sprite_id_span = sprite.id_expr.as_ref().map(|x| x.span).unwrap_or(ident.span);
+
+            let sprite_id = sp!(sprite_id_span => auto_sprites.next().unwrap());
 
             // since these are just meta keys we have to synthesize new ResIds
             let res_ident = ident.clone().sp_map(|ident| ctx.resolutions.attach_fresh_res(ident));
@@ -450,13 +467,7 @@ fn validate_sprite_id_exprs(sprite_ids: &CollectedSpriteIds, ctx: &CompilerConte
                         ));
                     }
                 },
-                // FIXME type_check was supposed to be the end-all place for all type errors.
-                //       how should we factor this out?
-                Some(other_value) => return Err(error!(
-                    message("type error"),
-                    primary(other_expr, "{}", other_value.ty().descr()),
-                    secondary(other_ident, "expected an integer"),
-                )),
+                Some(_) => unreachable!("shoulda been type-checked"),
                 None => return Err(crate::context::consts::non_const_error(other_expr.span).into()),
             }
         }
