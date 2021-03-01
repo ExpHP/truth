@@ -1,0 +1,33 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.msgm"
+
+script 0 main {
+    enter(0, 0);
+    face(0, 0);
+    anmInterrupt(0, 1);
++60: // 60
+    textPause(300);
+}
+
+
+script 1 main {
+    enter(0, 0);
+    stop();
+}
+
+
+script 10 main {
+    enter(0, 0);
+    face(0, 0);
+    anmInterrupt(0, 1);
+}
+
+
+script 11 main {
+    enter(0, 0);
+    anmInterrupt(0, 1);
+}
+

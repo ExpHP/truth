@@ -1,0 +1,13 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:36:62
+   │
+36 │         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+   │                                                              ^^^ a float
+   │
+   = an integer is required
+
+

@@ -1,0 +1,11 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: invalid pseudo-arg
+   ┌─ <input>:28:18
+   │
+28 │         wait(12, @mask=0b1);
+   │                  ^^^^^^ must come before other arguments
+
+

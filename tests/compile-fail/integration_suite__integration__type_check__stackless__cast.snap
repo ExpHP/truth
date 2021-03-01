@@ -1,0 +1,13 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:18
+   │
+27 │       int x = _S(I2);  
+   │               -- ^^ an integer
+   │               │   
+   │               expects a float
+
+

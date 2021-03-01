@@ -1,0 +1,13 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:28:13
+   │
+28 │         if (2.0 && 3.0) goto label;
+   │             ^^^ -- expects an integer
+   │             │    
+   │             a float
+
+

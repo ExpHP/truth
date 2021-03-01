@@ -1,0 +1,7 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+error: while reading file 'this/is/a/bad/path': No such file or directory (os error 2)
+
+

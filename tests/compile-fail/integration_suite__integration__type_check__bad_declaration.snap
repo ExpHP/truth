@@ -1,0 +1,14 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: unexpected token `%`
+   ┌─ <input>:27:11
+   │
+27 │       int %x;  
+   │           ^ unexpected token
+   │
+   = 
+     Expected one of ";", "anim", "ecli", "entry", "mapfile", "script", "timeline" or IDENT
+
+

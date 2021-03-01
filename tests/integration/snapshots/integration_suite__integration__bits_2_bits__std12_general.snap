@@ -1,0 +1,36 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    anm_path: "stage01.anm",
+    objects: {
+        object0: {
+            unknown: 0,
+            pos: [-2.0, 0.0, -3.0],
+            size: [751.0, 512.0, 5.0],
+            quads: [rect {anm_script: 0, pos: [124.0, 0.0, 0.0], size: [256.0, 512.0]}],
+        },
+    },
+    instances: [
+        object0 {pos: [0.0, 512.0, 0.0]},
+        object0 {pos: [0.0, 1024.0, 0.0]},
+        object0 {pos: [0.0, 1536.0, 0.0]},
+    ],
+}
+
+
+script main {
+    fog(0xffefefff, 200.0, 1100.0);
+    fogTime(600, 0, 0xffc0d0ff, 800.0, 1200.0);
+    posBezier(690, 8, 0.0, 0.0, 0.0, 0.0, 2400.0, -700.0, 0.0, 1800.0, 0.0);
+    loop {
+        pos(0.0, 4724.0, -700.0);
+        posTime(1280, 0, 0.0, 8820.0, -700.0);
++1280: // 1280
+    }
+}
+

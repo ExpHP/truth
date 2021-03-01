@@ -1,0 +1,13 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:13
+   │
+27 │       times(F0) {}  
+   │             ^^ a float
+   │
+   = an integer is required
+
+

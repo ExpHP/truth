@@ -1,0 +1,8 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+error: entry for 'subdir/file.png' is missing required field 'width'!
+       (if this data is available in an existing anm file, try using `-i ANM_FILE`)
+
+

@@ -1,0 +1,14 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:27:12
+   │
+27 │       I0 = F0;  
+   │       -- - ^^ a float
+   │       │  │  
+   │       │  same types required by this
+   │       an integer
+
+

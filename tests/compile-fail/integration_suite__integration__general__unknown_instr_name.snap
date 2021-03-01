@@ -1,0 +1,11 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: unknown function 'iMadeThisUpYesterday'
+   ┌─ <input>:27:7
+   │
+27 │       iMadeThisUpYesterday(0, 0, 0);  
+   │       ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+

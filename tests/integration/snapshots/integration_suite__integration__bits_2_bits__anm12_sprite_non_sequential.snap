@@ -1,0 +1,30 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.anmm"
+
+entry {
+    path: "subdir/file.png",
+    has_data: false,
+    width: 512,
+    height: 512,
+    offset_x: 0,
+    offset_y: 0,
+    format: 3,
+    colorkey: 0x0,
+    memory_priority: 0,
+    low_res_scale: false,
+    sprites: {
+        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite46: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 46},
+        sprite47: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+    },
+}
+
+
+script 0 script0 {
+    sprite(sprite46);
+}
+

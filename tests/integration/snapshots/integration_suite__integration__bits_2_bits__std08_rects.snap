@@ -1,0 +1,34 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    stage_name: "dm",
+    bgm: [
+        {path: "bgm/th08_08.mid", name: "dm"},
+        {path: "bgm/th08_09.mid", name: "dm"},
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {
+        object0: {
+            unknown: 1,
+            pos: [-81.602196, -140.91132, -425.6022],
+            size: [531.2044, 505.268, 571.2044],
+            quads: [
+                rect {anm_script: 2, pos: [64.0, 224.0, -64.0], size: [112.0, 96.0]},
+                rect {anm_script: 2, pos: [234.0, 224.0, -202.0], size: [-112.0, 96.0]},
+            ],
+        },
+    },
+    instances: [object0 {pos: [-192.0, 6600.0, 0.0]}],
+}
+
+
+script main {
+    posKeyframe(0.0, 0.0, 0.0);
+}
+

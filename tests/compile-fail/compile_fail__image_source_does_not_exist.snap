@@ -1,7 +1,0 @@
----
-source: tests/compile-fail.rs
-expression: stderr
----
-error: while reading file 'this/is/a/bad/path': No such file or directory (os error 2)
-
-

@@ -87,7 +87,7 @@ Note that there is no feature to extract images into PNG files, and it is doubtf
 
  To compile a brand new ANM file that isn't based on any original ANM file, simply make sure to supply all necessary header data in the `entry` objects along with `has_data: false`; in this case, you do NOT require the `-i` flag.
 
-An example of such a script be found at [th12-no-source-required.anm.spec](./tests/anm-compile/th12-no-source-required.anm.spec).
+An example of such a script be found in the [`anm_features` test file](./tests/integration/anm_features.rs), in the test `no_source::okay`.
 
 To use the compiled file, make a thcrap patch which contains images in all of the right locations.  (for instance, if the script has a `has_data: false` entry with `path: "subdir/file.png"`, the thcrap patch should have an image at e.g. `<patch_root>/th17/subdir/file.png`)
 

@@ -1,0 +1,24 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    stage_name: "dm",
+    bgm: [
+        {path: "bgm/th08_08.mid", name: "dm"},
+        {path: "bgm/th08_09.mid", name: "dm"},
+        {path: " ", name: " "},
+        {path: " ", name: " "},
+    ],
+    objects: {},
+    instances: [],
+}
+
+
+script main {
+    posTime(1024, 0, 60);
+}
+

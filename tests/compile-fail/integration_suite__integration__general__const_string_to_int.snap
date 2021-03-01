@@ -1,0 +1,14 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: unexpected token `string`
+   ┌─ <input>:28:15
+   │
+28 │         const string x = "hi";
+   │               ^^^^^^ unexpected token
+   │
+   = 
+     Expected one of "!=", "%", "%=", "&", "&&", "&=", "(", ")", "*", "*=", "+", "+=", ",", "-", "-=", "/", "/=", ":", ";", "<", "<=", "=", "==", ">", ">=", "?", "@", "[", "]", "^", "^=", "{", "|", "|=", "||" or "}"
+
+
