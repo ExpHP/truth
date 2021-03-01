@@ -150,7 +150,15 @@ compile_fail_test!(
 
 // TODO: STD script requirements (single sub called main...)
 
-// FIXME: ADDTEST pseudo blob success
+#[test]
+fn pseudo_blob() {
+    // This tests that a user provided @mask overrides the one that gets automatically computed.
+    ANM_10.sbsb_test(r#"
+        anchor(@blob="01000200");
+    "#, |decompiled| {
+        assert!(decompiled.contains("(1, 2)"));  // turned into words
+    });
+}
 
 #[test]
 fn pseudo_mask_override() {

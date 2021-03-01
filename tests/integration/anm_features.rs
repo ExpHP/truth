@@ -161,234 +161,6 @@ script -45 script0 {
     );
 }
 
-// FIXME somehow group these image_source tests so that new formats are automatically tested?
-compile_fail_test!(
-    STD_08, image_source_in_std,
-    items_before: r#"
-        #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
-    "#,
-    main_body: "",
-    expected: "unexpected image_source",
-);
-compile_fail_test!(
-    MSG_06, image_source_in_msg,
-    items_before: r#"
-        #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
-    "#,
-    main_body: "",
-    expected: "unexpected image_source",
-);
-
-// =============================================================================
-// Sprite IDs
-
-// This is the first written test of const vars that depend on other const vars.
-// (sprite IDs were the first const vars implemented in the compiler, even before
-//  const var items!)
-#[test]
-fn sprite_ids_gone_wild() {
-    let format = &ANM_12;
-    let anm = format.compile(&TestFile::from_content("input", r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
-
-entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {
-        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueC + 2 - valueC},
-        valueB: {x: 0.0, y: 0.0, w: 0.0, h: 0.0},
-        valueC: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
-        valueD: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueE - 1},
-    },
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {
-        valueE: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 401},
-        valueF: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: _S(%valueE + 2.4) + 1},
-    },
-}
-
-script script0 {
-    ins_1();
-}
-    "#)).read_anm(format);
-    assert_eq!(anm.entries[0].sprites[0].id, Some(2));
-    assert_eq!(anm.entries[0].sprites[1].id, None);  // 3
-    assert_eq!(anm.entries[0].sprites[2].id, Some(53));
-    assert_eq!(anm.entries[0].sprites[3].id, Some(400));
-    assert_eq!(anm.entries[1].sprites[0].id, None);  // 401
-    assert_eq!(anm.entries[1].sprites[1].id, Some(404));
-}
-
-compile_fail_test!(
-    ANM_10, meta_non_const,
-    items_before: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    memory_priority: 3 * I0,
-    low_res_scale: false,
-    sprites: {
-        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 200},
-    },
-}
-    "#,
-    main_body: "",
-    // NOTE: be careful changing this.  If the new error complains about missing fields
-    // or missing image data, fix the test input instead.
-    expected: "const",
-);
-
-compile_fail_test!(
-    ANM_10, meta_sprite_id_type_error,
-    items_before: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
-    },
-}
-    "#,
-    main_body: "",
-    expected: expected::TYPE_ERROR,
-);
-
-compile_fail_test!(
-    ANM_10, meta_sprite_id_non_const,
-    items_before: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
-    },
-}
-    "#,
-    main_body: "",
-    expected: "const",
-);
-
-// FIXME: is there a compile-succeed test where clashing names have the same ID?
-
-// At the time of writing, the ID expressions for duplicate sprites annoyingly get handled
-// in a totally different way from non-dupes, so we need to check this.
-compile_fail_test!(
-    ANM_10, meta_sprite_id_dupe_type_error,
-    items_before: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
-    },
-}
-entry {
-    path: "subdir/file-3.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
-    },
-}
-    "#,
-    main_body: "",
-    expected: expected::TYPE_ERROR,
-);
-
-compile_fail_test!(
-    ANM_10, meta_sprite_id_dupe_non_const,
-    items_before: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
-    },
-}
-entry {
-    path: "subdir/file-3.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
-    },
-}
-    "#,
-    main_body: "",
-    expected: "const",
-);
-
-compile_fail_test!(
-    ANM_10, meta_sprite_id_circular_dependency,
-    items_before: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
-        bestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolestSprite * 3},
-        coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
-    },
-}
-    "#,
-    main_body: "",
-    expected: "depends on its own value",
-);
-
-// It is okay for two sprites to have the same name (this occurs in decompiled output),
-// but they must also have the same ID.
-compile_fail_test!(
-    ANM_12, err_sprite_clash,
-    full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
-
-entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0, id: 1}},
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    expected: "redefinition"
-);
-
-// Variant of err_sprite_clash where one of the dupes has an implicit ID.
-// (so we can check the spans in this case)
-compile_fail_test!(
-    ANM_12, err_sprite_clash_implicit,
-    full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
-
-entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    expected: "redefinition"
-);
-
 // This file tests that metadata is grabbed from the entry with the matching name
 // even when out of order.
 #[test]
@@ -462,6 +234,298 @@ script script1 {
     assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
     assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
 }
+
+// FIXME somehow group these image_source tests so that new formats are automatically tested?
+compile_fail_test!(
+    STD_08, image_source_in_std,
+    items_before: r#"
+        #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+    "#,
+    main_body: "",
+    expected: "unexpected image_source",
+);
+compile_fail_test!(
+    MSG_06, image_source_in_msg,
+    items_before: r#"
+        #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+    "#,
+    main_body: "",
+    expected: "unexpected image_source",
+);
+
+// =============================================================================
+// Sprite IDs
+
+// This is the first written test of const vars that depend on other const vars.
+// (sprite IDs were the first const vars implemented in the compiler, even before
+//  const var items!)
+#[test]
+fn sprite_ids_gone_wild() {
+    let format = &ANM_12;
+    let anm = format.compile(&TestFile::from_content("input", r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {
+        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueC + 2 - valueC},
+        valueB: {x: 0.0, y: 0.0, w: 0.0, h: 0.0},
+        valueC: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
+        valueD: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueE - 1},
+    },
+}
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {
+        valueE: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 401},
+        valueF: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: _S(%valueE + 2.4) + 1},
+    },
+}
+
+script script0 {
+    ins_1();
+}
+    "#)).read_anm(format);
+    assert_eq!(anm.entries[0].sprites[0].id, Some(2));
+    assert_eq!(anm.entries[0].sprites[1].id, None);  // 3
+    assert_eq!(anm.entries[0].sprites[2].id, Some(53));
+    assert_eq!(anm.entries[0].sprites[3].id, Some(400));
+    assert_eq!(anm.entries[1].sprites[0].id, None);  // 401
+    assert_eq!(anm.entries[1].sprites[1].id, Some(404));
+}
+
+compile_fail_test!(
+    ANM_10, meta_sprite_id_circular_dependency,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
+        bestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolestSprite * 3},
+        coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
+    },
+}
+    "#,
+    main_body: "",
+    expected: "depends on its own value",
+);
+
+compile_fail_test!(
+    ANM_10, meta_non_const,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    memory_priority: 3 * I0,
+    low_res_scale: false,
+    sprites: {
+        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 200},
+    },
+}
+    "#,
+    main_body: "",
+    // NOTE: be careful changing this.  If the new error complains about missing fields
+    // or missing image data, fix the test input instead.
+    expected: "const",
+);
+
+// It is okay for two sprites to have the same name (this occurs in decompiled output),
+// but they must also have the same ID.
+#[test]
+fn sprite_ids_dupe() {
+    let format = &ANM_12;
+    let anm = format.compile(&TestFile::from_content("input", r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {
+        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
+    },
+}
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {
+        xyzzyx: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 24},
+        valueA: {x: 1.0, y: 1.0, w: 1.0, h: 1.0, id: 53},
+    },
+}
+
+script script0 {
+    ins_1();
+}
+    "#)).read_anm(format);
+    assert_eq!(anm.entries[0].sprites[0].id, Some(53));
+    assert_eq!(anm.entries[1].sprites[0].id, Some(24));
+    assert_eq!(anm.entries[1].sprites[1].id, Some(53));
+}
+
+// same but one's implicit
+#[test]
+fn sprite_ids_dupe_implicit() {
+    let format = &ANM_12;
+    let anm = format.compile(&TestFile::from_content("input", r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {
+        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
+    },
+}
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {
+        xyzzyx: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 52},
+        valueA: {x: 1.0, y: 1.0, w: 1.0, h: 1.0},   // dupe, but has same id as above
+    },
+}
+
+script script0 {
+    ins_1();
+}
+    "#)).read_anm(format);
+    assert_eq!(anm.entries[0].sprites[0].id, Some(53));
+    assert_eq!(anm.entries[1].sprites[0].id, Some(52));
+    assert_eq!(anm.entries[1].sprites[1].id, None);  // 53
+}
+
+// Now they have mismatched IDs.
+compile_fail_test!(
+    ANM_12, err_sprite_clash,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
+}
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0, id: 1}},
+}
+
+script script0 {
+    ins_1();
+}
+    "#,
+    expected: "redefinition"
+);
+
+// Same but one's implicit.
+compile_fail_test!(
+    ANM_12, err_sprite_clash_implicit,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
+}
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
+}
+
+script script0 {
+    ins_1();
+}
+    "#,
+    expected: "redefinition"
+);
+
+// Type-checking/const-checking sprite IDs is actually a bit annoying.
+compile_fail_test!(
+    ANM_10, meta_sprite_id_type_error,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+    },
+}
+    "#,
+    main_body: "",
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, meta_sprite_id_non_const,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+    },
+}
+    "#,
+    main_body: "",
+    expected: "const",
+);
+
+// Dupes may follow different code paths for type checking and const checking since
+// the expressions are never used beyond checking equality to the originals.
+compile_fail_test!(
+    ANM_10, meta_sprite_id_dupe_type_error,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
+    },
+}
+entry {
+    path: "subdir/file-3.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+    },
+}
+    "#,
+    main_body: "",
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, meta_sprite_id_dupe_non_const,
+    items_before: r#"
+entry {
+    path: "subdir/file-2.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
+    },
+}
+entry {
+    path: "subdir/file-3.png",
+    has_data: false,
+    sprites: {
+        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+    },
+}
+    "#,
+    main_body: "",
+    expected: "const",
+);
 
 // =============================================================================
 
