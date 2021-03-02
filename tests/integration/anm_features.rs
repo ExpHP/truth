@@ -527,6 +527,85 @@ entry {
     expected: "const",
 );
 
+#[test]
+fn const_using_sprite_id() {
+    let format = ANM_12;
+    let source = TestFile::from_content("input", r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "lmao.png",
+    has_data: false,
+    sprites: {
+        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 10},
+    },
+}
+
+const int B = sprite0;
+
+script script0 {
+    ins_3(B);
+}
+    "#);
+    let anm = format.compile(&source).read_anm(&format);
+    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0])
+}
+
+#[test]
+fn sprite_id_using_const() {
+    let format = ANM_12;
+    let source = TestFile::from_content("input", r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "lmao.png",
+    has_data: false,
+    sprites: {
+        sprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: B},
+    },
+}
+
+const int B = 10;
+
+script script0 {
+    ins_3(sprite);
+}
+    "#);
+    let anm = format.compile(&source).read_anm(&format);
+    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0])
+}
+
+#[test]
+fn const_shadows_sprite_id() {
+    let format = ANM_12;
+    let source = TestFile::from_content("input", r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "lmao.png",
+    has_data: false,
+    sprites: {
+        B: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 42},
+        C: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: B + 2},
+    },
+}
+
+const int B = 10;
+
+script script0 {
+    ins_3(B);
+}
+    "#);
+    let anm = format.compile(&source).read_anm(&format);
+    assert_eq!(anm.entries[0].sprites[0].id, Some(42));
+    assert_eq!(anm.entries[0].sprites[1].id, Some(12));
+    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0])
+}
+
+
 // =============================================================================
 
 #[test]

@@ -122,9 +122,15 @@ compile_fail_test!(
     expected: expected::PARSE_ERROR,
 );
 
-// TODO const tests
-// TODO const shadowing sprite id
-// TODO redefinition
+compile_fail_test!(
+    ANM_10, const_redefinition,
+    items_before: r#"
+        const int x = 1;
+        const int x = 1;
+    "#,
+    main_body: "",
+    expected: "redefinition",
+);
 
 compile_fail_test!(
     ANM_10, const_string_to_int,

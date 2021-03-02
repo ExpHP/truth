@@ -1,0 +1,13 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: redefinition of const 'x'
+   ┌─ <input>:26:19
+   │
+25 │         const int x = 1;
+   │                   - originally defined here
+26 │         const int x = 1;
+   │                   ^ redefinition of const
+
+
