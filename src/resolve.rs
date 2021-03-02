@@ -175,15 +175,16 @@ mod resolve_vars {
 
     impl Visit for Visitor<'_> {
         fn visit_script(&mut self, x: &ast::Script) {
-            // scan ahead for all function definitions
+            // scan ahead for all function definitions and consts
             let mut funcs_at_this_level = HashMap::new();
+            let mut consts_at_this_level = HashMap::new();
             for item in &x.items {
                 if let ast::Item::Func { ident, .. } = &item.value {
                     // check for redefinitions
                     if let Some(old_span) = funcs_at_this_level.get(ident.as_raw()) {
                         self.errors.append(error!(
                             message("redefinition of func '{}'", ident),
-                            primary(ident.span, "redefinition of function"),
+                            primary(ident, "redefinition of function"),
                             secondary(old_span, "originally defined here"),
                         ));
                         // keep going; this is relatively harmless
@@ -194,6 +195,30 @@ mod resolve_vars {
 
                     // add it to the current scope
                     self.resolver.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
+                }
+
+                // FIXME copy-pasta-y
+                if let ast::Item::ConstVar(ast::ItemConstVar { keyword, ref vars }) = item.value {
+                    for sp_pat![(var, expr)] in vars {
+                        // check for redefinitions
+                        let ident = var.name.expect_ident();
+                        if let Some(old_span) = consts_at_this_level.get(ident.as_raw()) {
+                            self.errors.append(error!(
+                                message("redefinition of const '{}'", ident),
+                                primary(var, "redefinition of const"),
+                                secondary(old_span, "originally defined here"),
+                            ));
+                            // keep going; this is relatively harmless
+                        }
+                        consts_at_this_level.insert(ident.as_raw().clone(), var.span);
+
+                        let ty = keyword.ty().expect("untyped consts don't parse");
+
+                        let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
+
+                        // add it to the current scope
+                        self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                    }
                 }
             }
 
@@ -215,6 +240,14 @@ mod resolve_vars {
                         ast::walk_block(self, code);
 
                         self.resolver.return_to_ancestor(outer_scope_depth);
+                    }
+                },
+
+                | ast::Item::ConstVar(ast::ItemConstVar { vars, .. })
+                => {
+                    // we don't want to resolve the declaration idents, only the expressions
+                    for sp_pat![(_, expr)] in vars {
+                        self.visit_expr(expr);
                     }
                 },
 

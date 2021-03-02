@@ -2,13 +2,13 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: unexpected token `const`
-   ┌─ <input>:25:9
+error: unexpected token `(`
+   ┌─ <input>:25:22
    │
 25 │         const int foo(int x) { return x; }
-   │         ^^^^^ unexpected token
+   │                      ^ unexpected token
    │
    = 
-     Expected one of "#", ",", "]", "anim", "ecli", "entry", "float", "inline", "int", "meta", "script", "sub", "timeline", "void" or "}"
+     Expected one of ",", ";" or "="
 
 

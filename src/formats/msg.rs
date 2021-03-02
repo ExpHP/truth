@@ -78,8 +78,6 @@ fn compile(
     ast: &ast::Script,
     ctx: &mut CompilerContext,
 ) -> Result<MsgFile, CompileError> {
-    use ast::Item;
-
     let ast = {
         let mut ast = ast.clone();
 
@@ -97,7 +95,7 @@ fn compile(
     let mut next_auto_id = 0_i32;
     for item in ast.items.iter() {
         match &item.value {
-            Item::AnmScript { number, ident, code, .. } => {
+            ast::Item::AnmScript { number, ident, code, .. } => {
                 // scripts with no number automatically use the next integer
                 let id = number.map(|sp| sp.value).unwrap_or(next_auto_id);
                 next_auto_id = id + 1;
@@ -119,12 +117,14 @@ fn compile(
                     btree_map::Entry::Vacant(e) => e.insert((ident.span, code)),
                 };
             },
-            Item::Meta { keyword, .. } => return Err(error!(
+            ast::Item::Meta { keyword, .. } => return Err(error!(
                 message("unexpected '{}' in MSG file", keyword),
                 primary(keyword, "not valid in MSG files"),
             )),
-            Item::FileList { .. } => return Err(unsupported(&item.span)),
-            Item::Func { .. } => return Err(unsupported(&item.span)),
+            ast::Item::ConstVar { .. } => {},
+
+            ast::Item::FileList { .. } => return Err(unsupported(&item.span)),
+            ast::Item::Func { .. } => return Err(unsupported(&item.span)),
         }
     }
 

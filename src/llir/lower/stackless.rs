@@ -185,18 +185,14 @@ impl Lowerer<'_> {
 
         for pair in vars {
             let (var, expr) = &pair.value;
-            match var.name {
-                ast::VarName::Reg { .. } => panic!("(bug?) declared var somehow resolved as register!"),
-                ast::VarName::Normal { ref ident, .. } => {
-                    let def_id = self.ctx.resolutions.expect_def(ident);
-                    self.out.push(LowerStmt::RegAlloc { def_id, cause: var.span });
+            let ident = var.name.expect_ident();
+            let def_id = self.ctx.resolutions.expect_def(ident);
+            self.out.push(LowerStmt::RegAlloc { def_id, cause: var.span });
 
-                    if let Some(expr) = expr {
-                        let assign_op = sp!(pair.span => token![=]);
-                        self.lower_assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
-                    }
-                },
-            };
+            if let Some(expr) = expr {
+                let assign_op = sp!(pair.span => token![=]);
+                self.lower_assign_op(pair.span, stmt_time, var, &assign_op, expr)?;
+            }
         }
         Ok(())
     }

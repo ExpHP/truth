@@ -267,8 +267,6 @@ fn compile_std(
     script: &ast::Script,
     ctx: &mut CompilerContext,
 ) -> Result<StdFile, CompileError> {
-    use ast::Item;
-
     let script = {
         let mut script = script.clone();
 
@@ -285,7 +283,7 @@ fn compile_std(
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
-                Item::Meta { keyword: Sp { span: kw_span, value: ast::MetaKeyword::Meta }, ident: None, fields: meta } => {
+                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], ident: None, fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(error!(
                             message("'meta' supplied multiple times"),
@@ -294,19 +292,19 @@ fn compile_std(
                         ));
                     }
                 },
-                Item::Meta { keyword: Sp { value: ast::MetaKeyword::Meta, .. }, ident: Some(ident), .. } => return Err(error!(
+                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(error!(
                     message("unexpected named meta '{}' in STD file", ident),
                     primary(ident, "unexpected name"),
                 )),
-                Item::Meta { keyword, .. } => return Err(error!(
+                ast::Item::Meta { keyword, .. } => return Err(error!(
                     message("unexpected '{}' in STD file", keyword),
                     primary(keyword, "not valid in STD files"),
                 )),
-                Item::AnmScript { number: Some(number), .. } => return Err(error!(
+                ast::Item::AnmScript { number: Some(number), .. } => return Err(error!(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
                 )),
-                Item::AnmScript { number: None, ident, code, .. } => {
+                ast::Item::AnmScript { number: None, ident, code, .. } => {
                     if ident != "main" {
                         return Err(error!(
                             message("STD script must be called 'main'"),
@@ -321,8 +319,9 @@ fn compile_std(
                         ));
                     }
                 },
-                Item::FileList { .. } => return Err(unsupported(&item.span)),
-                Item::Func { .. } => return Err(unsupported(&item.span)),
+                ast::Item::ConstVar { .. } => {},
+                ast::Item::FileList { .. } => return Err(unsupported(&item.span)),
+                ast::Item::Func { .. } => return Err(unsupported(&item.span)),
             }
         }
         match (found_meta, found_main_sub) {

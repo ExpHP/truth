@@ -2,13 +2,10 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: unexpected token `x`
-   ┌─ <input>:28:16
+error: non-const string variable
+   ┌─ <input>:28:9
    │
 28 │         string x = "hi";
-   │                ^ unexpected token
-   │
-   = 
-     Expected one of "!=", "%", "%=", "&", "&&", "&=", "(", ")", "*", "*=", "+", "+=", ",", "-", "-=", "/", "/=", ":", ";", "<", "<=", "=", "==", ">", ">=", "?", "@", "[", "]", "^", "^=", "{", "|", "|=", "||" or "}"
+   │         ^^^^^^ only possible for const vars
 
 

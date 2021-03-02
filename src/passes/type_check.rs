@@ -307,7 +307,7 @@ impl<'a> Visitor<'a> {
                 None => {},  // good; no sigil
                 Some(read_ty) => return Err(error!(
                     message("type error"),
-                    primary(var, "attempt to use {} as {}", inherent_ty.unwrap().descr(), ScalarType::from(read_ty).descr()),
+                    primary(var, "cannot cast {} to {}", inherent_ty.unwrap().descr(), ScalarType::from(read_ty).descr()),
                 )),
             }
         };

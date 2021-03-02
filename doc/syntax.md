@@ -47,14 +47,16 @@ In the game's own files, strings are encoded in Shift-JIS, though thcrap also le
 
 ### Variables
 
-The touhou games provide ECL and ANM with a fixed number of **registers**.  These registers each have an integer ID, and most of them can be accessed as either an integer or a float. (this functionality is a built-in part of the game; reading as the wrong type generally performs a typecast, and writing as the wrong type will pretty much always crash)
+The touhou games provide ECL and ANM with a fixed number of **registers** (which are either integers or floats).  truth names these `REG[<n>]`, where `<n>` is an integer identifying the register.  E.g. in ANM, `REG[10022]` is the register that draws a random integer.
 
-Registers are accessed using a square brackets syntax on a literal of the appropriate type; for instance, in ANM, `[10022]` would be an integer-typed reference to register 10022 (which generates a random integer), and `[10022.0]` would be a float-typed reference to it.
+The games allow most registers can be read either as integers or floats.  You can choose which type to use a register as by supplying a **type sigil**: `$` for integers or `%` for floats.
 
 ```C
-[10000] = [10022] % 3;
-[10004.0] *= [10004.0];
+$REG[10000] = $REG[10022] % 3;
+%REG[10004] *= 0.5;
 ```
+
+Most registers have a fixed type that they are stored as in the game's memory (known as the register's "inherent type"), and truth is by default configured with knowledge of all of these inherent types for all registers in each game.  If you supply no sigil, truth will default to the register's inherent type. E.g. `REG[10001]` in ANM is an integer, while `REG[10004]` is a float.  When you read a variable as the wrong type, the game will *usually* perform a type-cast.
 
 Registers can be given aliases via a mapfile (see the [main readme](https://github.com/ExpHP/truth#readme)).  This allows you to use identifiers instead:
 
@@ -74,10 +76,26 @@ var w;   // <-- untyped; only permitted in languages with a stack
 
 In modern ECL, these will use the stack.  In early ECL and ANM, they will be automatically assigned general-purpose registers.  In both, they are scoped to their containing block.
 
-Similar to how `[10000]` and `[10000.0]` identify the type of the access, you can apply  `$` (integer) and `%` (float) **type sigils** to specify the type of the access when it does not match the variable's declared type.
+Similar to registers, you can apply type sigils to locals.  (in fact, all kinds of variables support type sigils)
 
 ```C
 I0 = $F0;  // performs a truncating cast
+```
+
+**Consts** are compile-time constant variables.  Unlike local declarations (which are statements), `const` declarations are technically considered a form of item.  This means they can be accessed from *anywhere* within the same block (even before the declaration).
+
+```
+const int before = 3;
+const int middle = after * before;
+const int after = 5;
+```
+
+Unlike locals, `const` vars muse be initialized.
+
+Something interesting to note: While the other kinds of variables are limited to integers and floats, `const` vars may also be strings!
+
+```
+const string FIRST_NAME = "Johnny";
 ```
 
 ### Instructions
@@ -114,7 +132,7 @@ Other things present in expressions:
 
 ### Assignments
 
-Unlike in C, assignments are **not** expressions.  They are anything of the form
+Unlike in C, assignments are **not** expressions; they are statements.  They are anything of the form
 
 ```C
 <var> = <expr>;
@@ -354,6 +372,5 @@ Some forms of syntax are parsed simply to reserve them for future use (and to en
 * `return;` and `return <expr>;`
 * `int foo(int x) { ... }` function definition.
 * `int foo(int x);` function declaration.
-* `global int x = <expr>;` compile-time constants.
 * `@foo(a, b, c);` explicit sub call sugar.
 * `foo(a, b, c) async;` call-async sugar.

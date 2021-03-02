@@ -19,6 +19,11 @@ pub struct Format {
     pub make_main: fn(&str) -> String,
 }
 
+pub struct ScriptParts<'a> {
+    pub items_before: &'a str,
+    pub main_body: &'a str,
+}
+
 impl Format {
     /// Implementation of the tests in [`crate::integration::bits_2_bits`].
     #[doc(hidden)]
@@ -53,12 +58,11 @@ impl Format {
     ///
     /// The comparison of the two compiled files helps check to make sure that the decompilation
     /// step did not accidentally change the meaning of the code.
-    pub fn sbsb_test(&self, script_text: &str, with_decompiled: impl FnOnce(&str)) {
+    pub fn sbsb_test(&self, main_body: &str, with_decompiled: impl FnOnce(&str)) {
         truth::setup_for_test_harness();
 
-        let full_source = format!("{}\n{}", self.script_head, (self.make_main)(script_text));
+        let original_source = self.make_source("original source", ScriptParts { items_before: "", main_body });
 
-        let original_source = TestFile::from_content("original source", full_source);
         let compiled = self.compile(&original_source);
         let decompiled = self.decompile(&compiled);
         let decompiled_str = decompiled.read_to_string();
@@ -70,6 +74,15 @@ impl Format {
         let recompiled = self.compile(&decompiled);
 
         assert_eq!(compiled.read(), recompiled.read());
+    }
+
+    pub fn make_source(&self, descr: &str, script_parts: ScriptParts<'_>) -> TestFile {
+        TestFile::from_content(descr, format!(
+            "{}\n{}\n{}",
+            self.script_head,
+            script_parts.items_before,
+            (self.make_main)(script_parts.main_body),
+        ))
     }
 }
 
@@ -138,19 +151,19 @@ impl Format {
 impl TestFile {
     /// Construct a [`TestFile`] referring to a (not yet created) filepath inside a newly created
     /// tempdir.  The tempdir will be deleted on drop.
-    pub fn new_temp(descr: &str) -> Self {
-        let descr = descr.to_string();
+    pub fn new_temp(filename: &str) -> Self {
+        let descr = filename.to_string();
         let tempdir = tempfile::tempdir().unwrap_or_else(|e| panic!("while making tempdir for {}: {}", descr, e));
-        let filepath = tempdir.path().join("file");
+        let filepath = tempdir.path().join(filename);
         TestFile { descr, _tempdir: Some(tempdir), filepath }
     }
 
     /// Construct a [`TestFile`] from file contents, which will be written to a new file inside
     /// of a new temporary directory.  The tempdir will be deleted on drop.
-    pub fn from_content(descr: &str, bytes: impl AsRef<[u8]>) -> Self {
-        let out = TestFile::new_temp(descr);
+    pub fn from_content(filename: &str, bytes: impl AsRef<[u8]>) -> Self {
+        let out = TestFile::new_temp(filename);
         std::fs::write(out.as_path(), bytes)
-            .unwrap_or_else(|e| panic!("while writing to {}: {}", descr, e));
+            .unwrap_or_else(|e| panic!("while writing to {}: {}", filename, e));
         out
     }
 
@@ -194,35 +207,12 @@ lazy_static::lazy_static! {
 const TEMP_FILE_REPLACEMENT: &'static str = "┌─ <input>";
 
 impl Format {
-    pub fn compile_fail_stderr(&self, other_items: &str, main_body: &str) -> String {
-        truth::setup_for_test_harness();
-
-        self.compile_fail_stderr_no_transform(format!(
-            "{}\n{}\n{}",
-            self.script_head,
-            other_items,
-            (self.make_main)(main_body),
-        ))
-    }
-
-    pub fn compile_fail_stderr_no_transform<S: AsRef<[u8]>>(&self, full_source: S) -> String {
-        use std::fs::{write};
-
-        truth::setup_for_test_harness();
-
-        let temp = tempfile::tempdir().unwrap();
-        let temp = temp.path();
-
-        write(temp.join("original.spec"), full_source).unwrap();
-        self._compile_fail_stderr(temp.join("original.spec"))
-    }
-
-    fn _compile_fail_stderr(&self, src: impl AsRef<OsStr>) -> String {
+    pub fn compile_fail_stderr(&self, source: &TestFile) -> String {
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("compile")
                 .arg("-g").arg(format!("{}", self.game))
-                .arg(src)
+                .arg(source.as_path())
                 .arg("-o").arg("/dev/null")
                 .output().expect("failed to execute process")
         };
@@ -249,6 +239,42 @@ macro_rules! compile_fail_test {
     (
         $format:expr, $test_name:ident
 
+        // args to make_source!
+        $(, items_before: $items_before:expr)?
+        $(, main_body: $main_body:expr)?
+        $(, full_source: $full_source:expr)?
+
+        // (optional) check that the STDERR text contains a substring.
+        // This helps ensure that compilation is failing for a legitimate reason.
+        //
+        // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
+        // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
+        // Whenever this occurs, just review the new outputs and make sure that the new errors are still
+        // related to what they were originally testing.
+        // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
+        $(, expected: $expected:expr)?
+        $(,)?
+    ) => {
+        #[test]
+        fn $test_name() {
+            truth::setup_for_test_harness();
+
+            let source = make_source!(
+                $format
+                $(, items_before: $items_before)?
+                $(, main_body: $main_body)?
+                $(, full_source: $full_source)?
+            );
+            let stderr = $format.compile_fail_stderr(&source);
+            _check_compile_fail_output!(stderr $(, expected: $expected)?);
+        }
+    };
+}
+
+macro_rules! make_source {
+    (
+        $format:expr
+
         // (optional) other items you want in the script
         $(, items_before: $items_before:expr)?
 
@@ -266,32 +292,24 @@ macro_rules! compile_fail_test {
         $(, expected: $expected:expr)?
         $(,)?
     ) => {
-        #[test]
-        fn $test_name() {
-            let stderr = $format.compile_fail_stderr(
-                first_token!( $($items_before)? "" ),
-                $main_body,
-            );
-            _check_compile_fail_output!(stderr $(, expected: $expected)?);
-        }
+        $format.make_source("original.spec", crate::integration_impl::ScriptParts {
+            items_before: first_token!( $($items_before)? "" ),
+            main_body: $main_body,
+        })
     };
 
     (
         // Alternative that takes full source.  It is recommended to only use this when necessary
         // (namely when testing things in meta), as there's a greater likelihood that the tests
         // will be broken by innocent changes.
-        $format:expr, $test_name:ident
+        $format:expr
 
         , full_source: $main_body:expr
 
         $(, expected: $expected:expr)?
         $(,)?
     ) => {
-        #[test]
-        fn $test_name() {
-            let stderr = $format.compile_fail_stderr_no_transform($main_body);
-            _check_compile_fail_output!(stderr $(, expected: $expected)?);
-        }
+        crate::integration_impl::TestFile::from_content("original.spec", $main_body)
     };
 }
 

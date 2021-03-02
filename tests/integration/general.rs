@@ -87,11 +87,22 @@ compile_fail_test!(
     main_body: r#"
         string x = "hi";
     "#,
+    expected: "non-const",
+);
+
+compile_fail_test!(
+    // this is going to become grammatically correct eventually; the test is here to make
+    // sure it fails gracefully from the getgo
+    ANM_10, string_func,
+    items_before: r#"
+        string foo() { return "hi"; }
+    "#,
+    main_body: "",
     expected: expected::PARSE_ERROR,
 );
 
 compile_fail_test!(
-    // this is going to become grammatically correct soon; the test is here to make
+    // this may become grammatically correct at some point; the test is here to make
     // sure it fails gracefully from the getgo
     ANM_10, local_named_after_reg,
     main_body: r#"
@@ -101,7 +112,7 @@ compile_fail_test!(
 );
 
 compile_fail_test!(
-    // this is going to become grammatically correct soon; the test is here to make
+    // this may become grammatically correct at some point; the test is here to make
     // sure it fails gracefully from the getgo
     ANM_10, func_param_named_after_reg,
     items_before: r#"
@@ -111,16 +122,27 @@ compile_fail_test!(
     expected: expected::PARSE_ERROR,
 );
 
+// TODO const tests
+// TODO const shadowing sprite id
+// TODO redefinition
+
 compile_fail_test!(
     ANM_10, const_string_to_int,
-    main_body: r#"
+    items_before: r#"
         const string x = "hi";
         const int y = $x;
     "#,
-    // FIXME: this test might not be ready for a while.  Ultimately, the desired result
-    //        is that it should parse successfully, and then get a type error at $x
-    //        for being unable to cast a string to int.
-    expected: expected::PARSE_ERROR,
+    main_body: "",
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, uninitialized_const,
+    items_before: r#"
+        const int y = 3, z, w = 4;
+    "#,
+    main_body: "",
+    expected: "uninitialized const",
 );
 
 compile_fail_test!(

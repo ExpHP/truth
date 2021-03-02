@@ -584,6 +584,7 @@ impl Format for ast::Item {
                 out.fmt(" }")?;
                 out.next_line()
             },
+            ast::Item::ConstVar(item) => out.fmt(item),
         }
     }
 }
@@ -595,6 +596,18 @@ impl Format for ast::FuncKeyword {
             ast::FuncKeyword::Sub => out.fmt("sub"),
             ast::FuncKeyword::Timeline => out.fmt("timeline"),
         }
+    }
+}
+
+impl Format for ast::ItemConstVar {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        let ast::ItemConstVar { keyword, vars } = self;
+        out.fmt(("const ", keyword, " "))?;
+        out.fmt_separated(
+            vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),
+            |out| out.fmt(", "),
+        )?;
+        out.fmt(";")
     }
 }
 

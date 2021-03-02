@@ -43,12 +43,14 @@ macro_rules! token {
     ($(assignop)? ^=) => { $crate::ast::AssignOpKind::BitXor };
     ($(assignop)? &=) => { $crate::ast::AssignOpKind::BitAnd };
 
-    (  varty   int) => { $crate::ast::VarDeclKeyword::Var };
-    (  varty   float) => { $crate::ast::VarDeclKeyword::Var };
+    (  varty   int) => { $crate::ast::VarDeclKeyword::Int };
+    (  varty   float) => { $crate::ast::VarDeclKeyword::Float };
+    (  varty   string) => { $crate::ast::VarDeclKeyword::String };
     ($(varty)? var) => { $crate::ast::VarDeclKeyword::Var };
 
-    (  functy   int) => { $crate::ast::FuncReturnType::Void };
-    (  functy   float) => { $crate::ast::FuncReturnType::Void };
+    (  functy   int) => { $crate::ast::FuncReturnType::Int };
+    (  functy   float) => { $crate::ast::FuncReturnType::Float };
+    (  functy   string) => { $crate::ast::FuncReturnType::String };
     ($(functy)? void) => { $crate::ast::FuncReturnType::Void };
 
     ($(cond)? if) => { $crate::ast::CondKeyword::If };
@@ -58,9 +60,13 @@ macro_rules! token {
     ($(pseudo)? mask) => { $crate::ast::PseudoArgKind::Mask };
     ($(pseudo)? blob) => { $crate::ast::PseudoArgKind::Blob };
 
+    ($(meta)? meta) => { $crate::ast::MetaKeyword::Meta };
+    ($(meta)? entry) => { $crate::ast::MetaKeyword::Entry };
+
     // ambiguous ones
     (int) => { ::core::convert::Into::into($crate::quote::KeywordInt) };
     (float) => { ::core::convert::Into::into($crate::quote::KeywordFloat) };
+    (string) => { ::core::convert::Into::into($crate::quote::KeywordString) };
     (-) => { ::core::convert::Into::into($crate::quote::MinusSign) };
 }
 
@@ -69,6 +75,7 @@ macro_rules! token {
 #[doc(hidden)] pub struct MinusSign;
 #[doc(hidden)] pub struct KeywordInt;
 #[doc(hidden)] pub struct KeywordFloat;
+#[doc(hidden)] pub struct KeywordString;
 
 macro_rules! impl_ambiguous_token_into {
     ($( $UnitTy:ident => ast::$OutTy:ident::$Variant:ident, )*) => {$(
@@ -85,6 +92,8 @@ impl_ambiguous_token_into!{
     KeywordInt => ast::VarDeclKeyword::Int,
     KeywordFloat => ast::FuncReturnType::Float,
     KeywordFloat => ast::VarDeclKeyword::Float,
+    KeywordString => ast::FuncReturnType::String,
+    KeywordString => ast::VarDeclKeyword::String,
 }
 
 // -----------------------------------

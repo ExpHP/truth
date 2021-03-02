@@ -357,6 +357,7 @@ fn compile(
                 cur_group.push((ident, code));
                 script_names.push(ident);
             },
+            ast::Item::ConstVar { .. } => {},
             _ => return Err(error!(
                 message("feature not supported by format"),
                 primary(item, "not supported by ANM files"),

@@ -92,6 +92,7 @@ pub enum Item {
         keyword: Sp<FileListKeyword>,
         files: Vec<Sp<LitString>>
     },
+    ConstVar(ItemConstVar),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -106,6 +107,7 @@ string_enum!{
     pub enum FuncReturnType {
         #[str = "int"] Int,
         #[str = "float"] Float,
+        #[str = "string"] String,
         #[str = "void"] Void,
     }
 }
@@ -125,6 +127,12 @@ string_enum! {
         #[str = "entry"] Entry,
         #[str = "meta"] Meta,
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemConstVar {
+    pub keyword: Sp<VarDeclKeyword>,
+    pub vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
 }
 
 // =============================================================================
@@ -462,6 +470,13 @@ impl VarName {
         VarName::Normal { .. } => true,
         VarName::Reg { .. } => false,
     }}
+
+    /// Panic if it's not a normal ident.  This should be safe to call on vars in declarations.
+    #[track_caller]
+    pub fn expect_ident(&self) -> &ResIdent { match self {
+        VarName::Normal { ident } => ident,
+        VarName::Reg { .. } => panic!("unexpected register"),
+    }}
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -589,6 +604,7 @@ string_enum! {
     pub enum VarDeclKeyword {
         #[str = "int"] Int,
         #[str = "float"] Float,
+        #[str = "string"] String,
         #[str = "var"] Var,
     }
 }
@@ -598,6 +614,7 @@ impl VarDeclKeyword {
         match self {
             VarDeclKeyword::Int => Some(value::ScalarType::Int),
             VarDeclKeyword::Float => Some(value::ScalarType::Float),
+            VarDeclKeyword::String => Some(value::ScalarType::String),
             VarDeclKeyword::Var => None,
         }
     }
@@ -713,6 +730,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
+            fn visit_const_decl(&mut self, e: & $($mut)? ItemConstVar) { walk_const_decl(self, e) }
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
         }
 
@@ -747,6 +765,7 @@ macro_rules! generate_visitor_stuff {
                     walk_meta_fields(v, fields);
                 },
                 Item::FileList { .. } => {},
+                Item::ConstVar(item) => v.visit_const_decl(item),
             }
         }
 
@@ -776,6 +795,16 @@ macro_rules! generate_visitor_stuff {
         {
             for (_key, value) in & $($mut)? x.value {
                 v.visit_meta(value);
+            }
+        }
+
+        pub fn walk_const_decl<V>(v: &mut V, x: & $($mut)? ItemConstVar)
+        where V: ?Sized + $Visit,
+        {
+            let ItemConstVar { keyword: _, vars } = x;
+            for sp_pat![(var, expr)] in vars {
+                v.visit_var(var);
+                v.visit_expr(expr);
             }
         }
 
@@ -947,6 +976,7 @@ pub use self::mut_::{
     walk_script as walk_script_mut,
     walk_item as walk_item_mut,
     walk_meta as walk_meta_mut,
+    walk_const_decl as walk_const_decl_mut,
     walk_block as walk_block_mut,
     walk_stmt as walk_stmt_mut,
     walk_goto as walk_goto_mut,
@@ -958,5 +988,5 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
+    Visit, walk_script, walk_item, walk_meta, walk_const_decl, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
 };
