@@ -34,8 +34,8 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
     lines.push(format!("!anmmap"));
     lines.push(format!("!gvar_types"));
     for var in vars.iter().filter(|x| x.in_mapfile) {
-        if let Some(ty_sigil) = var.ty.and_then(ast::VarReadType::from_ty) {
-            lines.push(format!("{} {}", var.reg, ty_sigil.sigil()));
+        if let Some(ty_sigil) = var.ty.and_then(ast::VarSigil::from_ty) {
+            lines.push(format!("{} {}", var.reg, ty_sigil));
         }
     }
     lines.push(format!("!gvar_names"));

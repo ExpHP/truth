@@ -1,0 +1,11 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: void-typed variable
+   ┌─ <input>:25:15
+   │
+25 │         const void x = delete();
+   │               ^^^^ variables must have a value
+
+

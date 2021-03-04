@@ -175,10 +175,13 @@ Items: Vec<Sp<ast::Item>> = {
 };
 
 Item: ast::Item = {
-    <inline:TokenSpan<"inline">?> <keyword:Sp<FuncKeyword>> <ident:Sp<ResIdent>>
-        "(" <params:SeparatedTrailing<(<Sp<VarDeclKeyword>> <Sp<ResIdent>>), ",">> ")"
+    <inline:TokenSpan<"inline">?> <keyword:Sp<TypeKeyword>> <ident:Sp<ResIdent>>
+        "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => ast::Item::Func { inline, keyword, ident, params, code },
+        =>? {
+            let keyword = sp!(keyword.span => util::func_return_type_keyword(keyword)?);
+            Ok(ast::Item::Func { inline, keyword, ident, params, code })
+        },
 
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
         => ast::Item::AnmScript { keyword, number, ident, code },
@@ -186,28 +189,19 @@ Item: ast::Item = {
     <keyword:Sp<MetaKeyword>> <ident:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
         => ast::Item::Meta { keyword, ident, fields },
 
-    <keyword:Sp<FileListKeyword>> "{" <files:(<Sp<LitString>> ";")*> "}"
-        => ast::Item::FileList { keyword, files },
-
     <item:ConstVarDeclaration> => ast::Item::ConstVar(item),
 };
 
-FuncKeyword: ast::FuncKeyword = {
-    "int" => ast::FuncKeyword::Type(token![int]),
-    "float" => ast::FuncKeyword::Type(token![float]),
-    "void" => ast::FuncKeyword::Type(token![void]),
-    "sub" => ast::FuncKeyword::Sub,
-    "timeline" => ast::FuncKeyword::Timeline,
-};
+FuncParam: (Sp<ast::TypeKeyword>, Sp<ResIdent>) = {
+    <keyword:Sp<TypeKeyword>> <ident:Sp<ResIdent>> =>? {
+        let keyword = sp!(keyword.span => util::local_var_type_keyword(keyword)?);
+        Ok((keyword, ident))
+    },
+}
 
 FuncBodyOrSemicolon: Option<ast::Block> = {
     ";" => None,
     <code:Block> => Some(code),
-};
-
-FileListKeyword: ast::FileListKeyword = {
-    "anim" => ast::FileListKeyword::Anim,
-    "ecli" => ast::FileListKeyword::Ecli,
 };
 
 MetaKeyword: ast::MetaKeyword = {
@@ -216,8 +210,12 @@ MetaKeyword: ast::MetaKeyword = {
 };
 
 ConstVarDeclaration: ast::ItemConstVar = {
-    "const" <keyword:Sp<ConstVarDeclKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
-        => ast::ItemConstVar { keyword, vars },
+    // FIXME use ConstVarTypeKeyword after https://github.com/lalrpop/lalrpop/pull/594
+    "const" <keyword:Sp<TypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
+        =>? {
+            let keyword = sp!(keyword.span => util::const_var_type_keyword(keyword)?);
+            Ok(ast::ItemConstVar { keyword, vars })
+        },
 };
 
 // NOTE: Working with state in LALRPOP is tricky as there are no midrules like bison.
@@ -311,8 +309,11 @@ StmtBody: ast::StmtBody = {
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
         => ast::StmtBody::Assignment { var, op, value },
 
-    <keyword:Sp<LocalVarDeclKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        => ast::StmtBody::Declaration { keyword, vars },
+    <keyword:Sp<TypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
+        =>? {
+            let keyword = sp!(keyword.span => util::local_var_type_keyword(keyword)?);
+            Ok(ast::StmtBody::Declaration { keyword, vars })
+        },
 
     StmtSpecialCall,
 }
@@ -712,14 +713,14 @@ LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
 // Variables
 
 Var: ast::Var = {
-    <ty_sigil:VarReadSigil> <name:VarName> => ast::Var { ty_sigil, name },
+    <ty_sigil:VarSigil> <name:VarName> => ast::Var { ty_sigil, name },
 };
 
 #[inline]
-VarReadSigil: Option<ast::VarReadType> = {
+VarSigil: Option<ast::VarSigil> = {
     => None,
-    "$" => Some(ast::VarReadType::Int),
-    "%" => Some(ast::VarReadType::Float),
+    "$" => Some(token![sigil $]),
+    "%" => Some(token![sigil %]),
 };
 
 VarName: ast::VarName = {
@@ -732,33 +733,12 @@ VarName: ast::VarName = {
 
 VarIdent: ast::Var = <ident:ResIdent> => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident } };
 
-ConstVarDeclKeyword: ast::VarDeclKeyword = {
-    <keyword:Sp<VarDeclKeyword>> =>? {
-        if keyword.ty().is_none() {
-            return Err(error!(
-                message("illegal untyped const"),
-                primary(keyword, "const vars must have a type"),
-            ).into());
-        }
-        Ok(keyword.value)
-    },
-};
-
-LocalVarDeclKeyword: ast::VarDeclKeyword = {
-    <keyword:Sp<VarDeclKeyword>> =>? match keyword.value {
-        token![varty string] => Err(error!(
-            message("non-const string variable"),
-            primary(keyword, "only possible for const vars"),
-        ).into()),
-        kw => Ok(kw),
-    },
-};
-
-VarDeclKeyword: ast::VarDeclKeyword = {
+TypeKeyword: ast::TypeKeyword = {
     "int" => token![int],
     "float" => token![float],
     "string" => token![string],
     "var" => token![var],
+    "void" => token![void],
 };
 
 OptionalMinus: i32 = {

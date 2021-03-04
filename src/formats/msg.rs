@@ -123,7 +123,6 @@ fn compile(
             )),
             ast::Item::ConstVar { .. } => {},
 
-            ast::Item::FileList { .. } => return Err(unsupported(&item.span)),
             ast::Item::Func { .. } => return Err(unsupported(&item.span)),
         }
     }

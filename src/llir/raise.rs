@@ -479,8 +479,8 @@ fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleE
     }
     let ty_sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
     let reg = match ty_sigil {
-        ast::VarReadType::Int => RegId(raw.expect_int()),
-        ast::VarReadType::Float => {
+        ast::VarSigil::Int => RegId(raw.expect_int()),
+        ast::VarSigil::Float => {
             let float_reg = raw.expect_float();
             if float_reg != f32::round(float_reg) {
                 bail!("non-integer float variable [{}] in binary file!", float_reg);

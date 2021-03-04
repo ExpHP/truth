@@ -71,9 +71,9 @@ impl Script {
 pub enum Item {
     Func {
         inline: Option<TokenSpan>,
-        keyword: Sp<FuncKeyword>,
+        keyword: Sp<TypeKeyword>,
         ident: Sp<ResIdent>,
-        params: Vec<(Sp<VarDeclKeyword>, Sp<ResIdent>)>,
+        params: Vec<(Sp<TypeKeyword>, Sp<ResIdent>)>,
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
@@ -88,36 +88,7 @@ pub enum Item {
         ident: Option<Sp<Ident>>,
         fields: Sp<meta::Fields>,
     },
-    FileList {
-        keyword: Sp<FileListKeyword>,
-        files: Vec<Sp<LitString>>
-    },
     ConstVar(ItemConstVar),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum FuncKeyword {
-    Type(FuncReturnType),
-    Sub,
-    Timeline,
-}
-
-string_enum!{
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum FuncReturnType {
-        #[str = "int"] Int,
-        #[str = "float"] Float,
-        #[str = "string"] String,
-        #[str = "void"] Void,
-    }
-}
-
-string_enum!{
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum FileListKeyword {
-        #[str = "anim"] Anim,
-        #[str = "ecli"] Ecli,
-    }
 }
 
 string_enum! {
@@ -131,7 +102,7 @@ string_enum! {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemConstVar {
-    pub keyword: Sp<VarDeclKeyword>,
+    pub keyword: Sp<TypeKeyword>,
     pub vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
 }
 
@@ -196,7 +167,7 @@ pub enum StmtBody {
         value: Sp<Expr>,
     },
     Declaration {
-        keyword: Sp<VarDeclKeyword>,
+        keyword: Sp<TypeKeyword>,
         vars: Vec<Sp<(Sp<Var>, Option<Sp<Expr>>)>>,
     },
 
@@ -461,7 +432,7 @@ pub enum CallableName {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Var {
     /// A variable mentioned by name, possibly with a type sigil.
-    pub ty_sigil: Option<VarReadType>,
+    pub ty_sigil: Option<VarSigil>,
     pub name: VarName,
 }
 
@@ -601,57 +572,54 @@ impl From<Sp<String>> for Sp<Expr> {
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum VarDeclKeyword {
+    pub enum TypeKeyword {
         #[str = "int"] Int,
         #[str = "float"] Float,
         #[str = "string"] String,
         #[str = "var"] Var,
+        #[str = "void"] Void,
     }
 }
 
-impl VarDeclKeyword {
-    pub fn ty(self) -> Option<value::ScalarType> {
+impl TypeKeyword {
+    /// Get the type, when used on a keyword that comes from a [`Var`].
+    ///
+    /// `None` means untyped. (FIXME: please stop using Option for this)
+    pub fn var_ty(self) -> Option<value::ScalarType> {
         match self {
-            VarDeclKeyword::Int => Some(value::ScalarType::Int),
-            VarDeclKeyword::Float => Some(value::ScalarType::Float),
-            VarDeclKeyword::String => Some(value::ScalarType::String),
-            VarDeclKeyword::Var => None,
+            TypeKeyword::Int => Some(value::ScalarType::Int),
+            TypeKeyword::Float => Some(value::ScalarType::Float),
+            TypeKeyword::String => Some(value::ScalarType::String),
+            TypeKeyword::Var => None,
+            TypeKeyword::Void => unreachable!("void var"),
         }
     }
 }
 
-/// The hinted type of a variable at a usage site, which can differ from its inherent type.
-///
-/// E.g. a variable's type may be hinted with the use of `$` or `%` prefixes.
-/// (or it might not be hinted, meaning its type must be determined through other means)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VarReadType {
-    Int,
-    Float,
+string_enum! {
+    /// A type sigil on a variable.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum VarSigil {
+        #[str = "$"] Int,
+        #[str = "%"] Float,
+    }
 }
 
-impl VarReadType {
-    pub fn from_ty(x: value::ScalarType) -> Option<VarReadType> {
+impl VarSigil {
+    pub fn from_ty(x: value::ScalarType) -> Option<VarSigil> {
         match x {
-            value::ScalarType::Int => Some(VarReadType::Int),
-            value::ScalarType::Float => Some(VarReadType::Float),
+            value::ScalarType::Int => Some(VarSigil::Int),
+            value::ScalarType::Float => Some(VarSigil::Float),
             value::ScalarType::String => None,
         }
     }
-
-    pub fn sigil(self) -> &'static str {
-        match self {
-            VarReadType::Int => "$",
-            VarReadType::Float => "%",
-        }
-    }
 }
 
-impl From<VarReadType> for value::ScalarType {
-    fn from(x: VarReadType) -> value::ScalarType {
+impl From<VarSigil> for value::ScalarType {
+    fn from(x: VarSigil) -> value::ScalarType {
         match x {
-            VarReadType::Int => value::ScalarType::Int,
-            VarReadType::Float => value::ScalarType::Float,
+            VarSigil::Int => value::ScalarType::Int,
+            VarSigil::Float => value::ScalarType::Float,
         }
     }
 }
@@ -764,7 +732,6 @@ macro_rules! generate_visitor_stuff {
                 Item::Meta { keyword: _, ident: _, fields } => {
                     walk_meta_fields(v, fields);
                 },
-                Item::FileList { .. } => {},
                 Item::ConstVar(item) => v.visit_const_decl(item),
             }
         }

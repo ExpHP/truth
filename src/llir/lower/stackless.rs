@@ -176,7 +176,7 @@ impl Lowerer<'_> {
         &mut self,
         _stmt_span: Span,
         stmt_time: i32,
-        keyword: &Sp<ast::VarDeclKeyword>,
+        keyword: &Sp<ast::TypeKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), CompileError>{
         if keyword.value == token![var] {
@@ -704,7 +704,7 @@ impl Lowerer<'_> {
 // Basically, this function performs this check at the time that we are trying to generate the Var expression
 // that would be used to read the temporary.  This does feel like an unusual time to perform this check,
 // but it works out this way because we need to go from a type with a string variant to a type that has none.
-fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarReadType, CompileError> {
+fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarSigil, CompileError> {
     ty.sigil().ok_or_else(|| error!(
         message("runtime temporary of non-numeric type"),
         primary(span, "temporary {} cannot be created", ty.descr_plural())

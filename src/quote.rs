@@ -12,7 +12,7 @@ macro_rules! token {
     (  binop   -) => { $crate::ast::BinopKind::Sub };
     ($(binop)? *) => { $crate::ast::BinopKind::Mul };
     ($(binop)? /) => { $crate::ast::BinopKind::Div };
-    ($(binop)? %) => { $crate::ast::BinopKind::Rem };
+    (  binop   %) => { $crate::ast::BinopKind::Rem };
     ($(binop)? |) => { $crate::ast::BinopKind::BitOr };
     ($(binop)? ^) => { $crate::ast::BinopKind::BitXor };
     ($(binop)? &) => { $crate::ast::BinopKind::BitAnd };
@@ -43,15 +43,11 @@ macro_rules! token {
     ($(assignop)? ^=) => { $crate::ast::AssignOpKind::BitXor };
     ($(assignop)? &=) => { $crate::ast::AssignOpKind::BitAnd };
 
-    (  varty   int) => { $crate::ast::VarDeclKeyword::Int };
-    (  varty   float) => { $crate::ast::VarDeclKeyword::Float };
-    (  varty   string) => { $crate::ast::VarDeclKeyword::String };
-    ($(varty)? var) => { $crate::ast::VarDeclKeyword::Var };
-
-    (  functy   int) => { $crate::ast::FuncReturnType::Int };
-    (  functy   float) => { $crate::ast::FuncReturnType::Float };
-    (  functy   string) => { $crate::ast::FuncReturnType::String };
-    ($(functy)? void) => { $crate::ast::FuncReturnType::Void };
+    ($(ty)? int) => { $crate::ast::TypeKeyword::Int };
+    ($(ty)? float) => { $crate::ast::TypeKeyword::Float };
+    ($(ty)? string) => { $crate::ast::TypeKeyword::String };
+    ($(ty)? var) => { $crate::ast::TypeKeyword::Var };
+    ($(ty)? void) => { $crate::ast::TypeKeyword::Void };
 
     ($(cond)? if) => { $crate::ast::CondKeyword::If };
     ($(cond)? unless) => { $crate::ast::CondKeyword::Unless };
@@ -63,19 +59,18 @@ macro_rules! token {
     ($(meta)? meta) => { $crate::ast::MetaKeyword::Meta };
     ($(meta)? entry) => { $crate::ast::MetaKeyword::Entry };
 
-    // ambiguous ones
-    (int) => { ::core::convert::Into::into($crate::quote::KeywordInt) };
-    (float) => { ::core::convert::Into::into($crate::quote::KeywordFloat) };
-    (string) => { ::core::convert::Into::into($crate::quote::KeywordString) };
+    ($(sigil)? $) => { $crate::ast::VarSigil::Int };
+    (  sigil   %) => { $crate::ast::VarSigil::Float };
+
+    // ambiguous ones; these will use Into, which may work in exprs, though you're SOL in patterns
     (-) => { ::core::convert::Into::into($crate::quote::MinusSign) };
+    (%) => { ::core::convert::Into::into($crate::quote::PercentSign) };
 }
 
 // These briefly appear in the expansion of `token!()` for tokens that can be parsed as
 // more than one output type.
 #[doc(hidden)] pub struct MinusSign;
-#[doc(hidden)] pub struct KeywordInt;
-#[doc(hidden)] pub struct KeywordFloat;
-#[doc(hidden)] pub struct KeywordString;
+#[doc(hidden)] pub struct PercentSign;
 
 macro_rules! impl_ambiguous_token_into {
     ($( $UnitTy:ident => ast::$OutTy:ident::$Variant:ident, )*) => {$(
@@ -88,12 +83,8 @@ macro_rules! impl_ambiguous_token_into {
 impl_ambiguous_token_into!{
     MinusSign => ast::BinopKind::Sub,
     MinusSign => ast::UnopKind::Neg,
-    KeywordInt => ast::FuncReturnType::Int,
-    KeywordInt => ast::VarDeclKeyword::Int,
-    KeywordFloat => ast::FuncReturnType::Float,
-    KeywordFloat => ast::VarDeclKeyword::Float,
-    KeywordString => ast::FuncReturnType::String,
-    KeywordString => ast::VarDeclKeyword::String,
+    PercentSign => ast::VarSigil::Float,
+    PercentSign => ast::BinopKind::Rem,
 }
 
 // -----------------------------------
@@ -151,7 +142,7 @@ macro_rules! impl_into_spanned_for_ast {
 impl_into_spanned_for_ast!{
     ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtBody, ast::Cond,
     ast::UnopKind, ast::BinopKind, ast::AssignOpKind,
-    ast::CondKeyword, ast::FuncReturnType, ast::VarDeclKeyword, ast::MetaKeyword,
+    ast::CondKeyword, ast::TypeKeyword, ast::MetaKeyword,
     crate::ident::Ident,
     crate::meta::Meta,
     i32, f32,

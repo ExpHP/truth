@@ -87,11 +87,11 @@ mod value {
 
         /// Allows simulating the effect of e.g. `%INT_VAR` or `$FLOAT_VAR`.
         /// (basically, the game performs typecasts when variables are read as the other type)
-        pub fn apply_sigil(self, ty_sigil: Option<ast::VarReadType>) -> Option<ScalarValue> {
+        pub fn apply_sigil(self, ty_sigil: Option<ast::VarSigil>) -> Option<ScalarValue> {
             match ty_sigil {
                 None => Some(self),
-                Some(ast::VarReadType::Int) => self.read_as_int().map(ScalarValue::Int),
-                Some(ast::VarReadType::Float) => self.read_as_float().map(ScalarValue::Float),
+                Some(ast::VarSigil::Int) => self.read_as_int().map(ScalarValue::Int),
+                Some(ast::VarSigil::Float) => self.read_as_float().map(ScalarValue::Float),
             }
         }
 
@@ -155,10 +155,10 @@ mod value {
             }
         }
 
-        pub fn sigil(self) -> Option<ast::VarReadType> {
+        pub fn sigil(self) -> Option<ast::VarSigil> {
             match self {
-                ScalarType::Int => Some(ast::VarReadType::Int),
-                ScalarType::Float => Some(ast::VarReadType::Float),
+                ScalarType::Int => Some(ast::VarSigil::Int),
+                ScalarType::Float => Some(ast::VarSigil::Float),
                 ScalarType::String => None,
             }
         }

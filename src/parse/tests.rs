@@ -128,17 +128,17 @@ fn parse_escape() {
 
 #[test]
 fn var_parse() {
-    use ast::{Var, VarReadType};
+    use ast::{Var, VarSigil};
     use crate::resolve::RegId;
 
-    assert_eq!(Var::parse("$REG[244]").unwrap(), Var { ty_sigil: Some(VarReadType::Int), name: RegId(244).into() });
-    assert_eq!(Var::parse("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarReadType::Int), name: RegId(-99998).into() });
+    assert_eq!(Var::parse("$REG[244]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(244).into() });
+    assert_eq!(Var::parse("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(-99998).into() });
     assert_eq!(Var::parse("REG[244]").unwrap(), Var { ty_sigil: None, name: RegId(244).into() });
-    assert_eq!(Var::parse("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarReadType::Float), name: RegId(-99998).into() });
+    assert_eq!(Var::parse("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Float), name: RegId(-99998).into() });
     assert!(Var::parse("REG[-99998999999]").is_err());
     assert!(matches!(Var::parse("lmao").unwrap(), Var { ty_sigil: None, .. }));
-    assert!(matches!(Var::parse("$lmao").unwrap(), Var { ty_sigil: Some(VarReadType::Int), .. }));
-    assert!(matches!(Var::parse("%lmao").unwrap(), Var { ty_sigil: Some(VarReadType::Float), .. }));
+    assert!(matches!(Var::parse("$lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Int), .. }));
+    assert!(matches!(Var::parse("%lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Float), .. }));
 }
 
 #[test]

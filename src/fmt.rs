@@ -576,25 +576,7 @@ impl Format for ast::Item {
                 out.fmt(meta)?;
                 out.next_line()
             },
-            ast::Item::FileList { keyword, files } => {
-                out.fmt((keyword, "{ "))?;
-                for file in files {
-                    out.fmt((file, "; "))?;
-                }
-                out.fmt(" }")?;
-                out.next_line()
-            },
             ast::Item::ConstVar(item) => out.fmt(item),
-        }
-    }
-}
-
-impl Format for ast::FuncKeyword {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match *self {
-            ast::FuncKeyword::Type(ty) => out.fmt(ty),
-            ast::FuncKeyword::Sub => out.fmt("sub"),
-            ast::FuncKeyword::Timeline => out.fmt("timeline"),
         }
     }
 }
@@ -874,7 +856,7 @@ impl Format for ast::Var {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self.ty_sigil {
             None => out.fmt(&self.name),
-            Some(ty_sigil) => out.fmt((ty_sigil.sigil(), &self.name)),
+            Some(ty_sigil) => out.fmt((ty_sigil, &self.name)),
         }
     }
 }

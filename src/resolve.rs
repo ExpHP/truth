@@ -212,7 +212,7 @@ mod resolve_vars {
                         }
                         consts_at_this_level.insert(ident.as_raw().clone(), var.span);
 
-                        let ty = keyword.ty().expect("untyped consts don't parse");
+                        let ty = keyword.var_ty().expect("untyped consts don't parse");
 
                         let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
 
@@ -233,7 +233,7 @@ mod resolve_vars {
                         // we have to put the parameters in scope
                         let outer_scope_depth = self.resolver.current_depth();
                         for (ty_keyword, ident) in params {
-                            let def_id = self.ctx.define_local(ident.clone(), ty_keyword.ty());
+                            let def_id = self.ctx.define_local(ident.clone(), ty_keyword.var_ty());
 
                             self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
                         }
@@ -253,7 +253,6 @@ mod resolve_vars {
 
                 | ast::Item::AnmScript { .. }
                 | ast::Item::Meta { .. }
-                | ast::Item::FileList { .. }
                 => ast::walk_item(self, x),
             }
         }
@@ -270,7 +269,7 @@ mod resolve_vars {
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
             match &x.body {
                 ast::StmtBody::Declaration { keyword, vars } => {
-                    let ty = keyword.ty();
+                    let ty = keyword.var_ty();
 
                     for pair in vars {
                         let (var, init_value) = &pair.value;

@@ -81,8 +81,6 @@ compile_fail_test!(
 );
 
 compile_fail_test!(
-    // this is going to become grammatically correct soon; the test is here to make
-    // sure it fails gracefully from the getgo
     ANM_10, local_string,
     main_body: r#"
         string x = "hi";
@@ -91,14 +89,47 @@ compile_fail_test!(
 );
 
 compile_fail_test!(
+    ANM_10, local_void,
+    main_body: r#"
+        void x = delete();
+    "#,
+    expected: "must have a value",
+);
+
+compile_fail_test!(
+    ANM_10, const_void,
+    items_before: r#"
+        const void x = delete();
+    "#,
+    expected: "must have a value",
+);
+
+compile_fail_test!(
+    ANM_10, const_untyped,
+    items_before: r#"
+        const var x = 3;
+    "#,
+    expected: "untyped",
+);
+
+compile_fail_test!(
+    ANM_10, func_untyped,
+    items_before: r#"
+        var foo() { return 1; }
+    "#,
+    main_body: "",
+    expected: "var-typed",
+);
+
+compile_fail_test!(
     // this is going to become grammatically correct eventually; the test is here to make
     // sure it fails gracefully from the getgo
-    ANM_10, string_func,
+    ANM_10, func_nonconst_string,
     items_before: r#"
         string foo() { return "hi"; }
     "#,
     main_body: "",
-    expected: expected::PARSE_ERROR,
+    expected: expected::UNIMPLEMENTED,
 );
 
 compile_fail_test!(

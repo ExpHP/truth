@@ -12,7 +12,7 @@ use crate::error::{GatherErrorIteratorExt, CompileError, Diagnostic};
 use crate::pos::{Sp, Span};
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
-use crate::ast::VarDeclKeyword;
+use crate::ast::TypeKeyword;
 
 /// Performs type-checking.
 ///
@@ -189,7 +189,7 @@ impl<'a> Visitor<'a> {
 
     fn check_stmt_declaration(
         &self,
-        keyword: Sp<VarDeclKeyword>,
+        keyword: Sp<TypeKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), CompileError> {
         vars.iter().map(|sp_pat!((var, value))| {
@@ -267,14 +267,14 @@ impl<'a> Visitor<'a> {
     /// Fully checks a variable declaration or a function parameter declaration.
     fn check_single_var_decl(
         &self,
-        keyword: Sp<VarDeclKeyword>,
+        keyword: Sp<TypeKeyword>,
         var: &Sp<ast::Var>,
         value: Option<&Sp<ast::Expr>>,
     ) -> Result<(), CompileError> {
         self.check_var_weak(var)?;
 
         // forbid 'int %x;'
-        if let Some(decl_ty) = keyword.ty() {
+        if let Some(decl_ty) = keyword.var_ty() {
             let var_ty = self.ctx.var_read_ty_from_ast(var).expect("must be Some since var is typed");
             _require_exact(decl_ty, var_ty, keyword.span, var.span)?;
         }

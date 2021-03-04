@@ -320,7 +320,6 @@ fn compile_std(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
-                ast::Item::FileList { .. } => return Err(unsupported(&item.span)),
                 ast::Item::Func { .. } => return Err(unsupported(&item.span)),
             }
         }

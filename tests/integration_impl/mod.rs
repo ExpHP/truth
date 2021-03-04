@@ -279,7 +279,7 @@ macro_rules! make_source {
         $(, items_before: $items_before:expr)?
 
         // the statements to compile into a function body
-        , main_body: $main_body:expr
+        $(, main_body: $main_body:expr)?
 
         // (optional) check that the STDERR text contains a substring.
         // This helps ensure that compilation is failing for a legitimate reason.
@@ -294,7 +294,7 @@ macro_rules! make_source {
     ) => {
         $format.make_source("original.spec", crate::integration_impl::ScriptParts {
             items_before: first_token!( $($items_before)? "" ),
-            main_body: $main_body,
+            main_body: first_token!( $($main_body)? "" ),
         })
     };
 

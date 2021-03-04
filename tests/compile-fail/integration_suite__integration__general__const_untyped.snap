@@ -1,0 +1,11 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: illegal untyped const
+   ┌─ <input>:25:15
+   │
+25 │         const var x = 3;
+   │               ^^^ const vars must have a type
+
+
