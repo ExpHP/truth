@@ -175,13 +175,10 @@ Items: Vec<Sp<ast::Item>> = {
 };
 
 Item: ast::Item = {
-    <inline:TokenSpan<"inline">?> <keyword:Sp<TypeKeyword>> <ident:Sp<ResIdent>>
+    <inline:TokenSpan<"inline">?> <keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
         "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        =>? {
-            let keyword = sp!(keyword.span => util::func_return_type_keyword(keyword)?);
-            Ok(ast::Item::Func { inline, keyword, ident, params, code })
-        },
+        => ast::Item::Func { inline, keyword, ident, params, code },
 
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
         => ast::Item::AnmScript { keyword, number, ident, code },
@@ -193,10 +190,7 @@ Item: ast::Item = {
 };
 
 FuncParam: (Sp<ast::TypeKeyword>, Sp<ResIdent>) = {
-    <keyword:Sp<TypeKeyword>> <ident:Sp<ResIdent>> =>? {
-        let keyword = sp!(keyword.span => util::local_var_type_keyword(keyword)?);
-        Ok((keyword, ident))
-    },
+    <Sp<LocalVarTypeKeyword>> <Sp<ResIdent>>,
 }
 
 FuncBodyOrSemicolon: Option<ast::Block> = {
@@ -210,12 +204,8 @@ MetaKeyword: ast::MetaKeyword = {
 };
 
 ConstVarDeclaration: ast::ItemConstVar = {
-    // FIXME use ConstVarTypeKeyword after https://github.com/lalrpop/lalrpop/pull/594
-    "const" <keyword:Sp<TypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
-        =>? {
-            let keyword = sp!(keyword.span => util::const_var_type_keyword(keyword)?);
-            Ok(ast::ItemConstVar { keyword, vars })
-        },
+    "const" <keyword:Sp<ConstVarTypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
+        => ast::ItemConstVar { keyword, vars },
 };
 
 // NOTE: Working with state in LALRPOP is tricky as there are no midrules like bison.
@@ -309,11 +299,8 @@ StmtBody: ast::StmtBody = {
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
         => ast::StmtBody::Assignment { var, op, value },
 
-    <keyword:Sp<TypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        =>? {
-            let keyword = sp!(keyword.span => util::local_var_type_keyword(keyword)?);
-            Ok(ast::StmtBody::Declaration { keyword, vars })
-        },
+    <keyword:Sp<LocalVarTypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
+        => ast::StmtBody::Declaration { keyword, vars },
 
     StmtSpecialCall,
 }
@@ -733,14 +720,6 @@ VarName: ast::VarName = {
 
 VarIdent: ast::Var = <ident:ResIdent> => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident } };
 
-TypeKeyword: ast::TypeKeyword = {
-    "int" => token![int],
-    "float" => token![float],
-    "string" => token![string],
-    "var" => token![var],
-    "void" => token![void],
-};
-
 OptionalMinus: i32 = {
     "-" => -1,
     => 1,
@@ -792,6 +771,61 @@ RawInsIdent: u16 = {
                 primary(Span::from_locs(l, r), "{}", e),
             ).into())
     }
+};
+
+// ==================================================
+// Type
+
+#[inline]
+FuncTypeKeyword: ast::TypeKeyword = {
+    <keyword:Sp<TypeKeyword>> =>? match keyword.value {
+        token![var] => Err(error!(
+            message("var-typed function"),
+            primary(keyword, "cannot be used on functions"),
+        ).into()),
+        kw => Ok(kw),
+    }
+};
+
+#[inline]
+ConstVarTypeKeyword: ast::TypeKeyword = {
+    <keyword:Sp<VarTypeKeyword>> =>? match keyword.value {
+        token![var] => return Err(error!(
+            message("illegal untyped const"),
+            primary(keyword, "const vars must have a type"),
+        ).into()),
+        kw => Ok(kw),
+    },
+};
+
+#[inline]
+LocalVarTypeKeyword: ast::TypeKeyword = {
+    <keyword:Sp<VarTypeKeyword>> =>? match keyword.value {
+        token![string] => Err(error!(
+            message("non-const string variable"),
+            primary(keyword, "only possible for const vars"),
+        ).into()),
+        kw => Ok(kw),
+    },
+};
+
+#[inline]
+VarTypeKeyword: ast::TypeKeyword = {
+    <keyword:Sp<TypeKeyword>> =>? match keyword.value {
+        token![void] => Err(error!(
+            message("void-typed variable"),
+            primary(keyword, "variables must have a value"),
+        ).into()),
+        kw => Ok(kw),
+    },
+};
+
+TypeKeyword: ast::TypeKeyword = {
+    "int" => token![int],
+    "float" => token![float],
+    "string" => token![string],
+    "var" => token![var],
+    "void" => token![void],
 };
 
 // ==================================================

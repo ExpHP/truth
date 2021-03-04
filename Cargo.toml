@@ -7,7 +7,7 @@ build = "build/main.rs"
 default-run = "truth-core"
 
 [build-dependencies]
-lalrpop = { version = "0.19.0", features = ['lexer'] }
+lalrpop = { version = "0.19.5", features = ['lexer'] }
 
 [dependencies]
 lazy_static = "1.4.0"

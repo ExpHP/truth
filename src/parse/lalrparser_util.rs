@@ -3,10 +3,6 @@
 
 use std::str::FromStr;
 
-use crate::pos::Sp;
-use crate::ast;
-use crate::error::CompileError;
-
 /// Uses `FromStr` to parse something from a byte string.
 ///
 /// This is only intended for use where the input is known in advance
@@ -34,59 +30,3 @@ pub fn push<T>(mut vec: Vec<T>, item: T) -> Vec<T> {
 }
 
 pub enum Either<A, B> { This(A), That(B) }
-
-// FIXME:  Change these to stuff like the following after https://github.com/lalrpop/lalrpop/pull/594 is merged
-// #[inline]
-// VarTypeKeyword: ast::TypeKeyword = {
-//    <keyword:Sp<TypeKeyword>> =>? match keyword.value {
-//        token![void] => Err(error!(
-//            message("void-typed variable"),
-//            primary(keyword, "variables must have a value"),
-//        ).into()),
-//        kw => Ok(kw),
-//    },
-// };
-
-pub fn func_return_type_keyword(keyword: Sp<ast::TypeKeyword>) -> Result<ast::TypeKeyword, CompileError> {
-    match keyword.value {
-        token![var] => Err(error!(
-            message("var-typed function"),
-            primary(keyword, "cannot be used on functions"),
-        ).into()),
-        kw => Ok(kw),
-    }
-}
-
-pub fn const_var_type_keyword(keyword: Sp<ast::TypeKeyword>) -> Result<ast::TypeKeyword, CompileError> {
-    let keyword = sp!(keyword.span => var_type_keyword(keyword)?);
-
-    if keyword.var_ty().is_none() {
-        return Err(error!(
-            message("illegal untyped const"),
-            primary(keyword, "const vars must have a type"),
-        ).into());
-    }
-    Ok(keyword.value)
-}
-
-pub fn local_var_type_keyword(keyword: Sp<ast::TypeKeyword>) -> Result<ast::TypeKeyword, CompileError> {
-    let keyword = sp!(keyword.span => var_type_keyword(keyword)?);
-
-    match keyword.value {
-        token![string] => Err(error!(
-            message("non-const string variable"),
-            primary(keyword, "only possible for const vars"),
-        ).into()),
-        kw => Ok(kw),
-    }
-}
-
-pub fn var_type_keyword(keyword: Sp<ast::TypeKeyword>) -> Result<ast::TypeKeyword, CompileError> {
-    match keyword.value {
-        token![void] => Err(error!(
-            message("void-typed variable"),
-            primary(keyword, "variables must have a value"),
-        ).into()),
-        kw => Ok(kw),
-    }
-}
