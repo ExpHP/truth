@@ -176,6 +176,8 @@ impl AstVm {
             //      some way of storing or communicating a "instruction pointer", which
             //      doesn't exist due to the nested nature of the AST.
             match &stmts[stmt_index].body {
+                ast::StmtBody::Item(_) => {},
+
                 ast::StmtBody::Goto(goto) => handle_goto!(goto),
 
                 ast::StmtBody::CondGoto { keyword, cond, goto } => {

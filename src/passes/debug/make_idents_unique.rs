@@ -12,16 +12,21 @@ use crate::ident::{Ident, ResIdent};
 /// The renumbering scheme is deterministic and tries to be vaguely robust to spurious changes
 /// that could arise from compiler implementation details, but it is otherwise unspecified.
 ///
+/// Returns the number of distinct definitions found for each identifier.  This only counts the
+/// uses found within the snippet. I.e. if there is a register alias `A`, this will be reflected
+/// in the count for `A` if and only if the identifier `A` has at least one appearance in the
+/// source that refers specifically to that alias.
+///
 /// Note that [`CompilerContext`] and spans will still refer to the old identifiers.  To get the
 /// most out of this, try formatting the modified node [to a string][`crate::fmt::stringify`].
-pub fn run<A: ast::Visitable>(ast: &mut A, resolutions: &Resolutions) -> Result<(), CompileError> {
+pub fn run<A: ast::Visitable>(ast: &mut A, resolutions: &Resolutions) -> Result<HashMap<Ident, u32>, CompileError> {
     let mut v = Visitor {
         resolutions,
         next_numbers: Default::default(),
         assigned_numbers: Default::default(),
     };
     ast.visit_mut_with(&mut v);
-    Ok(())
+    Ok(v.next_numbers)
 }
 
 // =============================================================================

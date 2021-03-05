@@ -544,10 +544,12 @@ impl Format for meta::Fields {
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
-            ast::Item::Func { inline, keyword, ident, params, code, } => {
-                let inline_keyword = if inline.is_some() { "inline " } else { "" };
+            ast::Item::Func { qualifier, keyword, ident, params, code, } => {
+                if let Some(qualifier) = qualifier {
+                    out.fmt((qualifier, " "))?;
+                }
 
-                out.fmt((inline_keyword, keyword, " ", ident))?;
+                out.fmt((keyword, " ", ident))?;
                 out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
 
                 out.state.time_stack.push(0);
@@ -576,20 +578,15 @@ impl Format for ast::Item {
                 out.fmt(meta)?;
                 out.next_line()
             },
-            ast::Item::ConstVar(item) => out.fmt(item),
+            ast::Item::ConstVar { keyword, vars } => {
+                out.fmt(("const ", keyword, " "))?;
+                out.fmt_separated(
+                    vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),
+                    |out| out.fmt(", "),
+                )?;
+                out.fmt(";")
+            },
         }
-    }
-}
-
-impl Format for ast::ItemConstVar {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::ItemConstVar { keyword, vars } = self;
-        out.fmt(("const ", keyword, " "))?;
-        out.fmt_separated(
-            vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),
-            |out| out.fmt(", "),
-        )?;
-        out.fmt(";")
     }
 }
 
@@ -635,6 +632,8 @@ impl Format for ast::StmtLabel {
 impl Format for ast::StmtBody {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
+            ast::StmtBody::Item(item) => out.fmt(item),
+
             ast::StmtBody::Goto(goto) => out.fmt((goto, ";")),
 
             ast::StmtBody::Return { value, keyword: _ } => {

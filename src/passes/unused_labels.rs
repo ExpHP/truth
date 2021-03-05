@@ -68,3 +68,8 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
     v.visit_root_block(func_body);
     v.labels
 }
+
+#[test]
+fn test_unused_labels() {
+    unimplemented!("write a test that has nested functions")
+}

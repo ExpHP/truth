@@ -128,8 +128,15 @@ compile_fail_test!(
     items_before: r#"
         string foo() { return "hi"; }
     "#,
-    main_body: "",
     expected: expected::UNIMPLEMENTED,
+);
+
+compile_fail_test!(
+    ANM_10, func_inline_const,
+    items_before: r#"
+        inline const int foo() { return 1; }
+    "#,
+    expected: "too many qualifiers",
 );
 
 compile_fail_test!(
@@ -151,16 +158,6 @@ compile_fail_test!(
     "#,
     main_body: "",
     expected: expected::PARSE_ERROR,
-);
-
-compile_fail_test!(
-    ANM_10, const_redefinition,
-    items_before: r#"
-        const int x = 1;
-        const int x = 1;
-    "#,
-    main_body: "",
-    expected: "redefinition",
 );
 
 compile_fail_test!(

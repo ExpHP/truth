@@ -70,7 +70,7 @@ impl Script {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Func {
-        inline: Option<TokenSpan>,
+        qualifier: Option<Sp<FuncQualifier>>,
         keyword: Sp<TypeKeyword>,
         ident: Sp<ResIdent>,
         params: Vec<(Sp<TypeKeyword>, Sp<ResIdent>)>,
@@ -88,7 +88,30 @@ pub enum Item {
         ident: Option<Sp<Ident>>,
         fields: Sp<meta::Fields>,
     },
-    ConstVar(ItemConstVar),
+    ConstVar {
+        keyword: Sp<TypeKeyword>,
+        vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
+    },
+}
+
+impl Item {
+    pub fn descr(&self) -> &'static str { match self {
+        Item::Func { qualifier: Some(sp_pat![token![const]]), .. } => "const function definition",
+        Item::Func { qualifier: Some(sp_pat![token![inline]]), .. } => "inline function definition",
+        Item::Func { qualifier: None, .. } => "exported function definition",
+        Item::AnmScript { .. } => "script",
+        Item::Meta { .. } => "meta",
+        Item::ConstVar { .. } => "const definition",
+    }}
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum FuncQualifier {
+        /// `entry` block for a texture in ANM.
+        #[str = "const"] Const,
+        #[str = "inline"] Inline,
+    }
 }
 
 string_enum! {
@@ -98,12 +121,6 @@ string_enum! {
         #[str = "entry"] Entry,
         #[str = "meta"] Meta,
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ItemConstVar {
-    pub keyword: Sp<TypeKeyword>,
-    pub vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
 }
 
 // =============================================================================
@@ -128,44 +145,65 @@ pub enum StmtLabel {
 /// without any labels.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtBody {
+    /// Some items are allowed to appear as statements. (`const`s and functions)
+    Item(Box<Sp<Item>>),
+
+    /// Unconditional goto.  `goto label @ time;`
     Goto(StmtGoto),
+
+    /// Conditional goto.  `if (a == b) goto label @ time;`
     CondGoto {
         keyword: Sp<CondKeyword>,
         cond: Sp<Cond>,
         goto: StmtGoto,
     },
+
+    /// `return;` or `return expr;`
     Return {
         keyword: TokenSpan,
         value: Option<Sp<Expr>>,
     },
+
+    /// A chain of conditional blocks.  `if (...) { ... } else if (...) { ... } else { ... }`
     CondChain(StmtCondChain),
+
+    /// Unconditional loop.  `loop { ... }`
     Loop {
         keyword: TokenSpan,
         block: Block,
     },
+
+    /// While loop.  `while (...) { ... }` or `do { ... } while (...);`
     While {
         while_keyword: TokenSpan,
         do_keyword: Option<TokenSpan>,
         cond: Sp<Cond>,
         block: Block,
     },
+
+    /// Times loop.  `times(n) { ... }`
     Times {
         keyword: TokenSpan,
         clobber: Option<Sp<Var>>,
         count: Sp<Expr>,
         block: Block,
     },
+
     /// Expression followed by a semicolon.
     ///
     /// This is primarily for void-type "expressions" like raw instruction
     /// calls (which are grammatically indistinguishable from value-returning
-    /// function calls), but may also represent a stack push in ECL.
+    /// function calls).
     Expr(Sp<Expr>),
+
+    /// `a = expr;` or `a += expr;`
     Assignment {
         var: Sp<Var>,
         op: Sp<AssignOpKind>,
         value: Sp<Expr>,
     },
+
+    /// Local variable declaration `int a = 20;`. (`const` vars fall under [`Self::Item`] instead)
     Declaration {
         keyword: Sp<TypeKeyword>,
         vars: Vec<Sp<(Sp<Var>, Option<Sp<Expr>>)>>,
@@ -183,22 +221,19 @@ pub enum StmtBody {
     },
 
     /// An interrupt label: `interrupt[2]:`.
-    ///
-    /// Because this compiles to an instruction, we store it as a statement in the AST rather than
-    /// as a label.
     InterruptLabel(Sp<i32>),
 
-    /// A virtual instruction representing a label that can be jumped to.
+    /// A label `label:` that can be jumped to.
     Label(Sp<Ident>),
 
-    /// A virtual instruction that marks the end of a variable's lexical scope.
+    /// A virtual statement that marks the end of a variable's lexical scope.
     ///
     /// Blocks are eliminated during early compilation passes, leaving behind these as the only
     /// remaining way of identifying the end of a variable's scope.  They are used during lowering
     /// to determine when to release resources (like registers) held by locals.
     ScopeEnd(DefId),
 
-    /// A virtual instruction that completely disappears during compilation.
+    /// A virtual statement that completely disappears during compilation.
     ///
     /// This is a trivial statement that doesn't even compile to a `nop();`.
     /// It is inserted at the beginning and end of code blocks in order to help implement some
@@ -212,9 +247,9 @@ pub enum StmtBody {
     NoInstruction,
 }
 
-
 impl StmtBody {
     pub fn descr(&self) -> &'static str { match self {
+        StmtBody::Item(item) => item.descr(),
         StmtBody::Goto { .. } => "goto",
         StmtBody::CondGoto { .. } => "conditional goto",
         StmtBody::Return { .. } => "return statement",
@@ -698,7 +733,6 @@ macro_rules! generate_visitor_stuff {
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
-            fn visit_const_decl(&mut self, e: & $($mut)? ItemConstVar) { walk_const_decl(self, e) }
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
         }
 
@@ -715,7 +749,7 @@ macro_rules! generate_visitor_stuff {
         {
             match & $($mut)? x.value {
                 Item::Func {
-                    code, inline: _, keyword: _, ident, params,
+                    code, qualifier: _, keyword: _, ident, params,
                 } => {
                     v.visit_res_ident(ident);
                     if let Some(code) = code {
@@ -732,7 +766,12 @@ macro_rules! generate_visitor_stuff {
                 Item::Meta { keyword: _, ident: _, fields } => {
                     walk_meta_fields(v, fields);
                 },
-                Item::ConstVar(item) => v.visit_const_decl(item),
+                Item::ConstVar { keyword: _, vars } => {
+                    for sp_pat![(var, expr)] in vars {
+                        v.visit_var(var);
+                        v.visit_expr(expr);
+                    }
+                },
             }
         }
 
@@ -765,16 +804,6 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        pub fn walk_const_decl<V>(v: &mut V, x: & $($mut)? ItemConstVar)
-        where V: ?Sized + $Visit,
-        {
-            let ItemConstVar { keyword: _, vars } = x;
-            for sp_pat![(var, expr)] in vars {
-                v.visit_var(var);
-                v.visit_expr(expr);
-            }
-        }
-
         pub fn walk_block<V>(v: &mut V, x: & $($mut)? Block)
         where V: ?Sized + $Visit,
         {
@@ -787,6 +816,7 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.body {
+                StmtBody::Item(item) => v.visit_item(item),
                 StmtBody::Goto(goto) => {
                     v.visit_goto(goto);
                 },
@@ -943,7 +973,6 @@ pub use self::mut_::{
     walk_script as walk_script_mut,
     walk_item as walk_item_mut,
     walk_meta as walk_meta_mut,
-    walk_const_decl as walk_const_decl_mut,
     walk_block as walk_block_mut,
     walk_stmt as walk_stmt_mut,
     walk_goto as walk_goto_mut,
@@ -955,5 +984,5 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_meta, walk_const_decl, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
+    Visit, walk_script, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
 };

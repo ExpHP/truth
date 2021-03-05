@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use crate::ident::{Ident, ResIdent};
 use crate::context::{CompilerContext, Defs};
 
+#[cfg(test)]
+mod tests;
+
 /// A "resolvable ID."  Identifies a instance in the source code of an identifier that *can*
 /// be resolved to something.
 ///
@@ -60,9 +63,19 @@ pub enum Namespace {
     Funcs,
 }
 
-use name_resolver::{NameResolver, ResolutionError};
+impl Namespace {
+    pub fn noun_long(self) -> &'static str { match self {
+        Namespace::Vars => "variable",
+        Namespace::Funcs => "function",
+    }}
+}
+
+use name_resolver::{NameResolver};
 mod name_resolver {
     use super::*;
+
+    use crate::pos::Span;
+    use crate::error::CompileError;
 
     /// A helper whose purpose is to incrementally track which [`DefId`] each [`Ident`]
     /// currently maps to in each namespace as we travel up and down the scope tree.
@@ -93,11 +106,6 @@ mod name_resolver {
     /// A newtyped `usize` representing tree depth. (this uniquely identifies an ancestor node)
     pub struct Depth(usize);
 
-    /// Indicates that nothing with the given name is in scope.
-    ///
-    /// (the caller should decide how to turn this into a CompileError)
-    pub struct ResolutionError;
-
     impl NameResolver {
         /// Create a new [`NameResolver`] sitting in the empty scope.
         pub fn new() -> Self {
@@ -119,11 +127,16 @@ mod name_resolver {
             Depth(self.names_in_scope.len())
         }
 
-        /// Resolve an identifier at the current scope.
-        pub fn resolve(&self, ident: &Ident, ns: Namespace) -> Result<DefId, ResolutionError> {
+        pub fn resolve(&self, span: Span, ident: &ResIdent, ns: Namespace) -> Result<DefId, CompileError> {
+            self._resolve(ident, ns).ok_or_else(|| error!(
+                message("unknown {} '{}'", ns.noun_long(), ident),
+                primary(span, "not found in this scope"),
+            ))
+        }
+
+        fn _resolve(&self, ident: &Ident, ns: Namespace) -> Option<DefId> {
             self.names_by_ident[ns].get(ident)
                 .and_then(|vec| vec.last().copied())  // the one that isn't shadowed
-                .ok_or(ResolutionError)
         }
 
         /// Travel from the current scope into a direct child by adding a single name
@@ -148,13 +161,13 @@ pub use resolve_vars::Visitor as ResolveVarsVisitor;
 mod resolve_vars {
     use super::*;
     use crate::ast::{self, Visit};
-    use crate::pos::{Sp};
+    use crate::pos::{Sp, Span};
     use crate::error::CompileError;
 
     /// Visitor for name resolution. Please don't use this directly,
     /// but instead call [`crate::passes::resolve_names::run`].
     pub struct Visitor<'ts> {
-        resolver: NameResolver,
+        scope_traveler: NameResolver,
         errors: CompileError,
         ctx: &'ts mut CompilerContext,
     }
@@ -162,7 +175,7 @@ mod resolve_vars {
     impl<'ts> Visitor<'ts> {
         pub fn new(ctx: &'ts mut CompilerContext) -> Self {
             Visitor {
-                resolver: NameResolver::init_from_defs(&ctx.defs),
+                scope_traveler: NameResolver::init_from_defs(&ctx.defs),
                 errors: CompileError::new_empty(),
                 ctx,
             }
@@ -176,51 +189,7 @@ mod resolve_vars {
     impl Visit for Visitor<'_> {
         fn visit_script(&mut self, x: &ast::Script) {
             // scan ahead for all function definitions and consts
-            let mut funcs_at_this_level = HashMap::new();
-            let mut consts_at_this_level = HashMap::new();
-            for item in &x.items {
-                if let ast::Item::Func { ident, .. } = &item.value {
-                    // check for redefinitions
-                    if let Some(old_span) = funcs_at_this_level.get(ident.as_raw()) {
-                        self.errors.append(error!(
-                            message("redefinition of func '{}'", ident),
-                            primary(ident, "redefinition of function"),
-                            secondary(old_span, "originally defined here"),
-                        ));
-                        // keep going; this is relatively harmless
-                    }
-                    funcs_at_this_level.insert(ident.as_raw().clone(), ident.span);
-
-                    let def_id = self.ctx.define_user_func(ident.clone());
-
-                    // add it to the current scope
-                    self.resolver.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
-                }
-
-                // FIXME copy-pasta-y
-                if let ast::Item::ConstVar(ast::ItemConstVar { keyword, ref vars }) = item.value {
-                    for sp_pat![(var, expr)] in vars {
-                        // check for redefinitions
-                        let ident = var.name.expect_ident();
-                        if let Some(old_span) = consts_at_this_level.get(ident.as_raw()) {
-                            self.errors.append(error!(
-                                message("redefinition of const '{}'", ident),
-                                primary(var, "redefinition of const"),
-                                secondary(old_span, "originally defined here"),
-                            ));
-                            // keep going; this is relatively harmless
-                        }
-                        consts_at_this_level.insert(ident.as_raw().clone(), var.span);
-
-                        let ty = keyword.var_ty().expect("untyped consts don't parse");
-
-                        let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
-
-                        // add it to the current scope
-                        self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
-                    }
-                }
-            }
+            self.add_items_to_scope(&x.items);
 
             ast::walk_script(self, x);
         }
@@ -231,19 +200,19 @@ mod resolve_vars {
                 => {
                     if let Some(code) = code {
                         // we have to put the parameters in scope
-                        let outer_scope_depth = self.resolver.current_depth();
+                        let outer_scope_depth = self.scope_traveler.current_depth();
                         for (ty_keyword, ident) in params {
                             let def_id = self.ctx.define_local(ident.clone(), ty_keyword.var_ty());
 
-                            self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                            self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
                         }
                         ast::walk_block(self, code);
 
-                        self.resolver.return_to_ancestor(outer_scope_depth);
+                        self.scope_traveler.return_to_ancestor(outer_scope_depth);
                     }
                 },
 
-                | ast::Item::ConstVar(ast::ItemConstVar { vars, .. })
+                | ast::Item::ConstVar { vars, .. }
                 => {
                     // we don't want to resolve the declaration idents, only the expressions
                     for sp_pat![(_, expr)] in vars {
@@ -258,12 +227,19 @@ mod resolve_vars {
         }
 
         fn visit_block(&mut self, x: &ast::Block) {
-            let outer_scope_depth = self.resolver.current_depth();
+            let outer_scope_depth = self.scope_traveler.current_depth();
+
+            // "lift" items to the top of the block
+            let items_in_block = x.0.iter().filter_map(|stmt| match &stmt.body {
+                ast::StmtBody::Item(item) => Some(&**item),
+                _ => None,
+            });
+            self.add_items_to_scope(items_in_block);
 
             ast::walk_block(self, x);
 
             // make names defined within the block no longer resolvable
-            self.resolver.return_to_ancestor(outer_scope_depth);
+            self.scope_traveler.return_to_ancestor(outer_scope_depth);
         }
 
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
@@ -283,7 +259,7 @@ mod resolve_vars {
 
                             // record the variable in our resolution tree and enter its scope
                             // so that it can be used in future expressions
-                            self.resolver.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                            self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
 
                         } else {
                             unreachable!("impossible var name in declaration {:?}", var.value.name);
@@ -296,24 +272,18 @@ mod resolve_vars {
 
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
             if let ast::VarName::Normal { ref ident, .. } = var.name {
-                match self.resolver.resolve(ident, Namespace::Vars) {
-                    Err(ResolutionError) => self.errors.append(error!(
-                        message("unknown variable '{}'", ident),
-                        primary(var, "not found in this scope"),
-                    )),
+                match self.scope_traveler.resolve(var.span, ident, Namespace::Vars) {
+                    Err(e) => self.errors.append(e),
                     Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
-                };
+                }
             }
         }
 
         fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
             if let ast::Expr::Call { name, .. } = &expr.value {
                 if let ast::CallableName::Normal { ident, .. } = &name.value {
-                    match self.resolver.resolve(ident, Namespace::Funcs) {
-                        Err(ResolutionError) => self.errors.append(error!(
-                            message("unknown function '{}'", name),
-                            primary(name, "not found in this scope"),
-                        )),
+                    match self.scope_traveler.resolve(name.span, ident, Namespace::Funcs) {
+                        Err(e) => self.errors.append(e),
                         Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }
                 }
@@ -321,7 +291,78 @@ mod resolve_vars {
             ast::walk_expr(self, expr)
         }
     }
+
+    impl Visitor<'_> {
+        /// An early pass used on the script or on a block that adds all items to scope,
+        /// without yet recursing into any of them.
+        ///
+        /// This is what allows items to be used prior to their definition.
+        fn add_items_to_scope<'b>(&mut self, items: impl IntoIterator<Item=&'b Sp<ast::Item>>) {
+            let mut funcs_seen = RedefinitionChecker::new("function");
+            let mut consts_seen = RedefinitionChecker::new("const");
+            for item in items {
+                match item.value {
+                    ast::Item::Func { ref ident, .. } => {
+                        if let Err(e) = funcs_seen.check_for_redefinition(ident.as_raw(), ident.span) {
+                            self.errors.append(e);
+                            // keep going; this is relatively harmless
+                        }
+
+                        let def_id = self.ctx.define_user_func(ident.clone());
+
+                        // add it to the current scope
+                        self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
+                    },
+
+                    ast::Item::ConstVar { keyword, ref vars } => {
+                        let ty = keyword.var_ty().expect("untyped consts don't parse");
+
+                        for sp_pat![(var, expr)] in vars {
+                            let ident = var.name.expect_ident();
+                            if let Err(e) = consts_seen.check_for_redefinition(ident.as_raw(), var.span) {
+                                self.errors.append(e);
+                                // keep going; this is relatively harmless
+                            }
+
+                            let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
+
+                            // add it to the current scope
+                            self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                        }
+                    },
+
+                    ast::Item::Meta { .. } => {},
+                    ast::Item::AnmScript { .. } => {},
+                }
+            }
+        }
+    }
+
+    struct RedefinitionChecker {
+        map: HashMap<Ident, Span>,
+        noun: &'static str,
+    }
+
+    impl RedefinitionChecker {
+        fn new(noun: &'static str) -> Self { RedefinitionChecker {
+            map: Default::default(),
+            noun,
+        }}
+        /// Record an item,
+        fn check_for_redefinition(&mut self, ident: &Ident, span: Span) -> Result<(), CompileError> {
+            if let Some(old_span) = self.map.get(ident) {
+                return Err(error!(
+                    message("redefinition of {} '{}'", self.noun, ident),
+                    primary(span, "redefinition of {}", self.noun),
+                    secondary(old_span, "originally defined here"),
+                ));
+            }
+            self.map.insert(ident.clone(), span);
+            Ok(())
+        }
+    }
 }
+
 
 // =============================================================================
 
@@ -423,166 +464,5 @@ impl Resolutions {
         let res = ident.expect_res();
         self.map[res.0.get() as usize]
             .unwrap_or_else(|| panic!("(bug!) name '{}' has not yet been resolved!", ident))
-    }
-}
-
-// =============================================================================
-
-#[cfg(test)]
-mod tests {
-    use crate::pos::Files;
-    use crate::parse::Parse;
-    use crate::fmt::Format;
-    use crate::error::CompileError;
-    use crate::eclmap::Eclmap;
-    use crate::context::CompilerContext;
-    use crate::ast;
-
-    const ECLMAP: &'static str = r#"!eclmap
-!gvar_names
-100 A
-101 X
-!gvar_types
-100 $
-101 %
-!ins_names
-21 func21
-"#;
-
-    fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, CompilerContext), (Files, CompileError)> {
-        let mut files = Files::new();
-        let mut ctx = CompilerContext::new();
-        ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
-
-        let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
-        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
-        match crate::passes::resolve_names::run(&parsed, &mut ctx) {
-            Ok(()) => Ok((parsed, ctx)),
-            Err(e) => Err((files, e)),
-        }
-    }
-
-    fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
-        let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
-
-        // add suffixes so we can visualize the effects of name resolution
-        crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
-
-        crate::fmt::stringify(&parsed)
-    }
-
-    fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
-        let (files, err) = resolve::<A>(text).err().unwrap();
-        let err_msg = err.to_string(&files).unwrap();
-        assert!(err_msg.contains(expected), "{}", err_msg);
-        err_msg
-    }
-
-    macro_rules! snapshot_test {
-        ($name:ident = <$ty:ty> $source:literal) => {
-            #[test]
-            fn $name() { assert_snapshot!(resolve_reformat::<$ty>($source).trim()); }
-        };
-        ([expect_fail($expected:expr)] $name:ident = <$ty:ty> $source:literal) => {
-            #[test]
-            fn $name() { assert_snapshot!(resolve_expect_err::<$ty>($source, $expected).trim()); }
-        };
-    }
-
-    snapshot_test!(basic_local = <ast::Block> r#"{
-        int a = 3;
-        int b = a + a;  // should use same `a`
-    }"#);
-
-    snapshot_test!(shadow_local = <ast::Block> r#"{
-        int a = 3;
-        if (true) {
-            int a = 4;
-            int b = a * a;  // should use inner `a`
-        }
-        int c = a * a;  // should use outer `a`
-        if (true) {
-            int a = 4;  // should be different from other inner `a`
-            int b = a * a;  // should use new inner `a`
-        }
-    }"#);
-
-    snapshot_test!([expect_fail("in this scope")] err_adjacent_scope = <ast::Block> r#"{
-        if (true) {
-            int a = 4;
-            int b = a * 3;
-        }
-        if (true) {
-            int b = a * 3;  // should fail at `a`
-        }
-    }"#);
-
-    snapshot_test!([expect_fail("in this scope")] err_after_scope_end = <ast::Block> r#"{
-        if (true) {
-            int a = 4;
-            int b = a * 3;
-        }
-        int b = a;  // should fail at `a`
-    }"#);
-
-    snapshot_test!(basic_reg_alias = <ast::Block> r#"{
-        ins_21(A, X);
-    }"#);
-
-    snapshot_test!(shadow_reg_alias = <ast::Block> r#"{
-        ins_21(A, X);
-        if (true) {
-            float A = 4.0;  // should be different `A`
-            float b = A;
-        }
-        ins_21(A, X);  // should be original `A`
-    }"#);
-
-    snapshot_test!(basic_func = <ast::Script> r#"
-    int foo(int x) {
-        return x;
-    }
-
-    script script0 {
-        int x = 3;
-        foo(x);  // should match `foo` definition
-    }"#);
-
-    snapshot_test!(basic_func_out_of_order = <ast::Script> r#"
-    script script0 {
-        int x = 3;
-        foo(x);  // should match `foo` definition
-    }
-
-    int foo(int x) {
-        return x;
-    }
-    "#);
-
-    snapshot_test!([expect_fail("redefinition")] err_func_redefinition = <ast::Script> r#"
-    int foo(int x) {
-        return x;
-    }
-
-    int foo(float y) {
-        return y;
-    }
-    "#);
-
-    #[should_panic(expected = "resolved multiple times")]
-    #[test]
-    fn panics_on_cloned_res() {
-        let mut files = Files::new();
-        let mut ctx = CompilerContext::new();
-        ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
-
-        let mut def = files.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
-        let mut cloned = files.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
-        crate::passes::resolve_names::assign_res_ids(&mut def, &mut ctx).unwrap();
-        crate::passes::resolve_names::assign_res_ids(&mut cloned, &mut ctx).unwrap();
-
-        let block = ast::Block(vec![def, cloned.clone(), cloned]);
-
-        crate::passes::resolve_names::run(&block, &mut ctx).unwrap();
     }
 }

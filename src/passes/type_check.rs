@@ -68,6 +68,7 @@ impl ast::Visit for Visitor<'_> {
         match &stmt.value.body {
             // statement types where there's nothing additional to check beyond what
             // would already be done by recursively walking the node
+            | ast::StmtBody::Item { .. }
             | ast::StmtBody::CondChain { .. }
             | ast::StmtBody::CondGoto { .. }
             | ast::StmtBody::While { .. }

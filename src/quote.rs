@@ -49,6 +49,9 @@ macro_rules! token {
     ($(ty)? var) => { $crate::ast::TypeKeyword::Var };
     ($(ty)? void) => { $crate::ast::TypeKeyword::Void };
 
+    ($(fnqual)? const) => { $crate::ast::FuncQualifier::Const };
+    ($(fnqual)? inline) => { $crate::ast::FuncQualifier::Inline };
+
     ($(cond)? if) => { $crate::ast::CondKeyword::If };
     ($(cond)? unless) => { $crate::ast::CondKeyword::Unless };
 

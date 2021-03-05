@@ -175,23 +175,49 @@ Items: Vec<Sp<ast::Item>> = {
 };
 
 Item: ast::Item = {
-    <inline:TokenSpan<"inline">?> <keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
-        "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
-        _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => ast::Item::Func { inline, keyword, ident, params, code },
+    ItemFunc,
+    ItemAnmScript,
+    ItemMeta,
+    ItemConstVar,
+};
 
-    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>> _TimeStackEnter <code:Block> _TimeStackPop
+ItemAnmScript: ast::Item = {
+    <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>>
+    _TimeStackEnter <code:Block> _TimeStackPop
         => ast::Item::AnmScript { keyword, number, ident, code },
+};
 
+ItemMeta: ast::Item = {
     <keyword:Sp<MetaKeyword>> <ident:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
         => ast::Item::Meta { keyword, ident, fields },
+};
 
-    <item:ConstVarDeclaration> => ast::Item::ConstVar(item),
+ItemConstVar: ast::Item = {
+    "const" <keyword:Sp<ConstVarTypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
+        => ast::Item::ConstVar { keyword, vars },
+};
+
+ItemFunc: ast::Item = {
+    <qualifier:Sp<SingleFuncQualifier>?> <keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
+        "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
+        _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
+        => ast::Item::Func { qualifier, keyword, ident, params, code },
+
+    Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> =>? Err(error!(
+        message("too many function qualifiers"),
+        primary(second, "extra qualifier"),
+    ).into()),
+};
+
+#[inline]
+SingleFuncQualifier: ast::FuncQualifier = {
+    "const" => ast::FuncQualifier::Const,
+    "inline" => ast::FuncQualifier::Inline,
 };
 
 FuncParam: (Sp<ast::TypeKeyword>, Sp<ResIdent>) = {
     <Sp<LocalVarTypeKeyword>> <Sp<ResIdent>>,
-}
+};
 
 FuncBodyOrSemicolon: Option<ast::Block> = {
     ";" => None,
@@ -201,11 +227,6 @@ FuncBodyOrSemicolon: Option<ast::Block> = {
 MetaKeyword: ast::MetaKeyword = {
     "entry" => ast::MetaKeyword::Entry,
     "meta" => ast::MetaKeyword::Meta,
-};
-
-ConstVarDeclaration: ast::ItemConstVar = {
-    "const" <keyword:Sp<ConstVarTypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
-        => ast::ItemConstVar { keyword, vars },
 };
 
 // NOTE: Working with state in LALRPOP is tricky as there are no midrules like bison.
@@ -263,6 +284,10 @@ Stmt: ast::Stmt = {
 };
 
 StmtBody: ast::StmtBody = {
+    <item:Box<Sp<ItemConstVar>>> => ast::StmtBody::Item(item),
+
+    <item:Box<Sp<ItemFunc>>> => ast::StmtBody::Item(item),
+
     <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
         => ast::StmtBody::Return { keyword, value },
 
