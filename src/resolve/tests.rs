@@ -232,6 +232,19 @@ test!(
 }"#);
 
 test!(
+    [expect_fail("in this scope")]
+    local_using_itself = <ast::Block> r#"{
+    int a = a;  // should fail at second `a`
+}"#);
+
+test!(
+    [all_names_unique]
+    local_using_older_sibling = <ast::Block> r#"{
+    // NOTE: We might want to forbid this...
+    int x = 2, y = x, z = x + y;
+}"#);
+
+test!(
     [all_names_unique]
     scoped_using_each_other = <ast::Block> r#"{
     if (true) {
@@ -282,7 +295,7 @@ test!(
 
 test!(
     [expect_fail("in this scope")]
-    func_scoped_using_outer_func_param = <ast::Block> r#"{
+    func_scoped_using_outer_param = <ast::Block> r#"{
     void foo(int a) {
         int bar() {
             return a;  // should fail at `a`
@@ -291,14 +304,36 @@ test!(
 }"#);
 
 test!(
-    // FIXME: const params aren't yet implemented. Remove the [disable] tag once they are.
+    // FIXME: Remove the [disable] tag once const params are implemented
     [disable]  // known test failure
     [all_names_unique]
-    func_scoped_using_outer_func_param = <ast::Block> r#"{
+    func_scoped_using_outer_param_const = <ast::Block> r#"{
     void foo(const int a) {
         int bar() {
             return a;  // should miraculously succeed!
         }
+    }
+}"#);
+
+test!(
+    // FIXME: Remove the [disable] tag once default arguments are implemented
+    [disable]  // known test failure
+    [all_names_unique]
+    param_using_outer_const = <ast::Block> r#"{
+    int bar(int z = a) {
+        return z;
+    }
+    const int a = 3;
+}"#);
+
+test!(
+    // FIXME: Remove the [disable] tag once default arguments are implemented
+    [disable]  // known test failure
+    [expect_fail("in this scope")]
+    param_using_outer_local = <ast::Block> r#"{
+    int a = 3;
+    int bar(int z = a) {  // should fail at `a`
+        return z;
     }
 }"#);
 
@@ -412,9 +447,9 @@ test!(
     [expect_fail("redefinition")]
     const_scoped_redefinition = <ast::Block> r#"{
     if (true) {
-        const BLUE = 1;
-        const RED = 3;
-        const BLUE = RED;
+        const int BLUE = 1;
+        const int RED = 3;
+        const int BLUE = RED;
     }
 }"#);
 

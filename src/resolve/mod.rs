@@ -164,18 +164,39 @@ mod resolve_vars {
     use crate::pos::{Sp, Span};
     use crate::error::CompileError;
 
-    /// Visitor for name resolution. Please don't use this directly,
+    /// Visitor that performs name resolution. Please don't use this directly,
     /// but instead call [`crate::passes::resolve_names::run`].
+    ///
+    /// The way it works is by visiting AST nodes in a particular order based on what ought to
+    /// be in scope at any given point in the graph.
     pub struct Visitor<'ts> {
         scope_traveler: NameResolver,
+        /// Every time a new level is pushed to this, any subsequently defined names are allowed
+        /// to shadow existing names in previous levels until it is popped.
+        shadowing_levels: Vec<ShadowingLevelData>,
         errors: CompileError,
         ctx: &'ts mut CompilerContext,
+    }
+
+    struct ShadowingLevelData {
+        locals: RedefinitionChecker,
+        consts: RedefinitionChecker,
+        funcs: RedefinitionChecker,
+    }
+
+    impl ShadowingLevelData {
+        fn new() -> Self { ShadowingLevelData {
+            locals: RedefinitionChecker::new("local"),
+            consts: RedefinitionChecker::new("const"),
+            funcs: RedefinitionChecker::new("function"),
+        }}
     }
 
     impl<'ts> Visitor<'ts> {
         pub fn new(ctx: &'ts mut CompilerContext) -> Self {
             Visitor {
                 scope_traveler: NameResolver::init_from_defs(&ctx.defs),
+                shadowing_levels: vec![],
                 errors: CompileError::new_empty(),
                 ctx,
             }
@@ -187,15 +208,21 @@ mod resolve_vars {
     }
 
     impl Visit for Visitor<'_> {
-        fn visit_script(&mut self, x: &ast::Script) {
-            // scan ahead for all function definitions and consts
-            self.add_items_to_scope(&x.items);
+        fn visit_script(&mut self, script: &ast::Script) {
+            self.shadowing_levels.push(ShadowingLevelData::new());
 
-            ast::walk_script(self, x);
+            // add all items to scope immediately so they're usable anywhere
+            script.items.iter().for_each(|item| self.add_item_to_scope(item));
+
+            // resolve exprs in the items' bodies before walking any statements, so that local
+            // variables are not accidentally made visible inside those items.
+            script.items.iter().for_each(|item| self.visit_item(item));
+
+            self.shadowing_levels.pop().expect("unbalanced stack usage!");
         }
 
-        fn visit_item(&mut self, x: &Sp<ast::Item>) {
-            match &x.value {
+        fn visit_item(&mut self, item: &Sp<ast::Item>) {
+            match &item.value {
                 | ast::Item::Func { params, code, .. }
                 => {
                     if let Some(code) = code {
@@ -222,23 +249,24 @@ mod resolve_vars {
 
                 | ast::Item::AnmScript { .. }
                 | ast::Item::Meta { .. }
-                => ast::walk_item(self, x),
+                => ast::walk_item(self, item),
             }
         }
 
-        fn visit_block(&mut self, x: &ast::Block) {
+        fn visit_block(&mut self, block: &ast::Block) {
             let outer_scope_depth = self.scope_traveler.current_depth();
+            self.shadowing_levels.push(ShadowingLevelData::new());
 
-            // "lift" items to the top of the block
-            let items_in_block = x.0.iter().filter_map(|stmt| match &stmt.body {
-                ast::StmtBody::Item(item) => Some(&**item),
-                _ => None,
-            });
-            self.add_items_to_scope(items_in_block);
+            // add nested items to scope immediately so they're usable anywhere within the block
+            block_items(block).for_each(|item| self.add_item_to_scope(item));
 
-            ast::walk_block(self, x);
+            // resolve exprs in the items' bodies before walking any statements, so that local
+            // variables are not accidentally made visible inside those items.
+            block_items(block).for_each(|item| self.visit_item(item));
 
-            // make names defined within the block no longer resolvable
+            block.0.iter().for_each(|stmt| self.visit_stmt(stmt));
+
+            self.shadowing_levels.pop().expect("unbalanced stack usage!");
             self.scope_traveler.return_to_ancestor(outer_scope_depth);
         }
 
@@ -249,23 +277,30 @@ mod resolve_vars {
 
                     for pair in vars {
                         let (var, init_value) = &pair.value;
+
+                        // variable should not be allowed to appear in its own initializer, so walk the expression first.
                         if let ast::VarName::Normal { ident } = &var.value.name {
-                            // a variable should not be allowed to appear in its own initializer, so walk the expression first.
                             if let Some(init_value) = init_value {
                                 self.visit_expr(init_value);
                             }
 
+                            if let Err(e) = self.shadow_level().locals.check_for_redefinition(ident, var.span) {
+                                self.errors.append(e);
+                                // keep going, it's harmless
+                            }
+
                             let def_id = self.ctx.define_local(sp!(var.span => ident.clone()), ty);
 
-                            // record the variable in our resolution tree and enter its scope
-                            // so that it can be used in future expressions
                             self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
-
                         } else {
                             unreachable!("impossible var name in declaration {:?}", var.value.name);
                         }
                     }
                 },
+
+                // these were already visited by an earlier pass on the block
+                ast::StmtBody::Item { .. } => {},
+
                 _ => ast::walk_stmt(self, x),
             }
         }
@@ -292,52 +327,60 @@ mod resolve_vars {
         }
     }
 
+    // get the items defined inside a block (that aren't further nested inside another block)
+    fn block_items(block: &ast::Block) -> impl Iterator<Item=&Sp<ast::Item>> {
+        block.0.iter().filter_map(|stmt| match &stmt.body {
+            ast::StmtBody::Item(item) => Some(&**item),
+            _ => None,
+        })
+    }
+
     impl Visitor<'_> {
-        /// An early pass used on the script or on a block that adds all items to scope,
-        /// without yet recursing into any of them.
+        fn shadow_level(&mut self) -> &mut ShadowingLevelData {
+            self.shadowing_levels.last_mut().expect("not in a script or block?!")
+        }
+
+        /// If this item defines something resolvable (a `const`, a function), add it to scope.
         ///
-        /// This is what allows items to be used prior to their definition.
-        fn add_items_to_scope<'b>(&mut self, items: impl IntoIterator<Item=&'b Sp<ast::Item>>) {
-            let mut funcs_seen = RedefinitionChecker::new("function");
-            let mut consts_seen = RedefinitionChecker::new("const");
-            for item in items {
-                match item.value {
-                    ast::Item::Func { ref ident, .. } => {
-                        if let Err(e) = funcs_seen.check_for_redefinition(ident.as_raw(), ident.span) {
+        /// This is called extremely early on items in a block, allowing items to be defined after they are used.
+        fn add_item_to_scope<'b>(&mut self, item: &Sp<ast::Item>) {
+            match item.value {
+                ast::Item::Func { ref ident, .. } => {
+                    if let Err(e) = self.shadow_level().funcs.check_for_redefinition(ident.as_raw(), ident.span) {
+                        self.errors.append(e);
+                        // keep going; this is relatively harmless
+                    }
+
+                    let def_id = self.ctx.define_user_func(ident.clone());
+
+                    // add it to the current scope
+                    self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
+                },
+
+                ast::Item::ConstVar { keyword, ref vars } => {
+                    let ty = keyword.var_ty().expect("untyped consts don't parse");
+
+                    for sp_pat![(var, expr)] in vars {
+                        let ident = var.name.expect_ident();
+                        if let Err(e) = self.shadow_level().consts.check_for_redefinition(ident.as_raw(), var.span) {
                             self.errors.append(e);
                             // keep going; this is relatively harmless
                         }
 
-                        let def_id = self.ctx.define_user_func(ident.clone());
+                        let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
 
                         // add it to the current scope
-                        self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
-                    },
+                        self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                    }
+                },
 
-                    ast::Item::ConstVar { keyword, ref vars } => {
-                        let ty = keyword.var_ty().expect("untyped consts don't parse");
-
-                        for sp_pat![(var, expr)] in vars {
-                            let ident = var.name.expect_ident();
-                            if let Err(e) = consts_seen.check_for_redefinition(ident.as_raw(), var.span) {
-                                self.errors.append(e);
-                                // keep going; this is relatively harmless
-                            }
-
-                            let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
-
-                            // add it to the current scope
-                            self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
-                        }
-                    },
-
-                    ast::Item::Meta { .. } => {},
-                    ast::Item::AnmScript { .. } => {},
-                }
-            }
+                ast::Item::Meta { .. } => {},
+                ast::Item::AnmScript { .. } => {},
+            } // match item.value
         }
     }
 
+    /// Helper that generates "redefinition of _" errors.
     struct RedefinitionChecker {
         map: HashMap<Ident, Span>,
         noun: &'static str,
@@ -348,6 +391,7 @@ mod resolve_vars {
             map: Default::default(),
             noun,
         }}
+
         /// Record an item,
         fn check_for_redefinition(&mut self, ident: &Ident, span: Span) -> Result<(), CompileError> {
             if let Some(old_span) = self.map.get(ident) {

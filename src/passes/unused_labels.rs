@@ -69,7 +69,72 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
     v.labels
 }
 
-#[test]
-fn test_unused_labels() {
-    unimplemented!("write a test that has nested functions")
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse::Parse;
+    use crate::pos::Files;
+    use crate::context::CompilerContext;
+
+    fn strip_unused_labels<A: ast::Visitable + Parse>(text: &str) -> A {
+        let mut files = Files::new();
+        let mut ctx = CompilerContext::new();
+
+        let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
+        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
+        crate::passes::resolve_names::run(&parsed, &mut ctx).unwrap();
+        crate::passes::unused_labels::run(&mut parsed).unwrap();
+
+        parsed
+    }
+
+    struct CountIdentVisitor {
+        search_ident: Ident,
+        count: u32,
+    }
+
+    impl ast::Visit for CountIdentVisitor {
+        fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
+            if let ast::StmtBody::Label(label) = &stmt.body {
+                if label == &self.search_ident {
+                    self.count += 1;
+                }
+            }
+            ast::walk_stmt(self, stmt);
+        }
+    }
+
+    fn count_occurrences_of_label<A: ast::Visitable + crate::fmt::Format>(ast: &A, ident: &str) -> u32 {
+        let mut v = CountIdentVisitor { search_ident: ident.parse().unwrap(), count: 0 };
+        ast.visit_with(&mut v);
+        v.count
+    }
+
+    #[test]
+    fn simple() {
+        let out = strip_unused_labels::<ast::Script>(r#"
+void foo() {
+    label_1:
+    label_2:
+    if (true) {
+        goto label_1;
+    }
+}"#);
+        assert_eq!(count_occurrences_of_label(&out, "label_1"), 1);
+        assert_eq!(count_occurrences_of_label(&out, "label_2"), 0);
+    }
+
+    #[test]
+    fn nested_func() {
+        let out = strip_unused_labels::<ast::Script>(r#"
+void foo() {
+    label_1:
+    const void bar() {
+        label_1:
+        goto label_1;
+    }
+}"#);
+        // it should delete the label_1: in foo() but not the one in bar()
+        assert_eq!(count_occurrences_of_label(&out, "label_1"), 1);
+    }
 }
