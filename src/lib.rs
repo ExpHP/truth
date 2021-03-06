@@ -118,11 +118,12 @@ mod value {
         }
     }
 
+    /// `Display` impl, for ease of use in error messages.
     impl fmt::Display for ScalarValue {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
-                ScalarValue::String(x) => write!(f, "{:?}", x),
-                ScalarValue::Float(x) => write!(f, "{:?}", x),
+                ScalarValue::String(x) => write!(f, "{}", crate::fmt::stringify(x)),
+                ScalarValue::Float(x) => write!(f, "{}", crate::fmt::stringify(x)),
                 ScalarValue::Int(x) => write!(f, "{}", x),
             }
         }

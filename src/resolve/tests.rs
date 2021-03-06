@@ -269,14 +269,14 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_fail("nested const")]
     const_scoped_using_local = <ast::Block> r#"{
     int x = 2;
     const int foo = x;  // should fail at `x`
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_fail("nested function")]
     func_scoped_using_local = <ast::Block> r#"{
     int x = 2;
     int foo() {
@@ -285,7 +285,19 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [snapshot]
+    func_scoped_using_outer_shadowed_const = <ast::Block> r#"{
+    const int x = 2;
+    if (true) {
+        int x = 2;
+        int foo() {
+            return x;  // should match the const
+        }
+    }
+}"#);
+
+test!(
+    [expect_fail("nested const")]
     const_scoped_using_outer_local = <ast::Block> r#"{
     int x = 2;
     if (true) {
@@ -294,7 +306,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_fail("nested function")]
     func_scoped_using_outer_param = <ast::Block> r#"{
     void foo(int a) {
         int bar() {
@@ -450,6 +462,13 @@ test!(
         const int BLUE = 1;
         const int RED = 3;
         const int BLUE = RED;
+    }
+}"#);
+
+test!(
+    [expect_fail("redefinition")]
+    param_redefinition = <ast::Block> r#"{
+    void foo(int a, int b, float a) {  // should fail at second `a`
     }
 }"#);
 

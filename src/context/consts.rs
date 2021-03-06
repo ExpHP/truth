@@ -16,19 +16,52 @@ use crate::value::ScalarValue;
 #[derive(Debug, Clone, Default)]
 pub struct Consts {
     deferred_def_ids: Vec<DefId>,
+    deferred_equality_checks: Vec<EqualityCheck>,
     values: HashMap<DefId, ScalarValue>,
 }
 
+#[derive(Debug, Clone)]
+struct EqualityCheck {
+    noun: &'static str,
+    def_1: DefId,
+    def_2: DefId,
+}
+
 impl Consts {
-    /// Acknowledge that the given [`DefId`] is a `const` variable so that it can later be evaluated and cached.
+    /// Acknowledge that the given [`DefId`] is a `const` variable so that it can later be evaluated
+    /// during [`crate::passes::evaluate_const_vars`].
     pub fn defer_evaluation_of(&mut self, def_id: DefId) {
         self.deferred_def_ids.push(def_id);
     }
 
-    /// Implementation of [`crate::passes::evaluate_const_vars`].
+    /// Require that two consts have the same value.
     ///
-    /// Evaluates and cache the expressions assigned to all `const` variables.
+    /// Later, during [`crate::passes::evaluate_const_vars`], these will be compared and will
+    /// generate an `"ambiguous value"` error if they don't match.
+    ///
+    /// It is assumed that both consts have the same name; this mechanism is supposed to be like
+    /// redefinition errors, but for automatic consts.
+    pub fn defer_equality_check(&mut self, noun: &'static str, def_1: DefId, def_2: DefId) {
+        self.deferred_equality_checks.push(EqualityCheck { noun, def_1, def_2 });
+    }
+
+    /// Implementation of [`crate::passes::evaluate_const_vars`].  Please call that instead.
+    ///
+    /// Evaluates and caches the expressions assigned to all `const` variables, and performs
+    /// all deferred equality checks.
+    #[doc(hidden)]
     pub fn evaluate_all_deferred(&mut self, defs: &Defs, resolutions: &Resolutions) -> Result<(), CompileError> {
+        self.do_deferred_evaluations(defs, resolutions)?;
+        self.do_deferred_equality(defs)
+    }
+
+    /// Get the value of a const.  In order for this to return `Some`, calls must have been made at
+    /// some point to both [`Self::defer_evaluation_of`] and [`Self::evaluate_all_deferred`].
+    pub fn get_cached_value(&self, def_id: DefId) -> Option<&ScalarValue> {
+        self.values.get(&def_id)
+    }
+
+    fn do_deferred_evaluations(&mut self, defs: &Defs, resolutions: &Resolutions) -> Result<(), CompileError> {
         let deferred_def_ids = std::mem::replace(&mut self.deferred_def_ids, vec![]);
         for def_id in deferred_def_ids {
             Evaluator::run_rooted(self, def_id, defs, resolutions)?;
@@ -36,10 +69,24 @@ impl Consts {
         Ok(())
     }
 
-    /// Get the value of a const.  In order for this to return `Some`, calls must have been made at
-    /// some point to both [`Self::defer_evaluation_of`] and [`Self::evaluate_all_deferred`].
-    pub fn get_cached_value(&self, def_id: DefId) -> Option<&ScalarValue> {
-        self.values.get(&def_id)
+    fn do_deferred_equality(&mut self, defs: &Defs) -> Result<(), CompileError> {
+        let deferred_equality_checks = std::mem::replace(&mut self.deferred_equality_checks, vec![]);
+
+        for EqualityCheck { noun, def_1, def_2 } in deferred_equality_checks {
+            let value_1 = self.get_cached_value(def_1).expect("missing value for def_1");
+            let value_2 = self.get_cached_value(def_2).expect("missing value for def_2");
+            if value_1 != value_2 {
+                let ident = defs.var_name(def_2);
+                let span_1 = defs.var_decl_span(def_1).expect("missing span for def_1");
+                let span_2 = defs.var_decl_span(def_2).expect("missing span for def_2");
+                return Err(error!(
+                    message("ambiguous value for {} '{}'", noun, ident),
+                    primary(span_2, "definition with value {}", value_2),
+                    secondary(span_1, "definition with value {}", value_1),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

@@ -14,7 +14,7 @@ use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
-use crate::value::{ScalarValue, ScalarType};
+use crate::value::{ScalarType};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::resolve::RegId;
@@ -311,13 +311,11 @@ fn compile(
     // an early pass to define global constants for sprite and script names
     let script_ids = gather_script_ids(&ast, ctx)?;
     for &(ref script_name, id) in script_ids.values() {
-        ctx.define_global_const_var(script_name.clone(), ScalarType::Int, id.sp_map(ast::Expr::from));
+        ctx.define_auto_const_var(script_name.clone(), ScalarType::Int, id.sp_map(ast::Expr::from));
     }
     let sprite_ids = gather_sprite_id_exprs(&ast, ctx, &mut extra_type_checks)?;
-    for data_for_name in sprite_ids.values() {
-        // use the first definition with this name
-        let (sprite_name, id_expr) = data_for_name[0].clone();
-        ctx.define_global_const_var(sprite_name, ScalarType::Int, id_expr);
+    for (sprite_name, id_expr) in sprite_ids {
+        ctx.define_auto_const_var(sprite_name, ScalarType::Int, id_expr);
     }
 
     // preprocess
@@ -331,8 +329,6 @@ fn compile(
         crate::passes::desugar_blocks::run(&mut ast, ctx)?;
         ast
     };
-
-    validate_sprite_id_exprs(&sprite_ids, ctx)?;
 
     // group scripts by entry
     let mut groups = vec![];
@@ -398,22 +394,19 @@ fn write_thecl_defs(
 
 // =============================================================================
 
-// the Vec is because name clashes between sprites in different entries are allowed
-// (this happens in decompiled output) but the IDs must match.
-type CollectedSpriteIds = IndexMap<Ident, Vec<(Sp<ResIdent>, Sp<ast::Expr>)>>;
-
+// (this returns a Vec instead of a Map because there may be multiple sprites with the same Ident)
 fn gather_sprite_id_exprs(
     ast: &ast::Script,
     ctx: &mut CompilerContext,
     extra_type_checks: &mut Vec<crate::passes::type_check::ShallowTypeCheck>,
-) -> Result<CollectedSpriteIds, CompileError> {
+) -> Result<Vec<(Sp<ResIdent>, Sp<ast::Expr>)>, CompileError> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
     });
 
     let mut auto_sprites = sequential_int_exprs(sp!(0.into()));
-    let mut sprite_ids = IndexMap::new();
+    let mut out = vec![];
     for entry_fields in all_entries {
         let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite<'_>>>("sprites")?;
         for (ident, sprite) in sprites {
@@ -428,52 +421,17 @@ fn gather_sprite_id_exprs(
                 auto_sprites = sequential_int_exprs(id_expr);
             };
 
-            // (errors are unlikely to occur on lines with auto IDs, but if they do, fall back to the ident's span)
             let sprite_id_span = sprite.id_expr.as_ref().map(|x| x.span).unwrap_or(ident.span);
 
             let sprite_id = sp!(sprite_id_span => auto_sprites.next().unwrap());
 
             // since these are just meta keys we have to synthesize new ResIds
             let res_ident = ident.clone().sp_map(|ident| ctx.resolutions.attach_fresh_res(ident));
-            sprite_ids.entry(ident.value.clone()).or_insert_with(Vec::new)
-                .push((res_ident, sprite_id));
+            out.push((res_ident, sprite_id));
         }
     }
 
-    Ok(sprite_ids)
-}
-
-// validate that sprites with the same name have matching IDs, after having evaluated all const vars.
-fn validate_sprite_id_exprs(sprite_ids: &CollectedSpriteIds, ctx: &CompilerContext) -> Result<(), CompileError> {
-    for data_for_name in sprite_ids.values() {
-        // So now we have all of the exprs that were assigned to sprites with a specific name.
-        // The first of these was used to generate a const var; we can retrieve its cached value now.
-        let (ref first_ident, _) = data_for_name[0];
-        let first_def_id = ctx.resolutions.expect_def(&first_ident);
-        let first_value = ctx.consts.get_cached_value(first_def_id).expect("known const");
-
-        // As for the rest, we don't even know if they're const at this point.
-        // The const_simplification pass may have simplified them in the AST, but these exprs were cloned
-        // prior to that.  We'll just have to run the pass again on these clones.  :/
-        for (other_ident, other_expr) in data_for_name[1..].iter() {
-            let mut simplified_expr = other_expr.clone();
-            crate::passes::const_simplify::run(&mut simplified_expr, &ctx)?;
-            match simplified_expr.value.to_const() {
-                Some(other_value@ScalarValue::Int(_)) => {
-                    if first_value != &other_value {
-                        return Err(error!(
-                            message("name clash between sprites"),
-                            primary(other_ident, "redefinition with ID {}", other_value),
-                            secondary(first_ident, "definition with ID {}", first_value),
-                        ));
-                    }
-                },
-                Some(_) => unreachable!("shoulda been type-checked"),
-                None => return Err(crate::context::consts::non_const_error(other_expr.span).into()),
-            }
-        }
-    }
-    Ok(())
+    Ok(out)
 }
 
 // for an expr `<e>`, produces `<e> + 0`, `<e> + 1`, `<e> + 2`...
@@ -510,6 +468,7 @@ fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Ind
                 let script_id = number.unwrap_or(sp!(ident.span => next_auto_script));
                 next_auto_script = script_id.value + 1;
 
+                // give a better error on redefinitions than the generic "ambiguous auto const" message
                 match script_ids.entry(ident.value.clone()) {
                     indexmap::map::Entry::Vacant(e) => {
                         let res_ident = ident.clone().sp_map(|name| ctx.resolutions.attach_fresh_res(name.clone()));

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::ident::GensymContext;
 use crate::resolve::Resolutions;
+use crate::resolve::rib::Rib;
 
 pub use defs::Defs;
 pub mod defs;
@@ -52,6 +53,8 @@ pub struct CompilerContext {
     pub gensym: GensymContext,
     /// Cached const values.
     pub consts: Consts,
+    /// The initial set of ribs for name resolution, containing names from mapfiles and meta.
+    pub initial_ribs: Vec<Rib>,
 }
 
 impl CompilerContext {

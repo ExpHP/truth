@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use std::collections::HashMap;
 
 use crate::ident::{Ident, ResIdent};
-use crate::context::{CompilerContext, Defs};
+use crate::context::CompilerContext;
 
 #[cfg(test)]
 mod tests;
@@ -70,89 +70,206 @@ impl Namespace {
     }}
 }
 
-use name_resolver::{NameResolver};
-mod name_resolver {
+pub mod rib {
     use super::*;
 
-    use crate::pos::Span;
+    use crate::pos::{Sp, Span};
     use crate::error::CompileError;
 
-    /// A helper whose purpose is to incrementally track which [`DefId`] each [`Ident`]
-    /// currently maps to in each namespace as we travel up and down the scope tree.
+    /// A helper used during name resolution to track stacks of [`Ribs`] representing the current scope
     ///
-    /// Basically, all of the names in the script can be thought of as forming a tree.
-    /// The root node of the tree is the scope with no names.  Then, each new name definition creates a
-    /// new child scope based off an existing scope.  During name resolution, [`NameResolver`] travels
-    /// up and down this tree in order to learn which definitions are entering or leaving scope at any
-    /// given time.
-    ///
-    /// Currently we do not explicitly construct this tree, as there is not currently ever any need for us to
-    /// retain information about other branches than the one we are currently in.
-    ///
-    /// (see https://github.com/ExpHP/truth/blob/e7d5e303b6309ef6101faf87ae67c7ff67034535/src/var.rs#L61-L233
-    /// for an older design, where an explicit tree was stored in `Variables`)
     #[derive(Debug, Clone)]
-    pub(super) struct NameResolver {
-        /// This contains the data we need from each node along our current path from the root of the scope tree;
-        /// i.e. it has an entry for every name *currently in scope.*  (including ones that are shadowed)
-        names_in_scope: Vec<(Namespace, Ident, DefId)>,
-
-        /// An incrementally-maintained reverse mapping that lets us resolve variables in O(1).
-        /// The last id in each vec is the one that the identifier currently resolves to;
-        /// the ones before it are shadowed.
-        names_by_ident: enum_map::EnumMap<Namespace, HashMap<Ident, Vec<DefId>>>,
+    pub(super) struct RibStacks {
+        ribs: enum_map::EnumMap<Namespace, Vec<Rib>>,
     }
 
-    /// A newtyped `usize` representing tree depth. (this uniquely identifies an ancestor node)
-    pub struct Depth(usize);
+    /// A collection of names in a single namespace whose scopes all end simultaneously.
+    ///
+    /// The name and concept derives from [rustc's own ribs].  A stack of these is tracked for each
+    /// namespace, and name resolution walks backwards through the stack trying to find a match.
+    ///
+    /// [rustc's own ribs]: https://doc.rust-lang.org/nightly/nightly-rustc/rustc_resolve/late/struct.Rib.html
+    #[derive(Debug, Clone)]
+    pub struct Rib {
+        pub ns: Namespace,
+        pub kind: RibKind,
+        defs: HashMap<Ident, RibEntry>,
+    }
 
-    impl NameResolver {
+    #[derive(Debug, Clone)]
+    pub struct RibEntry {
+        pub def_id: DefId,
+        pub def_ident_span: Span,
+    }
+
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum RibKind {
+        /// Contains locals defined within a block. One is created for each block, and it will
+        /// always be the top rib when visiting statements.
+        ///
+        /// (contrast with rustc where the idea of ribs is borrowed from; unlike rust, truth does
+        ///  not allow locals to shadow other locals defined in the same block, because that
+        ///  functionality is not useful in a language with such a primitive type system)
+        Locals,
+
+        /// Function parameters.  (really just locals, but we put "parameter" in error messages)
+        Params,
+
+        /// An empty, "marker" rib indicating the beginning of an item's definition, blocking access
+        /// to all locals in outer ribs.  (and re-providing access to const items they've shadowed)
+        LocalBarrier {
+            /// `"function"`, `"const"`
+            of_what: &'static str
+        },
+
+        /// Contains items within a block.  (`const`s or funcs)
+        Items,
+
+        /// A rib created from entries in a mapfile.
+        Mapfile,
+
+        /// A set of names generated from e.g. meta.
+        Generated,
+
+        /// An empty rib that's always first so that we don't need to justify
+        DummyRoot,
+    }
+
+    impl Rib {
+        pub fn new(ns: Namespace, kind: RibKind) -> Self {
+            Rib { kind, ns, defs: Default::default() }
+        }
+
+        pub fn get(&mut self, ident: &Ident) -> Option<&RibEntry> {
+            self.defs.get(ident)
+        }
+
+        /// Returns the old definition if this is a redefinition.
+        pub fn insert(&mut self, ident: Sp<impl AsRef<Ident>>, def_id: DefId) -> Result<(), RibEntry> {
+            let new_entry = RibEntry { def_id, def_ident_span: ident.span };
+            match self.defs.insert(ident.value.as_ref().clone(), new_entry) {
+                None => Ok(()),
+                Some(old) => Err(old)
+            }
+        }
+
+        /// Get a singular noun (with no article) describing the type of thing the rib contains,
+        /// e.g. `"register alias"` or `"parameter"`.
+        pub fn noun(&self) -> &'static str {
+            match (&self.kind, self.ns) {
+                (RibKind::Locals, _) => "local",
+                (RibKind::Params, _) => "parameter",
+                (RibKind::Items, Namespace::Vars) => "const",
+                (RibKind::Items, Namespace::Funcs) => "function",
+                (RibKind::Mapfile, Namespace::Vars) => "register alias",
+                (RibKind::Mapfile, Namespace::Funcs) => "instruction alias",
+                (RibKind::Generated, Namespace::Vars) => "automatic const",
+                (RibKind::Generated, Namespace::Funcs) => "automatic func",
+
+                (RibKind::LocalBarrier { .. }, ns) |
+                (RibKind::DummyRoot, ns) => panic!("noun called on {:?} {:?} rib", self, ns),
+            }
+        }
+    }
+
+    impl RibKind {
+        /// If this is a barrier that hides outer local variables, get a string describing it.
+        /// (`"function"` or `"const"`)
+        pub fn local_barrier_cause(&self) -> Option<&'static str> {
+            match *self {
+                RibKind::LocalBarrier { of_what } => Some(of_what),
+                _ => None,
+            }
+        }
+
+        /// Determine if this rib holds a kind of local.
+        pub fn holds_locals(&self) -> bool {
+            match *self {
+                RibKind::Locals => true,
+                RibKind::Params => true,
+                _ => false,
+            }
+        }
+    }
+
+    impl RibStacks {
         /// Create a new [`NameResolver`] sitting in the empty scope.
         pub fn new() -> Self {
-            NameResolver { names_in_scope: vec![], names_by_ident: Default::default() }
+            RibStacks { ribs: enum_map::enum_map!{
+                ns => vec![Rib { ns, kind: RibKind::DummyRoot, defs: Default::default() }],
+            }}
         }
 
-        /// Create a new [`NameResolver`] sitting in a scope that is pre-populated with all
-        /// externally-defined names.
-        pub fn init_from_defs(defs: &Defs) -> Self {
-            let mut this = Self::new();
-            for (ns, def_id) in defs.globals() {
-                let ident = defs.name(ns, def_id);
-                this.enter_child(ident.as_raw().clone(), ns, def_id);
+        /// Push a rib onto a namespace's rib stack.
+        pub fn enter_rib(&mut self, rib: Rib) {
+            self.ribs[rib.ns].push(rib)
+        }
+
+        /// Push an empty rib onto a namespace's rib stack.
+        pub fn enter_new_rib(&mut self, ns: Namespace, kind: RibKind) {
+            self.enter_rib(Rib::new(ns, kind))
+        }
+
+        /// Pop a rib from a namespace, double-checking its `kind` for our sanity.
+        pub fn leave_rib(&mut self, ns: Namespace, expected_kind: RibKind) {
+            let popped = self.ribs[ns].pop().expect("unbalanced rib usage!");
+            assert_eq!(popped.kind, expected_kind);
+        }
+
+        /// Get the top rib for a namespace, checking that it is the given kind.
+        pub fn top_rib(&mut self, ns: Namespace, expected_kind: RibKind) -> &mut Rib {
+            let out = self.ribs[ns].last_mut().expect("no ribs?");
+            assert_eq!(out.kind, expected_kind);
+            out
+        }
+
+        /// Resolve an identifier by walking backwards through the stack of ribs.
+        pub fn resolve(&self, ns: Namespace, span: Span, ident: &Ident) -> Result<DefId, CompileError> {
+            // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
+            let mut crossed_local_border = None::<&str>;
+            // set to the first matching local we find beyond the border
+            let mut outer_local_match = None::<(&Rib, &RibEntry)>;
+
+            for rib in self.ribs[ns].iter().rev() {
+                if let Some(cause) = rib.kind.local_barrier_cause() {
+                    crossed_local_border.get_or_insert(cause);
+                }
+
+                if let Some(def) = rib.defs.get(ident) {
+                    if rib.kind.holds_locals() && crossed_local_border.is_some() {
+                        // this match is no good. Record it for a potential error message,
+                        // but keep going as we still have a chance to find a const in an outer rib.
+                        outer_local_match.get_or_insert((rib, def));
+                    } else {
+                        return Ok(def.def_id)
+                    }
+                }
+            } // for rib in ....
+
+            if let Some((outer_local_rib, outer_local)) = outer_local_match {
+                let local_kind = outer_local_rib.noun();
+                let item_kind = crossed_local_border.unwrap();
+                return Err(error!(
+                    message("cannot use {} from outside {}", local_kind, item_kind),
+                    primary(span, "used in a nested {}", item_kind),
+                    secondary(outer_local.def_ident_span, "defined here"),
+                ))
             }
-            this
-        }
 
-        pub fn current_depth(&self) -> Depth {
-            Depth(self.names_in_scope.len())
-        }
-
-        pub fn resolve(&self, span: Span, ident: &ResIdent, ns: Namespace) -> Result<DefId, CompileError> {
-            self._resolve(ident, ns).ok_or_else(|| error!(
+            Err(error!(
                 message("unknown {} '{}'", ns.noun_long(), ident),
                 primary(span, "not found in this scope"),
             ))
         }
+    }
 
-        fn _resolve(&self, ident: &Ident, ns: Namespace) -> Option<DefId> {
-            self.names_by_ident[ns].get(ident)
-                .and_then(|vec| vec.last().copied())  // the one that isn't shadowed
-        }
-
-        /// Travel from the current scope into a direct child by adding a single name
-        /// into the current scope.
-        pub fn enter_child(&mut self, ident: Ident, ns: Namespace, def_id: DefId) {
-            self.names_in_scope.push((ns, ident.clone(), def_id));
-            self.names_by_ident[ns].entry(ident.clone()).or_default().push(def_id);
-        }
-
-        /// Travel from the current scope into one that is (not necessarily strictly) above it in the tree.
-        pub fn return_to_ancestor(&mut self, ancestor_depth: Depth) {
-            while self.current_depth().0 > ancestor_depth.0 {
-                let (ns, ident, def_id) = self.names_in_scope.pop().unwrap();
-                let popped_def_id = self.names_by_ident[ns].get_mut(&ident).unwrap().pop().unwrap();
-                assert_eq!(def_id, popped_def_id, "(bug!) internal inconsistency!");
+    impl std::iter::FromIterator<Rib> for RibStacks {
+        fn from_iter<It: IntoIterator<Item=Rib>>(iter: It) -> Self {
+            let mut out = Self::new();
+            for rib in iter {
+                out.ribs[rib.ns].push(rib);
             }
+            out
         }
     }
 }
@@ -161,8 +278,9 @@ pub use resolve_vars::Visitor as ResolveVarsVisitor;
 mod resolve_vars {
     use super::*;
     use crate::ast::{self, Visit};
-    use crate::pos::{Sp, Span};
+    use crate::pos::Sp;
     use crate::error::CompileError;
+    use super::rib::{RibKind, RibStacks};
 
     /// Visitor that performs name resolution. Please don't use this directly,
     /// but instead call [`crate::passes::resolve_names::run`].
@@ -170,33 +288,15 @@ mod resolve_vars {
     /// The way it works is by visiting AST nodes in a particular order based on what ought to
     /// be in scope at any given point in the graph.
     pub struct Visitor<'ts> {
-        scope_traveler: NameResolver,
-        /// Every time a new level is pushed to this, any subsequently defined names are allowed
-        /// to shadow existing names in previous levels until it is popped.
-        shadowing_levels: Vec<ShadowingLevelData>,
+        rib_stacks: RibStacks,
         errors: CompileError,
         ctx: &'ts mut CompilerContext,
-    }
-
-    struct ShadowingLevelData {
-        locals: RedefinitionChecker,
-        consts: RedefinitionChecker,
-        funcs: RedefinitionChecker,
-    }
-
-    impl ShadowingLevelData {
-        fn new() -> Self { ShadowingLevelData {
-            locals: RedefinitionChecker::new("local"),
-            consts: RedefinitionChecker::new("const"),
-            funcs: RedefinitionChecker::new("function"),
-        }}
     }
 
     impl<'ts> Visitor<'ts> {
         pub fn new(ctx: &'ts mut CompilerContext) -> Self {
             Visitor {
-                scope_traveler: NameResolver::init_from_defs(&ctx.defs),
-                shadowing_levels: vec![],
+                rib_stacks: ctx.defs.initial_ribs().into_iter().collect(),
                 errors: CompileError::new_empty(),
                 ctx,
             }
@@ -209,7 +309,8 @@ mod resolve_vars {
 
     impl Visit for Visitor<'_> {
         fn visit_script(&mut self, script: &ast::Script) {
-            self.shadowing_levels.push(ShadowingLevelData::new());
+            self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Items);
+            self.rib_stacks.enter_new_rib(Namespace::Funcs, RibKind::Items);
 
             // add all items to scope immediately so they're usable anywhere
             script.items.iter().for_each(|item| self.add_item_to_scope(item));
@@ -218,7 +319,8 @@ mod resolve_vars {
             // variables are not accidentally made visible inside those items.
             script.items.iter().for_each(|item| self.visit_item(item));
 
-            self.shadowing_levels.pop().expect("unbalanced stack usage!");
+            self.rib_stacks.leave_rib(Namespace::Funcs, RibKind::Items);
+            self.rib_stacks.leave_rib(Namespace::Vars, RibKind::Items);
         }
 
         fn visit_item(&mut self, item: &Sp<ast::Item>) {
@@ -227,24 +329,32 @@ mod resolve_vars {
                 => {
                     if let Some(code) = code {
                         // we have to put the parameters in scope
-                        let outer_scope_depth = self.scope_traveler.current_depth();
+                        self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "function" });
+                        self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Params);
+
                         for (ty_keyword, ident) in params {
                             let def_id = self.ctx.define_local(ident.clone(), ty_keyword.var_ty());
-
-                            self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                            self.add_to_rib_with_redefinition_check(
+                                Namespace::Vars, RibKind::Params, ident.clone(), def_id,
+                            );
                         }
+
+                        // now resolve the body
                         ast::walk_block(self, code);
 
-                        self.scope_traveler.return_to_ancestor(outer_scope_depth);
+                        self.rib_stacks.leave_rib(Namespace::Vars, RibKind::Params);
+                        self.rib_stacks.leave_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "function" });
                     }
                 },
 
                 | ast::Item::ConstVar { vars, .. }
                 => {
+                    self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "const" });
                     // we don't want to resolve the declaration idents, only the expressions
                     for sp_pat![(_, expr)] in vars {
                         self.visit_expr(expr);
                     }
+                    self.rib_stacks.leave_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "const" });
                 },
 
                 | ast::Item::AnmScript { .. }
@@ -254,20 +364,19 @@ mod resolve_vars {
         }
 
         fn visit_block(&mut self, block: &ast::Block) {
-            let outer_scope_depth = self.scope_traveler.current_depth();
-            self.shadowing_levels.push(ShadowingLevelData::new());
-
             // add nested items to scope immediately so they're usable anywhere within the block
+            self.rib_stacks.enter_new_rib(Namespace::Funcs, RibKind::Items);
+            self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Items);
+
             block_items(block).for_each(|item| self.add_item_to_scope(item));
 
-            // resolve exprs in the items' bodies before walking any statements, so that local
-            // variables are not accidentally made visible inside those items.
-            block_items(block).for_each(|item| self.visit_item(item));
-
+            // now start resolving things inside the statements
+            self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Locals);
             block.0.iter().for_each(|stmt| self.visit_stmt(stmt));
+            self.rib_stacks.leave_rib(Namespace::Vars, RibKind::Locals);
 
-            self.shadowing_levels.pop().expect("unbalanced stack usage!");
-            self.scope_traveler.return_to_ancestor(outer_scope_depth);
+            self.rib_stacks.leave_rib(Namespace::Vars, RibKind::Items);
+            self.rib_stacks.leave_rib(Namespace::Funcs, RibKind::Items);
         }
 
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
@@ -284,22 +393,18 @@ mod resolve_vars {
                                 self.visit_expr(init_value);
                             }
 
-                            if let Err(e) = self.shadow_level().locals.check_for_redefinition(ident, var.span) {
-                                self.errors.append(e);
-                                // keep going, it's harmless
-                            }
-
-                            let def_id = self.ctx.define_local(sp!(var.span => ident.clone()), ty);
-
-                            self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                            let sp_ident = sp!(var.span => ident.clone());
+                            let def_id = self.ctx.define_local(sp_ident.clone(), ty);
+                            self.add_to_rib_with_redefinition_check(
+                                Namespace::Vars, RibKind::Locals, sp_ident.clone(), def_id,
+                            );
                         } else {
                             unreachable!("impossible var name in declaration {:?}", var.value.name);
                         }
                     }
                 },
 
-                // these were already visited by an earlier pass on the block
-                ast::StmtBody::Item { .. } => {},
+                ast::StmtBody::Item(item) => self.visit_item(item),
 
                 _ => ast::walk_stmt(self, x),
             }
@@ -307,7 +412,7 @@ mod resolve_vars {
 
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
             if let ast::VarName::Normal { ref ident, .. } = var.name {
-                match self.scope_traveler.resolve(var.span, ident, Namespace::Vars) {
+                match self.rib_stacks.resolve(Namespace::Vars, var.span, ident) {
                     Err(e) => self.errors.append(e),
                     Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 }
@@ -317,7 +422,7 @@ mod resolve_vars {
         fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
             if let ast::Expr::Call { name, .. } = &expr.value {
                 if let ast::CallableName::Normal { ident, .. } = &name.value {
-                    match self.scope_traveler.resolve(name.span, ident, Namespace::Funcs) {
+                    match self.rib_stacks.resolve(Namespace::Funcs, name.span, ident) {
                         Err(e) => self.errors.append(e),
                         Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }
@@ -336,8 +441,29 @@ mod resolve_vars {
     }
 
     impl Visitor<'_> {
-        fn shadow_level(&mut self) -> &mut ShadowingLevelData {
-            self.shadowing_levels.last_mut().expect("not in a script or block?!")
+        /// Add a name to the top rib in a namespace's stack, so that future names can resolve to it.
+        ///
+        /// If the name collides with another thing in the same rib, a redefinition error is generated.
+        fn add_to_rib_with_redefinition_check(
+            &mut self,
+            ns: Namespace,
+            expected_kind: RibKind, // as a sanity check
+            ident: Sp<impl AsRef<Ident>>,  // Ident or ResIdent
+            def_id: DefId,
+        ) {
+            let rib = self.rib_stacks.top_rib(ns, expected_kind);
+            assert_eq!(rib.kind, expected_kind);
+
+            let ident = sp!(ident.span => ident.as_ref().clone());
+
+            if let Err(old_def) = rib.insert(ident.clone(), def_id) {
+                let noun = rib.noun();
+                self.errors.append(error!(
+                    message("redefinition of {} '{}'", noun, ident),
+                    primary(ident.span, "redefinition of {}", noun),
+                    secondary(old_def.def_ident_span, "originally defined here"),
+                ));
+            }
         }
 
         /// If this item defines something resolvable (a `const`, a function), add it to scope.
@@ -346,15 +472,10 @@ mod resolve_vars {
         fn add_item_to_scope<'b>(&mut self, item: &Sp<ast::Item>) {
             match item.value {
                 ast::Item::Func { ref ident, .. } => {
-                    if let Err(e) = self.shadow_level().funcs.check_for_redefinition(ident.as_raw(), ident.span) {
-                        self.errors.append(e);
-                        // keep going; this is relatively harmless
-                    }
-
                     let def_id = self.ctx.define_user_func(ident.clone());
-
-                    // add it to the current scope
-                    self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Funcs, def_id);
+                    self.add_to_rib_with_redefinition_check(
+                        Namespace::Funcs, RibKind::Items, ident.clone(), def_id,
+                    );
                 },
 
                 ast::Item::ConstVar { keyword, ref vars } => {
@@ -362,47 +483,18 @@ mod resolve_vars {
 
                     for sp_pat![(var, expr)] in vars {
                         let ident = var.name.expect_ident();
-                        if let Err(e) = self.shadow_level().consts.check_for_redefinition(ident.as_raw(), var.span) {
-                            self.errors.append(e);
-                            // keep going; this is relatively harmless
-                        }
 
-                        let def_id = self.ctx.define_const_var(sp!(var.span => ident.clone()), ty, expr.clone());
-
-                        // add it to the current scope
-                        self.scope_traveler.enter_child(ident.as_raw().clone(), Namespace::Vars, def_id);
+                        let sp_ident = sp!(var.span => ident.clone());
+                        let def_id = self.ctx.define_const_var(sp_ident.clone(), ty, expr.clone());
+                        self.add_to_rib_with_redefinition_check(
+                            Namespace::Vars, RibKind::Items, sp_ident.clone(), def_id,
+                        );
                     }
                 },
 
                 ast::Item::Meta { .. } => {},
                 ast::Item::AnmScript { .. } => {},
             } // match item.value
-        }
-    }
-
-    /// Helper that generates "redefinition of _" errors.
-    struct RedefinitionChecker {
-        map: HashMap<Ident, Span>,
-        noun: &'static str,
-    }
-
-    impl RedefinitionChecker {
-        fn new(noun: &'static str) -> Self { RedefinitionChecker {
-            map: Default::default(),
-            noun,
-        }}
-
-        /// Record an item,
-        fn check_for_redefinition(&mut self, ident: &Ident, span: Span) -> Result<(), CompileError> {
-            if let Some(old_span) = self.map.get(ident) {
-                return Err(error!(
-                    message("redefinition of {} '{}'", self.noun, ident),
-                    primary(span, "redefinition of {}", self.noun),
-                    secondary(old_span, "originally defined here"),
-                ));
-            }
-            self.map.insert(ident.clone(), span);
-            Ok(())
         }
     }
 }

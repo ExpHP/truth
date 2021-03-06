@@ -7,7 +7,7 @@ use crate::context::CompilerContext;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
-use crate::resolve::{RegId, Namespace, DefId, ResId};
+use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
 use crate::eclmap::Eclmap;
 use crate::value::ScalarType;
 use crate::llir::InstrAbi;
@@ -23,7 +23,7 @@ use crate::llir::InstrAbi;
 ///
 /// **Note:** The methods for creating new definitions are currently on [`CompilerContext`], where they can
 /// more easily record information for name resolution.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Defs {
     regs: HashMap<RegId, RegData>,
     instrs: HashMap<u16, InsData>,
@@ -31,23 +31,43 @@ pub struct Defs {
     vars: HashMap<DefId, VarData>,
     funcs: HashMap<DefId, FuncData>,
 
-    // Preferred aliases.  These are used during decompilation to make the output readable.
+    /// Preferred alias (i.e. the one we decompile to) for each register.
     reg_aliases: HashMap<RegId, DefId>,
+    /// Preferred alias (i.e. the one we decompile to) for each instruction.
     ins_aliases: HashMap<u16, DefId>,
 
-    /// Ids for names available in the global scope.  These form the baseline set of names
-    /// available to name resolution.
-    ///
-    /// NOTE: This is specifically for *externally-defined things* that are defined before name
-    /// resolution even begins.  Things like user-defined functions are not included here;
-    /// name resolution handles those in the same way it handles anything else.
-    global_ids: Vec<(Namespace, DefId)>,
+    /// One of the initial ribs for name resolution, containing register aliases from mapfiles.
+    reg_alias_rib: rib::Rib,
+    /// One of the initial ribs for name resolution, containing instruction aliases from mapfiles.
+    ins_alias_rib: rib::Rib,
+    /// One of the initial ribs for name resolution, containing consts from meta.
+    auto_const_rib: rib::Rib,
 }
 
 // =============================================================================
 
+impl Default for Defs {
+    fn default() -> Self {
+        use rib::{Rib, RibKind};
+
+        Defs {
+            regs: Default::default(),
+            instrs: Default::default(),
+            vars: Default::default(),
+            funcs: Default::default(),
+            reg_aliases: Default::default(),
+            ins_aliases: Default::default(),
+            reg_alias_rib: Rib::new(Namespace::Vars, RibKind::Mapfile),
+            ins_alias_rib: Rib::new(Namespace::Funcs, RibKind::Mapfile),
+            auto_const_rib: Rib::new(Namespace::Vars, RibKind::Generated),
+        }
+    }
+}
+
 impl Defs {
     pub fn new() -> Self { Default::default() }
+
+
 }
 
 /// # Definitions
@@ -61,7 +81,7 @@ impl CompilerContext {
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
     pub fn define_global_reg_alias(&mut self, reg: RegId, ident: Ident) -> DefId {
-        let res_ident = self.resolutions.attach_fresh_res(ident);
+        let res_ident = self.resolutions.attach_fresh_res(ident.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
         self.defs.vars.insert(def_id, VarData {
@@ -69,7 +89,14 @@ impl CompilerContext {
             kind: VarKind::RegisterAlias { reg, ident: res_ident },
         });
         self.defs.reg_aliases.insert(reg, def_id);
-        self.defs.global_ids.push((Namespace::Vars, def_id));
+
+        if let Err(old) = self.defs.reg_alias_rib.insert(sp!(ident.clone()), def_id) {
+            let old_reg = self.defs.var_reg(old.def_id).unwrap();
+            if old_reg != reg {
+                fast_warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg);
+            }
+        }
+
         def_id
     }
 
@@ -84,12 +111,22 @@ impl CompilerContext {
         def_id
     }
 
-    /// Declare a compile-time constant variable, resolving the ident to a brand new [`DefId`].
+    /// Declare an automatic const, resolving the ident to a brand new [`DefId`].
     ///
-    /// This one is global (it will belong to the initial scope for name resolution).
-    pub fn define_global_const_var(&mut self, ident: Sp<ResIdent>, ty: ScalarType, expr: Sp<ast::Expr>) -> DefId {
-        let def_id = self.define_const_var(ident, ty, expr);
-        self.defs.global_ids.push((Namespace::Vars, def_id));
+    /// Automatic consts are language-specific consts generated from certain syntactic features
+    /// that don't normally generate consts in other languages.  ANM sprites (which come from the
+    /// `id:` fields in the `entry` meta) and ANM script IDs (which come from `script` items) are
+    /// the most notable examples.
+    ///
+    /// Automatic consts have the unusual property that name clashes are allowed, but only if they
+    /// equate to the same value.  This is useful for ANM sprites appearing in decompiled code, as
+    /// there may be e.g. multiple `sprite10`s all with an ID of `10`.
+    pub fn define_auto_const_var(&mut self, ident: Sp<ResIdent>, ty: ScalarType, expr: Sp<ast::Expr>) -> DefId {
+        let def_id = self.define_const_var(ident.clone(), ty, expr);
+
+        if let Err(old) = self.defs.auto_const_rib.insert(ident.clone(), def_id) {
+            self.consts.defer_equality_check(self.defs.auto_const_rib.noun(), old.def_id, def_id);
+        }
         def_id
     }
 
@@ -120,7 +157,7 @@ impl CompilerContext {
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
     pub fn define_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> DefId {
-        let res_ident = self.resolutions.attach_fresh_res(ident);
+        let res_ident = self.resolutions.attach_fresh_res(ident.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
         self.defs.funcs.insert(def_id, FuncData {
@@ -128,7 +165,13 @@ impl CompilerContext {
             kind: FuncKind::InstructionAlias { opcode, ident: res_ident },
         });
         self.defs.ins_aliases.insert(opcode, def_id);
-        self.defs.global_ids.push((Namespace::Funcs, def_id));
+
+        if let Err(old) = self.defs.ins_alias_rib.insert(sp!(ident.clone()), def_id) {
+            let old_opcode = self.defs.func_opcode(old.def_id).unwrap();
+            if old_opcode != opcode {
+                fast_warning!("name '{}' used for multiple opcodes in mapfiles: {}, {}", ident, old_opcode, opcode);
+            }
+        }
         def_id
     }
 
@@ -156,15 +199,6 @@ impl CompilerContext {
     fn synthesize_def_id_from_res_id(res: ResId) -> DefId {
         // no need to invent new numbers
         DefId(res.0)
-    }
-}
-
-/// # Global names
-impl Defs {
-    /// Iterate over all things that are available to the initial (global) scope during
-    /// name resolution.
-    pub fn globals(&self) -> impl Iterator<Item=(Namespace, DefId)> + '_ {
-        self.global_ids.iter().copied()
     }
 }
 
@@ -369,6 +403,17 @@ impl CompilerContext {
             let string = s.to_str().expect("unpaired surrogate not supported!").into();
             sp!(ast::LitString { string })
         }).collect()
+    }
+}
+
+impl Defs {
+    /// Get the initial ribs for name resolution.
+    pub fn initial_ribs(&self) -> Vec<rib::Rib> {
+        vec![
+            self.ins_alias_rib.clone(),
+            self.reg_alias_rib.clone(),
+            self.auto_const_rib.clone(),
+        ]
     }
 }
 

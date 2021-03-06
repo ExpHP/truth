@@ -119,6 +119,14 @@ impl std::ops::Deref for ResIdent {
     fn deref(&self) -> &Self::Target { &self.ident }
 }
 
+impl AsRef<Ident> for ResIdent {
+    fn as_ref(&self) -> &Ident { &self.ident }
+}
+
+impl AsRef<Ident> for Ident {
+    fn as_ref(&self) -> &Ident { self }
+}
+
 // =============================================================================
 
 impl PartialEq<str> for Ident {
