@@ -310,8 +310,9 @@ fn compile(
 
     // an early pass to define global constants for sprite and script names
     let script_ids = gather_script_ids(&ast, ctx)?;
-    for &(ref script_name, id) in script_ids.values() {
-        ctx.define_auto_const_var(script_name.clone(), ScalarType::Int, id.sp_map(ast::Expr::from));
+    for (index, &(ref script_name, _)) in script_ids.values().enumerate() {
+        let const_value: Sp<ast::Expr> = sp!(script_name.span => (index as i32).into());
+        ctx.define_auto_const_var(script_name.clone(), ScalarType::Int, const_value);
     }
     let sprite_ids = gather_sprite_id_exprs(&ast, ctx, &mut extra_type_checks)?;
     for (sprite_name, id_expr) in sprite_ids {
