@@ -2,13 +2,6 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: unexpected token `(`
-   ┌─ <input>:25:22
-   │
-25 │         const int foo(int x) { return x; }
-   │                      ^ unexpected token
-   │
-   = 
-     Expected one of ",", ";" or "="
-
+thread 'main' panicked at 'not implemented: need to check against current function's signature', src/passes/type_check.rs:82:21
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 

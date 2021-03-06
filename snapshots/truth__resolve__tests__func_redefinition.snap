@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Script>(r#\"\nint foo(int x) {\n    return x;\n}\n\nint foo(float y) {\n    return y;\n}\n\"#,\n                                  \"redefinition\").trim()"
+---
+error: redefinition of function 'foo'
+  ┌─ <input>:6:5
+  │
+2 │ int foo(int x) {
+  │     --- originally defined here
+  ·
+6 │ int foo(float y) {
+  │     ^^^ redefinition of function

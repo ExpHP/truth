@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    if (true) {\n        const int BLUE = 1;\n        const int RED = 3;\n        const int BLUE = RED;\n    }\n}\"#,\n                                 \"redefinition\").trim()"
+---
+error: redefinition of const 'BLUE'
+  ┌─ <input>:5:19
+  │
+3 │         const int BLUE = 1;
+  │                   ---- originally defined here
+4 │         const int RED = 3;
+5 │         const int BLUE = RED;
+  │                   ^^^^ redefinition of const

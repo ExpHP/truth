@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_reformat::<ast::Block>(r#\"{\n    int a = 3;\n    if (true) {\n        int a = 4;\n        int b = a * a;  // should use inner `a`\n    }\n    int c = a * a;  // should use outer `a`\n}\"#).trim()"
+---
+{
+    int a_0 = 3;
+    if (1) {
+        int a_1 = 4;
+        int b_0 = (a_1 * a_1);
+    }
+    int c_0 = (a_0 * a_0);
+}

@@ -1,0 +1,11 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    if (true) {\n        int a = 4;\n        int b = 3, a = 5;  // should fail on `a`\n    }\n}\"#,\n                                 \"redefinition\").trim()"
+---
+error: redefinition of local 'a'
+  ┌─ <input>:4:20
+  │
+3 │         int a = 4;
+  │             - originally defined here
+4 │         int b = 3, a = 5;  // should fail on `a`
+  │                    ^ redefinition of local

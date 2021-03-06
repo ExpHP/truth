@@ -136,7 +136,7 @@ compile_fail_test!(
     items_before: r#"
         inline const int foo() { return 1; }
     "#,
-    expected: "too many qualifiers",
+    expected: "extra qualifier",
 );
 
 compile_fail_test!(
@@ -236,7 +236,7 @@ compile_fail_test!(
         int x = foo(@mask=0b1, 12);
     "#,
     // FIXME: Eventually, this should parse.
-    expected: expected::PARSE_ERROR,
+    expected: expected::UNIMPLEMENTED,
 );
 
 compile_fail_test!(

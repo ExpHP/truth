@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_reformat::<ast::Block>(r#\"{\n    ins_21(ALIAS, 3.0);\n    if (true) {\n        float ALIAS = 4.0;  // should be different `ALIAS`\n        float b = ALIAS;\n    }\n    ins_21(ALIAS, 3.0);  // should be original `ALIAS`\n}\"#).trim()"
+---
+{
+    ins_21(ALIAS_0, 3.0);
+    if (1) {
+        float ALIAS_1 = 4.0;
+        float b_0 = ALIAS_1;
+    }
+    ins_21(ALIAS_0, 3.0);
+}

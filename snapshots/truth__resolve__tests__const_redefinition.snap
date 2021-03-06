@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Script>(r#\"\nconst int BLUE = 1;\nconst int RED = 3;\nconst int BLUE = RED;\n\"#,\n                                  \"redefinition\").trim()"
+---
+error: redefinition of const 'BLUE'
+  ┌─ <input>:4:11
+  │
+2 │ const int BLUE = 1;
+  │           ---- originally defined here
+3 │ const int RED = 3;
+4 │ const int BLUE = RED;
+  │           ^^^^ redefinition of const

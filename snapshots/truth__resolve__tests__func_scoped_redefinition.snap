@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    if (true) {\n        int foo(int x) {\n            return x;\n        }\n\n        int foo(float y) {\n            return y;\n        }\n    }\n}\"#,\n                                 \"redefinition\").trim()"
+---
+error: redefinition of function 'foo'
+  ┌─ <input>:7:13
+  │
+3 │         int foo(int x) {
+  │             --- originally defined here
+  ·
+7 │         int foo(float y) {
+  │             ^^^ redefinition of function

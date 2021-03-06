@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    int x = 2;\n    int foo() {\n        return x;  // should fail at `x`\n    }\n}\"#,\n                                 \"nested function\").trim()"
+---
+error: cannot use local from outside function
+  ┌─ <input>:4:16
+  │
+2 │     int x = 2;
+  │         - defined here
+3 │     int foo() {
+4 │         return x;  // should fail at `x`
+  │                ^ used in a nested function

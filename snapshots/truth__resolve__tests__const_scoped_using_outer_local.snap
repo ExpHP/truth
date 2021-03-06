@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    int x = 2;\n    if (true) {\n        const int foo = x;  // should fail at `x`\n    }\n}\"#,\n                                 \"nested const\").trim()"
+---
+error: cannot use local from outside const
+  ┌─ <input>:4:25
+  │
+2 │     int x = 2;
+  │         - defined here
+3 │     if (true) {
+4 │         const int foo = x;  // should fail at `x`
+  │                         ^ used in a nested const

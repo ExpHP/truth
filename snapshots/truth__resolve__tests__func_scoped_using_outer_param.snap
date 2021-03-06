@@ -1,0 +1,12 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    void foo(int a) {\n        int bar() {\n            return a;  // should fail at `a`\n        }\n    }\n}\"#,\n                                 \"nested function\").trim()"
+---
+error: cannot use parameter from outside function
+  ┌─ <input>:4:20
+  │
+2 │     void foo(int a) {
+  │                  - defined here
+3 │         int bar() {
+4 │             return a;  // should fail at `a`
+  │                    ^ used in a nested function

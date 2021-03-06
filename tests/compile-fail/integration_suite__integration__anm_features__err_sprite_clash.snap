@@ -2,13 +2,13 @@
 source: tests/integration/anm_features.rs
 expression: stderr
 ---
-error: name clash between sprites
+error: ambiguous value for automatic const 'my_sprite'
    ┌─ <input>:13:15
    │
  7 │     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
-   │               --------- definition with ID 0
+   │               --------- definition with value 0
    ·
 13 │     sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0, id: 1}},
-   │               ^^^^^^^^^ redefinition with ID 1
+   │               ^^^^^^^^^ definition with value 1
 
 

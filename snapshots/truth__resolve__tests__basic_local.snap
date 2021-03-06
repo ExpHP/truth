@@ -1,8 +1,0 @@
----
-source: src/resolve.rs
-expression: "resolve_reformat::<ast::Block>(r#\"{\n        int a = 3;\n        int b = a + a;  // should use same `a`\n    }\"#).trim()"
----
-{
-    int a_0 = 3;
-    int b_0 = (a_0 + a_0);
-}

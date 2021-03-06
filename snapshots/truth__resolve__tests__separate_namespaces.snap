@@ -1,0 +1,9 @@
+---
+source: src/resolve/tests.rs
+expression: "resolve_reformat::<ast::Script>(r#\"\n    const int a = a();           // should be a_0 then a_1\n    const int a() { return a; }  // should be a_1 then a_0\n\"#).trim()"
+---
+const int a_0 = a_1();
+
+const int a_1() {
+    return a_0;
+}
