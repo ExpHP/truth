@@ -224,41 +224,34 @@ pub mod rib {
         }
 
         /// Resolve an identifier by walking backwards through the stack of ribs.
-        pub fn resolve(&self, ns: Namespace, span: Span, ident: &Ident) -> Result<DefId, CompileError> {
+        pub fn resolve(&self, ns: Namespace, cur_span: Span, cur_ident: &Ident) -> Result<DefId, CompileError> {
             // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
             let mut crossed_local_border = None::<&str>;
-            // set to the first matching local we find beyond the border
-            let mut outer_local_match = None::<(&Rib, &RibEntry)>;
 
             for rib in self.ribs[ns].iter().rev() {
                 if let Some(cause) = rib.kind.local_barrier_cause() {
                     crossed_local_border.get_or_insert(cause);
                 }
 
-                if let Some(def) = rib.defs.get(ident) {
+                if let Some(def) = rib.defs.get(cur_ident) {
                     if rib.kind.holds_locals() && crossed_local_border.is_some() {
-                        // this match is no good. Record it for a potential error message,
-                        // but keep going as we still have a chance to find a const in an outer rib.
-                        outer_local_match.get_or_insert((rib, def));
+                        let local_kind = rib.noun();
+                        let local_span = def.def_ident_span;
+                        let item_kind = crossed_local_border.unwrap();
+                        return Err(error!(
+                            message("cannot use {} from outside {}", local_kind, item_kind),
+                            primary(cur_span, "used in a nested {}", item_kind),
+                            secondary(local_span, "defined here"),
+                        ));
                     } else {
                         return Ok(def.def_id)
                     }
                 }
             } // for rib in ....
 
-            if let Some((outer_local_rib, outer_local)) = outer_local_match {
-                let local_kind = outer_local_rib.noun();
-                let item_kind = crossed_local_border.unwrap();
-                return Err(error!(
-                    message("cannot use {} from outside {}", local_kind, item_kind),
-                    primary(span, "used in a nested {}", item_kind),
-                    secondary(outer_local.def_ident_span, "defined here"),
-                ))
-            }
-
             Err(error!(
-                message("unknown {} '{}'", ns.noun_long(), ident),
-                primary(span, "not found in this scope"),
+                message("unknown {} '{}'", ns.noun_long(), cur_ident),
+                primary(cur_span, "not found in this scope"),
             ))
         }
     }

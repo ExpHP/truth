@@ -1,14 +1,12 @@
 ---
 source: src/resolve/tests.rs
-expression: "resolve_reformat::<ast::Block>(r#\"{\n    const int x = 2;\n    if (true) {\n        int x = 2;\n        int foo() {\n            return x;  // should match the const\n        }\n    }\n}\"#).trim()"
+expression: "resolve_expect_err::<ast::Block>(r#\"{\n    const int x = 2;\n    if (true) {\n        int x = 2;\n        int foo() {\n            return x;  // should fail at 'x'\n        }\n    }\n}\"#,\n                                 \"nested function\").trim()"
 ---
-{
-    const int x_0 = 2;
-    if (1) {
-        int x_1 = 2;
-        int foo_0() {
-            return x_0;
-        }
-        
-    }
-}
+error: cannot use local from outside function
+  ┌─ <input>:6:20
+  │
+4 │         int x = 2;
+  │             - defined here
+5 │         int foo() {
+6 │             return x;  // should fail at 'x'
+  │                    ^ used in a nested function

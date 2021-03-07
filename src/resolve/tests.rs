@@ -285,13 +285,13 @@ test!(
 }"#);
 
 test!(
-    [snapshot]
+    [expect_fail("nested function")]
     func_scoped_using_outer_shadowed_const = <ast::Block> r#"{
     const int x = 2;
     if (true) {
         int x = 2;
         int foo() {
-            return x;  // should match the const
+            return x;  // should fail at 'x'
         }
     }
 }"#);
