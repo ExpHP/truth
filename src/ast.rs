@@ -73,7 +73,7 @@ pub enum Item {
         qualifier: Option<Sp<FuncQualifier>>,
         keyword: Sp<TypeKeyword>,
         ident: Sp<ResIdent>,
-        params: Vec<(Sp<TypeKeyword>, Sp<ResIdent>)>,
+        params: Vec<FuncParam>,
         /// `Some` for definitions, `None` for declarations.
         code: Option<Block>,
     },
@@ -93,6 +93,8 @@ pub enum Item {
         vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
     },
 }
+
+pub type FuncParam = (Sp<TypeKeyword>, Sp<ResIdent>);
 
 impl Item {
     pub fn descr(&self) -> &'static str { match self {
@@ -627,6 +629,19 @@ impl TypeKeyword {
             TypeKeyword::String => Some(value::ScalarType::String),
             TypeKeyword::Var => None,
             TypeKeyword::Void => unreachable!("void var"),
+        }
+    }
+
+    /// Get the type, when used on a keyword for a return type.
+    ///
+    /// `None` means `void`. (FIXME: please stop using Option for this)
+    pub fn return_ty(self) -> Option<value::ScalarType> {
+        match self {
+            TypeKeyword::Int => Some(value::ScalarType::Int),
+            TypeKeyword::Float => Some(value::ScalarType::Float),
+            TypeKeyword::String => Some(value::ScalarType::String),
+            TypeKeyword::Void => None,
+            TypeKeyword::Var => unreachable!("var return type"),
         }
     }
 }

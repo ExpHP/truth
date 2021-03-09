@@ -591,17 +591,21 @@ pub struct MissingSigError { pub opcode: u16 }
 #[derive(Debug, Clone)]
 pub struct Signature {
     pub params: Vec<SignatureParam>,
-    pub return_ty: Option<Sp<ScalarType>>,
+    pub return_ty: Sp<Option<ScalarType>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SignatureParam {
-    pub ty: Sp<ScalarType>,
+    pub ty: Sp<Option<ScalarType>>,
     pub name: Sp<ResIdent>,
     pub default: Option<Sp<ast::Expr>>,
 }
 
 impl Signature {
+    pub fn from_func_params(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Result<Self, CompileError> {
+        signature_from_func_ast(return_ty_keyword, params)
+    }
+
     pub(crate) fn validate(&self, ctx: &CompilerContext) -> Result<(), CompileError> {
         self._check_non_optional_after_optional(ctx)
     }
@@ -633,4 +637,15 @@ impl Signature {
     pub fn max_args(&self) -> usize {
         self.params.len()
     }
+}
+
+fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Result<Signature, CompileError> {
+    Ok(Signature {
+        params: params.iter().map(|(ty_keyword, ident)| SignatureParam {
+            ty: ty_keyword.sp_map(ast::TypeKeyword::var_ty),
+            name: ident.clone(),
+            default: None,
+        }).collect(),
+        return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::return_ty),
+    })
 }

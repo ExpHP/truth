@@ -155,7 +155,7 @@ impl std::str::FromStr for InstrAbi {
 
 fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext) -> defs::Signature {
     defs::Signature {
-        return_ty: None,
+        return_ty: sp!(None),
         params: abi.encodings.iter().enumerate().map(|(index, &enc)| {
             let (ty, default) = match enc {
                 | ArgEncoding::Dword
@@ -179,7 +179,7 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext) -> defs::Signatur
             let name = sp!(ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
             ctx.define_local(name.clone(), Some(ty));
 
-            defs::SignatureParam { default, name, ty: sp!(ty) }
+            defs::SignatureParam { default, name, ty: sp!(Some(ty)) }
         }).collect(),
     }
 }

@@ -387,19 +387,21 @@ impl<'a> Visitor<'a> {
         zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
             let arg_ty = self.check_expr(arg)?;
             let arg_ty = require_value(arg_ty, name.span, arg.span)?;
-            if arg_ty != param.ty.value {
-                return Err(error!(
-                    message("type error"),
-                    primary(arg.span, "{}", arg_ty.descr()),
-                    secondary(name, "expects {} for parameter {}", param.ty.descr(), param_num),
-                ));
+            if let Some(param_ty) = param.ty.value {
+                if arg_ty != param_ty {
+                    return Err(error!(
+                        message("type error"),
+                        primary(arg.span, "{}", arg_ty.descr()),
+                        secondary(name, "expects {} for parameter {}", param_ty.descr(), param_num),
+                    ));
+                }
             }
             Ok(())
         }).collect_with_recovery()?;
 
         args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery()?;
 
-        Ok(siggy.return_ty.map(|x| x.value))
+        Ok(siggy.return_ty.value)
     }
 }
 
@@ -434,7 +436,7 @@ impl ast::Expr {
                     None  // args blob always produces void
                 } else {
                     ctx.func_signature_from_ast(name).expect("already type-checked")
-                        .return_ty.map(|x| x.value)
+                        .return_ty.value
                 }
             },
         }
