@@ -11,6 +11,7 @@ use crate::resolve::{RegId};
 use crate::context::Defs;
 use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
+use crate::binary_io::DEFAULT_ENCODING;
 
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
@@ -559,7 +560,7 @@ fn decode_args_with_abi(instr: &RawInstr, siggy: &InstrAbi) -> Result<RaiseInstr
             => {
                 // read to end
                 let read_len = args_blob.get_ref().len() - args_blob.pos()? as usize;
-                Ok(ScalarValue::String(args_blob.read_cstring_masked_exact(read_len, mask)?.decode()?))
+                Ok(ScalarValue::String(args_blob.read_cstring_masked_exact(read_len, mask)?.decode(DEFAULT_ENCODING)?))
             },
         }).with_context(|| format!("in argument {} of ins_{}", arg_index + 1, instr.opcode))?;
 

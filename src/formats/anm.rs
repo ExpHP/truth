@@ -7,7 +7,7 @@ use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
@@ -539,12 +539,12 @@ fn read_anm(format: &FileFormat, reader: &mut dyn BinRead, with_images: bool) ->
         // eprintln!("{:?}", script_ids_and_offsets);
 
         reader.seek_to(entry_pos + header_data.name_offset)?;
-        let path = reader.read_cstring_blockwise(16)?.decode()?;
+        let path = reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING)?;
         let path_2 = match header_data.secondary_name_offset {
             None => None,
             Some(n) => {
                 reader.seek_to(entry_pos + n.get())?;
-                Some(reader.read_cstring_blockwise(16)?.decode()?)
+                Some(reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING)?)
             },
         };
 
@@ -720,12 +720,12 @@ fn write_entry(
     f.write_u32s(&vec![0; 2 * entry.scripts.len()])?;
 
     let path_offset = f.pos()? - entry_pos;
-    f.write_cstring(&Encoded::encode(&entry.path)?, 16)?;
+    f.write_cstring(&Encoded::encode(&entry.path, DEFAULT_ENCODING)?, 16)?;
 
     let mut path_2_offset = 0;
     if let Some(path_2) = &entry.path_2 {
         path_2_offset = f.pos()? - entry_pos;
-        f.write_cstring(&Encoded::encode(path_2)?, 16)?;
+        f.write_cstring(&Encoded::encode(path_2, DEFAULT_ENCODING)?, 16)?;
     };
 
     let sprite_offsets = entry.sprites.iter().map(|(_, sprite)| {

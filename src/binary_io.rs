@@ -21,10 +21,12 @@ pub type WriteResult<T = ()> = Result<T, WriteError>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Encoded(Vec<u8>);
 
+pub type Encoding = &'static encoding_rs::Encoding;
+
+pub use encoding_rs::SHIFT_JIS as DEFAULT_ENCODING;
+
 impl Encoded {
-    // FIXME: add an encoding arg to these methods
-    pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>) -> Result<Self, crate::error::CompileError> {
-        let enc = encoding_rs::SHIFT_JIS;
+    pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, crate::error::CompileError> {
         match enc.encode(str.value.as_ref()) {
             (_, _, true) => Err(error!(
                 message("string encoding error"),
@@ -35,9 +37,7 @@ impl Encoded {
         }
     }
 
-    // FIXME: add an encoding arg to these methods
-    pub fn decode(&self) -> Result<String, crate::error::SimpleError> {
-        let enc = encoding_rs::SHIFT_JIS;
+    pub fn decode(&self, enc: Encoding) -> Result<String, crate::error::SimpleError> {
         match enc.decode_without_bom_handling(self.0.as_ref()) {
             (_, true) => bail!("could not read string using encoding '{}'", enc.name()),
             (str, _) => Ok(str.into_owned().into()),

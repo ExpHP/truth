@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use anyhow::bail;
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
 use crate::ident::{Ident};
@@ -424,10 +424,10 @@ fn write_std(f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Re
 }
 
 fn read_string_128(f: &mut dyn BinRead) -> ReadResult<Sp<String>> {
-    f.read_cstring_masked_exact(128, 0x00)?.decode().map(|x| sp!(x))
+    f.read_cstring_masked_exact(128, 0x00)?.decode(DEFAULT_ENCODING).map(|x| sp!(x))
 }
 fn write_string_128<S: AsRef<str>>(f: &mut dyn BinWrite, s: &Sp<S>) -> Result<(), CompileError> {
-    let encoded = Encoded::encode(&s)?;
+    let encoded = Encoded::encode(&s, DEFAULT_ENCODING)?;
     if encoded.len() >= 128 {
         return Err(error!(
             message("string too long for STD header"),
