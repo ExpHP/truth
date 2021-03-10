@@ -248,7 +248,7 @@ compile_fail_test!(
         foo(@mask=0b1, 12);
     "#,
     // FIXME: Eventually, inline funcs in anm will be supported.
-    expected: expected::UNIMPLEMENTED,
+    expected: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 compile_fail_test!(
