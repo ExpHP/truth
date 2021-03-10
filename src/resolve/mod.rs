@@ -465,8 +465,9 @@ mod resolve_vars {
         /// This is called extremely early on items in a block, allowing items to be defined after they are used.
         fn add_item_to_scope<'b>(&mut self, item: &Sp<ast::Item>) {
             match item.value {
-                ast::Item::Func { ref ident, .. } => {
-                    let def_id = self.ctx.define_user_func(ident.clone());
+                ast::Item::Func { ref ident, keyword, ref params, qualifier, code: _ } => {
+                    let siggy = crate::context::defs::Signature::from_func_params(keyword, params);
+                    let def_id = self.ctx.define_user_func(ident.clone(), qualifier, siggy);
                     self.add_to_rib_with_redefinition_check(
                         Namespace::Funcs, RibKind::Items, ident.clone(), def_id,
                     );

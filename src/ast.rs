@@ -71,6 +71,7 @@ impl Script {
 pub enum Item {
     Func {
         qualifier: Option<Sp<FuncQualifier>>,
+        // FIXME: rename to ty_keyword
         keyword: Sp<TypeKeyword>,
         ident: Sp<ResIdent>,
         params: Vec<FuncParam>,
@@ -207,6 +208,7 @@ pub enum StmtBody {
 
     /// Local variable declaration `int a = 20;`. (`const` vars fall under [`Self::Item`] instead)
     Declaration {
+        // FIXME: rename to ty_keyword
         keyword: Sp<TypeKeyword>,
         vars: Vec<Sp<(Sp<Var>, Option<Sp<Expr>>)>>,
     },

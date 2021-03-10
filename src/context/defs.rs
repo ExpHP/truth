@@ -174,14 +174,17 @@ impl CompilerContext {
     }
 
     /// Add a user-defined function, resolving the ident to a brand new [`DefId`]
-    ///
-    /// FIXME: Should take signature, inline/const-ness, etc.
-    pub fn define_user_func(&mut self, ident: Sp<ResIdent>) -> DefId {
+    pub fn define_user_func(
+        &mut self,
+        ident: Sp<ResIdent>,
+        qualifier: Option<Sp<ast::FuncQualifier>>,
+        siggy: Signature,
+    ) -> DefId {
         let def_id = self.create_new_def_id(&ident);
 
         self.defs.funcs.insert(def_id, FuncData {
-            sig: None,  // FIXME
-            kind: FuncKind::User { ident },
+            sig: Some(siggy),
+            kind: FuncKind::User { ident, qualifier },
         });
         def_id
     }
@@ -290,7 +293,7 @@ impl Defs {
     pub fn var_inherent_ty(&self, def_id: DefId) -> VarType {
         match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => self.reg_inherent_ty(reg),
-            VarData { ty, .. } => ty.expect("shouldn't be alias"),
+            VarData { ty, .. } => ty.expect("not alias"),
         }
     }
 
@@ -312,7 +315,7 @@ impl Defs {
     pub fn func_signature(&self, def_id: DefId) -> Result<&Signature, MissingSigError> {
         match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => self.ins_signature(opcode),
-            FuncData { kind: FuncKind::User { .. }, .. } => unimplemented!("need to create signatures for user funcs!"),
+            FuncData { ref sig, .. } => Ok(sig.as_ref().expect("not alias")),
         }
     }
 
@@ -464,7 +467,7 @@ pub enum FuncKind {
     },
     User {
         ident: Sp<ResIdent>,
-        // TODO: const-ness, inline-ness
+        qualifier: Option<Sp<ast::FuncQualifier>>,
     }
 }
 
@@ -597,8 +600,8 @@ pub struct SignatureParam {
 }
 
 impl Signature {
-    pub fn from_func_params(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Result<Self, CompileError> {
-        signature_from_func_ast(return_ty_keyword, params)
+    pub fn from_func_params(ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Self {
+        signature_from_func_ast(ty_keyword, params)
     }
 
     pub(crate) fn validate(&self, ctx: &CompilerContext) -> Result<(), CompileError> {
@@ -634,13 +637,13 @@ impl Signature {
     }
 }
 
-fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Result<Signature, CompileError> {
-    Ok(Signature {
+fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Signature {
+    Signature {
         params: params.iter().map(|(ty_keyword, ident)| SignatureParam {
             ty: ty_keyword.sp_map(ast::TypeKeyword::var_ty),
             name: ident.clone(),
             default: None,
         }).collect(),
         return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::expr_ty),
-    })
+    }
 }
