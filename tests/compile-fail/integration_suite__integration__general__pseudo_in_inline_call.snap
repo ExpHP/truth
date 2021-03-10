@@ -4,11 +4,8 @@ expression: stderr
 ---
 error: feature not supported by format
    ┌─ <input>:25:9
-   │  
-25 │ ╭         inline void foo(int x) { wait(x); }
-26 │ │     
-27 │ │ 
-28 │ │ script script0 {
-   │ ╰^ not supported by ANM files
+   │
+25 │         inline void foo(int x) { wait(x); }
+   │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not supported by ANM files
 
 

@@ -183,7 +183,7 @@ Item: ast::Item = {
 
 ItemAnmScript: ast::Item = {
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>>
-    _TimeStackEnter <code:Block> _TimeStackPop
+    <code:FuncRootBlock>
         => ast::Item::AnmScript { keyword, number, ident, code },
 };
 
@@ -198,12 +198,23 @@ ItemConstVar: ast::Item = {
 };
 
 ItemFunc: ast::Item = {
+    <item:ItemFuncHeader> ";" => item,
+
+    <item:ItemFuncHeader> <code:FuncRootBlock> => {
+        match item {
+            ast::Item::Func { qualifier, ty_keyword, ident, params, code: _ }
+                => ast::Item::Func { qualifier, ty_keyword, ident, params, code: Some(code) },
+            _ => unreachable!(),
+        }
+    },
+};
+
+ItemFuncHeader: ast::Item = {
     <qualifier:Sp<SingleFuncQualifier>?> <ty_keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
         "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
-        _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => ast::Item::Func { qualifier, ty_keyword, ident, params, code },
+        => ast::Item::Func { qualifier, ty_keyword, ident, params, code: None },
 
-    Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> =>? Err(error!(
+    Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> ! =>? Err(error!(
         message("too many function qualifiers"),
         primary(second, "extra qualifier"),
     ).into()),
@@ -437,9 +448,12 @@ DifficultyLabel: ast::DifficultyLabel = {
     ).into()),
 };
 
-Block: ast::Block = {
-    "{" <start_span:Span> <start_time:_TimeGet> <mut code:Sp<Stmt>*>
-        <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span> "}"
+Block: ast::Block = "{" <BlockInnards> "}";
+
+#[inline]
+BlockInnards: ast::Block = {
+    <start_span:Span> <start_time:_TimeGet> <mut code:Sp<Stmt>*>
+        <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span>
         => {
         // bookend with empty statements to simplify time and jump logic
         code.insert(0, sp!(start_span => ast::Stmt {
@@ -453,6 +467,17 @@ Block: ast::Block = {
         ast::Block(code)
     },
 };
+
+/// Same as a block but it pushes a new time context. (so time starts at 0 inside and resets outside)
+//
+// We have to split this rule up very carefully to make sure that all of the changes to mutable
+// state happen at exactly the right times.  This is the price we must pay for mutable state.
+FuncRootBlock_1: () = "{" _TimeStackEnterInline;
+FuncRootBlock_2: ast::Block = FuncRootBlock_1 <BlockInnards>;
+FuncRootBlock: ast::Block =
+    // Inline pop is important. The non-inline version will scan to the next token and make the span too large.
+    // (see https://github.com/ExpHP/truth/issues/18)
+    <FuncRootBlock_2> "}" _TimeStackPopInline;
 
 // ==================================================
 // Expressions
