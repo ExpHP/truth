@@ -1,6 +1,6 @@
 use crate::error::SimpleError;
 use crate::context::{CompilerContext, defs};
-use crate::value::ScalarType;
+use crate::value::{self, ScalarType};
 
 use ArgEncoding as Enc;
 
@@ -155,7 +155,7 @@ impl std::str::FromStr for InstrAbi {
 
 fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext) -> defs::Signature {
     defs::Signature {
-        return_ty: sp!(None),
+        return_ty: sp!(value::ExprType::Void),
         params: abi.encodings.iter().enumerate().map(|(index, &enc)| {
             let (ty, default) = match enc {
                 | ArgEncoding::Dword
@@ -177,9 +177,10 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext) -> defs::Signatur
                 => (ScalarType::String, None),
             };
             let name = sp!(ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
-            ctx.define_local(name.clone(), Some(ty));
+            let var_ty = value::VarType::Typed(ty);
+            ctx.define_local(name.clone(), var_ty);
 
-            defs::SignatureParam { default, name, ty: sp!(Some(ty)) }
+            defs::SignatureParam { default, name, ty: sp!(var_ty) }
         }).collect(),
     }
 }

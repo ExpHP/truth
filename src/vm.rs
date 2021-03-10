@@ -461,7 +461,7 @@ mod tests {
             let mut ctx = CompilerContext::new();
             for &(alias, reg, ty) in &self.globals {
                 ctx.define_global_reg_alias(reg, alias.parse().unwrap());
-                ctx.set_reg_ty(reg, Some(ty));
+                ctx.set_reg_ty(reg, ty.into());
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();

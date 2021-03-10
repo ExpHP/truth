@@ -134,7 +134,7 @@ impl<'a> Desugarer<'a> {
                         None => {
                             let ident = self.ctx.gensym.gensym("count");
                             let ident = sp!(count.span => self.ctx.resolutions.attach_fresh_res(ident));
-                            let def_id = self.ctx.define_local(ident.clone(), Some(ScalarType::Int));
+                            let def_id = self.ctx.define_local(ident.clone(), ScalarType::Int.into());
                             let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.value.into() });
 
                             self.out.push(sp!(count.span => ast::Stmt {
@@ -297,7 +297,7 @@ mod tests {
             let mut ctx = CompilerContext::new();
             for &(name, reg, ty) in &self.globals {
                 ctx.define_global_reg_alias(reg, name.parse().unwrap());
-                ctx.set_reg_ty(reg, Some(ty));
+                ctx.set_reg_ty(reg, ty.into());
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();

@@ -9,7 +9,7 @@ use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
 use crate::eclmap::Eclmap;
-use crate::value::ScalarType;
+use crate::value::{ScalarType, VarType, ExprType};
 use crate::llir::InstrAbi;
 
 /// Retains information about all definitions in the program.
@@ -66,8 +66,6 @@ impl Default for Defs {
 
 impl Defs {
     pub fn new() -> Self { Default::default() }
-
-
 }
 
 /// # Definitions
@@ -135,7 +133,7 @@ impl CompilerContext {
         let def_id = self.create_new_def_id(&ident);
 
         self.defs.vars.insert(def_id, VarData {
-            ty: Some(Some(ty)),
+            ty: Some(VarType::Typed(ty)),
             kind: VarKind::Const { ident: ident.clone(), expr },
         });
         self.consts.defer_evaluation_of(def_id);
@@ -300,11 +298,9 @@ impl Defs {
     fn reg_inherent_ty(&self, reg: RegId) -> VarType {
         match self.regs.get(&reg) {
             Some(&RegData { ty }) => ty,
-            None => {
-                // This is a register whose type is not in any mapfile.
-                // This is actually fine, and is expected for stack registers.
-                None  // unspecified type
-            },
+            // This is a register whose type is not in any mapfile.
+            // This is actually fine, and is expected for stack registers.
+            None => VarType::Untyped,
         }
     }
 
@@ -389,8 +385,8 @@ impl CompilerContext {
         }
         for (&reg, value) in &eclmap.gvar_types {
             let ty = match &value[..] {
-                "%" => Some(ScalarType::Float),
-                "$" => Some(ScalarType::Int),
+                "%" => VarType::Typed(ScalarType::Float),
+                "$" => VarType::Typed(ScalarType::Int),
                 _ => anyhow::bail!("In mapfile: Ignoring invalid variable type '{}' for gvar {}", value, reg),
             };
             self.set_reg_ty(RegId(reg), ty);
@@ -416,9 +412,6 @@ impl Defs {
         ]
     }
 }
-
-/// A variable's inherent type.  `None` means untyped (i.e. annotations are always required).
-pub type VarType = Option<ScalarType>;
 
 #[derive(Debug, Clone)]
 struct RegData {
@@ -485,8 +478,10 @@ impl CompilerContext {
     ///
     /// This returns [`ScalarType`] instead of [`ast::VarReadType`] because const vars could be strings.
     pub fn var_read_ty_from_ast(&self, var: &ast::Var) -> VarType {
-        var.ty_sigil.map(Into::into)
-            .or_else(|| self.var_inherent_ty_from_ast(var))
+        match var.ty_sigil {
+            Some(sigil) => VarType::Typed(sigil.into()),
+            None => self.var_inherent_ty_from_ast(var),
+        }
     }
 
     /// Get the innate type of a variable at a place where it is referenced, ignoring its sigils.
@@ -544,8 +539,8 @@ impl CompilerContext {
     /// Suppress the type sigil of a variable if it is unnecessary.
     pub fn var_simplify_ty_sigil(&self, var: &mut ast::Var) {
         let inherent_ty = self.var_inherent_ty_from_ast(var);
-        if let Some(read_ty) = var.ty_sigil {
-            if inherent_ty == Some(ScalarType::from(read_ty)) {
+        if let Some(sigil) = var.ty_sigil {
+            if inherent_ty == VarType::Typed(ScalarType::from(sigil)) {
                 var.ty_sigil = None;
             }
         }
@@ -591,12 +586,12 @@ pub struct MissingSigError { pub opcode: u16 }
 #[derive(Debug, Clone)]
 pub struct Signature {
     pub params: Vec<SignatureParam>,
-    pub return_ty: Sp<Option<ScalarType>>,
+    pub return_ty: Sp<ExprType>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SignatureParam {
-    pub ty: Sp<Option<ScalarType>>,
+    pub ty: Sp<VarType>,
     pub name: Sp<ResIdent>,
     pub default: Option<Sp<ast::Expr>>,
 }
@@ -646,6 +641,6 @@ fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[as
             name: ident.clone(),
             default: None,
         }).collect(),
-        return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::return_ty),
+        return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::expr_ty),
     })
 }

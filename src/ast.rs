@@ -622,12 +622,12 @@ impl TypeKeyword {
     /// Get the type, when used on a keyword that comes from a [`Var`].
     ///
     /// `None` means untyped. (FIXME: please stop using Option for this)
-    pub fn var_ty(self) -> Option<value::ScalarType> {
+    pub fn var_ty(self) -> value::VarType {
         match self {
-            TypeKeyword::Int => Some(value::ScalarType::Int),
-            TypeKeyword::Float => Some(value::ScalarType::Float),
-            TypeKeyword::String => Some(value::ScalarType::String),
-            TypeKeyword::Var => None,
+            TypeKeyword::Int => value::ScalarType::Int.into(),
+            TypeKeyword::Float => value::ScalarType::Float.into(),
+            TypeKeyword::String => value::ScalarType::String.into(),
+            TypeKeyword::Var => value::VarType::Untyped,
             TypeKeyword::Void => unreachable!("void var"),
         }
     }
@@ -635,12 +635,12 @@ impl TypeKeyword {
     /// Get the type, when used on a keyword for a return type.
     ///
     /// `None` means `void`. (FIXME: please stop using Option for this)
-    pub fn return_ty(self) -> Option<value::ScalarType> {
+    pub fn expr_ty(self) -> value::ExprType {
         match self {
-            TypeKeyword::Int => Some(value::ScalarType::Int),
-            TypeKeyword::Float => Some(value::ScalarType::Float),
-            TypeKeyword::String => Some(value::ScalarType::String),
-            TypeKeyword::Void => None,
+            TypeKeyword::Int => value::ScalarType::Int.into(),
+            TypeKeyword::Float => value::ScalarType::Float.into(),
+            TypeKeyword::String => value::ScalarType::String.into(),
+            TypeKeyword::Void => value::ExprType::Void,
             TypeKeyword::Var => unreachable!("var return type"),
         }
     }

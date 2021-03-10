@@ -360,7 +360,7 @@ impl Lowerer<'_> {
     ) -> Result<(), CompileError> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == token![-] {
-            let ty = b.compute_ty(self.ctx).expect("type-checked so not void");
+            let ty = b.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
             let zero = sp!(unop.span => ast::Expr::zero(ty));
             let minus = sp!(unop.span => token![-]);
             self.lower_assign_direct_binop(span, time, var, eq_sign, rhs_span, &zero, &minus, b)?;
@@ -525,7 +525,8 @@ impl Lowerer<'_> {
 
             // other arbitrary expressions: use `<if|unless> (<expr> != 0)`
             _ => {
-                let ty = expr.compute_ty(self.ctx).expect("type-checked so not void");
+                let ty = expr.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
+                assert_eq!(ty, ScalarType::Int);
                 let zero = sp!(expr.span => ast::Expr::zero(ty));
                 let ne_sign = sp!(expr.span => token![!=]);
                 self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, expr, &ne_sign, &zero, goto)
@@ -682,7 +683,7 @@ impl Lowerer<'_> {
         // FIXME: It bothers me that we have to actually allocate an identifier here.
         let ident = self.ctx.gensym.gensym("temp");
         let ident = sp!(span => self.ctx.resolutions.attach_fresh_res(ident));
-        let def_id = self.ctx.define_local(ident.clone(), Some(tmp_ty));
+        let def_id = self.ctx.define_local(ident.clone(), tmp_ty.into());
         let sigil = get_temporary_read_ty(tmp_ty, span)?;
 
         let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
@@ -769,14 +770,14 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
 
         // Anything else needs a temporary of the same type, consisting of the whole expression.
         _ => Ok(ExprClass::NeedsTemp({
-            let ty = arg.compute_ty(ctx).expect("shouldn't be void");
+            let ty = arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
             TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
         })),
     }
 }
 
 fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<LowerArg>, ScalarType), CompileError> {
-    let read_ty = ctx.var_read_ty_from_ast(var).expect("shoulda been type-checked");
+    let read_ty = ctx.var_read_ty_from_ast(var).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
     // Up to this point in compilation, register aliases use Var::Named.
     // But now, we want both registers and their aliases to be resolved to a register
@@ -842,7 +843,7 @@ pub (in crate::llir::lower) fn assign_registers(
             LowerStmt::RegAlloc { def_id, ref cause } => {
                 has_used_scratch.get_or_insert(*cause);
 
-                let required_ty = ctx.defs.var_inherent_ty(*def_id).expect("(bug!) this should have been type-checked!");
+                let required_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
                     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(reg));
@@ -873,7 +874,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 assert!(local_regs.insert(*def_id, (reg, required_ty, *cause)).is_none());
             },
             LowerStmt::RegFree { def_id } => {
-                let inherent_ty = ctx.defs.var_inherent_ty(*def_id).expect("(bug!) we allocated a reg so it must have a type");
+                let inherent_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) we allocated a reg so it must have a type");
                 let (reg, _, _) = local_regs.remove(&def_id).expect("(bug!) RegFree without RegAlloc!");
                 unused_regs[inherent_ty].push(reg);
             },

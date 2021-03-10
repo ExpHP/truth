@@ -10,7 +10,7 @@
 use crate::ast;
 use crate::error::{GatherErrorIteratorExt, CompileError, Diagnostic};
 use crate::pos::{Sp, Span};
-use crate::value::ScalarType;
+use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
 use crate::ast::TypeKeyword;
 
@@ -33,7 +33,7 @@ pub fn extra_checks(checks: &[ShallowTypeCheck], ctx: &CompilerContext) -> Resul
 /// Represents an auxilliary type-check that isn't normally performed by the `type_check` pass.
 pub struct ShallowTypeCheck {
     pub expr: Sp<ast::Expr>,
-    pub ty: Option<ScalarType>,
+    pub ty: ExprType,
     pub cause: Option<Span>,
 }
 
@@ -213,14 +213,14 @@ impl<'a> Visitor<'a> {
     /// Fully check an expression and all subexpressions, and return the type.
     ///
     /// (`None` for a `void` (unit) type).
-    fn check_expr(&self, expr: &Sp<ast::Expr>) -> Result<Option<ScalarType>, CompileError> {
+    fn check_expr(&self, expr: &Sp<ast::Expr>) -> Result<ExprType, CompileError> {
         let out = match expr.value {
-            ast::Expr::LitFloat { .. } => Some(ScalarType::Float),
-            ast::Expr::LitInt { .. } => Some(ScalarType::Int),
-            ast::Expr::LitString { .. } => Some(ScalarType::String),
+            ast::Expr::LitFloat { .. } => ExprType::Value(ScalarType::Float),
+            ast::Expr::LitInt { .. } => ExprType::Value(ScalarType::Int),
+            ast::Expr::LitString { .. } => ExprType::Value(ScalarType::String),
 
             ast::Expr::Var(ref var)
-            => Some(self.check_var(var)?),
+            => ExprType::Value(self.check_var(var)?),
 
             ast::Expr::Binop(ref a, op, ref b)
             => {
@@ -229,7 +229,7 @@ impl<'a> Visitor<'a> {
                 let b_ty = require_value(b_ty, op.span, b.span)?;
 
                 ast::Expr::binop_check(op, (a_ty, b_ty), (a.span, b.span))?;
-                Some(ast::Expr::binop_ty(op.value, &a.value, self.ctx))
+                ExprType::Value(ast::Expr::binop_ty(op.value, &a.value, self.ctx))
             },
 
             ast::Expr::Unop(op, ref x)
@@ -238,7 +238,7 @@ impl<'a> Visitor<'a> {
                 let x_ty = require_value(x_ty, op.span, x.span)?;
 
                 ast::Expr::unop_check(op, x_ty, x.span)?;
-                Some(ast::Expr::unop_ty(op.value, &x.value, self.ctx))
+                ExprType::Value(ast::Expr::unop_ty(op.value, &x.value, self.ctx))
             },
 
             ast::Expr::Ternary { ref cond, question, ref left, colon, ref right }
@@ -252,7 +252,7 @@ impl<'a> Visitor<'a> {
 
                 require_int(cond_ty, question.span, cond.span)?;
                 require_same((left_ty, right_ty), colon.span, (left.span, right.span))?;
-                Some(left_ty)
+                ExprType::Value(left_ty)
             },
 
             ast::Expr::Call { ref name, ref pseudos, ref args, }
@@ -275,8 +275,8 @@ impl<'a> Visitor<'a> {
         self.check_var_weak(var)?;
 
         // forbid 'int %x;'
-        if let Some(decl_ty) = keyword.var_ty() {
-            let var_ty = self.ctx.var_read_ty_from_ast(var).expect("must be Some since var is typed");
+        if let VarType::Typed(decl_ty) = keyword.var_ty() {
+            let var_ty = self.ctx.var_read_ty_from_ast(var).as_known_ty().expect("var is typed");
             _require_exact(decl_ty, var_ty, keyword.span, var.span)?;
         }
 
@@ -292,23 +292,25 @@ impl<'a> Visitor<'a> {
 
     /// Weaker version of [`Self::check_var`] that applies even in places where the variable is neither read
     /// nor written, such as in `int x;`.
+    ///
+    /// NOTE: while sigils aren't currently allowed in declarations, they could be in the future.
     fn check_var_weak(&self, var: &Sp<ast::Var>) -> Result<(), CompileError> {
         let inherent_ty = self.ctx.var_inherent_ty_from_ast(var);
         let read_ty = var.ty_sigil;
         match inherent_ty {
             // no restrictions on these
-            | None
-            | Some(ScalarType::Int)
-            | Some(ScalarType::Float)
+            | VarType::Untyped
+            | VarType::Typed(ScalarType::Int)
+            | VarType::Typed(ScalarType::Float)
             => {},
 
             // these can't have sigils
-            | Some(ScalarType::String)
+            | VarType::Typed(own_ty@ScalarType::String)
             => match read_ty {
                 None => {},  // good; no sigil
                 Some(read_ty) => return Err(error!(
                     message("type error"),
-                    primary(var, "cannot cast {} to {}", inherent_ty.unwrap().descr(), ScalarType::from(read_ty).descr()),
+                    primary(var, "cannot cast {} to {}", own_ty.descr(), ScalarType::from(read_ty).descr()),
                 )),
             }
         };
@@ -319,7 +321,7 @@ impl<'a> Visitor<'a> {
     fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
         self.check_var_weak(var)?;
 
-        self.ctx.var_read_ty_from_ast(var).ok_or_else(|| {
+        self.ctx.var_read_ty_from_ast(var).as_known_ty().ok_or_else(|| {
             let mut err = crate::error::Diagnostic::error();
             err.message(format!("variable requires a type prefix"));
             err.primary(var, format!("needs a '$' or '%' prefix"));
@@ -331,13 +333,13 @@ impl<'a> Visitor<'a> {
         })
     }
 
-    /// Check a function call, and get its return type.  (None for void)
+    /// Check a function call, and get its return type.
     fn check_expr_call(
         &self,
         name: &Sp<ast::CallableName>,
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<ast::Expr>],
-    ) -> Result<Option<ScalarType>, CompileError> {
+    ) -> Result<ExprType, CompileError> {
         // type check pseudos
         pseudos.iter().map(|pseudo| {
             let ast::PseudoArg { kind, ref value, at_sign: _, eq_sign: _ } = pseudo.value;
@@ -358,7 +360,7 @@ impl<'a> Visitor<'a> {
                 }
 
                 // Since there are no normal args to type check, we are done.
-                return Ok(None);  // always void when providing a blob
+                return Ok(ExprType::Void);  // always void when providing a blob
             }
         }
 
@@ -387,7 +389,7 @@ impl<'a> Visitor<'a> {
         zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
             let arg_ty = self.check_expr(arg)?;
             let arg_ty = require_value(arg_ty, name.span, arg.span)?;
-            if let Some(param_ty) = param.ty.value {
+            if let VarType::Typed(param_ty) = param.ty.value {
                 if arg_ty != param_ty {
                     return Err(error!(
                         message("type error"),
@@ -413,27 +415,27 @@ impl ast::Expr {
     /// This may need to recurse into subexpressions, though it tries to generally do minimal work.
     /// It assumes that the expression has already been type-checked.  When provided an invalid
     /// expression, it may return anything.
-    pub fn compute_ty(&self, ctx: &CompilerContext) -> Option<ScalarType> {
+    pub fn compute_ty(&self, ctx: &CompilerContext) -> ExprType {
         match self {
-            ast::Expr::LitFloat { .. } => Some(ScalarType::Float),
-            ast::Expr::LitInt { .. } => Some(ScalarType::Int),
-            ast::Expr::LitString { .. } => Some(ScalarType::String),
+            ast::Expr::LitFloat { .. } => ExprType::Value(ScalarType::Float),
+            ast::Expr::LitInt { .. } => ExprType::Value(ScalarType::Int),
+            ast::Expr::LitString { .. } => ExprType::Value(ScalarType::String),
 
             ast::Expr::Var(ref var)
-            => Some(ctx.var_read_ty_from_ast(var).expect("already type-checked")),
+            => ExprType::Value(ctx.var_read_ty_from_ast(var).as_known_ty().expect("already type-checked")),
 
             ast::Expr::Binop(ref a, op, _)
-            => Some(ast::Expr::binop_ty(op.value, &a.value, ctx)),
+            => ExprType::Value(ast::Expr::binop_ty(op.value, &a.value, ctx)),
 
             ast::Expr::Unop(op, ref x)
-            => Some(ast::Expr::unop_ty(op.value, &x.value, ctx)),
+            => ExprType::Value(ast::Expr::unop_ty(op.value, &x.value, ctx)),
 
             ast::Expr::Ternary { ref left, .. }
             => left.compute_ty(ctx),
 
             ast::Expr::Call { ref pseudos, ref name, .. } => {
                 if pseudos.iter().any(|x| matches!(x.kind.value, token![blob])) {
-                    None  // args blob always produces void
+                    ExprType::Void  // args blob always produces void
                 } else {
                     ctx.func_signature_from_ast(name).expect("already type-checked")
                         .return_ty.value
@@ -475,7 +477,7 @@ impl ast::Expr {
 
         match op {
             | B::Add | B::Sub | B::Mul | B::Div | B::Rem
-            => arg.compute_ty(ctx).expect("shouldn't be void"),
+            => arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"),
 
             | B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge
             => ScalarType::Int,
@@ -508,7 +510,7 @@ impl ast::Expr {
     /// invalid combination of operator and arguments, it may return anything.
     pub fn unop_ty(op: ast::UnopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
         match op {
-            token![unop -] => arg.compute_ty(ctx).expect("shouldn't be void"),
+            token![unop -] => arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"),
             token![unop !] => ScalarType::Int,
 
             token![unop sin] |
@@ -536,8 +538,8 @@ fn perform_shallow_type_check(check: &ShallowTypeCheck, ctx: &CompilerContext) -
     let actual_ty = expr.compute_ty(ctx);
     let cause = cause.unwrap_or(expr.span);
     match expected_ty {
-        None => require_void(actual_ty, expr.span, "expected void type"),
-        Some(expected_ty) => {
+        ExprType::Void => require_void(actual_ty, expr.span, "expected void type"),
+        ExprType::Value(expected_ty) => {
             let actual_ty = require_value(actual_ty, cause, expr.span)?;
             _require_exact(actual_ty, expected_ty, cause, expr.span)
         },
@@ -614,8 +616,8 @@ fn require_numeric(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), 
 }
 
 /// Reject void types.
-fn require_value(ty: Option<ScalarType>, cause: Span, span: Span) -> Result<ScalarType, CompileError> {
-    ty.ok_or_else(|| {
+fn require_value(ty: ExprType, cause: Span, span: Span) -> Result<ScalarType, CompileError> {
+    ty.as_value_ty().ok_or_else(|| {
         let mut error = Diagnostic::error();
         error.message(format!("type error"));
         error.primary(span, format!("void type"));
@@ -626,13 +628,13 @@ fn require_value(ty: Option<ScalarType>, cause: Span, span: Span) -> Result<Scal
     })
 }
 
-fn require_void(ty: Option<ScalarType>, span: Span, note: &str) -> Result<(), CompileError> {
+fn require_void(ty: ExprType, span: Span, note: &str) -> Result<(), CompileError> {
     match ty {
-        Some(ty) => Err(error!(
+        ExprType::Value(ty) => Err(error!(
             message("type error"),
             primary(span, "{}", ty.descr()),
             note("{}", note),
         )),
-        None => Ok(()),
+        ExprType::Void => Ok(()),
     }
 }

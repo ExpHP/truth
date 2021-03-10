@@ -244,7 +244,7 @@ pub mod rib {
                             secondary(local_span, "defined here"),
                         ));
                     } else {
-                        return Ok(def.def_id)
+                        return Ok(def.def_id);
                     }
                 }
             } // for rib in ....
@@ -326,7 +326,8 @@ mod resolve_vars {
                         self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Params);
 
                         for (ty_keyword, ident) in params {
-                            let def_id = self.ctx.define_local(ident.clone(), ty_keyword.var_ty());
+                            let var_ty = ty_keyword.value.var_ty();
+                            let def_id = self.ctx.define_local(ident.clone(), var_ty);
                             self.add_to_rib_with_redefinition_check(
                                 Namespace::Vars, RibKind::Params, ident.clone(), def_id,
                             );
@@ -373,9 +374,9 @@ mod resolve_vars {
         }
 
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
-            match &x.body {
-                ast::StmtBody::Declaration { keyword, vars } => {
-                    let ty = keyword.var_ty();
+            match x.body {
+                ast::StmtBody::Declaration { keyword, ref vars } => {
+                    let var_ty = keyword.value.var_ty();
 
                     for pair in vars {
                         let (var, init_value) = &pair.value;
@@ -387,7 +388,7 @@ mod resolve_vars {
                             }
 
                             let sp_ident = sp!(var.span => ident.clone());
-                            let def_id = self.ctx.define_local(sp_ident.clone(), ty);
+                            let def_id = self.ctx.define_local(sp_ident.clone(), var_ty);
                             self.add_to_rib_with_redefinition_check(
                                 Namespace::Vars, RibKind::Locals, sp_ident.clone(), def_id,
                             );
@@ -397,7 +398,7 @@ mod resolve_vars {
                     }
                 },
 
-                ast::StmtBody::Item(item) => self.visit_item(item),
+                ast::StmtBody::Item(ref item) => self.visit_item(item),
 
                 _ => ast::walk_stmt(self, x),
             }
@@ -472,7 +473,7 @@ mod resolve_vars {
                 },
 
                 ast::Item::ConstVar { keyword, ref vars } => {
-                    let ty = keyword.var_ty().expect("untyped consts don't parse");
+                    let ty = keyword.value.var_ty().as_known_ty().expect("untyped consts don't parse");
 
                     for sp_pat![(var, expr)] in vars {
                         let ident = var.name.expect_ident();

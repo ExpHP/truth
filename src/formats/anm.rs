@@ -415,7 +415,7 @@ fn gather_sprite_id_exprs(
                 // currently nothing else can really type-check this before const evaluation, so add a deferred check
                 extra_type_checks.push(crate::passes::type_check::ShallowTypeCheck {
                     expr: id_expr.clone(),
-                    ty: Some(ScalarType::Int),
+                    ty: ScalarType::Int.into(),
                     cause: None,
                 });
                 // restart numbering from the new id
