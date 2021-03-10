@@ -544,12 +544,12 @@ impl Format for meta::Fields {
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
-            ast::Item::Func { qualifier, keyword, ident, params, code, } => {
+            ast::Item::Func { qualifier, ty_keyword, ident, params, code, } => {
                 if let Some(qualifier) = qualifier {
                     out.fmt((qualifier, " "))?;
                 }
 
-                out.fmt((keyword, " ", ident))?;
+                out.fmt((ty_keyword, " ", ident))?;
                 out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
 
                 out.state.time_stack.push(0);
@@ -578,8 +578,8 @@ impl Format for ast::Item {
                 out.fmt(meta)?;
                 out.next_line()
             },
-            ast::Item::ConstVar { keyword, vars } => {
-                out.fmt(("const ", keyword, " "))?;
+            ast::Item::ConstVar { ty_keyword, vars } => {
+                out.fmt(("const ", ty_keyword, " "))?;
                 out.fmt_separated(
                     vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),
                     |out| out.fmt(", "),
@@ -680,8 +680,8 @@ impl Format for ast::StmtBody {
                 out.fmt((var, " ", op, " ", SuppressParens(value), ";"))
             },
 
-            ast::StmtBody::Declaration { keyword: ty, vars } => {
-                out.fmt((ty, " "))?;
+            ast::StmtBody::Declaration { ty_keyword, vars } => {
+                out.fmt((ty_keyword, " "))?;
 
                 let mut first = true;
                 for pair in vars {

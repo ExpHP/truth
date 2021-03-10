@@ -66,8 +66,8 @@ impl Lowerer<'_> {
                 },
 
 
-                ast::StmtBody::Declaration { keyword, vars } => {
-                    self.lower_var_declaration(stmt.span, stmt.time, keyword, vars)?;
+                ast::StmtBody::Declaration { ty_keyword, vars } => {
+                    self.lower_var_declaration(stmt.span, stmt.time, ty_keyword, vars)?;
                 },
 
 

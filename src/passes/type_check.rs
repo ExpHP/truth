@@ -102,8 +102,8 @@ impl ast::Visit for Visitor<'_> {
                 ast::walk_block(self, block);
             },
 
-            ast::StmtBody::Declaration { keyword, vars } => {
-                if let Err(e) = self.check_stmt_declaration(*keyword, vars) {
+            ast::StmtBody::Declaration { ty_keyword, vars } => {
+                if let Err(e) = self.check_stmt_declaration(*ty_keyword, vars) {
                     self.errors.append(e);
                 }
             },

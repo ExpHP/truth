@@ -375,8 +375,8 @@ mod resolve_vars {
 
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
             match x.body {
-                ast::StmtBody::Declaration { keyword, ref vars } => {
-                    let var_ty = keyword.value.var_ty();
+                ast::StmtBody::Declaration { ty_keyword, ref vars } => {
+                    let var_ty = ty_keyword.value.var_ty();
 
                     for pair in vars {
                         let (var, init_value) = &pair.value;
@@ -465,16 +465,16 @@ mod resolve_vars {
         /// This is called extremely early on items in a block, allowing items to be defined after they are used.
         fn add_item_to_scope<'b>(&mut self, item: &Sp<ast::Item>) {
             match item.value {
-                ast::Item::Func { ref ident, keyword, ref params, qualifier, code: _ } => {
-                    let siggy = crate::context::defs::Signature::from_func_params(keyword, params);
+                ast::Item::Func { ref ident, ty_keyword, ref params, qualifier, code: _ } => {
+                    let siggy = crate::context::defs::Signature::from_func_params(ty_keyword, params);
                     let def_id = self.ctx.define_user_func(ident.clone(), qualifier, siggy);
                     self.add_to_rib_with_redefinition_check(
                         Namespace::Funcs, RibKind::Items, ident.clone(), def_id,
                     );
                 },
 
-                ast::Item::ConstVar { keyword, ref vars } => {
-                    let ty = keyword.value.var_ty().as_known_ty().expect("untyped consts don't parse");
+                ast::Item::ConstVar { ty_keyword, ref vars } => {
+                    let ty = ty_keyword.value.var_ty().as_known_ty().expect("untyped consts don't parse");
 
                     for sp_pat![(var, expr)] in vars {
                         let ident = var.name.expect_ident();

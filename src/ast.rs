@@ -71,8 +71,7 @@ impl Script {
 pub enum Item {
     Func {
         qualifier: Option<Sp<FuncQualifier>>,
-        // FIXME: rename to ty_keyword
-        keyword: Sp<TypeKeyword>,
+        ty_keyword: Sp<TypeKeyword>,
         ident: Sp<ResIdent>,
         params: Vec<FuncParam>,
         /// `Some` for definitions, `None` for declarations.
@@ -90,7 +89,7 @@ pub enum Item {
         fields: Sp<meta::Fields>,
     },
     ConstVar {
-        keyword: Sp<TypeKeyword>,
+        ty_keyword: Sp<TypeKeyword>,
         vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
     },
 }
@@ -208,8 +207,7 @@ pub enum StmtBody {
 
     /// Local variable declaration `int a = 20;`. (`const` vars fall under [`Self::Item`] instead)
     Declaration {
-        // FIXME: rename to ty_keyword
-        keyword: Sp<TypeKeyword>,
+        ty_keyword: Sp<TypeKeyword>,
         vars: Vec<Sp<(Sp<Var>, Option<Sp<Expr>>)>>,
     },
 
@@ -766,7 +764,7 @@ macro_rules! generate_visitor_stuff {
         {
             match & $($mut)? x.value {
                 Item::Func {
-                    code, qualifier: _, keyword: _, ident, params,
+                    code, qualifier: _, ty_keyword: _, ident, params,
                 } => {
                     v.visit_res_ident(ident);
                     if let Some(code) = code {
@@ -783,7 +781,7 @@ macro_rules! generate_visitor_stuff {
                 Item::Meta { keyword: _, ident: _, fields } => {
                     walk_meta_fields(v, fields);
                 },
-                Item::ConstVar { keyword: _, vars } => {
+                Item::ConstVar { ty_keyword: _, vars } => {
                     for sp_pat![(var, expr)] in vars {
                         v.visit_var(var);
                         v.visit_expr(expr);
@@ -879,7 +877,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_var(var);
                     v.visit_expr(value);
                 },
-                StmtBody::Declaration { keyword: _, vars } => {
+                StmtBody::Declaration { ty_keyword: _, vars } => {
                     for sp_pat![(var, value)] in vars {
                         v.visit_var(var);
                         if let Some(value) = value {

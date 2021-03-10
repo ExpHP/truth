@@ -193,15 +193,15 @@ ItemMeta: ast::Item = {
 };
 
 ItemConstVar: ast::Item = {
-    "const" <keyword:Sp<ConstVarTypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
-        => ast::Item::ConstVar { keyword, vars },
+    "const" <ty_keyword:Sp<ConstVarTypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
+        => ast::Item::ConstVar { ty_keyword, vars },
 };
 
 ItemFunc: ast::Item = {
-    <qualifier:Sp<SingleFuncQualifier>?> <keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
+    <qualifier:Sp<SingleFuncQualifier>?> <ty_keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
         "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
         _TimeStackEnter <code:FuncBodyOrSemicolon> _TimeStackPop
-        => ast::Item::Func { qualifier, keyword, ident, params, code },
+        => ast::Item::Func { qualifier, ty_keyword, ident, params, code },
 
     Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> =>? Err(error!(
         message("too many function qualifiers"),
@@ -324,8 +324,8 @@ StmtBody: ast::StmtBody = {
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
         => ast::StmtBody::Assignment { var, op, value },
 
-    <keyword:Sp<LocalVarTypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        => ast::StmtBody::Declaration { keyword, vars },
+    <ty_keyword:Sp<LocalVarTypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
+        => ast::StmtBody::Declaration { ty_keyword, vars },
 
     StmtSpecialCall,
 }

@@ -65,7 +65,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
 
     fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
         match &x.body {
-            ast::StmtBody::Declaration { keyword: _, vars } => {
+            ast::StmtBody::Declaration { ty_keyword: _, vars } => {
                 for pair in vars {
                     let (var, _) = &pair.value;
                     if let ast::VarName::Normal { ident } = &var.value.name {
@@ -140,7 +140,7 @@ impl<'a> Desugarer<'a> {
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
                                 body: ast::StmtBody::Declaration {
-                                    keyword: sp!(count.span => token![int]),
+                                    ty_keyword: sp!(count.span => token![int]),
                                     vars: vec![sp!(count.span => (var.clone(), None))]
                                 },
                             }));
