@@ -20,7 +20,7 @@ pub struct Format {
 }
 
 pub struct ScriptParts<'a> {
-    pub items_before: &'a str,
+    pub items: &'a str,
     pub main_body: &'a str,
 }
 
@@ -58,10 +58,8 @@ impl Format {
     ///
     /// The comparison of the two compiled files helps check to make sure that the decompilation
     /// step did not accidentally change the meaning of the code.
-    pub fn sbsb_test(&self, main_body: &str, with_decompiled: impl FnOnce(&str)) {
+    pub fn sbsb_test(&self, original_source: &TestFile, with_decompiled: impl FnOnce(&str)) {
         truth::setup_for_test_harness();
-
-        let original_source = self.make_source("original source", ScriptParts { items_before: "", main_body });
 
         let compiled = self.compile(&original_source);
         let decompiled = self.decompile(&compiled);
@@ -80,7 +78,7 @@ impl Format {
         TestFile::from_content(descr, format!(
             "{}\n{}\n{}",
             self.script_head,
-            script_parts.items_before,
+            script_parts.items,
             (self.make_main)(script_parts.main_body),
         ))
     }
@@ -235,38 +233,81 @@ macro_rules! first_token {
     ($tok:tt $($rest:tt)*) => { $tok };
 }
 
-macro_rules! compile_fail_test {
+/// Generates a test that does *something* to a source script.
+///
+/// The purpose of this is to reduce the friction to writing tests as much as possible.
+/// It reduces noise by allowing things not relevant to a given test to be left out.  It also
+/// reduces the amount of busywork in converting a test back and forth between a compile-succeed
+/// test and a compile-fail test. (you just replace a `check:` closure with an `expect_fail:` string)
+macro_rules! source_test {
     (
         $format:expr, $test_name:ident
 
+        // -------------------------
         // args to make_source!
-        $(, items_before: $items_before:expr)?
+        $(, items: $items:expr)?
         $(, main_body: $main_body:expr)?
         $(, full_source: $full_source:expr)?
 
-        // (optional) check that the STDERR text contains a substring.
-        // This helps ensure that compilation is failing for a legitimate reason.
+        // -------------------------
+        // Test details
+        //
+        // You must supply one of the following things:
+
+        // Compile the code and run the given closure on the compiled TestFile.
+        $(, check_compiled:$check_fn:expr)?
+
+        // Does an "SBSB" test to test decompilation of a file compiled from simple source.
+        //
+        // IMPORTANT: Please see the documentation of Format::sbsb_test for more information.
+        $(, sbsb: $sbsb_check_fn:expr)?
+
+        // Do a compile-fail snapshot test.
+        //
+        // Requires a string to search for in the STDERR output.
+        // (This helps ensure that compilation is failing for a legitimate reason.)
         //
         // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
         // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
         // Whenever this occurs, just review the new outputs and make sure that the new errors are still
         // related to what they were originally testing.
         // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
-        $(, expected: $expected:expr)?
+        $(, expect_fail: $expect_fail_msg:expr)?
+
         $(,)?
     ) => {
         #[test]
         fn $test_name() {
+            // make it error if there's no `check:` or `expect_fail:`
+            #![deny(unused)]
+
             truth::setup_for_test_harness();
 
             let source = make_source!(
                 $format
-                $(, items_before: $items_before)?
+                $(, items: $items)?
                 $(, main_body: $main_body)?
                 $(, full_source: $full_source)?
             );
-            let stderr = $format.compile_fail_stderr(&source);
-            _check_compile_fail_output!(stderr $(, expected: $expected)?);
+
+            $(
+                let outfile = $format.compile(&source);
+                // annotate closure so that method lookup works
+                let check_fn: fn(&crate::integration_impl::TestFile, &crate::integration_impl::Format) = $check_fn;
+                check_fn(&outfile, &$format);
+                return;
+            )?
+
+            $(
+                $format.sbsb_test(&source, $sbsb_check_fn);
+                return;
+            )?
+
+            $(
+                let stderr = $format.compile_fail_stderr(&source);
+                _check_compile_fail_output!(stderr, expected: $expect_fail_msg);
+                return;
+            )?
         }
     };
 }
@@ -276,7 +317,7 @@ macro_rules! make_source {
         $format:expr
 
         // (optional) other items you want in the script
-        $(, items_before: $items_before:expr)?
+        $(, items: $items:expr)?
 
         // the statements to compile into a function body
         $(, main_body: $main_body:expr)?
@@ -293,7 +334,7 @@ macro_rules! make_source {
         $(,)?
     ) => {
         $format.make_source("original.spec", crate::integration_impl::ScriptParts {
-            items_before: first_token!( $($items_before)? "" ),
+            items: first_token!( $($items)? "" ),
             main_body: first_token!( $($main_body)? "" ),
         })
     };

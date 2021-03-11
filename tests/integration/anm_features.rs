@@ -4,13 +4,12 @@ use crate::integration_impl::{TestFile, expected};
 // =============================================================================
 // Image sources
 
-compile_fail_test!(
+source_test!(
     ANM_10, image_source_does_not_exist,
-    items_before: r#"
+    items: r#"
         #pragma image_source "this/is/a/bad/path"
     "#,
-    main_body: "",
-    expected: "reading file",
+    expect_fail: "reading file",
 );
 
 // Tests that copy an embedded image
@@ -21,10 +20,9 @@ mod embedded_image {
     //  whose original source can be seen at "th12-embedded-image-source.anm.spec"
 
     // This input gathers its image from an existing anm file.
-    #[test]
-    fn full() {
-        let format = &ANM_12;
-        let anm = format.compile(&TestFile::from_content("input", r#"
+    source_test!(
+        ANM_12, full,
+        full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
 
@@ -46,17 +44,19 @@ entry {
 script -45 script0 {
     delete();
 }
-"#)).read_anm(format);
-        assert_eq!(anm.entries[0].specs.offset_x, Some(200));
-    }
+"#,
+        check_compiled:|output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.offset_x, Some(200));
+        },
+    );
 
     // This input gathers both an image and its metadata from an existing anm file.
     //
     // It also overrides sprites and scripts.
-    #[test]
-    fn partial() {
-        let format = &ANM_12;
-        let anm = format.compile(&TestFile::from_content("input", r#"
+    source_test!(
+        ANM_12, partial,
+        full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
 
@@ -75,11 +75,14 @@ script -45 script0 {
 script script1 {
     static();
 }
-"#)).read_anm(format);
-        assert_eq!(anm.entries[0].sprites[0].offset, [12.0, 0.0]);
-        assert_eq!(anm.entries[0].scripts.len(), 2);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 2);
-    }
+"#,
+        check_compiled:|output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].sprites[0].offset, [12.0, 0.0]);
+            assert_eq!(anm.entries[0].scripts.len(), 2);
+            assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 2);
+        },
+    );
 }
 
 // Tests with no image source.
@@ -87,10 +90,9 @@ mod no_source {
     use super::*;
 
     // Test that it is possible to compile ANM scripts that require no image source.
-    #[test]
-    fn okay() {
-        let format = &ANM_12;
-        format.compile(&TestFile::from_content("input", r#"
+    source_test!(
+        ANM_12, okay,
+        full_source: r#"
 #pragma mapfile "map/any.anmm"
 
 entry {
@@ -111,11 +113,14 @@ entry {
 script -45 script0 {
     delete();
 }
-"#)).read_anm(format);
-    }
+"#,
+        check_compiled:|output, format| {
+            output.read_anm(format);
+        }
+    );
 
     // This input is like 'okay' but it is missing some metadata.
-    compile_fail_test!(
+    source_test!(
         ANM_12, err_missing_metadata,
         full_source: r#"
 #pragma mapfile "map/any.anmm"
@@ -130,11 +135,11 @@ script -45 script0 {
     delete();
 }
         "#,
-        expected: "required field",
+        expect_fail: "required field",
     );
 
     // This input is identical to 'okay' except with has_data: true, so it will fail.
-    compile_fail_test!(
+    source_test!(
         ANM_12, err_missing_image,
         full_source: r#"
 #pragma mapfile "map/any.anmm"
@@ -157,17 +162,16 @@ script -45 script0 {
     delete();
 }
         "#,
-        expected: "no bitmap data",
+        expect_fail: "no bitmap data",
     );
 }
 
 // This file tests that metadata is grabbed from the entry with the matching name
 // even when out of order.
-#[test]
-fn multiple_match() {
+source_test!(
+    ANM_12, multiple_match,
     // Note for all_files_tested(): image source based on "th12-multiple-match-source.anm.spec"
-    let format = &ANM_12;
-    let anm = format.compile(&TestFile::from_content("input", r#"
+    full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
 
 entry {
@@ -189,22 +193,24 @@ entry {
 script script1 {
     ins_2();
 }
-    "#)).read_anm(format);
-    assert_eq!(anm.entries[0].specs.width, Some(2000));  // pulled from file1
-    assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-    assert_eq!(anm.entries[1].specs.width, Some(1000));  // pulled from file2
-    assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
-    assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].specs.width, Some(2000));  // pulled from file1
+        assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
+        assert_eq!(anm.entries[1].specs.width, Some(1000));  // pulled from file2
+        assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
+        assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
+    },
+);
 
 // This file tests that metadata can be grabbed from multiple entries with the
 // same path; they are matched by order in the file.
-#[test]
-fn multiple_same() {
+source_test!(
+    ANM_12, multiple_same,
     // Note for all_files_tested(): image source based on "th12-multiple-same-source.anm.spec"
-    let format = &ANM_12;
-    let anm = format.compile(&TestFile::from_content("input", r#"
+    full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-same-source.anm"
 
 entry {
@@ -226,31 +232,32 @@ entry {
 script script1 {
     ins_2();
 }
-    "#)).read_anm(format);
-    assert_eq!(anm.entries[0].specs.width, Some(1000));
-    assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-    assert_eq!(anm.entries[1].specs.width, Some(2000));
-    assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
-    assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].specs.width, Some(1000));
+        assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
+        assert_eq!(anm.entries[1].specs.width, Some(2000));
+        assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
+        assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
+    },
+);
 
 // FIXME somehow group these image_source tests so that new formats are automatically tested?
-compile_fail_test!(
+source_test!(
     STD_08, image_source_in_std,
-    items_before: r#"
+    items: r#"
         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
     "#,
-    main_body: "",
-    expected: "unexpected image_source",
+    expect_fail: "unexpected image_source",
 );
-compile_fail_test!(
+source_test!(
     MSG_06, image_source_in_msg,
-    items_before: r#"
+    items: r#"
         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
     "#,
-    main_body: "",
-    expected: "unexpected image_source",
+    expect_fail: "unexpected image_source",
 );
 
 // =============================================================================
@@ -259,10 +266,9 @@ compile_fail_test!(
 // This is the first written test of const vars that depend on other const vars.
 // (sprite IDs were the first const vars implemented in the compiler, even before
 //  const var items!)
-#[test]
-fn sprite_ids_gone_wild() {
-    let format = &ANM_12;
-    let anm = format.compile(&TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, sprite_ids_gone_wild,
+    full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
 
 entry {
@@ -288,18 +294,21 @@ entry {
 script script0 {
     ins_1();
 }
-    "#)).read_anm(format);
-    assert_eq!(anm.entries[0].sprites[0].id, Some(2));
-    assert_eq!(anm.entries[0].sprites[1].id, None);  // 3
-    assert_eq!(anm.entries[0].sprites[2].id, Some(53));
-    assert_eq!(anm.entries[0].sprites[3].id, Some(400));
-    assert_eq!(anm.entries[1].sprites[0].id, None);  // 401
-    assert_eq!(anm.entries[1].sprites[1].id, Some(404));
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].sprites[0].id, Some(2));
+        assert_eq!(anm.entries[0].sprites[1].id, None);  // 3
+        assert_eq!(anm.entries[0].sprites[2].id, Some(53));
+        assert_eq!(anm.entries[0].sprites[3].id, Some(400));
+        assert_eq!(anm.entries[1].sprites[0].id, None);  // 401
+        assert_eq!(anm.entries[1].sprites[1].id, Some(404));
+    },
+);
 
-compile_fail_test!(
+source_test!(
     ANM_10, meta_sprite_id_circular_dependency,
-    items_before: r#"
+    items: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
@@ -310,13 +319,12 @@ entry {
     },
 }
     "#,
-    main_body: "",
-    expected: "depends on its own value",
+    expect_fail: "depends on its own value",
 );
 
-compile_fail_test!(
+source_test!(
     ANM_10, meta_non_const,
-    items_before: r#"
+    items: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
@@ -327,18 +335,16 @@ entry {
     },
 }
     "#,
-    main_body: "",
     // NOTE: be careful changing this.  If the new error complains about missing fields
     // or missing image data, fix the test input instead.
-    expected: "const",
+    expect_fail: "const",
 );
 
 // It is okay for two sprites to have the same name (this occurs in decompiled output),
 // but they must also have the same ID.
-#[test]
-fn sprite_ids_dupe() {
-    let format = &ANM_12;
-    let anm = format.compile(&TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, sprite_ids_dupe,
+    full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
 
 entry {
@@ -361,17 +367,19 @@ entry {
 script script0 {
     ins_1();
 }
-    "#)).read_anm(format);
-    assert_eq!(anm.entries[0].sprites[0].id, Some(53));
-    assert_eq!(anm.entries[1].sprites[0].id, Some(24));
-    assert_eq!(anm.entries[1].sprites[1].id, Some(53));
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].sprites[0].id, Some(53));
+        assert_eq!(anm.entries[1].sprites[0].id, Some(24));
+        assert_eq!(anm.entries[1].sprites[1].id, Some(53));
+    },
+);
 
 // same but one's implicit
-#[test]
-fn sprite_ids_dupe_implicit() {
-    let format = &ANM_12;
-    let anm = format.compile(&TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, sprite_ids_dupe_implicit,
+    full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
 
 entry {
@@ -394,14 +402,17 @@ entry {
 script script0 {
     ins_1();
 }
-    "#)).read_anm(format);
-    assert_eq!(anm.entries[0].sprites[0].id, Some(53));
-    assert_eq!(anm.entries[1].sprites[0].id, Some(52));
-    assert_eq!(anm.entries[1].sprites[1].id, None);  // 53
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].sprites[0].id, Some(53));
+        assert_eq!(anm.entries[1].sprites[0].id, Some(52));
+        assert_eq!(anm.entries[1].sprites[1].id, None);  // 53
+    },
+);
 
 // Now they have mismatched IDs.
-compile_fail_test!(
+source_test!(
     ANM_12, err_sprite_clash,
     full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
@@ -422,11 +433,11 @@ script script0 {
     ins_1();
 }
     "#,
-    expected: "ambiguous"
+    expect_fail: "ambiguous"
 );
 
 // Same but one's implicit.
-compile_fail_test!(
+source_test!(
     ANM_12, err_sprite_clash_implicit,
     full_source: r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
@@ -447,13 +458,13 @@ script script0 {
     ins_1();
 }
     "#,
-    expected: "ambiguous"
+    expect_fail: "ambiguous"
 );
 
 // Type-checking/const-checking sprite IDs is actually a bit annoying.
-compile_fail_test!(
+source_test!(
     ANM_10, meta_sprite_id_type_error,
-    items_before: r#"
+    items: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
@@ -462,13 +473,12 @@ entry {
     },
 }
     "#,
-    main_body: "",
-    expected: expected::TYPE_ERROR,
+    expect_fail: expected::TYPE_ERROR,
 );
 
-compile_fail_test!(
+source_test!(
     ANM_10, meta_sprite_id_non_const,
-    items_before: r#"
+    items: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
@@ -477,15 +487,14 @@ entry {
     },
 }
     "#,
-    main_body: "",
-    expected: "const",
+    expect_fail: "const",
 );
 
 // Dupes may follow different code paths for type checking and const checking since
 // the expressions are never used beyond checking equality to the originals.
-compile_fail_test!(
+source_test!(
     ANM_10, meta_sprite_id_dupe_type_error,
-    items_before: r#"
+    items: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
@@ -501,13 +510,12 @@ entry {
     },
 }
     "#,
-    main_body: "",
-    expected: expected::TYPE_ERROR,
+    expect_fail: expected::TYPE_ERROR,
 );
 
-compile_fail_test!(
+source_test!(
     ANM_10, meta_sprite_id_dupe_non_const,
-    items_before: r#"
+    items: r#"
 entry {
     path: "subdir/file-2.png",
     has_data: false,
@@ -523,14 +531,12 @@ entry {
     },
 }
     "#,
-    main_body: "",
-    expected: "const",
+    expect_fail: "const",
 );
 
-#[test]
-fn const_using_sprite_id() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, const_using_sprite_id,
+    full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
 
@@ -547,15 +553,16 @@ const int B = sprite0;
 script script0 {
     ins_3(B);
 }
-    "#);
-    let anm = format.compile(&source).read_anm(&format);
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0])
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+    },
+);
 
-#[test]
-fn sprite_id_using_const() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, sprite_id_using_const,
+    full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
 
@@ -572,15 +579,16 @@ const int B = 10;
 script script0 {
     ins_3(sprite);
 }
-    "#);
-    let anm = format.compile(&source).read_anm(&format);
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0])
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+    },
+);
 
-#[test]
-fn const_shadows_sprite_id() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, const_shadows_sprite_id,
+    full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
 
@@ -598,14 +606,16 @@ const int B = 10;
 script script0 {
     ins_3(B);
 }
-    "#);
-    let anm = format.compile(&source).read_anm(&format);
-    assert_eq!(anm.entries[0].sprites[0].id, Some(42));
-    assert_eq!(anm.entries[0].sprites[1].id, Some(12));
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0])
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].sprites[0].id, Some(42));
+        assert_eq!(anm.entries[0].sprites[1].id, Some(12));
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+    },
+);
 
-compile_fail_test!(
+source_test!(
     ANM_12, sprite_script_name_clash,
     full_source: r#"
 #pragma mapfile "map/any.anmm"
@@ -627,13 +637,12 @@ script wild {  // should have ID 1
     ins_3(-1);
 }
     "#,
-    expected: "ambiguous",
+    expect_fail: "ambiguous",
 );
 
-#[test]
-fn sprite_shadows_reg_alias() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", r#"
+source_test!(
+    ANM_12, sprite_shadows_reg_alias,
+    full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
 
@@ -650,11 +659,12 @@ const int x = $RAND;
 script 23 script23 {
     ins_3(x);
 }
-    "#);
-
-    let anm = format.compile(&source).read_anm(&format);
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![42, 0, 0, 0])
-}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![42, 0, 0, 0]);
+    },
+);
 
 const SCRIPT_IDS_EXAMPLE: &'static str = r#"
 #pragma mapfile "map/any.anmm"
