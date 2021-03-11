@@ -12,13 +12,14 @@ use crate::error::{GatherErrorIteratorExt, CompileError, Diagnostic};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
+use crate::resolve::DefId;
 use crate::ast::TypeKeyword;
 
 /// Performs type-checking.
 ///
 /// See the [the module-level documentation][self] for more details.
 pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), CompileError> {
-    let mut v = Visitor { ctx, errors: CompileError::new_empty() };
+    let mut v = Visitor { ctx, errors: CompileError::new_empty(), cur_func_stack: vec![] };
     ast.visit_with(&mut v);
     v.errors.into_result(())
 }
@@ -42,6 +43,13 @@ pub struct ShallowTypeCheck {
 struct Visitor<'a> {
     ctx: &'a CompilerContext,
     errors: CompileError,
+    /// Stack of nested functions whose bodies we are currently inside.
+    cur_func_stack: Vec<FuncState>,
+}
+
+struct FuncState {
+    func_def_id: DefId,
+    missing_return: bool,
 }
 
 impl ast::Visit for Visitor<'_> {
@@ -64,6 +72,32 @@ impl ast::Visit for Visitor<'_> {
         }
     }
 
+    fn visit_item(&mut self, item: &Sp<ast::Item>) {
+        match &item.value {
+            ast::Item::Func { ident, ty_keyword, .. } => {
+                let func_def_id = self.ctx.resolutions.expect_def(ident);
+                self.cur_func_stack.push(FuncState {
+                    func_def_id,
+                    missing_return: matches!(ty_keyword.expr_ty(), ExprType::Value(_)),
+                });
+
+                ast::walk_item(self, item);
+
+                let finished_state = self.cur_func_stack.pop().expect("unbalanced stack usage");
+
+                if finished_state.missing_return {
+                    // FIXME: Downgrade to warning once we have warnings with spans
+                    self.errors.append(error!(
+                        message("value-returning function without a return"),
+                        primary(item, "has no return statements"),
+                    ));
+                }
+            },
+
+            _ => ast::walk_item(self, item),
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
         match &stmt.value.body {
             // statement types where there's nothing additional to check beyond what
@@ -77,9 +111,9 @@ impl ast::Visit for Visitor<'_> {
                 ast::walk_stmt(self, stmt)
             },
 
-            ast::StmtBody::Return { value, keyword: _ } => {
-                if let Some(_) = value {
-                    unimplemented!("need to check against current function's signature")
+            &ast::StmtBody::Return { ref value, keyword } => {
+                if let Err(e) = self.check_stmt_return(keyword, value) {
+                    self.errors.append(e);
                 }
             },
 
@@ -186,6 +220,29 @@ impl<'a> Visitor<'a> {
             require_same((clobber_ty, count_ty), count.span, (clobber.span, count.span))?;
         }
         Ok(())
+    }
+
+    fn check_stmt_return(
+        &mut self,
+        return_keyword: ast::TokenSpan,
+        expr: &Option<Sp<ast::Expr>>,
+    ) -> Result<(), CompileError> {
+        let mut func_state = self.cur_func_stack.last_mut().expect("return outside of function?!");
+        func_state.missing_return = false;
+
+        let siggy = self.ctx.defs.func_signature(func_state.func_def_id).expect("must succeed since not an ins alias");
+        let (expr_ty, expr_span) = match expr {
+            None => (ExprType::Void, return_keyword.span),
+            Some(value) => {
+                let expr_ty = self.check_expr(value)?;
+                // this restriction could be lifted to allow `return void_fn();` in a `void` function
+                // but we'll need to carefully test all lowerers to make sure they don't panic
+                let value_ty = require_value(expr_ty, return_keyword.span, value.span)?;
+                (ExprType::Value(value_ty), value.span)
+            },
+        };
+
+        _require_exact_expr(expr_ty, siggy.return_ty.value, siggy.return_ty.span, expr_span)
     }
 
     fn check_stmt_declaration(
@@ -367,7 +424,7 @@ impl<'a> Visitor<'a> {
         // Type-check normal args.
         let siggy = match self.ctx.func_signature_from_ast(name) {
             Ok(siggy) => siggy,
-            Err(crate::context::defs::MissingSigError { opcode }) => return Err(error!(
+            Err(crate::context::defs::InsMissingSigError { opcode }) => return Err(error!(
                 message("signature not known for opcode {}", opcode),
                 primary(name, "signature not known"),
                 note("try adding this instruction's signature to your mapfiles"),
@@ -581,6 +638,10 @@ fn require_string(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), C
 }
 
 fn _require_exact(ty: ScalarType, expected: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    _require_exact_expr(ty.into(), expected.into(), cause, value_span)
+}
+
+fn _require_exact_expr(ty: ExprType, expected: ExprType, cause: Span, value_span: Span) -> Result<(), CompileError> {
     if ty == expected {
         Ok(())
     } else {

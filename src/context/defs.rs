@@ -312,7 +312,7 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_signature(&self, def_id: DefId) -> Result<&Signature, MissingSigError> {
+    pub fn func_signature(&self, def_id: DefId) -> Result<&Signature, InsMissingSigError> {
         match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => self.ins_signature(opcode),
             FuncData { ref sig, .. } => Ok(sig.as_ref().expect("not alias")),
@@ -320,10 +320,10 @@ impl Defs {
     }
 
     /// Get the high-level signature of an instruction.
-    fn ins_signature(&self, opcode: u16) -> Result<&Signature, MissingSigError> {
+    fn ins_signature(&self, opcode: u16) -> Result<&Signature, InsMissingSigError> {
         match self.instrs.get(&opcode) {
             Some(InsData { sig, .. }) => Ok(sig),
-            None => Err(MissingSigError { opcode }),
+            None => Err(InsMissingSigError { opcode }),
         }
     }
 
@@ -532,7 +532,7 @@ impl CompilerContext {
     }
 
     /// Get the signature of any kind of callable function. (instructions, inline and const functions...)
-    pub fn func_signature_from_ast(&self, name: &ast::CallableName) -> Result<&Signature, MissingSigError> {
+    pub fn func_signature_from_ast(&self, name: &ast::CallableName) -> Result<&Signature, InsMissingSigError> {
         match *name {
             ast::CallableName::Ins { opcode } => self.defs.ins_signature(opcode),
             ast::CallableName::Normal { ref ident } => self.defs.func_signature(self.resolutions.expect_def(ident)),
@@ -576,7 +576,7 @@ impl CompilerContext {
 /// (this error can't really be caught earlier, because we only want to flag instructions that
 /// are actually used...)
 #[derive(Debug, Clone)]
-pub struct MissingSigError { pub opcode: u16 }
+pub struct InsMissingSigError { pub opcode: u16 }
 
 /// High-level function signature.
 ///

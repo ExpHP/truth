@@ -1,0 +1,13 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:25:36
+   │
+25 │         inline void foo() { return sprite(0); }
+   │                             ------ ^^^^^^^^^ void type
+   │                             │       
+   │                             expects a value
+
+

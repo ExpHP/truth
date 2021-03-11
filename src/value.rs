@@ -135,6 +135,13 @@ impl ExprType {
             ExprType::Void => None,
         }
     }
+
+    pub fn descr(self) -> &'static str {
+        match self {
+            ExprType::Value(ty) => ty.descr(),
+            ExprType::Void => "void",
+        }
+    }
 }
 
 impl From<ScalarType> for VarType {

@@ -283,3 +283,72 @@ compile_fail_test!(
     main_body: r#"  I0 = 0.0 || 1;  "#,
     expected: expected::TYPE_ERROR,
 );
+
+// =========================
+// return
+
+compile_fail_test!(
+    ANM_10, return__value_from_void,
+    items_before: r#"
+        inline void foo() { return 0; }
+    "#,
+    expected: expected::TYPE_ERROR,
+);
+
+// FIXME make compile success test more like compile_fail
+// compile_fail_test!(
+//     ANM_10, return__none_from_void,
+//     items_before: r#"
+//         inline void foo() { return; }
+//     "#,
+// );
+
+// (if we want to allow this to compile, then each lowerer will need tests to check that this
+//  doesn't panic, since they might unwittingly expect the expression to have a value)
+compile_fail_test!(
+    ANM_10, return__void_from_void,
+    items_before: r#"
+        inline void foo() { return sprite(0); }
+    "#,
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, return__value_from_value,
+    items_before: r#"
+        inline float foo() { return 0; }
+    "#,
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, return__none_from_value,
+    items_before: r#"
+        inline float foo() { return; }
+    "#,
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, return__void_from_value,
+    items_before: r#"
+        inline float foo() { return sprite(0); }
+    "#,
+    expected: expected::TYPE_ERROR,
+);
+
+compile_fail_test!(
+    ANM_10, return__missing_from_value,
+    items_before: r#"
+        inline int foo() { }
+    "#,
+    expected: "has no return",
+);
+
+// FIXME make compile success test more like compile_fail
+// compile_fail_test!(
+//     ANM_10, return__missing_from_void,
+//     items_before: r#"
+//         inline void foo() { }
+//     "#,
+// );

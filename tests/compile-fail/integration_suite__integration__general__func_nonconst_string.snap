@@ -2,6 +2,10 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-thread 'main' panicked at 'not implemented: need to check against current function's signature', src/passes/type_check.rs:82:21
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: feature not supported by format
+   ┌─ <input>:25:9
+   │
+25 │         string foo() { return "hi"; }
+   │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not supported by ANM files
+
 

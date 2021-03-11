@@ -121,6 +121,7 @@ compile_fail_test!(
     expected: "var-typed",
 );
 
+// FIXME: change this test to ECL once that is available
 compile_fail_test!(
     // this is going to become grammatically correct eventually; the test is here to make
     // sure it fails gracefully from the getgo
@@ -128,7 +129,7 @@ compile_fail_test!(
     items_before: r#"
         string foo() { return "hi"; }
     "#,
-    expected: expected::UNIMPLEMENTED,
+    expected: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 compile_fail_test!(
@@ -235,8 +236,8 @@ compile_fail_test!(
     main_body: r#"
         int x = foo(@mask=0b1, 12);
     "#,
-    // FIXME: Eventually, this should parse.
-    expected: expected::UNIMPLEMENTED,
+    // FIXME: Eventually, const funcs in anm will be supported.
+    expected: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 compile_fail_test!(
