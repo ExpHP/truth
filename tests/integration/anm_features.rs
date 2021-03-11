@@ -616,6 +616,34 @@ script script0 {
 );
 
 source_test!(
+    ANM_12, consts_in_various_other_meta,
+    full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+
+const string FILEPATH = "lmao.png";
+
+entry {
+    path: FILEPATH,
+    has_data: false,
+    sprites: {
+        sprite0: {x: POS_X, y: 0.0, w: 512.0, h: 480.0},
+        sprite1: {x: POS_X + 3.0, y: 0.0, w: 512.0, h: 480.0},
+    },
+}
+
+const float POS_X = 20.0;
+
+script script0 {}
+    "#,
+    check_compiled:|output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].sprites[0].offset[0], 20.0);
+        assert_eq!(anm.entries[0].sprites[1].offset[0], 23.0);
+    },
+);
+
+source_test!(
     ANM_12, sprite_script_name_clash,
     full_source: r#"
 #pragma mapfile "map/any.anmm"
