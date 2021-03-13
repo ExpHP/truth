@@ -19,7 +19,7 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 /// because this allows for somewhat looser coupling.
 ///
 /// [`DiagnosticEmitter`]: [`crate::diagnostic::DiagnosticEmitter`]
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
@@ -44,7 +44,7 @@ impl CompileError {
 /// A single error in a [`CompileError`].  You can still add more labels to it.
 ///
 /// It converts into [`CompileError`] using [`From`], so a `?` should suffice.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Diagnostic {
     imp: CsDiagnostic,
 }
@@ -358,7 +358,7 @@ where
     type OkItem = T;
 
     fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, CompileError> {
-        let mut errors = ErrorStore::new_empty();
+        let mut errors = ErrorStore::new();
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),
             Err(e) => {

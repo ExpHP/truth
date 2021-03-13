@@ -152,7 +152,7 @@ fn string_escape() {
 fn expect_parse_error<T: Parse>(expected: &str, source: &str) -> String {
     let mut files = Files::new();
     let result = files.parse::<T>("<input>", source.as_bytes());
-    let err_str = result.err().unwrap().to_string(&files).unwrap();
+    let err_str = result.err().unwrap().to_string(&files);
 
     if !err_str.contains(expected) {
         panic!("expected not found in error message!  error: `{}`  expected: {:?}", err_str, expected)

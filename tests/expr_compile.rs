@@ -217,7 +217,7 @@ const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
 fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
     let mut files = Files::new();
     _run_randomized_test(&mut files, vars, text)
-        .unwrap_or_else(|e| panic!("{}", e.to_string(&files).unwrap()))
+        .unwrap_or_else(|e| panic!("{}", e.to_string(&files)))
 }
 
 #[track_caller]
@@ -281,7 +281,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     };
 
     let err = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, &mut ctx).unwrap_err();
-    let err_s = err.to_string(&files).unwrap();
+    let err_s = err.to_string(&files);
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }
 
