@@ -272,7 +272,7 @@ mod resolve_vars {
     use super::*;
     use crate::ast::{self, Visit};
     use crate::pos::Sp;
-    use crate::error::CompileError;
+    use crate::error::{CompileError, ErrorStore};
     use super::rib::{RibKind, RibStacks};
 
     /// Visitor that performs name resolution. Please don't use this directly,
@@ -282,7 +282,7 @@ mod resolve_vars {
     /// be in scope at any given point in the graph.
     pub struct Visitor<'ts> {
         rib_stacks: RibStacks,
-        errors: CompileError,
+        errors: ErrorStore,
         ctx: &'ts mut CompilerContext,
     }
 
@@ -290,7 +290,7 @@ mod resolve_vars {
         pub fn new(ctx: &'ts mut CompilerContext) -> Self {
             Visitor {
                 rib_stacks: ctx.defs.initial_ribs().into_iter().collect(),
-                errors: CompileError::new_empty(),
+                errors: ErrorStore::new(),
                 ctx,
             }
         }

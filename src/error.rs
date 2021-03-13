@@ -6,19 +6,19 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 
 /// An error type that is intended to be pretty-printed through [`codespan_reporting`].
 ///
-/// A `CompileError` may contain multiple errors.  It may even contain no errors!  This should
-/// not happen when calling a function that returns a ``Result<T, CompileError>`, and is mainly
-/// for use in code that attempts to gather errors from many sources (typically ending with a
-/// call to [`CompileError::into_result`]).
-#[derive(thiserror::Error, Debug)]
+/// A [`CompileError`] may contain multiple errors.  It may even contain no errors!  This can
+/// happen if errors were already emitted.  Even a [`CompileError`] with no errors should be
+/// treated as a "failure".  (if you want to create an accumulator of errors where having no
+/// errors is considered to be a success, see [`ErrorStore`]).
+#[derive(thiserror::Error, Debug, Clone)]
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
-    diagnostics: Vec<Diagnostic>
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl CompileError {
-    /// Zips two CompileError results, combining the errors if the both fail.
+    /// Zips two CompileError results, combining the errors if they both fail.
     pub fn join<A, B>(a: Result<A, CompileError>, b: Result<B, CompileError>) -> Result<(A, B), CompileError> {
         match (a, b) {
             (Ok(a), Ok(b)) => Ok((a, b)),
@@ -35,7 +35,7 @@ impl CompileError {
 /// A single error in a [`CompileError`].  You can still add more labels to it.
 ///
 /// It converts into [`CompileError`] using [`From`], so a `?` should suffice.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Diagnostic {
     imp: CsDiagnostic,
 }
@@ -86,24 +86,14 @@ impl From<Diagnostic> for CompileError {
 pub type SimpleError = anyhow::Error;
 
 impl CompileError {
-    pub fn new_empty() -> CompileError { CompileError { diagnostics: vec![] } }
+    /// Create an empty [`CompileError`].  Even an empty [`CompileError`] is still an error!
+    pub fn new() -> CompileError {
+        CompileError { diagnostics: vec![] }
+    }
+
     pub fn append(&mut self, mut other: CompileError) {
         self.diagnostics.append(&mut other.diagnostics);
     }
-    /// Become an `Ok` if empty, and an `Err` otherwise.
-    pub fn into_result<T>(self, value: T) -> Result<T, CompileError> {
-        match self.diagnostics.len() {
-            0 => Ok(value),
-            _ => Err(self),
-        }
-    }
-    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, CompileError> {
-        match self.diagnostics.len() {
-            0 => Ok(value()),
-            _ => Err(self),
-        }
-    }
-    pub fn error_count(&self) -> usize { self.diagnostics.len() }
 
     /// Drain all errors from this object and write them to the standard error stream.
     ///
@@ -124,9 +114,13 @@ impl CompileError {
         Ok(())
     }
 
-    fn emit_to_writer<'a>(
+    /// Drain all errors from this object and write them to some output terminal.
+    ///
+    /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
+    /// nodes is required.
+    pub fn emit_to_writer<'a>(
         &mut self,
-        writer: &mut impl cs::term::termcolor::WriteColor,
+        writer: &mut dyn cs::term::termcolor::WriteColor,
         files: &'a impl cs::files::Files<'a, FileId=FileId>,
     ) -> Result<(), codespan_reporting::files::Error> {
         for e in self.diagnostics.drain(..) {
@@ -139,14 +133,14 @@ impl CompileError {
     }
 
     /// Render the errors to a text string with no color escapes.  Intended mainly for unit tests.
-    pub fn to_string<'a>(&self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> Result<String, codespan_reporting::files::Error> {
+    pub fn to_string<'a>(&self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> String {
         use codespan_reporting::term::{self, termcolor as tc};
 
         let mut writer = tc::NoColor::new(vec![]);
         for e in &self.diagnostics {
             term::emit(&mut writer, &*TERM_CONFIG, files, &e.imp).unwrap();
         }
-        Ok(String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!"))
+        String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!")
     }
 
     /// Emit errors that contain no labels.
@@ -161,6 +155,45 @@ impl CompileError {
         // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
         // which is hardly any reason to stop what we're doing, so just ignore all errors.
         drop(result);
+    }
+}
+
+// -------------------------
+
+/// An accumulator for errors that provides a straightforward way of converting to
+/// a `Result<T, CompileError>` based on whether any errors have occurred.
+#[derive(Debug, Clone, Default)]
+pub struct ErrorStore {
+    errors: Option<CompileError>,
+}
+
+impl ErrorStore {
+    /// Create an [`ErrorStore`] in the default, 'success' state.
+    pub fn new() -> Self { Self::default() }
+
+    /// Force this [`ErrorStore`] into the error state and add data from a new error.
+    pub fn append(&mut self, new_error: CompileError) {
+        self.errors = match self.errors.take() {
+            Some(mut errors) => {
+                errors.append(new_error);
+                Some(errors)
+            },
+            None => Some(new_error),
+        };
+    }
+
+    /// Become an `Ok` if empty, and an `Err` otherwise.
+    pub fn into_result<T>(self, value: T) -> Result<T, CompileError> {
+        match self.errors {
+            None => Ok(value),
+            Some(error) => Err(error),
+        }
+    }
+    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, CompileError> {
+        match self.errors {
+            None => Ok(value()),
+            Some(error) => Err(error),
+        }
     }
 }
 
@@ -309,16 +342,19 @@ pub trait GatherErrorIteratorExt {
 }
 
 impl<Ts, T> GatherErrorIteratorExt for Ts
-where
-    Ts: Iterator<Item=Result<T, CompileError>>,
+    where
+        Ts: Iterator<Item=Result<T, CompileError>>,
 {
     type OkItem = T;
 
     fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, CompileError> {
-        let mut errors = CompileError::new_empty();
+        let mut errors = ErrorStore::new();
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),
-            Err(e) => { errors.append(e.into()); None }
+            Err(e) => {
+                errors.append(e);
+                None
+            },
         }).collect();
 
         errors.into_result(out)
@@ -333,7 +369,7 @@ fn test_collect_with_recovery() {
         1 => Err(error!(message("odd number: {}", x))),
         _ => unreachable!(),
     }).collect_with_recovery::<Vec<_>>();
-    assert_eq!(result.unwrap_err().error_count(), 5);
+    assert_eq!(result.unwrap_err().diagnostics.len(), 5);
 
     // collecting into () for side-effects
     let mut vec = vec![];
@@ -346,7 +382,7 @@ fn test_collect_with_recovery() {
         _ => unreachable!(),
     }).collect_with_recovery::<()>();
     assert_eq!(vec, vec![0, 2, 4, 6, 8]);
-    assert_eq!(result.unwrap_err().error_count(), 5);
+    assert_eq!(result.unwrap_err().diagnostics.len(), 5);
 }
 
 // -------------------------

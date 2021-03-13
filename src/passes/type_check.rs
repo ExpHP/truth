@@ -8,7 +8,7 @@
 //! when bad types are encountered in other passes like lowering.
 
 use crate::ast;
-use crate::error::{GatherErrorIteratorExt, CompileError, Diagnostic};
+use crate::error::{GatherErrorIteratorExt, CompileError, Diagnostic, ErrorStore};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
@@ -19,7 +19,7 @@ use crate::ast::TypeKeyword;
 ///
 /// See the [the module-level documentation][self] for more details.
 pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), CompileError> {
-    let mut v = Visitor { ctx, errors: CompileError::new_empty(), cur_func_stack: vec![] };
+    let mut v = Visitor { ctx, errors: ErrorStore::new(), cur_func_stack: vec![] };
     ast.visit_with(&mut v);
     v.errors.into_result(())
 }
@@ -42,7 +42,7 @@ pub struct ShallowTypeCheck {
 
 struct Visitor<'a> {
     ctx: &'a CompilerContext,
-    errors: CompileError,
+    errors: ErrorStore,
     /// Stack of nested functions whose bodies we are currently inside.
     cur_func_stack: Vec<FuncState>,
 }

@@ -71,7 +71,7 @@ fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, CompilerContext)
 }
 
 fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
-    let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
+    let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files)));
 
     // add suffixes so we can visualize the effects of name resolution
     crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
@@ -80,7 +80,7 @@ fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
 }
 
 fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
-    let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files).unwrap()));
+    let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files)));
 
     // add suffixes so we can visualize the effects of name resolution
     let count_per_ident = crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
@@ -95,7 +95,7 @@ fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
 
 fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
     let (files, err) = resolve::<A>(text).err().unwrap();
-    let err_msg = err.to_string(&files).unwrap();
+    let err_msg = err.to_string(&files);
     assert!(err_msg.contains(expected), "{}", err_msg);
     err_msg
 }
