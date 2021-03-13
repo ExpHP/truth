@@ -1,7 +1,7 @@
 use codespan_reporting as cs;
 
 use crate::pos::Files;
-use crate::error::{CompileError, ErrorOccurred};
+use crate::error::CompileError;
 
 pub struct DiagnosticEmitter<'a> {
     files: &'a Files,
@@ -26,10 +26,8 @@ impl<'a> DiagnosticEmitter<'a> {
     /// Its purpose is to help reduce defects where one forgets to return an `Err` variant
     /// after emitting a fatal error.  (for this to happen, one would now have to
     /// specifically call the less popular [`Self::emit`] method instead)
-    pub fn fail_with<T>(&mut self, diag: CompileError) -> Result<T, ErrorOccurred> {
+    pub fn fail_with<T>(&mut self, diag: CompileError) -> Result<T, CompileError> {
         self.emit(diag);
         Err(CompileError::new())
     }
 }
-
-pub type Never = std::convert::Infallible;

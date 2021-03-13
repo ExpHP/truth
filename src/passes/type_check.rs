@@ -8,7 +8,7 @@
 //! when bad types are encountered in other passes like lowering.
 
 use crate::ast;
-use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore, Diagnostic, ErrorOccurred};
+use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
@@ -20,7 +20,7 @@ use crate::ast::TypeKeyword;
 ///
 /// See the [the module-level documentation][self] for more details.
 pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), CompileError> {
-    let mut v = Visitor { ctx, errors: CompileError::new_empty(), cur_func_stack: vec![] };
+    let mut v = Visitor { ctx, errors: ErrorStore::new(), cur_func_stack: vec![] };
     ast.visit_with(&mut v);
     v.errors.into_result(())
 }
