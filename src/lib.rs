@@ -40,6 +40,8 @@ pub use formats::msg::{self, MsgFile};
 pub use formats::std::{self, StdFile};
 mod formats;
 
+pub mod diagnostic;
+
 pub use game::Game;
 mod game;
 

@@ -4,6 +4,10 @@ use codespan_reporting as cs;
 type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
 type CsLabel = cs::diagnostic::Label<FileId>;
 
+/// A trivial error type used to indicate that a fatal error occurred, but it was already
+/// written to a `DiagnosticEmitter`.
+pub struct ErrorOccurred;
+
 /// An error type that is intended to be pretty-printed through [`codespan_reporting`].
 ///
 /// A `CompileError` may contain multiple errors.  It may even contain no errors!  This should
@@ -18,18 +22,46 @@ pub struct CompileError {
 }
 
 impl CompileError {
-    /// Zips two CompileError results, combining the errors if the both fail.
+    /// Zips two CompileError results, combining the errors if they both fail.
     pub fn join<A, B>(a: Result<A, CompileError>, b: Result<B, CompileError>) -> Result<(A, B), CompileError> {
-        match (a, b) {
-            (Ok(a), Ok(b)) => Ok((a, b)),
-            (Err(e), Ok(_)) => Err(e),
-            (Ok(_), Err(e)) => Err(e),
-            (Err(mut a), Err(b)) => {
-                a.append(b);
-                Err(a)
-            },
-        }
+        join_error_impl(a, b)
     }
+}
+
+impl ErrorOccurred {
+    /// Zips two ErrorOccurred results, combining the errors if they both fail.
+    ///
+    /// Because [`ErrorOccurred`] holds no data, this is identical to [`Result::and`].  However, this
+    /// is used in places where [`Result::and`] would be *incorrect* if the signature were changed
+    /// to use [`CompileError`] instead. ([`CompileError::join`] would be the correct function to use)
+    pub fn join<A, B>(a: Result<A, ErrorOccurred>, b: Result<B, ErrorOccurred>) -> Result<(A, B), ErrorOccurred> {
+        join_error_impl(a, b)
+    }
+}
+
+fn join_error_impl<A, B, E: MergeError>(a: Result<A, E>, b: Result<B, E>) -> Result<(A, B), E> {
+    match (a, b) {
+        (Ok(a), Ok(b)) => Ok((a, b)),
+        (Err(e), Ok(_)) => Err(e),
+        (Ok(_), Err(e)) => Err(e),
+        (Err(mut a), Err(b)) => {
+            a.append_error(b);
+            Err(a)
+        },
+    }
+}
+
+pub trait ErrorOccurredResultExt {
+    /// A no-op method on [`Result<(), ErrorOccurred>`][`ErrorOccurred`] for ignoring the error.
+    ///
+    /// This is preferred over `let _ = result;` in this scenario because that would continue to
+    /// compile even if a refactoring changed the type of `result` to something like
+    /// [`CompileError`] that we would probably want to explicitly handle.
+    fn already_handled(self);
+}
+
+impl ErrorOccurredResultExt for Result<(), ErrorOccurred> {
+    fn already_handled(self) { }
 }
 
 /// A single error in a [`CompileError`].  You can still add more labels to it.
@@ -86,17 +118,20 @@ impl From<Diagnostic> for CompileError {
 pub type SimpleError = anyhow::Error;
 
 impl CompileError {
+    #[deprecated]
     pub fn new_empty() -> CompileError { CompileError { diagnostics: vec![] } }
     pub fn append(&mut self, mut other: CompileError) {
         self.diagnostics.append(&mut other.diagnostics);
     }
     /// Become an `Ok` if empty, and an `Err` otherwise.
+    #[deprecated]
     pub fn into_result<T>(self, value: T) -> Result<T, CompileError> {
         match self.diagnostics.len() {
             0 => Ok(value),
             _ => Err(self),
         }
     }
+    #[deprecated]
     pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, CompileError> {
         match self.diagnostics.len() {
             0 => Ok(value()),
@@ -109,50 +144,55 @@ impl CompileError {
     ///
     /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
     /// nodes is required.
-    pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> Result<(), codespan_reporting::files::Error> {
+    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
+    pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) {
         use cs::term::termcolor as tc;
 
         if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
             let mut writer = tc::NoColor::new(vec![]);
-            self.emit_to_writer(&mut writer, files)?;
+            self.emit_to_writer(&mut writer, files, &*TERM_CONFIG);
             eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
         } else {
             // typical
             let writer = tc::StandardStream::stderr(tc::ColorChoice::Auto);
-            self.emit_to_writer(&mut writer.lock(), files)?;
+            self.emit_to_writer(&mut writer.lock(), files, &*TERM_CONFIG);
         }
-        Ok(())
     }
 
-    fn emit_to_writer<'a>(
+    /// Drain all errors from this object and write them to some output terminal.
+    ///
+    /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
+    /// nodes is required.
+    pub fn emit_to_writer<'a>(
         &mut self,
-        writer: &mut impl cs::term::termcolor::WriteColor,
+        writer: &mut dyn cs::term::termcolor::WriteColor,
         files: &'a impl cs::files::Files<'a, FileId=FileId>,
-    ) -> Result<(), codespan_reporting::files::Error> {
+        config: &cs::term::Config,
+    ) {
         for e in self.diagnostics.drain(..) {
-            cs::term::emit(writer, &*TERM_CONFIG, files, &e.imp)
+            cs::term::emit(writer, config, files, &e.imp)
                 .unwrap_or_else(|fmt_err| {
                     panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", e.imp, fmt_err)
                 });
         }
-        Ok(())
     }
 
     /// Render the errors to a text string with no color escapes.  Intended mainly for unit tests.
-    pub fn to_string<'a>(&self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> Result<String, codespan_reporting::files::Error> {
+    pub fn to_string<'a>(&self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> String {
         use codespan_reporting::term::{self, termcolor as tc};
 
         let mut writer = tc::NoColor::new(vec![]);
         for e in &self.diagnostics {
             term::emit(&mut writer, &*TERM_CONFIG, files, &e.imp).unwrap();
         }
-        Ok(String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!"))
+        String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!")
     }
 
     /// Emit errors that contain no labels.
     ///
     /// It is a bug to call this when there is any possibility that the errors have labels.
     /// It should only be used when reading e.g. binary files, which have no position info.
+    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
     pub fn emit_nospans<'a>(&mut self) {
         // because there are no labels, we know the methods of the Files will never be used,
         // so we can use a dummy implementation.
@@ -298,31 +338,58 @@ impl From<crate::fmt::Error> for CompileError {
 }
 
 /// Trait for running an iterator and continuing after an `Err` to collect more errors.
-pub trait GatherErrorIteratorExt {
+pub trait GatherErrorIteratorExt<E> {
     type OkItem;
 
     /// Collect an iterator, continuing after failure in order to gather more errors.
     ///
     /// If at least one of the items is `Err(_)`, it returns an `Err(_)` that concatenates all
     /// of the errors in the stream.  Otherwise, it returns `Ok(_)`.
-    fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, CompileError>;
+    fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, E>;
 }
 
-impl<Ts, T> GatherErrorIteratorExt for Ts
+impl<Ts, T, E: MergeError> GatherErrorIteratorExt<E> for Ts
 where
-    Ts: Iterator<Item=Result<T, CompileError>>,
+    Ts: Iterator<Item=Result<T, E>>,
 {
     type OkItem = T;
 
-    fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, CompileError> {
-        let mut errors = CompileError::new_empty();
+    fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, E> {
+        let mut errors = None::<E>;
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),
-            Err(e) => { errors.append(e.into()); None }
+            Err(e) => {
+                errors = match errors.take() {
+                    Some(mut errors) => {
+                        errors.append_error(e);
+                        Some(errors)
+                    },
+                    None => Some(e),
+                };
+                None
+            },
         }).collect();
 
-        errors.into_result(out)
+        match errors {
+            Some(errors) => Err(errors),
+            None => Ok(out),
+        }
     }
+}
+
+pub trait MergeError {
+    fn new_empty_error() -> Self;
+    fn append_error(&mut self, other: Self);
+}
+
+impl MergeError for CompileError {
+    fn new_empty_error() -> Self { Self::new_empty() }
+    fn append_error(&mut self, other: Self) { self.append(other) }
+}
+
+impl MergeError for ErrorOccurred {
+    fn new_empty_error() -> Self { ErrorOccurred }
+    fn append_error(&mut self, other: Self) {}
 }
 
 #[test]
