@@ -8,7 +8,7 @@
 //! when bad types are encountered in other passes like lowering.
 
 use crate::ast;
-use crate::error::{GatherErrorIteratorExt, ErrorOccurredResultExt, CompileError, Diagnostic, ErrorOccurred};
+use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore, Diagnostic, ErrorOccurred};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
@@ -44,7 +44,7 @@ pub struct ShallowTypeCheck {
 struct Visitor<'a> {
     ctx: &'a CompilerContext,
     diagnostics: &'a DiagnosticEmitter<'a>,
-    errors: CompileError,
+    errors: ErrorStore,
     /// Stack of nested functions whose bodies we are currently inside.
     cur_func_stack: Vec<FuncState>,
 }
@@ -156,7 +156,9 @@ impl ast::Visit for Visitor<'_> {
     }
 
     fn visit_cond(&mut self, cond: &Sp<ast::Cond>) {
-        self.check_cond(cond);
+        if let Err(e) = self.check_cond(cond) {
+            self.errors.append(e);
+        }
     }
 }
 
@@ -166,20 +168,20 @@ impl Visitor<'_> {
         var: &Sp<ast::Var>,
         op: Sp<ast::AssignOpKind>,
         value: &Sp<ast::Expr>,
-    ) -> Result<(), ErrorOccurred> {
-        let var_ty = self.check_var(var);
-        let value_ty = self.check_expr(value);
-        let value_ty = value_ty.and_then(|ty| self.require_value(ty, op.span, value.span));
-        let (var_ty, value_ty) = (var_ty?, value_ty?);
+    ) -> Result<(), CompileError> {
+        let var_result = self.check_var(var);
+        let value_result = self.check_expr(value);
+        let (var_ty, value_ty) = CompileError::join(var_result, value_result)?;
+        let value_ty = require_value(value_ty, op.span, value.span)?;
 
         match op.value {
             ast::AssignOpKind::Assign => {
-                self.require_same((var_ty, value_ty), op.span, (var.span, value.span))?;
+                require_same((var_ty, value_ty), op.span, (var.span, value.span))?;
                 Ok(())
             },
             _ => {
                 let binop = op.corresponding_binop().expect("only Assign has no binop");
-                self.check_expr_binop(sp!(op.span => binop), (var_ty, value_ty), (var.span, value.span))
+                ast::Expr::binop_check(sp!(op.span => binop), (var_ty, value_ty), (var.span, value.span))
             },
         }
     }
@@ -187,23 +189,23 @@ impl Visitor<'_> {
     fn check_stmt_expr(
         &self,
         expr: &Sp<ast::Expr>,
-    ) -> Result<(), ErrorOccurred> {
+    ) -> Result<(), CompileError> {
         let ty = self.check_expr(expr)?;
-        self.require_void(ty, expr.span, "expression statements must be of void type")
+        require_void(ty, expr.span, "expression statements must be of void type")
     }
 
     fn check_stmt_times(
         &self,
         clobber: &Option<Sp<ast::Var>>,
         count: &Sp<ast::Expr>,
-    ) -> Result<(), ErrorOccurred> {
+    ) -> Result<(), CompileError> {
         let count_ty = self.check_expr(count)?;
-        let count_ty = self.require_value(count_ty, count.span, count.span)?;
-        self.require_int(count_ty, count.span, count.span)?;
+        let count_ty = require_value(count_ty, count.span, count.span)?;
+        require_int(count_ty, count.span, count.span)?;
 
         if let Some(clobber) = clobber {
             let clobber_ty = self.check_var(clobber)?;
-            self.require_same((clobber_ty, count_ty), count.span, (clobber.span, count.span))?;
+            require_same((clobber_ty, count_ty), count.span, (clobber.span, count.span))?;
         }
         Ok(())
     }
@@ -212,7 +214,7 @@ impl Visitor<'_> {
         &mut self,
         return_keyword: ast::TokenSpan,
         expr: &Option<Sp<ast::Expr>>,
-    ) -> Result<(), ErrorOccurred> {
+    ) -> Result<(), CompileError> {
         let mut func_state = self.cur_func_stack.last_mut().expect("return outside of function?!");
         func_state.missing_return = false;
 
@@ -223,40 +225,40 @@ impl Visitor<'_> {
                 let expr_ty = self.check_expr(value)?;
                 // this restriction could be lifted to allow `return void_fn();` in a `void` function
                 // but we'll need to carefully test all lowerers to make sure they don't panic
-                let value_ty = self.require_value(expr_ty, return_keyword.span, value.span)?;
+                let value_ty = require_value(expr_ty, return_keyword.span, value.span)?;
                 (ExprType::Value(value_ty), value.span)
             },
         };
 
-        self._require_exact_expr(expr_ty, siggy.return_ty.value, siggy.return_ty.span, expr_span)
+        _require_exact_expr(expr_ty, siggy.return_ty.value, siggy.return_ty.span, expr_span)
     }
 
     fn check_stmt_declaration(
         &self,
         keyword: Sp<TypeKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
-    ) -> Result<(), ErrorOccurred> {
+    ) -> Result<(), CompileError> {
         vars.iter().map(|sp_pat!((var, value))| {
             self.check_single_var_decl(keyword, var, value.as_ref())
         }).collect_with_recovery()
     }
 
-    fn check_cond(&self, cond: &Sp<ast::Cond>) -> Result<(), ErrorOccurred> {
+    fn check_cond(&self, cond: &Sp<ast::Cond>) -> Result<(), CompileError> {
         let ty = match &cond.value {
             ast::Cond::PreDecrement(var) => self.check_var(var)?,
             ast::Cond::Expr(expr) => {
                 let ty = self.check_expr(expr)?;
-                let ty = self.require_value(ty, expr.span, expr.span)?;
+                let ty = require_value(ty, expr.span, expr.span)?;
                 ty
             }
         };
-        self.require_int(ty, cond.span, cond.span)
+        require_int(ty, cond.span, cond.span)
     }
 
     /// Fully check an expression and all subexpressions, and return the type.
     ///
     /// (`None` for a `void` (unit) type).
-    fn check_expr(&self, expr: &Sp<ast::Expr>) -> Result<ExprType, ErrorOccurred> {
+    fn check_expr(&self, expr: &Sp<ast::Expr>) -> Result<ExprType, CompileError> {
         let out = match expr.value {
             ast::Expr::LitFloat { .. } => ExprType::Value(ScalarType::Float),
             ast::Expr::LitInt { .. } => ExprType::Value(ScalarType::Int),
@@ -267,33 +269,34 @@ impl Visitor<'_> {
 
             ast::Expr::Binop(ref a, op, ref b)
             => {
-                let (a_ty, b_ty) = (self.check_expr(a), self.check_expr(b));
-                let a_ty = a_ty.and_then(|ty| self.require_value(ty, op.span, a.span));
-                let b_ty = b_ty.and_then(|ty| self.require_value(ty, op.span, b.span));
+                let (a_ty, b_ty) = CompileError::join(self.check_expr(a), self.check_expr(b))?;
+                let a_ty = require_value(a_ty, op.span, a.span)?;
+                let b_ty = require_value(b_ty, op.span, b.span)?;
 
-                self.check_expr_binop(op, (a_ty?, b_ty?), (a.span, b.span))?;
+                ast::Expr::binop_check(op, (a_ty, b_ty), (a.span, b.span))?;
                 ExprType::Value(ast::Expr::binop_ty(op.value, &a.value, self.ctx))
             },
 
             ast::Expr::Unop(op, ref x)
             => {
                 let x_ty = self.check_expr(x)?;
-                let x_ty = self.require_value(x_ty, op.span, x.span)?;
+                let x_ty = require_value(x_ty, op.span, x.span)?;
 
-                self.check_expr_unop(op, x_ty, x.span)?;
+                ast::Expr::unop_check(op, x_ty, x.span)?;
                 ExprType::Value(ast::Expr::unop_ty(op.value, &x.value, self.ctx))
             },
 
             ast::Expr::Ternary { ref cond, question, ref left, colon, ref right }
             => {
-                let (cond_ty, left_ty, right_ty) = (self.check_expr(cond), self.check_expr(left), self.check_expr(right));
+                let arg_tys = CompileError::join(self.check_expr(left), self.check_expr(right));
+                let (cond_ty, (left_ty, right_ty)) = CompileError::join(self.check_expr(cond), arg_tys)?;
 
-                let cond_ty = cond_ty.and_then(|ty| self.require_value(ty, question.span, cond.span))?;
-                let left_ty = left_ty.and_then(|ty| self.require_value(ty, colon.span, left.span))?;
-                let right_ty = right_ty.and_then(|ty| self.require_value(ty, colon.span, right.span))?;
+                let cond_ty = require_value(cond_ty, question.span, cond.span)?;
+                let left_ty = require_value(left_ty, colon.span, left.span)?;
+                let right_ty = require_value(right_ty, colon.span, right.span)?;
 
-                self.require_int(cond_ty, question.span, cond.span)?;
-                self.require_same((left_ty, right_ty), colon.span, (left.span, right.span))?;
+                require_int(cond_ty, question.span, cond.span)?;
+                require_same((left_ty, right_ty), colon.span, (left.span, right.span))?;
                 ExprType::Value(left_ty)
             },
 
@@ -313,22 +316,21 @@ impl Visitor<'_> {
         keyword: Sp<TypeKeyword>,
         var: &Sp<ast::Var>,
         value: Option<&Sp<ast::Expr>>,
-    ) -> Result<(), ErrorOccurred> {
+    ) -> Result<(), CompileError> {
         self.check_var_weak(var)?;
 
         // forbid 'int %x;'
         if let VarType::Typed(decl_ty) = keyword.var_ty() {
             let var_ty = self.ctx.var_read_ty_from_ast(var).as_known_ty().expect("var is typed");
-            self._require_exact(decl_ty, var_ty, keyword.span, var.span)?;
+            _require_exact(decl_ty, var_ty, keyword.span, var.span)?;
         }
 
         // is a value being assigned?
         if let Some(value) = value {
-            let var_ty = self.check_var(var);
-            let value_ty = self.check_expr(value);
-            let value_ty = self.require_value(value_ty?, value.span, value.span);
-            let (var_ty, value_ty) = (var_ty?, value_ty?);
-            self._require_exact(value_ty, var_ty, keyword.span, value.span)?;
+            let var_ty = self.check_var(var)?;
+            let value_ty = self.check_expr(value)?;
+            let value_ty = require_value(value_ty, value.span, value.span)?;
+            _require_exact(value_ty, var_ty, keyword.span, value.span)?;
         }
         Ok(())
     }
@@ -337,7 +339,7 @@ impl Visitor<'_> {
     /// nor written, such as in `int x;`.
     ///
     /// NOTE: while sigils aren't currently allowed in declarations, they could be in the future.
-    fn check_var_weak(&self, var: &Sp<ast::Var>) -> Result<(), ErrorOccurred> {
+    fn check_var_weak(&self, var: &Sp<ast::Var>) -> Result<(), CompileError> {
         let inherent_ty = self.ctx.var_inherent_ty_from_ast(var);
         let read_ty = var.ty_sigil;
         match inherent_ty {
@@ -351,7 +353,7 @@ impl Visitor<'_> {
             | VarType::Typed(own_ty@ScalarType::String)
             => match read_ty {
                 None => {},  // good; no sigil
-                Some(read_ty) => return self.diagnostics.fail_with(error!(
+                Some(read_ty) => return Err(error!(
                     message("type error"),
                     primary(var, "cannot cast {} to {}", own_ty.descr(), ScalarType::from(read_ty).descr()),
                 )),
@@ -361,7 +363,7 @@ impl Visitor<'_> {
     }
 
     /// Check a variable that's actually being used in some way (read or written to).
-    fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, ErrorOccurred> {
+    fn check_var(&self, var: &Sp<ast::Var>) -> Result<ScalarType, CompileError> {
         self.check_var_weak(var)?;
 
         self.ctx.var_read_ty_from_ast(var).as_known_ty().ok_or_else(|| {
@@ -372,7 +374,7 @@ impl Visitor<'_> {
                 Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
                 Ok(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
             };
-            self.diagnostics.emit(err.into())
+            err.into()
         })
     }
 
@@ -382,20 +384,20 @@ impl Visitor<'_> {
         name: &Sp<ast::CallableName>,
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<ast::Expr>],
-    ) -> Result<ExprType, ErrorOccurred> {
+    ) -> Result<ExprType, CompileError> {
         // type check pseudos
         pseudos.iter().map(|pseudo| {
             let ast::PseudoArg { kind, ref value, at_sign: _, eq_sign: _ } = pseudo.value;
             let value_ty = self.check_expr(value)?;
-            let value_ty = self.require_value(value_ty, pseudo.tag_span(), value.span)?;
-            self.pseudo_check(kind, value_ty, value.span)
+            let value_ty = require_value(value_ty, pseudo.tag_span(), value.span)?;
+            ast::Expr::pseudo_check(kind, value_ty, value.span)
         }).collect_with_recovery()?;
 
         // '@blob=' is incompatible with normal args
         for pseudo in pseudos {
             if pseudo.kind.value == token![blob] {
                 if let Some(normal_arg) = args.get(0) {
-                    return self.diagnostics.fail_with(error!(
+                    return Err(error!(
                         message("cannot supply both normal arguments and an args blob"),
                         primary(normal_arg, "redundant normal argument"),
                         secondary(&pseudo.value.value, "represents all args"),
@@ -410,7 +412,7 @@ impl Visitor<'_> {
         // Type-check normal args.
         let siggy = match self.ctx.func_signature_from_ast(name) {
             Ok(siggy) => siggy,
-            Err(crate::context::defs::InsMissingSigError { opcode }) => return self.diagnostics.fail_with(error!(
+            Err(crate::context::defs::InsMissingSigError { opcode }) => return Err(error!(
                 message("signature not known for opcode {}", opcode),
                 primary(name, "signature not known"),
                 note("try adding this instruction's signature to your mapfiles"),
@@ -423,7 +425,7 @@ impl Visitor<'_> {
                 true => format!("{}", min_args),
                 false => format!("{} to {}", min_args, max_args),
             };
-            return self.diagnostics.fail_with(error!(
+            return Err(error!(
                 message("wrong number of arguments to '{}'", name),
                 primary(name, "expects {} arguments, got {}", range_str, args.len()),
             ));
@@ -431,10 +433,10 @@ impl Visitor<'_> {
 
         zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
             let arg_ty = self.check_expr(arg)?;
-            let arg_ty = self.require_value(arg_ty, name.span, arg.span)?;
+            let arg_ty = require_value(arg_ty, name.span, arg.span)?;
             if let VarType::Typed(param_ty) = param.ty.value {
                 if arg_ty != param_ty {
-                    return self.diagnostics.fail_with(error!(
+                    return Err(error!(
                         message("type error"),
                         primary(arg.span, "{}", arg_ty.descr()),
                         secondary(name, "expects {} for parameter {}", param_ty.descr(), param_num),
@@ -486,32 +488,28 @@ impl ast::Expr {
             },
         }
     }
-}
 
-impl Visitor<'_> {
-    fn check_expr_binop(&mut self, op: Sp<ast::BinopKind>, arg_tys: (ScalarType, ScalarType), arg_spans: (Span, Span)) -> Result<(), ErrorOccurred> {
+    fn binop_check(op: Sp<ast::BinopKind>, arg_tys: (ScalarType, ScalarType), arg_spans: (Span, Span)) -> Result<(), CompileError> {
         use ast::BinopKind as B;
 
         match op.value {
             | B::Add | B::Sub | B::Mul | B::Div | B::Rem
-            => self.require_numeric(arg_tys.0, op.span, arg_spans.0)?,
+            => require_numeric(arg_tys.0, op.span, arg_spans.0)?,
 
             | B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge
-            => self.require_numeric(arg_tys.0, op.span, arg_spans.0)?,
+            => require_numeric(arg_tys.0, op.span, arg_spans.0)?,
 
             | B::BitXor | B::BitAnd | B::BitOr
             | B::LogicOr | B::LogicAnd
-            => self.require_int(arg_tys.0, op.span, arg_spans.0)?,
+            => require_int(arg_tys.0, op.span, arg_spans.0)?,
         };
 
         // (we do this AFTER the other check because that yields more sensible errors; e.g.
         //  `"lol" - 3` should complain about the string, not about the type mismatch)
-        self.require_same(arg_tys, op.span, arg_spans)?;
+        require_same(arg_tys, op.span, arg_spans)?;
         Ok(())
     }
-}
 
-impl ast::Expr {
     /// Static function for computing the output type of a binary operator expression,
     /// given at least one of its arguments.
     ///
@@ -534,25 +532,21 @@ impl ast::Expr {
             => ScalarType::Int,
         }
     }
-}
 
-impl Visitor<'_> {
-    fn check_expr_unop(&mut self, op: Sp<ast::UnopKind>, arg_ty: ScalarType, arg_span: Span) -> Result<(), ErrorOccurred> {
+    fn unop_check(op: Sp<ast::UnopKind>, arg_ty: ScalarType, arg_span: Span) -> Result<(), CompileError> {
         match op.value {
-            token![unop -] => self.require_numeric(arg_ty, op.span, arg_span),
+            token![unop -] => require_numeric(arg_ty, op.span, arg_span),
 
             token![unop _f] |
-            token![unop !] => self.require_int(arg_ty, op.span, arg_span),
+            token![unop !] => require_int(arg_ty, op.span, arg_span),
 
             token![unop _S] |
             token![unop sin] |
             token![unop cos] |
-            token![unop sqrt] => self.require_float(arg_ty, op.span, arg_span),
+            token![unop sqrt] => require_float(arg_ty, op.span, arg_span),
         }
     }
-}
 
-impl ast::Expr {
     /// Static function for computing the output type of a unary operator expression.
     ///
     /// Requires name resolution.
@@ -572,130 +566,124 @@ impl ast::Expr {
             token![unop _f] => ScalarType::Float,
         }
     }
-}
 
-impl Visitor<'_> {
-    fn pseudo_check(&mut self, kind: Sp<ast::PseudoArgKind>, value_ty: ScalarType, value_span: Span) -> Result<(), ErrorOccurred> {
+    fn pseudo_check(kind: Sp<ast::PseudoArgKind>, value_ty: ScalarType, value_span: Span) -> Result<(), CompileError> {
         match kind.value {
             token![pop] |
-            token![mask] => self.require_int(value_ty, kind.span, value_span),
-            token![blob] => self.require_string(value_ty, kind.span, value_span),
+            token![mask] => require_int(value_ty, kind.span, value_span),
+            token![blob] => require_string(value_ty, kind.span, value_span),
         }
     }
 }
 
 // =============================================================================
 
-impl Visitor<'_> {
-    fn perform_shallow_type_check(&mut self, check: &ShallowTypeCheck, ctx: &CompilerContext) -> Result<(), ErrorOccurred> {
-        let &ShallowTypeCheck { ref expr, ty: expected_ty, cause } = check;
-        let actual_ty = expr.compute_ty(ctx);
-        let cause = cause.unwrap_or(expr.span);
-        match expected_ty {
-            ExprType::Void => self.require_void(actual_ty, expr.span, "expected void type"),
-            ExprType::Value(expected_ty) => {
-                let actual_ty = self.require_value(actual_ty, cause, expr.span)?;
-                self._require_exact(actual_ty, expected_ty, cause, expr.span)
-            },
-        }
+fn perform_shallow_type_check(check: &ShallowTypeCheck, ctx: &CompilerContext) -> Result<(), CompileError> {
+    let &ShallowTypeCheck { ref expr, ty: expected_ty, cause } = check;
+    let actual_ty = expr.compute_ty(ctx);
+    let cause = cause.unwrap_or(expr.span);
+    match expected_ty {
+        ExprType::Void => require_void(actual_ty, expr.span, "expected void type"),
+        ExprType::Value(expected_ty) => {
+            let actual_ty = require_value(actual_ty, cause, expr.span)?;
+            _require_exact(actual_ty, expected_ty, cause, expr.span)
+        },
     }
 }
 
 // =============================================================================
 
-impl Visitor<'_> {
-    fn require_same(&mut self, types: (ScalarType, ScalarType), cause: Span, spans: (Span, Span)) -> Result<ScalarType, ErrorOccurred> {
-        if types.0 == types.1 {
-            Ok(types.0)
-        } else {
-            let mut error = Diagnostic::error();
-            error.message(format!("type error"));
-            error.primary(spans.1, format!("{}", types.1.descr()));
-            error.secondary(spans.0, format!("{}", types.0.descr()));
+fn require_same(types: (ScalarType, ScalarType), cause: Span, spans: (Span, Span)) -> Result<ScalarType, CompileError> {
+    if types.0 == types.1 {
+        Ok(types.0)
+    } else {
+        let mut error = Diagnostic::error();
+        error.message(format!("type error"));
+        error.primary(spans.1, format!("{}", types.1.descr()));
+        error.secondary(spans.0, format!("{}", types.0.descr()));
 
-            // NOTE: In varous places in this module you'll see checks on span equality.
-            //
-            // This is because it is commonplace during code transformations (e.g. macro expansions)
-            // to reuse a single span for many things.
-            if cause != spans.0 && cause != spans.1 {
-                error.secondary(cause, format!("same types required by this"));
-            }
-            self.diagnostics.fail_with(error.into())
+        // NOTE: In varous places in this module you'll see checks on span equality.
+        //
+        // This is because it is commonplace during code transformations (e.g. macro expansions)
+        // to reuse a single span for many things.
+        if cause != spans.0 && cause != spans.1 {
+            error.secondary(cause, format!("same types required by this"));
         }
+        Err(error.into())
     }
+}
 
-    fn require_int(&mut self, ty: ScalarType, cause: Span, value_span: Span) -> Result<(), ErrorOccurred> {
-        self._require_exact(ty, ScalarType::Int, cause, value_span)
-    }
+fn require_int(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    _require_exact(ty, ScalarType::Int, cause, value_span)
+}
 
-    fn require_float(&mut self, ty: ScalarType, cause: Span, value_span: Span) -> Result<(), ErrorOccurred> {
-        self._require_exact(ty, ScalarType::Float, cause, value_span)
-    }
+fn require_float(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    _require_exact(ty, ScalarType::Float, cause, value_span)
+}
 
-    fn require_string(&mut self, ty: ScalarType, cause: Span, value_span: Span) -> Result<(), ErrorOccurred> {
-        self._require_exact(ty, ScalarType::String, cause, value_span)
-    }
+fn require_string(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    _require_exact(ty, ScalarType::String, cause, value_span)
+}
 
-    fn _require_exact(&mut self, ty: ScalarType, expected: ScalarType, cause: Span, value_span: Span) -> Result<(), ErrorOccurred> {
-        self._require_exact_expr(ty.into(), expected.into(), cause, value_span)
-    }
+fn _require_exact(ty: ScalarType, expected: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    _require_exact_expr(ty.into(), expected.into(), cause, value_span)
+}
 
-    fn _require_exact_expr(&mut self, ty: ExprType, expected: ExprType, cause: Span, value_span: Span) -> Result<(), ErrorOccurred> {
-        if ty == expected {
-            Ok(())
+fn _require_exact_expr(ty: ExprType, expected: ExprType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    if ty == expected {
+        Ok(())
+    } else {
+        let mut error = Diagnostic::error();
+        error.message(format!("type error"));
+        error.primary(value_span, format!("{}", ty.descr()));
+        if cause == value_span {
+            error.note(format!("{} is required", expected.descr()));
         } else {
+            error.secondary(cause, format!("expects {}", expected.descr()));
+        }
+        Err(error.into())
+    }
+}
+
+/// Require int or float.
+fn require_numeric(ty: ScalarType, cause: Span, value_span: Span) -> Result<(), CompileError> {
+    match ty {
+        ScalarType::Int => Ok(()),
+        ScalarType::Float => Ok(()),
+        _ => {
             let mut error = Diagnostic::error();
             error.message(format!("type error"));
             error.primary(value_span, format!("{}", ty.descr()));
             if cause == value_span {
-                error.note(format!("{} is required", expected.descr()));
+                error.note(format!("a numeric type is required"));
             } else {
-                error.secondary(cause, format!("expects {}", expected.descr()));
+                error.secondary(cause, format!("requires a numeric type"));
             }
-            self.diagnostics.fail_with(error.into())
-        }
+            Err(error.into())
+        },
     }
+}
 
-    /// Require int or float.
-    fn require_numeric(&mut self, ty: ScalarType, cause: Span, value_span: Span) -> Result<(), ErrorOccurred> {
-        match ty {
-            ScalarType::Int => Ok(()),
-            ScalarType::Float => Ok(()),
-            _ => {
-                let mut error = Diagnostic::error();
-                error.message(format!("type error"));
-                error.primary(value_span, format!("{}", ty.descr()));
-                if cause == value_span {
-                    error.note(format!("a numeric type is required"));
-                } else {
-                    error.secondary(cause, format!("requires a numeric type"));
-                }
-                self.diagnostics.fail_with(error.into())
-            },
+/// Reject void types.
+fn require_value(ty: ExprType, cause: Span, span: Span) -> Result<ScalarType, CompileError> {
+    ty.as_value_ty().ok_or_else(|| {
+        let mut error = Diagnostic::error();
+        error.message(format!("type error"));
+        error.primary(span, format!("void type"));
+        if cause != span {
+            error.secondary(cause, format!("expects a value"));
         }
-    }
+        error.into()
+    })
+}
 
-    /// Reject void types.
-    fn require_value(&mut self, ty: ExprType, cause: Span, span: Span) -> Result<ScalarType, ErrorOccurred> {
-        ty.as_value_ty().ok_or_else(|| {
-            let mut error = Diagnostic::error();
-            error.message(format!("type error"));
-            error.primary(span, format!("void type"));
-            if cause != span {
-                error.secondary(cause, format!("expects a value"));
-            }
-            self.diagnostics.emit(error.into())
-        })
-    }
-
-    fn require_void(&mut self, ty: ExprType, span: Span, note: &str) -> Result<(), ErrorOccurred> {
-        match ty {
-            ExprType::Value(ty) => self.diagnostics.fail_with(error!(
-                message("type error"),
-                primary(span, "{}", ty.descr()),
-                note("{}", note),
-            )),
-            ExprType::Void => Ok(()),
-        }
+fn require_void(ty: ExprType, span: Span, note: &str) -> Result<(), CompileError> {
+    match ty {
+        ExprType::Value(ty) => Err(error!(
+            message("type error"),
+            primary(span, "{}", ty.descr()),
+            note("{}", note),
+        )),
+        ExprType::Void => Ok(()),
     }
 }

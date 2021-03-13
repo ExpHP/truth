@@ -5,20 +5,28 @@ type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
 type CsLabel = cs::diagnostic::Label<FileId>;
 
 /// A trivial error type used to indicate that a fatal error occurred, but it was already
-/// written to a `DiagnosticEmitter`.
+/// written to a [`DiagnosticEmitter`].
+///
+/// FIXME: This type is currently in a probation status.  Thinking about it as a type that
+///        has "no error data" actually led to introducing some bugs which could have been
+///        avoided if we were forced to still conservatively assume that it needs to be reported.
+///        Furthermore, "doesn't need to be reported" doesn't seem like a useful
+///        property, given that access to the reporting facilities must have come from the caller.
+///
+/// NOTE:  If you rip this out, rip out MergeError too!
 pub struct ErrorOccurred;
 
 /// An error type that is intended to be pretty-printed through [`codespan_reporting`].
 ///
-/// A `CompileError` may contain multiple errors.  It may even contain no errors!  This should
-/// not happen when calling a function that returns a ``Result<T, CompileError>`, and is mainly
-/// for use in code that attempts to gather errors from many sources (typically ending with a
-/// call to [`CompileError::into_result`]).
+/// A [`CompileError`] may contain multiple errors.  It may even contain no errors!  This can
+/// happen if errors were already emitted.  Even a [`CompileError`] with no errors should be
+/// treated as a "failure".  (if you want to create an accumulator of errors where having no
+/// errors is considered to be a success, see [`ErrorStore`]).
 #[derive(thiserror::Error, Debug)]
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
-    diagnostics: Vec<Diagnostic>
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl CompileError {
@@ -51,17 +59,10 @@ fn join_error_impl<A, B, E: MergeError>(a: Result<A, E>, b: Result<B, E>) -> Res
     }
 }
 
-pub trait ErrorOccurredResultExt {
-    /// A no-op method on [`Result<(), ErrorOccurred>`][`ErrorOccurred`] for ignoring the error.
-    ///
-    /// This is preferred over `let _ = result;` in this scenario because that would continue to
-    /// compile even if a refactoring changed the type of `result` to something like
-    /// [`CompileError`] that we would probably want to explicitly handle.
-    fn already_handled(self);
-}
-
-impl ErrorOccurredResultExt for Result<(), ErrorOccurred> {
-    fn already_handled(self) { }
+impl From<ErrorOccurred> for CompileError {
+    fn from(ErrorOccurred: ErrorOccurred) -> Self {
+        CompileError { diagnostics: vec![] }
+    }
 }
 
 /// A single error in a [`CompileError`].  You can still add more labels to it.
@@ -118,27 +119,9 @@ impl From<Diagnostic> for CompileError {
 pub type SimpleError = anyhow::Error;
 
 impl CompileError {
-    #[deprecated]
-    pub fn new_empty() -> CompileError { CompileError { diagnostics: vec![] } }
     pub fn append(&mut self, mut other: CompileError) {
         self.diagnostics.append(&mut other.diagnostics);
     }
-    /// Become an `Ok` if empty, and an `Err` otherwise.
-    #[deprecated]
-    pub fn into_result<T>(self, value: T) -> Result<T, CompileError> {
-        match self.diagnostics.len() {
-            0 => Ok(value),
-            _ => Err(self),
-        }
-    }
-    #[deprecated]
-    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, CompileError> {
-        match self.diagnostics.len() {
-            0 => Ok(value()),
-            _ => Err(self),
-        }
-    }
-    pub fn error_count(&self) -> usize { self.diagnostics.len() }
 
     /// Drain all errors from this object and write them to the standard error stream.
     ///
@@ -201,6 +184,44 @@ impl CompileError {
         // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
         // which is hardly any reason to stop what we're doing, so just ignore all errors.
         drop(result);
+    }
+}
+
+// -------------------------
+
+/// An accumulator for errors that provides a straightforward way of converting to
+/// a `Result<T, E>` based on whether any errors have occurred.
+pub struct ErrorStore<E = CompileError> {
+    errors: Option<E>,
+}
+
+impl<E: MergeError> ErrorStore<E> {
+    /// Create an [`ErrorStore`] in the default, 'success' state.
+    pub fn new_empty() -> Self { ErrorStore { errors: None } }
+
+    /// Force this [`ErrorStore`] into the error state and add data from a new error.
+    pub fn append(&mut self, new_error: E) {
+        self.errors = match self.errors.take() {
+            Some(mut errors) => {
+                errors.append_error(new_error);
+                Some(errors)
+            },
+            None => Some(new_error),
+        };
+    }
+
+    /// Become an `Ok` if empty, and an `Err` otherwise.
+    pub fn into_result<T>(self, value: T) -> Result<T, E> {
+        match self.errors {
+            None => Ok(value),
+            Some(error) => Err(error),
+        }
+    }
+    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, E> {
+        match self.errors {
+            None => Ok(value()),
+            Some(error) => Err(error),
+        }
     }
 }
 
@@ -355,40 +376,28 @@ where
     type OkItem = T;
 
     fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, E> {
-        let mut errors = None::<E>;
+        let mut errors = ErrorStore::new_empty();
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),
             Err(e) => {
-                errors = match errors.take() {
-                    Some(mut errors) => {
-                        errors.append_error(e);
-                        Some(errors)
-                    },
-                    None => Some(e),
-                };
+                errors.append(e);
                 None
             },
         }).collect();
 
-        match errors {
-            Some(errors) => Err(errors),
-            None => Ok(out),
-        }
+        errors.into_result(out)
     }
 }
 
 pub trait MergeError {
-    fn new_empty_error() -> Self;
     fn append_error(&mut self, other: Self);
 }
 
 impl MergeError for CompileError {
-    fn new_empty_error() -> Self { Self::new_empty() }
     fn append_error(&mut self, other: Self) { self.append(other) }
 }
 
 impl MergeError for ErrorOccurred {
-    fn new_empty_error() -> Self { ErrorOccurred }
     fn append_error(&mut self, other: Self) {}
 }
 
@@ -400,7 +409,7 @@ fn test_collect_with_recovery() {
         1 => Err(error!(message("odd number: {}", x))),
         _ => unreachable!(),
     }).collect_with_recovery::<Vec<_>>();
-    assert_eq!(result.unwrap_err().error_count(), 5);
+    assert_eq!(result.unwrap_err().diagnostics.len(), 5);
 
     // collecting into () for side-effects
     let mut vec = vec![];
@@ -413,7 +422,7 @@ fn test_collect_with_recovery() {
         _ => unreachable!(),
     }).collect_with_recovery::<()>();
     assert_eq!(vec, vec![0, 2, 4, 6, 8]);
-    assert_eq!(result.unwrap_err().error_count(), 5);
+    assert_eq!(result.unwrap_err().diagnostics.len(), 5);
 }
 
 // -------------------------
