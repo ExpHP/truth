@@ -69,7 +69,9 @@ impl ast::Visit for Visitor<'_> {
     //       actually fairly unlikely to be called.  Most of the legwork is in done in the visit methods
     //       for things that CONTAIN expressions.
     fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
-        self.check_expr(expr).map(|_| ()).already_handled()
+        if let Err(e) = self.check_expr(expr) {
+            self.errors.append(e);
+        }
     }
 
     fn visit_item(&mut self, item: &Sp<ast::Item>) {
@@ -112,22 +114,34 @@ impl ast::Visit for Visitor<'_> {
             },
 
             &ast::StmtBody::Return { ref value, keyword } => {
-                self.check_stmt_return(keyword, value).already_handled()
+                if let Err(e) = self.check_stmt_return(keyword, value) {
+                    self.errors.append(e);
+                }
             },
 
             ast::StmtBody::Assignment { var, op, value } => {
-                self.check_stmt_assignment(var, *op, value).already_handled()
+                if let Err(e) = self.check_stmt_assignment(var, *op, value) {
+                    self.errors.append(e);
+                }
             },
 
-            ast::StmtBody::Expr(expr) => self.check_stmt_expr(expr).already_handled(),
+            ast::StmtBody::Expr(expr) => {
+                if let Err(e) = self.check_stmt_expr(expr) {
+                    self.errors.append(e);
+                }
+            },
 
             ast::StmtBody::Times { clobber, count, block, keyword: _ } => {
-                self.check_stmt_times(clobber, count);
+                if let Err(e) = self.check_stmt_times(clobber, count) {
+                    self.errors.append(e);
+                }
                 ast::walk_block(self, block);
             },
 
             ast::StmtBody::Declaration { ty_keyword, vars } => {
-                self.check_stmt_declaration(*ty_keyword, vars).already_handled()
+                if let Err(e) = self.check_stmt_declaration(*ty_keyword, vars) {
+                    self.errors.append(e);
+                }
             },
 
             ast::StmtBody::CallSub { .. } => unimplemented!("need to check arg types against signature"),

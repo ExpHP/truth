@@ -15,21 +15,20 @@ impl<'a> DiagnosticEmitter<'a> {
     }
 
     /// Emit a diagnostic.
-    ///
-    /// Returns [`ErrorOccurred`] in order to allow it to be used like `result.map_err(|e| emitter.emit(e))?`
-    /// for converting Results of [`CompileError`] into [`ErrorOccurred`].
-    pub fn emit(&mut self, diag: CompileError) -> ErrorOccurred {
+    pub fn emit(&mut self, diag: CompileError) {
         diag.emit_to_writer(self.writer, self.files, self.config);
         ErrorOccurred
     }
 
-    /// Emit a diagnostic and return [`Err(ErrorOccurred)`][`ErrorOccurred`].
+    /// Emit a diagnostic and return an `Err` with an empty [`CompileError`].
     ///
-    /// This is for the common case where the current function cannot continue due to an error;
-    /// simply write `return emitter.fail_with(d);`  (and when converting code that formerly used
-    /// `CompileError`, you simply replace `Err` with `emitter.fail_with`)
+    /// Use this as `return emitter.fail_with(d);` or `emitter.fail_with(d)?`.
+    /// Its purpose is to help reduce defects where one forgets to return an `Err` variant
+    /// after emitting a fatal error.  (for this to happen, one would now have to
+    /// specifically call the less popular [`Self::emit`] method instead)
     pub fn fail_with<T>(&mut self, diag: CompileError) -> Result<T, ErrorOccurred> {
-        Err(self.emit(diag))
+        self.emit(diag);
+        Err(CompileError::new())
     }
 }
 
