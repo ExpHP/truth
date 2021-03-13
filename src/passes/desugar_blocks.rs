@@ -14,7 +14,7 @@ use crate::context::CompilerContext;
 /// into a single block.
 ///
 /// This pass is not idempotent, because it inserts [`ast::StmtBody::ScopeEnd`] statements.
-pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), CompileError> {
     insert_scope_ends(ast, ctx)?;
 
     let mut visitor = Visitor { ctx };
@@ -22,7 +22,7 @@ pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext) -> Result<
     Ok(())
 }
 
-fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext) -> Result<(), CompileError> {
+fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), CompileError> {
     let mut v = InsertLocalScopeEndsVisitor { resolutions: &ctx.resolutions, stack: vec![] };
     ast.visit_mut_with(&mut v);
     Ok(())
@@ -86,7 +86,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
 // =============================================================================
 
 struct Visitor<'a> {
-    ctx: &'a mut CompilerContext,
+    ctx: &'a mut CompilerContext<'ctx>,
 }
 
 impl VisitMut for Visitor<'_> {

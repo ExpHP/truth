@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use crate::ident::GensymContext;
 use crate::resolve::Resolutions;
 use crate::resolve::rib::Rib;
+use crate::diagnostic::DiagnosticEmitter;
 
 pub use defs::Defs;
 pub mod defs;
@@ -41,10 +42,12 @@ pub mod consts;
 /// (e.g. [`llir::RawInstr`] holds an args blob so that reading/writing doesn't require signatures.
 /// [`crate::passes::resolve_names::assign_res_ids`] allows the parser to not require `Resolutions`, and
 /// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
-#[derive(Debug, Clone, Default)]
-pub struct CompilerContext {
+#[derive(Debug, Clone)]
+pub struct CompilerContext<'ctx> {
     /// Catalogues all loaded mapfiles for generating imports.
     mapfiles: Vec<PathBuf>,
+    /// Object for printing diagnostics.
+    pub diagnostics: DiagnosticEmitter<'ctx>,
     /// Results of name resolution.  Maps [`ResId`]s to [`DefId`]s.
     pub resolutions: Resolutions,
     /// Stores information about [`DefId`]s.
@@ -57,8 +60,14 @@ pub struct CompilerContext {
     pub initial_ribs: Vec<Rib>,
 }
 
-impl CompilerContext {
-    pub fn new() -> Self {
-        Default::default()
+impl<'ctx> CompilerContext<'ctx> {
+    pub fn new(diagnostics: DiagnosticEmitter<'ctx>) -> Self {
+        diagnostics,
+        mapfiles: Default::default(),
+        resolutions: Default::default(),
+        defs: Default::default(),
+        gensym: Default::default(),
+        consts: Default::default(),
+        initial_ribs: Default::default(),
     }
 }
