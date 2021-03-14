@@ -8,7 +8,7 @@ use crate::pos::{Sp, Span};
 use crate::error::{group_anyhow, SimpleError};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::resolve::{RegId};
-use crate::context::Defs;
+use crate::context::{self, Defs};
 use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::binary_io::DEFAULT_ENCODING;
@@ -36,19 +36,23 @@ struct UnknownArgsData {
 ///
 /// It tracks some state related to diagnostics, so that some consolidated warnings
 /// can be given at the end of decompilation.
-pub struct Raiser {
+pub struct Raiser<'a> {
     opcodes_without_abis: BTreeSet<u16>,
+    diagnostics: &'a context::DiagnosticEmitter,
 }
 
-impl Drop for Raiser {
+impl Drop for Raiser<'_> {
     fn drop(&mut self) {
         self.generate_warnings();
     }
 }
 
-impl Raiser {
-    pub fn new() -> Self {
-        Raiser { opcodes_without_abis: Default::default() }
+impl<'a> Raiser<'a> {
+    pub fn new(diagnostics: &'a context::DiagnosticEmitter) -> Self {
+        Raiser {
+            opcodes_without_abis: Default::default(),
+            diagnostics,
+        }
     }
 
     pub fn raise_instrs_to_sub_ast(
@@ -62,10 +66,14 @@ impl Raiser {
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
-            fast_warning!("\
-                Instructions with unknown signatures were decompiled to byte blobs.  \
-                \n   The following opcodes were affected: {}\
-            ", self.opcodes_without_abis.iter().map(|opcode| opcode.to_string()).collect::<Vec<_>>().join(", "));
+            self.diagnostics.emit(warning!(
+                message("instructions with unknown signatures were decompiled to byte blobs."),
+                note(
+                    "The following opcodes were affected: {}",
+                    self.opcodes_without_abis.iter()
+                        .map(|opcode| opcode.to_string()).collect::<Vec<_>>().join(", ")
+                ),
+            ))
         }
 
         self.opcodes_without_abis.clear();
@@ -508,10 +516,10 @@ fn raise_jump_args(
 
 // =============================================================================
 
-impl Raiser {
+impl Raiser<'_> {
     fn decode_args(&mut self, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, SimpleError> {
         match defs.ins_abi(instr.opcode) {
-            Some(abi) => decode_args_with_abi(instr, abi),
+            Some(abi) => decode_args_with_abi(&self.diagnostics, instr, abi),
 
             // No ABI. Fall back to decompiling as a blob.
             None => {
@@ -530,7 +538,11 @@ impl Raiser {
     }
 }
 
-fn decode_args_with_abi(instr: &RawInstr, siggy: &InstrAbi) -> Result<RaiseInstr, SimpleError> {
+fn decode_args_with_abi(
+    diagnostics: &context::DiagnosticEmitter,
+    instr: &RawInstr,
+    siggy: &InstrAbi,
+) -> Result<RaiseInstr, SimpleError> {
     use crate::binary_io::BinRead;
 
     let mut param_mask = instr.param_mask;
@@ -568,18 +580,18 @@ fn decode_args_with_abi(instr: &RawInstr, siggy: &InstrAbi) -> Result<RaiseInstr
     }
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
-        fast_warning!(
+        diagnostics.emit(warning!(
             // this could mean the signature is incomplete
             "unexpected leftover bytes in ins_{}! (read {} bytes out of {} in file!)",
             instr.opcode, args_blob.position(), args_blob.get_ref().len(),
-        );
+        ));
     }
 
     if param_mask != 0 {
-        fast_warning!(
+        diagnostics.emit(warning!(
             "unused bits in ins_{}! (arg {} is a variable, but there are only {} args!)",
             instr.opcode, param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
-        );
+        ));
     }
     Ok(RaiseInstr {
         time: instr.time,

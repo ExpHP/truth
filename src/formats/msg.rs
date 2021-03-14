@@ -47,7 +47,7 @@ fn decompile(
     ctx: &CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
-    let mut raiser = llir::Raiser::new();
+    let mut raiser = llir::Raiser::new(&ctx.diagnostics);
     let mut script = ast::Script {
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],

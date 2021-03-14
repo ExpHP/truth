@@ -39,7 +39,7 @@ pub mod consts;
 //
 /// While there is no doubt a great deal of code which depends on this type (or at least on one or more of
 /// its fields), there are a number of phases of compilation that are **forbidden** to depend on this type
-/// or any of its fields, just as a matter of principle.  These are:
+/// or any of its fields (except [`DiagnosticEmitter`]), just as a matter of principle.  These are:
 ///
 /// * Parsing of text to AST
 /// * Formatting of AST to text

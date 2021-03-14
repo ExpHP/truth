@@ -212,7 +212,7 @@ fn decompile(
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new();
+    let mut raiser = llir::Raiser::new(&ctx.diagnostics);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
