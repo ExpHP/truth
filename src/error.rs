@@ -113,6 +113,7 @@ impl CompileError {
         use cs::term::termcolor as tc;
 
         if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
+            // use eprint! so that the test harness can capture it
             let mut writer = tc::NoColor::new(vec![]);
             self.emit_to_writer(&mut writer, files, &*TERM_CONFIG);
             eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
@@ -208,18 +209,6 @@ impl ErrorStore {
 }
 
 // -------------------------
-
-lazy_static::lazy_static! {
-    static ref TERM_CONFIG: codespan_reporting::term::Config = {
-        let mut config = codespan_reporting::term::Config::default();
-        // Make output closer to rustc. Fewer colors overall, looks better.
-        config.styles.primary_label_error.set_intense(true);
-        config.styles.secondary_label.set_intense(true);
-        config.styles.line_number.set_intense(true);
-        config.styles.source_border.set_intense(true);
-        config
-    };
-}
 
 #[macro_export]
 macro_rules! _diagnostic {
