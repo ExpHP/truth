@@ -16,6 +16,7 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 ///
 /// It converts into [`CompileError`] using [`From`], so a `?` should suffice.
 #[derive(Debug, Clone)]
+#[must_use = "A Diagnostic must be emitted or it will not be seen!"]
 pub struct Diagnostic {
     imp: CsDiagnostic,
 }

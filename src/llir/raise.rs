@@ -545,6 +545,7 @@ fn decode_args_with_abi(
 ) -> Result<RaiseInstr, SimpleError> {
     use crate::binary_io::BinRead;
 
+    let mut warnings = Default::default();
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];

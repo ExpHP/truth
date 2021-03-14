@@ -56,13 +56,13 @@ macro_rules! _diagnostic {
         $(, note( $($note_msg:tt)+ ) )*
         $(,)?
     ) => {{
-        let mut d = $crate::error::Diagnostic::$severity();
+        let mut d = $crate::diagnostic::Diagnostic::$severity();
         d.message(format!( $($message)+ ));
         $( d.code($code); )?
         $( d.primary(&$primary_span, format!( $($primary_msg)+ )); )*
         $( d.secondary(&$secondary_span, format!( $($secondary_msg)+ )); )*
         $( d.note(format!( $($note_msg)+ )); )*
-        $crate::error::CompileError::from(d)
+        d
     }};
     ( // shorthand for message only
         @ $severity:ident,
@@ -73,19 +73,16 @@ macro_rules! _diagnostic {
     }};
 }
 
-/// Generates a [`CompileError`] of severity `error`.
+/// Generates a [`crate::error::CompileError`] of severity `error`.
 ///
 /// If you want to modify the error after the macro call (by dynamically adding labels/notes),
-/// try the [`Diagnostic`] builder API instead.
+/// try the [`crate::diagnostic::Diagnostic`] builder API instead.
 #[macro_export]
 macro_rules! error {
-    ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
+    ($($arg:tt)+) => { $crate::error::CompileError::from($crate::_diagnostic!(@error, $($arg)+)) };
 }
 
-/// Generates a [`CompileError`] of severity `warning`.
-///
-/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
-/// try the [`Diagnostic`] builder API instead.
+/// Generates a [`crate::diagnostic::Diagnostic`] of severity `warning`.
 #[macro_export]
 macro_rules! warning {
     ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
