@@ -3,6 +3,7 @@ use regex::Regex;
 use lazy_static::lazy_static;
 use anyhow::{bail, Context};
 use crate::Game;
+use crate::diagnostic::DiagnosticEmitter;
 use crate::ident::Ident;
 use crate::error::SimpleError;
 
@@ -18,7 +19,7 @@ pub struct Eclmap {
 }
 
 impl Eclmap {
-    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>) -> Result<Self, SimpleError> {
+    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>, diagnostics: &DiagnosticEmitter) -> Result<Self, SimpleError> {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
         let path = path.as_ref().canonicalize().with_context(|| format!("while resolving '{}'", path.as_ref().display()))?;
         let text = std::fs::read_to_string(&path).with_context(|| format!("while reading '{}'", path.display()))?;
@@ -31,14 +32,14 @@ impl Eclmap {
                     None => bail!("can't use gamemap because no game was supplied!")
                 };
                 let base_dir = path.parent().expect("filename must have parent");
-                seqmap = Self::resolve_gamemap(base_dir, seqmap, game)?;
+                seqmap = Self::resolve_gamemap(base_dir, seqmap, game, diagnostics)?;
             }
-            Self::from_seqmap(seqmap)
+            Self::from_seqmap(seqmap, diagnostics)
         }).with_context(|| format!("while parsing '{}'", path.display()))
     }
 
-    pub fn parse(text: &str) -> Result<Self, SimpleError> {
-        Self::from_seqmap(parse_seqmap(text)?)
+    pub fn parse(text: &str, diagnostics: &DiagnosticEmitter) -> Result<Self, SimpleError> {
+        Self::from_seqmap(parse_seqmap(text)?, diagnostics)
     }
 
     /// Check the default map directories for a file whose name is `any.{extension}`
@@ -56,13 +57,13 @@ impl Eclmap {
             }).next()
     }
 
-    fn resolve_gamemap(base_dir: &std::path::Path, mut seqmap: SeqMap, game: Game) -> Result<SeqMap, SimpleError> {
+    fn resolve_gamemap(base_dir: &std::path::Path, mut seqmap: SeqMap, game: Game, diagnostics: &DiagnosticEmitter) -> Result<SeqMap, SimpleError> {
         let game_files = match seqmap.maps.remove("game_files") {
             Some(game_files) => game_files,
             None => bail!("no !game_files section in gamemap")
         };
         for (key, _) in seqmap.maps {
-            fast_warning!("unrecognized section in gamemap: {:?}", key);
+            diagnostics.emit(warning!("unrecognized section in gamemap: {:?}", key));
         }
         let rel_path = match game_files.get(&(game.as_number() as i32)) {
             Some(file) => file,
@@ -74,7 +75,7 @@ impl Eclmap {
         parse_seqmap(&text)
     }
 
-    fn from_seqmap(seqmap: SeqMap) -> Result<Eclmap, SimpleError> {
+    fn from_seqmap(seqmap: SeqMap, diagnostics: &DiagnosticEmitter) -> Result<Eclmap, SimpleError> {
         let SeqMap { magic, mut maps } = seqmap;
         let magic = match &magic[..] {
             "!eclmap" => Magic::Eclmap,
@@ -101,7 +102,7 @@ impl Eclmap {
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
         };
         for (key, _) in maps {
-            fast_warning!("unrecognized section in eclmap: {:?}", key);
+            diagnostics.emit(warning!("unrecognized section in eclmap: {:?}", key));
         }
 
         Ok(out)

@@ -117,7 +117,8 @@ impl DiagnosticEmitter {
     /// Obtain captured diagnostics written to stderr, provided that this [`CompilerContext`]
     /// was constructed using [`Self::new_captured`]. (otherwise, returns `None`)
     pub fn get_captured_diagnostics(&self) -> Option<String> {
-        let writer = self.writer.borrow().as_any().downcast_ref::<CapturedWriter>()?;
+        let writer = self.writer.borrow();
+        let writer = writer.as_any().downcast_ref::<CapturedWriter>()?;
 
         Some(String::from_utf8_lossy(&writer.get_ref()).into_owned())
     }

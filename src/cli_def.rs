@@ -4,6 +4,7 @@ use std::io;
 use anyhow::Context;
 use crate::ast;
 use crate::game::Game;
+use crate::diagnostic::DiagnosticEmitter;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::Files;
 
@@ -117,14 +118,14 @@ pub mod anm_decompile {
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        let ctx = init_context(game, map_path, &crate::anm::game_core_mapfile(game))?;
+        let ctx = init_context(game, map_path, crate::anm::game_core_mapfile(game))?;
 
         let script = {
             // Here we don't use fs_read because seeking can skip costly reads of megabytes of image data.
             //
             // Seeking drops the buffer though, so use a tiny buffer.
             let reader = io::BufReader::with_capacity(64, fs_open(&path)?);
-            crate::AnmFile::read_from_stream(reader, game, false)
+            crate::AnmFile::read_from_stream(reader, game, false, &ctx.diagnostics)
                 .and_then(|anm| anm.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
@@ -160,7 +161,7 @@ pub mod anm_compile {
         map_path: Option<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ctx = init_context(game, map_path, &crate::anm::game_core_mapfile(game))?;
+        let mut ctx = init_context(game, map_path, crate::anm::game_core_mapfile(game))?;
 
         let ast = files.read_file::<ast::Script>(&script_path)?;
 
@@ -178,13 +179,13 @@ pub mod anm_compile {
         for image_source_path in image_source_paths.iter() {
             let reader = io::Cursor::new(fs_read(image_source_path)?);
             let source_anm_file = {
-                crate::AnmFile::read_from_stream(reader, game, true)
+                crate::AnmFile::read_from_stream(reader, game, true, &ctx.diagnostics)
                     .with_context(|| format!("in file: {}", image_source_path.display()))?
             };
             compiled.apply_image_source(source_anm_file)?;
         }
 
-        compiled.write_to_stream(io::BufWriter::new(fs_create(outpath)?), game)?;
+        compiled.write_to_stream(io::BufWriter::new(fs_create(outpath)?), game, &ctx.diagnostics)?;
 
         if let Some(outpath) = output_thecl_defs {
             compiled.write_thecl_defs(io::BufWriter::new(fs_create(&outpath)?))
@@ -213,14 +214,15 @@ pub mod anm_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), CompileError> {
+        let diagnostics = DiagnosticEmitter::new_stderr();
         let reader = io::BufReader::new(fs_open(&path)?);
         let anm_file = {
-            crate::AnmFile::read_from_stream(reader, game, true)
+            crate::AnmFile::read_from_stream(reader, game, true, &diagnostics)
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
         let mut buf = io::Cursor::new(vec![]);
-        anm_file.write_to_stream(&mut buf, game)?;
+        anm_file.write_to_stream(&mut buf, game, &diagnostics)?;
 
         fs::write(outpath, buf.into_inner())?;
         Ok(())
@@ -284,7 +286,7 @@ pub mod std_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ctx = init_context(game, map_path, &crate::std::game_core_mapfile(game))?;
+        let mut ctx = init_context(game, map_path, crate::std::game_core_mapfile(game))?;
 
         let script = files.read_file::<ast::Script>(&path)?;
         load_mapfiles_from_pragmas(game, &mut ctx, &script)?;
@@ -293,7 +295,7 @@ pub mod std_compile {
         let std = crate::StdFile::compile_from_ast(game, &script, &mut ctx)?;
 
         let out = fs_create(outpath)?;
-        std.write_to_stream(&mut io::BufWriter::new(out), game)?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game, &ctx.diagnostics)?;
         Ok(())
     }
 }
@@ -317,11 +319,11 @@ pub mod std_decompile {
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
-        let ctx = init_context(game, map_path, &crate::std::game_core_mapfile(game))?;
+        let ctx = init_context(game, map_path, crate::std::game_core_mapfile(game))?;
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
-            crate::StdFile::read_from_stream(reader, game)
+            crate::StdFile::read_from_stream(reader, game, &ctx.diagnostics)
                 .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
@@ -352,14 +354,15 @@ pub mod msg_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), CompileError> {
+        let diagnostics = DiagnosticEmitter::new_stderr();
         let reader = io::BufReader::new(fs_open(&path)?);
         let msg_file = {
-            crate::MsgFile::read_from_stream(reader, game)
+            crate::MsgFile::read_from_stream(reader, game, &diagnostics)
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
         let mut buf = io::Cursor::new(vec![]);
-        msg_file.write_to_stream(&mut buf, game)?;
+        msg_file.write_to_stream(&mut buf, game, &diagnostics)?;
 
         fs::write(outpath, buf.into_inner())?;
         Ok(())
@@ -386,7 +389,7 @@ pub mod msg_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
-        let mut ctx = init_context(game, map_path, &crate::msg::game_core_mapfile(game))?;
+        let mut ctx = init_context(game, map_path, crate::msg::game_core_mapfile(game))?;
 
         let script = files.read_file::<ast::Script>(&path)?;
         load_mapfiles_from_pragmas(game, &mut ctx, &script)?;
@@ -395,7 +398,7 @@ pub mod msg_compile {
         let std = crate::MsgFile::compile_from_ast(game, &script, &mut ctx)?;
 
         let out = fs_create(outpath)?;
-        std.write_to_stream(&mut io::BufWriter::new(out), game)?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game, &ctx.diagnostics)?;
         Ok(())
     }
 }
@@ -419,11 +422,11 @@ pub mod msg_decompile {
         map_path: Option<PathBuf>,
     ) -> Result<(), CompileError> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-        let ctx = init_context(game, map_path, &crate::msg::game_core_mapfile(game))?;
+        let ctx = init_context(game, map_path, crate::msg::game_core_mapfile(game))?;
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
-            crate::MsgFile::read_from_stream(reader, game)
+            crate::MsgFile::read_from_stream(reader, game, &ctx.diagnostics)
                 .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
@@ -454,11 +457,11 @@ fn init_context(
 ) -> Result<crate::CompilerContext, CompileError> {
     use crate::Eclmap;
 
-    let mut ctx = crate::CompilerContext::new();
-    ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source)?).expect("failed to parse core mapfile!?");
+    let mut ctx = crate::CompilerContext::new_stderr();
+    ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source, &ctx.diagnostics)?).expect("failed to parse core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
-        let eclmap = Eclmap::load(&mapfile_arg, Some(game))?;
+        let eclmap = Eclmap::load(&mapfile_arg, Some(game), &ctx.diagnostics)?;
         ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap)
             .with_context(|| format!("while applying '{}'", mapfile_arg.display()))?;
     }
@@ -471,7 +474,7 @@ fn load_mapfiles_from_pragmas(game: Game, ctx: &mut crate::CompilerContext, scri
         let path: &Path = path_literal.string.as_ref();
 
         crate::error::group_anyhow(|| {
-            let eclmap = crate::Eclmap::load(&path, Some(game))?;
+            let eclmap = crate::Eclmap::load(&path, Some(game), &ctx.diagnostics)?;
             ctx.extend_from_eclmap(Some(path), &eclmap)?;
             Ok(())
         }).map_err(|e| crate::error!(

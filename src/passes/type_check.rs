@@ -8,12 +8,12 @@
 //! when bad types are encountered in other passes like lowering.
 
 use crate::ast;
-use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore, Diagnostic};
+use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
 use crate::resolve::DefId;
-use crate::diagnostic::{DiagnosticEmitter};
+use crate::diagnostic::{Diagnostic, DiagnosticEmitter};
 use crate::ast::TypeKeyword;
 
 /// Performs type-checking.
@@ -380,7 +380,7 @@ impl Visitor<'_, '_> {
         self.check_var_weak(var)?;
 
         self.ctx.var_read_ty_from_ast(var).as_known_ty().ok_or_else(|| {
-            let mut err = crate::error::Diagnostic::error();
+            let mut err = Diagnostic::error();
             err.message(format!("variable requires a type prefix"));
             err.primary(var, format!("needs a '$' or '%' prefix"));
             match self.ctx.var_reg_from_ast(&var.name) {

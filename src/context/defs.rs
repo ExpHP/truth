@@ -4,6 +4,7 @@ use anyhow::Context;
 
 use crate::ast;
 use crate::context::CompilerContext;
+use crate::diagnostic::DiagnosticEmitter;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
@@ -91,7 +92,7 @@ impl CompilerContext<'_> {
         if let Err(old) = self.defs.reg_alias_rib.insert(sp!(ident.clone()), def_id) {
             let old_reg = self.defs.var_reg(old.def_id).unwrap();
             if old_reg != reg {
-                fast_warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg);
+                self.diagnostics.emit(warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg));
             }
         }
 
@@ -151,10 +152,11 @@ impl CompilerContext<'_> {
         self.defs.instrs.insert(opcode, InsData { abi, sig });
     }
 
-    /// Add an alias for an instruction from a mapfile.
+    /// Add an alias for an instruction from a mapfile.  If this ident has been used previously, the old opcode
+    /// is also returned.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    pub fn define_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> DefId {
+    pub fn define_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> (DefId, Option<u16>) {
         let res_ident = self.resolutions.attach_fresh_res(ident.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
@@ -164,13 +166,11 @@ impl CompilerContext<'_> {
         });
         self.defs.ins_aliases.insert(opcode, def_id);
 
-        if let Err(old) = self.defs.ins_alias_rib.insert(sp!(ident.clone()), def_id) {
-            let old_opcode = self.defs.func_opcode(old.def_id).unwrap();
-            if old_opcode != opcode {
-                fast_warning!("name '{}' used for multiple opcodes in mapfiles: {}, {}", ident, old_opcode, opcode);
-            }
-        }
-        def_id
+        let old_opcode = match self.defs.ins_alias_rib.insert(sp!(ident.clone()), def_id) {
+            Err(old) => Some(self.defs.func_opcode(old.def_id).unwrap()),
+            Ok(_) => None,
+        };
+        (def_id, old_opcode)
     }
 
     /// Add a user-defined function, resolving the ident to a brand new [`DefId`]
@@ -377,7 +377,12 @@ impl CompilerContext<'_> {
         }
 
         for (&opcode, ident) in &eclmap.ins_names {
-            self.define_global_ins_alias(opcode as u16, ident.clone());
+            let (_, old_opcode) = self.define_global_ins_alias(opcode as u16, ident.clone());
+            if let Some(old_opcode) = old_opcode {
+                if opcode as u16 != old_opcode {
+                    self.diagnostics.emit(warning!("name '{}' used for multiple opcodes in mapfiles: {}, {}", ident, old_opcode, opcode));
+                }
+            }
         }
         for (&opcode, abi_str) in &eclmap.ins_signatures {
             let abi = abi_str.parse().with_context(|| format!("in signature for opcode {}", opcode))?;
@@ -390,7 +395,10 @@ impl CompilerContext<'_> {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
-                _ => anyhow::bail!("In mapfile: Ignoring invalid variable type '{}' for gvar {}", value, reg),
+                _ => {
+                    self.diagnostics.emit(warning!("In mapfile: Ignoring invalid variable type '{}' for gvar {}", value, reg));
+                    continue;
+                },
             };
             self.set_reg_ty(RegId(reg), ty);
         }

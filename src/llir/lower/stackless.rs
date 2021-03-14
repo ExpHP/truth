@@ -5,6 +5,7 @@
 use std::collections::{HashMap, BTreeSet};
 
 use super::{unsupported, LowerStmt, LowerInstr, LowerArgs, LowerArg};
+use crate::diagnostic::Diagnostic;
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, CompileError};
 use crate::pos::{Sp, Span};
@@ -848,7 +849,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
                     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(reg));
 
-                    let mut error = crate::error::Diagnostic::error();
+                    let mut error = Diagnostic::error();
                     error.message(format!("script too complex to compile"));
                     error.primary(cause, format!("no more registers of this type!"));
                     for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {

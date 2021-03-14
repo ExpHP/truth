@@ -7,7 +7,8 @@ use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
-use crate::context::{self, CompilerContext};
+use crate::context::CompilerContext;
+use crate::diagnostic::DiagnosticEmitter;
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -23,19 +24,19 @@ pub struct MsgFile {
 
 impl MsgFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
-        decompile(&*game_format(game, diagnostics), self, ctx, decompile_kind)
+        decompile(&*game_format(game), self, ctx, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, CompileError> {
-        compile(&*game_format(game, diagnostics), script, ctx)
+        compile(&*game_format(game), script, ctx)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, diagnostics: &context::DiagnosticEmitter) -> WriteResult {
-        write_msg(diagnostics, &mut w, &*game_format(game, diagnostics), self)
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, diagnostics: &DiagnosticEmitter) -> WriteResult {
+        write_msg(diagnostics, &mut w, &*game_format(game), self)
     }
 
-    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, diagnostics: &context::DiagnosticEmitter) -> ReadResult<Self> {
-        read_msg(diagnostics, &mut r, &*game_format(game, diagnostics))
+    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, diagnostics: &DiagnosticEmitter) -> ReadResult<Self> {
+        read_msg(diagnostics, &mut r, &*game_format(game))
     }
 }
 
@@ -140,7 +141,7 @@ fn compile(
 // =============================================================================
 
 fn read_msg(
-    diagnostics: &context::DiagnosticEmitter,
+    diagnostics: &DiagnosticEmitter,
     reader: &mut dyn BinRead,
     instr_format: &dyn InstrFormat,
 ) -> ReadResult<MsgFile> {
@@ -183,7 +184,7 @@ fn read_msg(
         let script_pos = start_pos + offset as u64;
         reader.seek_to(script_pos)?;
 
-        let script = llir::read_instrs(reader, instr_format, script_pos, None)?;
+        let script = llir::read_instrs(reader, instr_format, diagnostics, script_pos, None)?;
         scripts.insert(id as u32, script);
     }
 
@@ -191,7 +192,7 @@ fn read_msg(
 }
 
 fn write_msg(
-    diagnostics: &context::DiagnosticEmitter,
+    diagnostics: &DiagnosticEmitter,
     f: &mut dyn BinWrite,
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
@@ -215,7 +216,7 @@ fn write_msg(
         default_script_offset = default_script_offset.or(Some(script_offset));
 
         script_offsets[id as usize] = Some(script_offset);
-        llir::write_instrs(f, instr_format, script)?;
+        llir::write_instrs(f, instr_format, script, diagnostics)?;
     }
 
     if default_script_offset.is_none() && msg.script_table_len > 0 {
@@ -234,22 +235,22 @@ fn write_msg(
     Ok(())
 }
 
-fn game_format<'a>(game: Game, diagnostics: &'a context::DiagnosticEmitter) -> Box<dyn InstrFormat + 'a> {
+fn game_format(game: Game) -> Box<dyn InstrFormat> {
     match game {
         | Game::Th06 | Game::Th07 | Game::Th08
-        => Box::new(InstrFormat06 { diagnostics }),
+        => Box::new(InstrFormat06),
 
         _ => unimplemented!("msg InstrFormat"),
     }
 }
 
-pub fn game_core_mapfile(game: Game) -> String {
+pub fn game_core_mapfile(game: Game) -> &'static str {
     match game {
         | Game::Th06 | Game::Th07
-        => include_str!("../../map/core/th06.msgm").to_string(),
+        => include_str!("../../map/core/th06.msgm"),
 
         | Game::Th08
-        => include_str!("../../map/core/th08.msgm").to_string(),
+        => include_str!("../../map/core/th08.msgm"),
 
         _ => unimplemented!("msg mapfiles"),
     }
@@ -258,16 +259,16 @@ pub fn game_core_mapfile(game: Game) -> String {
 // =============================================================================
 
 /// MSG format, EoSD.
-struct InstrFormat06<'a> { diagnostics: &'a context::DiagnosticEmitter }
+struct InstrFormat06;
 
-impl InstrFormat for InstrFormat06<'a> {
+impl InstrFormat for InstrFormat06 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![]  // msg is vapid
     }
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut dyn BinRead) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut dyn BinRead, _: &DiagnosticEmitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()?;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
@@ -293,14 +294,14 @@ impl InstrFormat for InstrFormat06<'a> {
         }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, diagnostics: &DiagnosticEmitter) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
 
         if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            self.diagnostics.emit(warning!("\
+            diagnostics.emit(warning!("\
                 wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
                 correctly due to a known limitation of the current implementation.\
             "));

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::ast;
-use crate::error::{CompileError, Diagnostic};
+use crate::error::{CompileError};
+use crate::diagnostic::Diagnostic;
 use crate::pos::{Sp, Span};
 use crate::resolve::{DefId, Resolutions};
 use crate::context::Defs;
