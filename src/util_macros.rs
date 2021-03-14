@@ -43,3 +43,58 @@ macro_rules! zip {
     ($a:expr, $b:expr, $c:expr) => { IntoIterator::into_iter($a).zip($b).zip($c).map(|((a, b), c)| (a, b, c)) };
     ($a:expr, $b:expr, $c:expr, $d:expr) => { IntoIterator::into_iter($a).zip($b).zip($c).zip($d).map(|(((a, b), c), d)| (a, b, c, d)) };
 }
+
+// =============================================================================
+
+#[macro_export]
+macro_rules! _diagnostic {
+    (
+        @ $severity:ident,
+        $(code=$code:literal,)? message($($message:tt)+)
+        $(, primary( $primary_span:expr, $($primary_msg:tt)+ ) )*
+        $(, secondary( $secondary_span:expr, $($secondary_msg:tt)+ ) )*
+        $(, note( $($note_msg:tt)+ ) )*
+        $(,)?
+    ) => {{
+        let mut d = $crate::error::Diagnostic::$severity();
+        d.message(format!( $($message)+ ));
+        $( d.code($code); )?
+        $( d.primary(&$primary_span, format!( $($primary_msg)+ )); )*
+        $( d.secondary(&$secondary_span, format!( $($secondary_msg)+ )); )*
+        $( d.note(format!( $($note_msg)+ )); )*
+        $crate::error::CompileError::from(d)
+    }};
+    ( // shorthand for message only
+        @ $severity:ident,
+        $message_fmt:literal $(, $message_arg:expr)* $(,)?
+    ) => { $crate::_diagnostic!{
+        @ $severity,
+        message($message_fmt $(, $message_arg)*),
+    }};
+}
+
+/// Generates a [`CompileError`] of severity `error`.
+///
+/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
+/// try the [`Diagnostic`] builder API instead.
+#[macro_export]
+macro_rules! error {
+    ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
+}
+
+/// Generates a [`CompileError`] of severity `warning`.
+///
+/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
+/// try the [`Diagnostic`] builder API instead.
+#[macro_export]
+macro_rules! warning {
+    ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
+}
+
+/// Generates and immediately emits a `CompileError` of severity `warning` that has no labels.
+#[macro_export]
+macro_rules! fast_warning {
+    ($($fmt_arg:tt)+) => {{
+        $crate::warning!(message($($fmt_arg)+)).emit_nospans()
+    }};
+}

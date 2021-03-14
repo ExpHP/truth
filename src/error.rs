@@ -1,8 +1,7 @@
-use crate::pos::{FileId, Span, HasSpan};
+use crate::pos::{FileId, Span};
+use crate::diagnostic::Diagnostic;
 
 use codespan_reporting as cs;
-type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
-type CsLabel = cs::diagnostic::Label<FileId>;
 
 /// An error type that is intended to be pretty-printed through [`codespan_reporting`].
 ///
@@ -11,6 +10,9 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 /// treated as a "failure".  (if you want to create an accumulator of errors where having no
 /// errors is considered to be a success, see [`ErrorStore`]).
 ///
+/// **Do not use this type to hold non-fatal diagnostics.**
+/// Use [`Vec<Diagnostic>`][`Diagnostic`] instead.
+///
 /// There is no general recommendation regarding whether errors should be emitted immediately
 /// using [`DiagnosticEmitter`], or if they should be accumulated using [`Self::join`] and
 /// [`Self::append`] and returned en masse to the caller.  Usage of [`DiagnosticEmitter`] is a
@@ -18,7 +20,7 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 /// in the compiler that don't need to generate warnings may prefer to return their errors, simply
 /// because this allows for somewhat looser coupling.
 ///
-/// [`DiagnosticEmitter`]: [`crate::diagnostic::DiagnosticEmitter`]
+/// [`DiagnosticEmitter`]: [`crate::context::diagnostic::DiagnosticEmitter`]
 #[derive(thiserror::Error, Debug, Clone)]
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
@@ -41,59 +43,6 @@ impl CompileError {
     }
 }
 
-/// A single error in a [`CompileError`].  You can still add more labels to it.
-///
-/// It converts into [`CompileError`] using [`From`], so a `?` should suffice.
-#[derive(Debug, Clone)]
-pub struct Diagnostic {
-    imp: CsDiagnostic,
-}
-
-impl Diagnostic {
-    pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error() } }
-    pub fn warning() -> Self { Diagnostic { imp: CsDiagnostic::warning() } }
-
-    pub fn code(&mut self, code: String) -> &mut Self {
-        self.imp.code = Some(code);
-        self
-    }
-
-    pub fn message(&mut self, message: String) -> &mut Self {
-        self.imp.message = message;
-        self
-    }
-
-    /// Add a label of type 'primary'.
-    pub fn primary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
-        let span = span.span();
-        self.imp.labels.push(CsLabel::primary(span.file_id, span).with_message(message));
-        self
-    }
-
-    /// Add a label of type 'secondary'.
-    pub fn secondary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
-        let span = span.span();
-        self.imp.labels.push(CsLabel::secondary(span.file_id, span).with_message(message));
-        self
-    }
-
-    pub fn note(&mut self, message: String) -> &mut Self {
-        self.imp.notes.push(message);
-        self
-    }
-}
-
-impl From<Diagnostic> for CompileError {
-    fn from(d: Diagnostic) -> Self { CompileError { diagnostics: vec![d] } }
-}
-
-/// Error type used by parts of the codebase that don't have access to spans.
-///
-/// These parts of the codebase use `anyhow` to produce a single, fatal error message that may
-/// include a chain of context.  This is always ultimately converted into a [`CompileError`]
-/// shortly before being displayed to the user.
-pub type SimpleError = anyhow::Error;
-
 impl CompileError {
     /// Create an empty [`CompileError`].  Even an empty [`CompileError`] is still an error!
     pub fn new() -> CompileError {
@@ -110,47 +59,52 @@ impl CompileError {
     /// nodes is required.
     #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
     pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) {
-        use cs::term::termcolor as tc;
-
-        if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
-            // use eprint! so that the test harness can capture it
-            let mut writer = tc::NoColor::new(vec![]);
-            self.emit_to_writer(&mut writer, files, &*TERM_CONFIG);
-            eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
-        } else {
-            // typical
-            let writer = tc::StandardStream::stderr(tc::ColorChoice::Auto);
-            self.emit_to_writer(&mut writer.lock(), files, &*TERM_CONFIG);
-        }
+        // use cs::term::termcolor as tc;
+        //
+        // if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
+        //     // use eprint! so that the test harness can capture it
+        //     let mut writer = tc::NoColor::new(vec![]);
+        //     self.emit_to_writer(&mut writer, files, &*TERM_CONFIG);
+        //     eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
+        // } else {
+        //     // typical
+        //     let writer = tc::StandardStream::stderr(tc::ColorChoice::Auto);
+        //     self.emit_to_writer(&mut writer.lock(), files, &*TERM_CONFIG);
+        // }
+        panic!()
     }
 
     /// Drain all errors from this object and write them to some output terminal.
     ///
     /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
     /// nodes is required.
+    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
     pub fn emit_to_writer<'a>(
         self,
         writer: &mut dyn cs::term::termcolor::WriteColor,
         files: &'a impl cs::files::Files<'a, FileId=FileId>,
         config: &cs::term::Config,
     ) {
-        for e in self.diagnostics.drain(..) {
-            cs::term::emit(writer, config, files, &e.imp)
-                .unwrap_or_else(|fmt_err| {
-                    panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", e.imp, fmt_err)
-                });
-        }
+        // for e in self.diagnostics.drain(..) {
+        //     cs::term::emit(writer, config, files, &e.imp)
+        //         .unwrap_or_else(|fmt_err| {
+        //             panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", e.imp, fmt_err)
+        //         });
+        // }
+        panic!();
     }
 
     /// Render the errors to a text string with no color escapes.  Intended mainly for unit tests.
+    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
     pub fn to_string<'a>(&self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> String {
-        use codespan_reporting::term::{self, termcolor as tc};
-
-        let mut writer = tc::NoColor::new(vec![]);
-        for e in &self.diagnostics {
-            term::emit(&mut writer, &*TERM_CONFIG, files, &e.imp).unwrap();
-        }
-        String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!")
+        // use codespan_reporting::term::{self, termcolor as tc};
+        //
+        // let mut writer = tc::NoColor::new(vec![]);
+        // for e in &self.diagnostics {
+        //     term::emit(&mut writer, &*TERM_CONFIG, files, &e.imp).unwrap();
+        // }
+        // String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!")
+        panic!()
     }
 
     /// Emit errors that contain no labels.
@@ -159,15 +113,23 @@ impl CompileError {
     /// It should only be used when reading e.g. binary files, which have no position info.
     #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
     pub fn emit_nospans<'a>(&mut self) {
-        // because there are no labels, we know the methods of the Files will never be used,
-        // so we can use a dummy implementation.
-        let result = self.emit(&crate::error::PanicFiles);
-
-        // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
-        // which is hardly any reason to stop what we're doing, so just ignore all errors.
-        drop(result);
+        // // because there are no labels, we know the methods of the Files will never be used,
+        // // so we can use a dummy implementation.
+        // let result = self.emit(&crate::error::PanicFiles);
+        //
+        // // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
+        // // which is hardly any reason to stop what we're doing, so just ignore all errors.
+        // drop(result);
+        panic!()
     }
 }
+
+/// Error type used by parts of the codebase that don't have access to spans.
+///
+/// These parts of the codebase use `anyhow` to produce a single, fatal error message that may
+/// include a chain of context.  This is always ultimately converted into a [`CompileError`]
+/// shortly before being displayed to the user.
+pub type SimpleError = anyhow::Error;
 
 // -------------------------
 
@@ -210,57 +172,19 @@ impl ErrorStore {
 
 // -------------------------
 
-#[macro_export]
-macro_rules! _diagnostic {
-    (
-        @ $severity:ident,
-        $(code=$code:literal,)? message($($message:tt)+)
-        $(, primary( $primary_span:expr, $($primary_msg:tt)+ ) )*
-        $(, secondary( $secondary_span:expr, $($secondary_msg:tt)+ ) )*
-        $(, note( $($note_msg:tt)+ ) )*
-        $(,)?
-    ) => {{
-        let mut d = $crate::error::Diagnostic::$severity();
-        d.message(format!( $($message)+ ));
-        $( d.code($code); )?
-        $( d.primary(&$primary_span, format!( $($primary_msg)+ )); )*
-        $( d.secondary(&$secondary_span, format!( $($secondary_msg)+ )); )*
-        $( d.note(format!( $($note_msg)+ )); )*
-        $crate::error::CompileError::from(d)
-    }};
-    ( // shorthand for message only
-        @ $severity:ident,
-        $message_fmt:literal $(, $message_arg:expr)* $(,)?
-    ) => { $crate::_diagnostic!{
-        @ $severity,
-        message($message_fmt $(, $message_arg)*),
-    }};
+// needed by DiagnosticEmitter::emit
+impl From<CompileError> for Vec<Diagnostic> {
+    fn from(e: CompileError) -> Vec<Diagnostic> { e.diagnostics }
 }
 
-/// Generates a [`CompileError`] of severity `error`.
-///
-/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
-/// try the [`Diagnostic`] builder API instead.
-#[macro_export]
-macro_rules! error {
-    ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
+// -------------------------
+
+impl From<Diagnostic> for CompileError {
+    fn from(d: Diagnostic) -> Self { CompileError { diagnostics: vec![d] } }
 }
 
-/// Generates a [`CompileError`] of severity `warning`.
-///
-/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
-/// try the [`Diagnostic`] builder API instead.
-#[macro_export]
-macro_rules! warning {
-    ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
-}
-
-/// Generates and immediately emits a `CompileError` of severity `warning` that has no labels.
-#[macro_export]
-macro_rules! fast_warning {
-    ($($fmt_arg:tt)+) => {{
-        $crate::warning!(message($($fmt_arg)+)).emit_nospans()
-    }};
+impl From<Vec<Diagnostic>> for CompileError {
+    fn from(diagnostics: Vec<Diagnostic>) -> Self { CompileError { diagnostics } }
 }
 
 impl<'a> From<crate::parse::Error<'a>> for CompileError {

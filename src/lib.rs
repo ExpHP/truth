@@ -2,9 +2,9 @@
 mod util_macros;
 
 pub use error::{CompileError};
-#[macro_use]
-#[doc(hidden)]
+
 pub mod error;
+pub mod diagnostic;
 
 pub use pos::{Files, Span, Sp};
 #[macro_use]
