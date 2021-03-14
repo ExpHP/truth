@@ -69,7 +69,7 @@ impl Defs {
 }
 
 /// # Definitions
-impl CompilerContext {
+impl CompilerContext<'_> {
     /// Set the inherent type of a register.
     pub fn set_reg_ty(&mut self, reg: RegId, ty: VarType) {
         self.defs.regs.insert(reg, RegData { ty });
@@ -367,7 +367,7 @@ impl Defs {
     }
 }
 
-impl CompilerContext {
+impl CompilerContext<'_> {
     /// Add info from an eclmap.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
@@ -473,7 +473,7 @@ pub enum FuncKind {
 
 // =============================================================================
 
-impl CompilerContext {
+impl CompilerContext<'_> {
     /// Get the effective type of a variable at a place where it is referenced.
     ///
     /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be

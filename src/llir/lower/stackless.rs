@@ -17,14 +17,14 @@ use crate::context::CompilerContext;
 use IntrinsicInstrKind as IKind;
 
 /// Helper responsible for converting an AST into [`LowLevelStmt`]s.
-pub (in crate::llir::lower) struct Lowerer<'ts> {
+pub (in crate::llir::lower) struct Lowerer<'a, 'ctx> {
     pub out: Vec<LowerStmt>,
     pub intrinsic_instrs: IntrinsicInstrs,
-    pub instr_format: &'ts dyn InstrFormat,
-    pub ctx: &'ts mut CompilerContext,
+    pub instr_format: &'a dyn InstrFormat,
+    pub ctx: &'a mut CompilerContext<'ctx>,
 }
 
-impl Lowerer<'_> {
+impl Lowerer<'_, '_> {
     pub fn lower_sub_ast(
         &mut self,
         code: &[Sp<ast::Stmt>],

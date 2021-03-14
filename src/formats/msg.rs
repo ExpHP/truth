@@ -22,11 +22,11 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
         decompile(&*game_format(game), self, ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, CompileError> {
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, CompileError> {
         compile(&*game_format(game), script, ctx)
     }
 

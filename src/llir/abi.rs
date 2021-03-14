@@ -153,7 +153,7 @@ impl std::str::FromStr for InstrAbi {
     }
 }
 
-fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext) -> defs::Signature {
+fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Signature {
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
         params: abi.encodings.iter().enumerate().map(|(index, &enc)| {

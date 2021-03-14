@@ -85,11 +85,11 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
 
 // =============================================================================
 
-struct Visitor<'a> {
+struct Visitor<'a, 'ctx> {
     ctx: &'a mut CompilerContext<'ctx>,
 }
 
-impl VisitMut for Visitor<'_> {
+impl VisitMut for Visitor<'_, '_> {
     fn visit_block(&mut self, block: &mut ast::Block) {
         let mut desugarer = Desugarer { out: vec![], ctx: self.ctx };
 
@@ -102,12 +102,12 @@ impl VisitMut for Visitor<'_> {
 }
 
 
-struct Desugarer<'a> {
+struct Desugarer<'a, 'ctx> {
     out: Vec<Sp<ast::Stmt>>,
-    ctx: &'a mut CompilerContext,
+    ctx: &'a mut CompilerContext<'ctx>,
 }
 
-impl<'a> Desugarer<'a> {
+impl Desugarer<'_, '_> {
     pub fn desugar_block(&mut self, mut outer_block: ast::Block) {
         for outer_stmt in outer_block.0.drain(..) {
             let outer_time = outer_stmt.time;

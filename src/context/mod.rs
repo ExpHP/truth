@@ -62,12 +62,14 @@ pub struct CompilerContext<'ctx> {
 
 impl<'ctx> CompilerContext<'ctx> {
     pub fn new(diagnostics: DiagnosticEmitter<'ctx>) -> Self {
-        diagnostics,
-        mapfiles: Default::default(),
-        resolutions: Default::default(),
-        defs: Default::default(),
-        gensym: Default::default(),
-        consts: Default::default(),
-        initial_ribs: Default::default(),
+        CompilerContext {
+            diagnostics,
+            mapfiles: Default::default(),
+            resolutions: Default::default(),
+            defs: Default::default(),
+            gensym: Default::default(),
+            consts: Default::default(),
+            initial_ribs: Default::default(),
+        }
     }
 }

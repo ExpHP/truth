@@ -280,14 +280,14 @@ mod resolve_vars {
     ///
     /// The way it works is by visiting AST nodes in a particular order based on what ought to
     /// be in scope at any given point in the graph.
-    pub struct Visitor<'ts> {
+    pub struct Visitor<'a, 'ctx> {
         rib_stacks: RibStacks,
         errors: CompileError,
-        ctx: &'ts mut CompilerContext,
+        ctx: &'a mut CompilerContext<'ctx>,
     }
 
-    impl<'ts> Visitor<'ts> {
-        pub fn new(ctx: &'ts mut CompilerContext) -> Self {
+    impl<'a, 'ctx> Visitor<'a, 'ctx> {
+        pub fn new(ctx: &'a mut CompilerContext<'ctx>) -> Self {
             Visitor {
                 rib_stacks: ctx.defs.initial_ribs().into_iter().collect(),
                 errors: CompileError::new_empty(),
@@ -300,7 +300,7 @@ mod resolve_vars {
         }
     }
 
-    impl Visit for Visitor<'_> {
+    impl Visit for Visitor<'_, '_> {
         fn visit_script(&mut self, script: &ast::Script) {
             self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Items);
             self.rib_stacks.enter_new_rib(Namespace::Funcs, RibKind::Items);
@@ -434,7 +434,7 @@ mod resolve_vars {
         })
     }
 
-    impl Visitor<'_> {
+    impl Visitor<'_, '_> {
         /// Add a name to the top rib in a namespace's stack, so that future names can resolve to it.
         ///
         /// If the name collides with another thing in the same rib, a redefinition error is generated.

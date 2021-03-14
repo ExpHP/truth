@@ -8,12 +8,12 @@
 //! when bad types are encountered in other passes like lowering.
 
 use crate::ast;
-use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore};
+use crate::error::{GatherErrorIteratorExt, CompileError, ErrorStore, Diagnostic};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
 use crate::resolve::DefId;
-use crate::diagnostic::DiagnosticEmitter;
+use crate::diagnostic::{DiagnosticEmitter};
 use crate::ast::TypeKeyword;
 
 /// Performs type-checking.
@@ -41,9 +41,8 @@ pub struct ShallowTypeCheck {
 
 // =============================================================================
 
-struct Visitor<'a> {
-    ctx: &'a CompilerContext,
-    diagnostics: &'a DiagnosticEmitter<'a>,
+struct Visitor<'a, 'ctx> {
+    ctx: &'a CompilerContext<'ctx>,
     errors: ErrorStore,
     /// Stack of nested functions whose bodies we are currently inside.
     cur_func_stack: Vec<FuncState>,
@@ -54,7 +53,7 @@ struct FuncState {
     missing_return: bool,
 }
 
-impl ast::Visit for Visitor<'_> {
+impl ast::Visit for Visitor<'_, '_> {
     // NOTE: This visitor is a bit unusual.
     //
     //       Whenever we encounter an expression, we will stop using Visit to walk subexpressions, and we
@@ -176,7 +175,7 @@ impl ast::Visit for Visitor<'_> {
     }
 }
 
-impl Visitor<'_> {
+impl Visitor<'_, '_> {
     fn check_stmt_assignment(
         &self,
         var: &Sp<ast::Var>,

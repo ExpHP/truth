@@ -166,12 +166,12 @@ pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &CompilerContext) -> Result<(), 
     visitor.errors.into_result(())
 }
 
-struct Visitor<'a> {
-    ctx: &'a CompilerContext,
+struct Visitor<'a, 'ctx> {
+    ctx: &'a CompilerContext<'ctx>,
     errors: CompileError,
 }
 
-impl ast::VisitMut for Visitor<'_> {
+impl ast::VisitMut for Visitor<'_, '_> {
     // !!! IMPORTANT !!!
     // This function must be updated in sync with the DFS const evaluator.
     // (it did not seem possible to factor the shared logic out...)

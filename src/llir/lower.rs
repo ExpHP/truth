@@ -79,7 +79,7 @@ impl LowerArg {
 pub fn lower_sub_ast_to_instrs(
     instr_format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
-    ctx: &mut CompilerContext,
+    ctx: &mut CompilerContext<'_>,
 ) -> Result<Vec<RawInstr>, CompileError> {
     use stackless::{Lowerer, assign_registers};
 
