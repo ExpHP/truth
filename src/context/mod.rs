@@ -7,6 +7,7 @@ use std::fmt;
 use std::any::Any;
 
 use crate::ident::GensymContext;
+use crate::error::CompileError;
 use crate::resolve::Resolutions;
 use crate::resolve::rib::Rib;
 
@@ -75,16 +76,18 @@ pub struct CompilerContext<'ctx> {
     _lifetime: std::marker::PhantomData<*mut &'ctx ()>, // invariant
 }
 
-pub trait WriteColor: tc::WriteColor + Any {
+pub trait WriteError: tc::WriteColor + Any {
     fn as_any(&self) -> &dyn Any;
+    fn as_write_color(&mut self) -> &mut dyn tc::WriteColor;
 }
 
-impl<T: tc::WriteColor + Any> WriteColor for T {
+impl<T: tc::WriteColor + Any> WriteError for T {
     fn as_any(&self) -> &dyn Any { self }
+    fn as_write_color(&mut self) -> &mut dyn tc::WriteColor { self }
 }
 
 impl CompilerContext<'_> {
-    fn from_diagnostic_writer<W: WriteColor>(writer: W) -> Self {
+    fn from_diagnostic_writer<W: WriteError>(writer: W) -> Self {
         CompilerContext {
             diagnostics: DiagnosticEmitter::from_writer(writer),
             mapfiles: Default::default(),
@@ -126,27 +129,33 @@ type CapturedWriter = tc::NoColor<Vec<u8>>;
 #[derive(Clone)]
 pub struct DiagnosticEmitter {
     files: Files,
-    term_config: cs::term::Config,
-    writer: Rc<RefCell<dyn WriteColor>>,
+    config: cs::term::Config,
+    writer: Rc<RefCell<dyn WriteError>>,
 }
 
 impl fmt::Debug for DiagnosticEmitter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("DiagnosticEmitter")
             .field("files", &self.files)
-            .field("term_config", &self.term_config)
+            .field("config", &self.config)
             .field("writer", &(..))
             .finish()
     }
 }
 
 impl DiagnosticEmitter {
-    fn from_writer<W: WriteColor>(writer: W) -> Self {
+    fn from_writer<W: WriteError>(writer: W) -> Self {
         DiagnosticEmitter {
             files: Files::new(),
-            term_config: default_term_config(),
+            config: default_term_config(),
             writer: Rc::new(RefCell::new(writer)),
         }
+    }
+
+    pub fn emit(&self, error: CompileError) {
+        let mut writer = self.writer.borrow_mut();
+
+        error.emit_to_writer(writer.as_write_color(), &self.files, &self.config);
     }
 }
 

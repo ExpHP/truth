@@ -129,7 +129,7 @@ impl CompileError {
     /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
     /// nodes is required.
     pub fn emit_to_writer<'a>(
-        &mut self,
+        self,
         writer: &mut dyn cs::term::termcolor::WriteColor,
         files: &'a impl cs::files::Files<'a, FileId=FileId>,
         config: &cs::term::Config,
