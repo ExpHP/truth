@@ -7,8 +7,7 @@ use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
-use crate::context::CompilerContext;
-use crate::diagnostic::DiagnosticEmitter;
+use crate::context::{CompilerContext, BinContext};
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -31,12 +30,12 @@ impl MsgFile {
         compile(&*game_format(game), script, ctx)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, diagnostics: &DiagnosticEmitter) -> WriteResult {
-        write_msg(diagnostics, &mut w, &*game_format(game), self)
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, ctx: &BinContext<'_>) -> WriteResult {
+        write_msg(ctx, &mut w, &*game_format(game), self)
     }
 
-    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, diagnostics: &DiagnosticEmitter) -> ReadResult<Self> {
-        read_msg(diagnostics, &mut r, &*game_format(game))
+    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, ctx: &BinContext<'_>) -> ReadResult<Self> {
+        read_msg(ctx, &mut r, &*game_format(game))
     }
 }
 
@@ -141,7 +140,7 @@ fn compile(
 // =============================================================================
 
 fn read_msg(
-    diagnostics: &DiagnosticEmitter,
+    ctx: &BinContext<'_>,
     reader: &mut dyn BinRead,
     instr_format: &dyn InstrFormat,
 ) -> ReadResult<MsgFile> {
@@ -184,7 +183,7 @@ fn read_msg(
         let script_pos = start_pos + offset as u64;
         reader.seek_to(script_pos)?;
 
-        let script = llir::read_instrs(reader, instr_format, diagnostics, script_pos, None)?;
+        let script = llir::read_instrs(reader, instr_format, ctx, script_pos, None)?;
         scripts.insert(id as u32, script);
     }
 
@@ -192,7 +191,7 @@ fn read_msg(
 }
 
 fn write_msg(
-    diagnostics: &DiagnosticEmitter,
+    ctx: &BinContext<'_>,
     f: &mut dyn BinWrite,
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
@@ -216,11 +215,11 @@ fn write_msg(
         default_script_offset = default_script_offset.or(Some(script_offset));
 
         script_offsets[id as usize] = Some(script_offset);
-        llir::write_instrs(f, instr_format, script, diagnostics)?;
+        llir::write_instrs(f, instr_format, script, ctx)?;
     }
 
     if default_script_offset.is_none() && msg.script_table_len > 0 {
-        diagnostics.emit(warning!("script table has no entries to use as a default!"));
+        ctx.diagnostics.emit(warning!("script table has no entries to use as a default!"));
     }
     let default_script_offset = default_script_offset.unwrap_or(0);
 
@@ -268,7 +267,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut dyn BinRead, _: &DiagnosticEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut dyn BinRead, _: &BinContext<'_>) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()?;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
@@ -294,14 +293,14 @@ impl InstrFormat for InstrFormat06 {
         }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, diagnostics: &DiagnosticEmitter) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, ctx: &BinContext<'_>) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
 
         if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            diagnostics.emit(warning!("\
+            ctx.diagnostics.emit(warning!("\
                 wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
                 correctly due to a known limitation of the current implementation.\
             "));

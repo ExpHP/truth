@@ -1,6 +1,7 @@
 //! Structs that carry important global compiler state.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::ident::GensymContext;
 use crate::resolve::Resolutions;
@@ -45,7 +46,7 @@ pub use crate::diagnostic::DiagnosticEmitter;
 /// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
 #[derive(Debug, Clone)]
 pub struct CompilerContext<'ctx> {
-    pub diagnostics: DiagnosticEmitter,
+    pub diagnostics: Rc<DiagnosticEmitter>,
 
     /// Catalogues all loaded mapfiles for generating imports.
     mapfiles: Vec<PathBuf>,
@@ -68,8 +69,17 @@ pub struct CompilerContext<'ctx> {
     _lifetime: std::marker::PhantomData<*mut &'ctx ()>, // invariant
 }
 
-impl CompilerContext<'_> {
-    fn from_diagnostic_emitter(diagnostics: DiagnosticEmitter) -> Self {
+/// Context available when reading/writing binary files.
+#[derive(Debug, Clone)]
+pub struct BinContext<'ctx> {
+    pub diagnostics: Rc<DiagnosticEmitter>,
+
+    /// FIXME: remove if still unused after a long time
+    _lifetime: std::marker::PhantomData<*mut &'ctx ()>, // invariant
+}
+
+impl<'ctx> CompilerContext<'ctx> {
+    pub fn from_diagnostic_emitter(diagnostics: Rc<DiagnosticEmitter>) -> Self {
         CompilerContext {
             diagnostics,
             mapfiles: Default::default(),
@@ -82,10 +92,23 @@ impl CompilerContext<'_> {
         }
     }
 
+    pub fn to_bin_context(&self) -> BinContext<'ctx> {
+        BinContext::from_diagnostic_emitter(self.diagnostics.clone())
+    }
+
     /// Create a [`CompilerContext`] that writes diagnostics to the standard error stream.
     pub fn new_stderr() -> Self { Self::from_diagnostic_emitter(DiagnosticEmitter::new_stderr()) }
 
     /// Create a [`CompilerContext`] that captures diagnostic output which can be recovered
     /// by calling [`DiagnosticEmitter::get_captured_diagnostics`].
     pub fn new_captured() -> Self { Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured()) }
+}
+
+impl<'ctx> BinContext<'ctx> {
+    pub fn from_diagnostic_emitter(diagnostics: Rc<DiagnosticEmitter>) -> Self {
+        BinContext {
+            diagnostics,
+            _lifetime: Default::default(),
+        }
+    }
 }

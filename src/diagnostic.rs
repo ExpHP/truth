@@ -65,11 +65,10 @@ impl Diagnostic {
 // =============================================================================
 
 /// Type responsible for emitting diagnostics and storing the metadata necessary to render them.
-#[derive(Clone)]
 pub struct DiagnosticEmitter {
     files: Files,
     config: cs::term::Config,
-    writer: Rc<RefCell<dyn WriteError>>,
+    writer: Box<RefCell<dyn WriteError>>,
 }
 
 impl fmt::Debug for DiagnosticEmitter {
@@ -87,20 +86,20 @@ impl DiagnosticEmitter {
         DiagnosticEmitter {
             files: Files::new(),
             config: default_term_config(),
-            writer: Rc::new(RefCell::new(writer)),
+            writer: Box::new(RefCell::new(writer)),
         }
     }
 
     /// Create a [`DiagnosticEmitter`] that writes diagnostics to the standard error stream.
-    pub fn new_stderr() -> Self {
-        Self::from_writer(tc::StandardStream::stderr(tc::ColorChoice::Auto))
+    pub fn new_stderr() -> Rc<Self> {
+        Rc::new(Self::from_writer(tc::StandardStream::stderr(tc::ColorChoice::Auto)))
     }
 
     /// Create a [`DiagnosticEmitter`] that captures diagnostic output which can be recovered
     /// by calling [`Self::get_captured_diagnostics`].
-    pub fn new_captured() -> Self {
+    pub fn new_captured() -> Rc<Self> {
         let writer: CapturedWriter = tc::NoColor::new(vec![]);
-        Self::from_writer(writer)
+        Rc::new(Self::from_writer(writer))
     }
 
     pub fn emit(&self, errors: impl Into<Vec<Diagnostic>>) {

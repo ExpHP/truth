@@ -5,7 +5,7 @@ use enum_map::EnumMap;
 
 use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
-use crate::diagnostic::DiagnosticEmitter;
+use crate::context::BinContext;
 use crate::error::CompileError;
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
@@ -137,14 +137,14 @@ fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
 pub fn read_instrs(
     f: &mut dyn BinRead,
     format: &dyn InstrFormat,
-    diagnostics: &DiagnosticEmitter,
+    ctx: &BinContext<'_>,
     starting_offset: u64,
     end_offset: Option<u64>,
 ) -> ReadResult<Vec<RawInstr>> {
     let mut script = vec![];
     let mut offset = starting_offset;
     for index in 0.. {
-        if let Some(instr) = format.read_instr(f, diagnostics).with_context(|| format!("in instruction {} (offset {:#x})", index, offset))? {
+        if let Some(instr) = format.read_instr(f, ctx).with_context(|| format!("in instruction {} (offset {:#x})", index, offset))? {
             offset += format.instr_size(&instr) as u64;
             script.push(instr);
 
@@ -152,7 +152,7 @@ pub fn read_instrs(
                 match offset.cmp(&end_offset) {
                     std::cmp::Ordering::Less => {},
                     std::cmp::Ordering::Equal => {
-                        diagnostics.emit(warning!("original file is missing an end-of-script marker; one will be added on recompilation"));
+                        ctx.diagnostics.emit(warning!("original file is missing an end-of-script marker; one will be added on recompilation"));
                         break;
                     },
                     std::cmp::Ordering::Greater => {
@@ -173,10 +173,10 @@ pub fn write_instrs(
     f: &mut dyn BinWrite,
     format: &dyn InstrFormat,
     instrs: &[RawInstr],
-    diagnostics: &DiagnosticEmitter,
+    ctx: &BinContext<'_>,
 ) -> WriteResult {
     for (index, instr) in instrs.iter().enumerate() {
-        format.write_instr(f, instr, diagnostics).with_context(|| format!("while writing instruction {}", index))?;
+        format.write_instr(f, instr, ctx).with_context(|| format!("while writing instruction {}", index))?;
     }
     format.write_terminal_instr(f).with_context(|| format!("while writing the script end marker"))?;
     Ok(())
@@ -301,10 +301,10 @@ pub trait InstrFormat {
     ///
     /// Should return `None` when it reaches the marker that indicates the end of the script.
     /// When this occurs, it may leave the `Cursor` in an indeterminate state.
-    fn read_instr(&self, f: &mut dyn BinRead, diagnostics: &DiagnosticEmitter) -> ReadResult<Option<RawInstr>>;
+    fn read_instr(&self, f: &mut dyn BinRead, ctx: &BinContext<'_>) -> ReadResult<Option<RawInstr>>;
 
     /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, diagnostics: &DiagnosticEmitter) -> WriteResult;
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, ctx: &BinContext<'_>) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
     fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
@@ -359,8 +359,8 @@ impl InstrFormat for TestFormat {
     }
 
     fn instr_header_size(&self) -> usize { 4 }
-    fn read_instr(&self, _: &mut dyn BinRead, _: &DiagnosticEmitter) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_instr(&self, _: &mut dyn BinWrite, _: &RawInstr, _: &DiagnosticEmitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn read_instr(&self, _: &mut dyn BinRead, _: &BinContext<'_>) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_instr(&self, _: &mut dyn BinWrite, _: &RawInstr, _: &BinContext<'_>) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
     fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {

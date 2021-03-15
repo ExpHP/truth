@@ -5,6 +5,7 @@ use anyhow::Context;
 use crate::ast;
 use crate::game::Game;
 use crate::diagnostic::DiagnosticEmitter;
+use crate::context::BinContext;
 use crate::error::{CompileError, SimpleError};
 use crate::pos::Files;
 
@@ -125,7 +126,7 @@ pub mod anm_decompile {
             //
             // Seeking drops the buffer though, so use a tiny buffer.
             let reader = io::BufReader::with_capacity(64, fs_open(&path)?);
-            crate::AnmFile::read_from_stream(reader, game, false, &ctx.diagnostics)
+            crate::AnmFile::read_from_stream(reader, game, false, &ctx.to_bin_context())
                 .and_then(|anm| anm.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
@@ -179,13 +180,13 @@ pub mod anm_compile {
         for image_source_path in image_source_paths.iter() {
             let reader = io::Cursor::new(fs_read(image_source_path)?);
             let source_anm_file = {
-                crate::AnmFile::read_from_stream(reader, game, true, &ctx.diagnostics)
+                crate::AnmFile::read_from_stream(reader, game, true, &ctx.to_bin_context())
                     .with_context(|| format!("in file: {}", image_source_path.display()))?
             };
             compiled.apply_image_source(source_anm_file)?;
         }
 
-        compiled.write_to_stream(io::BufWriter::new(fs_create(outpath)?), game, &ctx.diagnostics)?;
+        compiled.write_to_stream(io::BufWriter::new(fs_create(outpath)?), game, &ctx.to_bin_context())?;
 
         if let Some(outpath) = output_thecl_defs {
             compiled.write_thecl_defs(io::BufWriter::new(fs_create(&outpath)?))
@@ -214,15 +215,15 @@ pub mod anm_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), CompileError> {
-        let diagnostics = DiagnosticEmitter::new_stderr();
+        let ctx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
         let reader = io::BufReader::new(fs_open(&path)?);
         let anm_file = {
-            crate::AnmFile::read_from_stream(reader, game, true, &diagnostics)
+            crate::AnmFile::read_from_stream(reader, game, true, &ctx)
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
         let mut buf = io::Cursor::new(vec![]);
-        anm_file.write_to_stream(&mut buf, game, &diagnostics)?;
+        anm_file.write_to_stream(&mut buf, game, &ctx)?;
 
         fs::write(outpath, buf.into_inner())?;
         Ok(())
@@ -295,7 +296,7 @@ pub mod std_compile {
         let std = crate::StdFile::compile_from_ast(game, &script, &mut ctx)?;
 
         let out = fs_create(outpath)?;
-        std.write_to_stream(&mut io::BufWriter::new(out), game, &ctx.diagnostics)?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game, &ctx.to_bin_context())?;
         Ok(())
     }
 }
@@ -323,7 +324,7 @@ pub mod std_decompile {
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
-            crate::StdFile::read_from_stream(reader, game, &ctx.diagnostics)
+            crate::StdFile::read_from_stream(reader, game, &ctx.to_bin_context())
                 .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };
@@ -354,15 +355,15 @@ pub mod msg_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), CompileError> {
-        let diagnostics = DiagnosticEmitter::new_stderr();
+        let ctx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
         let reader = io::BufReader::new(fs_open(&path)?);
         let msg_file = {
-            crate::MsgFile::read_from_stream(reader, game, &diagnostics)
+            crate::MsgFile::read_from_stream(reader, game, &ctx)
                 .with_context(|| format!("in file: {}", path.display()))?
         };
 
         let mut buf = io::Cursor::new(vec![]);
-        msg_file.write_to_stream(&mut buf, game, &diagnostics)?;
+        msg_file.write_to_stream(&mut buf, game, &ctx)?;
 
         fs::write(outpath, buf.into_inner())?;
         Ok(())
@@ -398,7 +399,7 @@ pub mod msg_compile {
         let std = crate::MsgFile::compile_from_ast(game, &script, &mut ctx)?;
 
         let out = fs_create(outpath)?;
-        std.write_to_stream(&mut io::BufWriter::new(out), game, &ctx.diagnostics)?;
+        std.write_to_stream(&mut io::BufWriter::new(out), game, &ctx.to_bin_context())?;
         Ok(())
     }
 }
@@ -426,7 +427,7 @@ pub mod msg_decompile {
 
         let script = {
             let reader = io::Cursor::new(fs_read(path)?);
-            crate::MsgFile::read_from_stream(reader, game, &ctx.diagnostics)
+            crate::MsgFile::read_from_stream(reader, game, &ctx.to_bin_context())
                 .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))
                 .with_context(|| format!("in file: {}", path.display()))?
         };

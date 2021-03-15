@@ -5,14 +5,13 @@ use anyhow::bail;
 
 use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::DiagnosticEmitter;
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
 use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
-use crate::context::CompilerContext;
+use crate::context::{CompilerContext, BinContext};
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -71,12 +70,12 @@ impl StdFile {
         compile_std(&*game_format(game), script, ctx)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, diagnostics: &DiagnosticEmitter) -> Result<(), CompileError> {
-        write_std(diagnostics, &mut w, &*game_format(game), self)
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, ctx: &BinContext<'_>) -> Result<(), CompileError> {
+        write_std(ctx, &mut w, &*game_format(game), self)
     }
 
-    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, diagnostics: &DiagnosticEmitter) -> ReadResult<Self> {
-        read_std(diagnostics, &mut r, &*game_format(game))
+    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, ctx: &BinContext<'_>) -> ReadResult<Self> {
+        read_std(ctx, &mut r, &*game_format(game))
     }
 }
 
@@ -338,7 +337,7 @@ fn compile_std(
 
 // =============================================================================
 
-fn read_std(diagnostics: &DiagnosticEmitter, reader: &mut dyn BinRead, format: &dyn FileFormat) -> ReadResult<StdFile> {
+fn read_std(ctx: &BinContext, reader: &mut dyn BinRead, format: &dyn FileFormat) -> ReadResult<StdFile> {
     let start_pos = reader.pos()?;
 
     let num_objects = reader.read_u16()? as usize;
@@ -354,7 +353,7 @@ fn read_std(diagnostics: &DiagnosticEmitter, reader: &mut dyn BinRead, format: &
             let key = sp!(format!("object{}", i).parse::<Ident>().unwrap());
 
             reader.seek_to(start_pos + object_offsets[i] as u64)?;
-            let value = read_object(i, reader, diagnostics)?;
+            let value = read_object(i, reader, ctx)?;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
     assert_eq!(num_quads, objects.values().map(|x| x.quads.len()).sum::<usize>());
@@ -369,12 +368,12 @@ fn read_std(diagnostics: &DiagnosticEmitter, reader: &mut dyn BinRead, format: &
     };
 
     reader.seek_to(start_pos + script_offset)?;
-    let script = llir::read_instrs(reader, format.instr_format(), diagnostics, 0, None)?;
+    let script = llir::read_instrs(reader, format.instr_format(), ctx, 0, None)?;
 
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
-fn write_std(diagnostics: &DiagnosticEmitter, f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Result<(), CompileError> {
+fn write_std(ctx: &BinContext, f: &mut dyn BinWrite, format: &dyn FileFormat, std: &StdFile) -> Result<(), CompileError> {
     let start_pos = f.pos()?;
 
     f.write_u16(std.objects.len() as u16)?;
@@ -397,7 +396,7 @@ fn write_std(diagnostics: &DiagnosticEmitter, f: &mut dyn BinWrite, format: &dyn
     let mut object_offsets = vec![];
     for (object_id, object) in std.objects.values().enumerate() {
         object_offsets.push(f.pos()? - start_pos);
-        write_object(f, &*format, object_id, object, diagnostics)?;
+        write_object(f, &*format, object_id, object, ctx)?;
     }
 
     let instances_offset = f.pos()? - start_pos;
@@ -409,7 +408,7 @@ fn write_std(diagnostics: &DiagnosticEmitter, f: &mut dyn BinWrite, format: &dyn
     let instr_format = format.instr_format();
 
     let script_offset = f.pos()? - start_pos;
-    llir::write_instrs(f, instr_format, &std.script, diagnostics)?;
+    llir::write_instrs(f, instr_format, &std.script, ctx)?;
 
     let end_pos = f.pos()?;
     f.seek_to(instances_offset_pos)?;
@@ -439,11 +438,11 @@ fn write_string_128<S: AsRef<str>>(f: &mut dyn BinWrite, s: &Sp<S>) -> Result<()
     Ok(())
 }
 
-fn read_object(expected_id: usize, bytes: &mut dyn BinRead, diagnostics: &DiagnosticEmitter) -> ReadResult<Object> {
+fn read_object(expected_id: usize, bytes: &mut dyn BinRead, ctx: &BinContext) -> ReadResult<Object> {
     let mut f = bytes;
     let id = f.read_u16()?;
     if id as usize != expected_id {
-        diagnostics.emit(warning!("object has non-sequential id (expected {}, got {})", expected_id, id));
+        ctx.diagnostics.emit(warning!("object has non-sequential id (expected {}, got {})", expected_id, id));
     }
 
     let unknown = f.read_u16()?;
@@ -456,13 +455,13 @@ fn read_object(expected_id: usize, bytes: &mut dyn BinRead, diagnostics: &Diagno
     Ok(Object { unknown, pos, size, quads })
 }
 
-fn write_object(f: &mut dyn BinWrite, format: &dyn FileFormat, id: usize, x: &Object, diagnostics: &DiagnosticEmitter) -> WriteResult {
+fn write_object(f: &mut dyn BinWrite, format: &dyn FileFormat, id: usize, x: &Object, ctx: &BinContext) -> WriteResult {
     f.write_u16(id as u16)?;
     f.write_u16(x.unknown)?;
     f.write_f32s(&x.pos)?;
     f.write_f32s(&x.size)?;
     for quad in &x.quads {
-        write_quad(f, format, quad, diagnostics)?;
+        write_quad(f, format, quad, ctx)?;
     }
     write_terminal_quad(f)
 }
@@ -503,7 +502,7 @@ fn read_quad(f: &mut dyn BinRead) -> ReadResult<Option<Quad>> {
     }))
 }
 
-fn write_quad(f: &mut dyn BinWrite, format: &dyn FileFormat, quad: &Quad, diagnostics: &DiagnosticEmitter) -> WriteResult {
+fn write_quad(f: &mut dyn BinWrite, format: &dyn FileFormat, quad: &Quad, ctx: &BinContext) -> WriteResult {
     let (kind, size) = match quad.extra {
         QuadExtra::Rect { .. } => (0, 0x1c),
         QuadExtra::Strip { .. } => (1, 0x24),
@@ -520,7 +519,7 @@ fn write_quad(f: &mut dyn BinWrite, format: &dyn FileFormat, quad: &Quad, diagno
         QuadExtra::Strip { start, end, width } => {
             if !format.has_strips() {
                 // FIXME: Could be better with a span, maybe check earlier
-                diagnostics.emit(warning!("'strip' quads can only be used in TH08 and TH09!"))
+                ctx.diagnostics.emit(warning!("'strip' quads can only be used in TH08 and TH09!"))
             }
             f.write_f32s(&start)?;
             f.write_f32s(&end)?;
@@ -717,7 +716,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut dyn BinRead, _: &DiagnosticEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut dyn BinRead, _: &BinContext<'_>) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let argsize = f.read_u16()?;
@@ -730,7 +729,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, _: &DiagnosticEmitter) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, _: &BinContext<'_>) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(12)?;  // this version writes argsize rather than instr size
@@ -768,7 +767,7 @@ impl InstrFormat for InstrFormat10 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut dyn BinRead, _: &DiagnosticEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut dyn BinRead, _: &BinContext<'_>) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
@@ -780,7 +779,7 @@ impl InstrFormat for InstrFormat10 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, _: &DiagnosticEmitter) -> WriteResult {
+    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, _: &BinContext<'_>) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
