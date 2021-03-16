@@ -28,6 +28,9 @@ pub struct CompileError {
     diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ErrorReported;
+
 impl CompileError {
     /// Zips two CompileError results, combining the errors if they both fail.
     pub fn join<A, B>(a: Result<A, CompileError>, b: Result<B, CompileError>) -> Result<(A, B), CompileError> {

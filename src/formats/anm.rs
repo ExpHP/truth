@@ -8,7 +8,7 @@ use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
 use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError};
+use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
@@ -668,7 +668,7 @@ fn write_entry(
     // automatic numbering state that needs to persist from one entry to the next
     next_auto_sprite_id: &mut u32,
     ctx: &BinContext,
-) -> Result<(), CompileError> {
+) -> Result<(), ErrorReported> {
     let instr_format = file_format.instr_format();
 
     let entry_pos = f.pos()?;

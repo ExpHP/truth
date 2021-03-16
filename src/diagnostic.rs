@@ -102,7 +102,7 @@ impl DiagnosticEmitter {
         Rc::new(Self::from_writer(writer))
     }
 
-    pub fn emit(&self, errors: impl Into<Vec<Diagnostic>>) {
+    pub fn emit(&self, errors: impl Into<Vec<Diagnostic>>) -> ErrorReported {
         // NOTE: we don't take an iterator because the iterator could call `.emit()` and lead to a runtime borrow conflict.
         for diag in errors.into() {
             let mut writer = self.writer.borrow_mut();
@@ -111,6 +111,7 @@ impl DiagnosticEmitter {
                     panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", diag.imp, fmt_err)
                 });
         }
+        ErrorReported
     }
 
     /// Obtain captured diagnostics written to stderr, provided that this [`CompilerContext`]
