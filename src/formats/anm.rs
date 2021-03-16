@@ -7,7 +7,7 @@ use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
+use crate::binary_io::{BinRead, BinWriter, Encoded, ReadResult, WriteResult, ErrLocation, DEFAULT_ENCODING};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
@@ -50,7 +50,7 @@ impl AnmFile {
         apply_image_source(self, other)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, ctx: &BinContext<'_>) -> Result<(), CompileError> {
+    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, ctx: &BinContext<'_>) -> WriteResult {
         write_anm(ctx, &mut w, &game_format(game), self)
     }
 
@@ -643,10 +643,10 @@ pub fn auto_script_name(i: u32) -> Ident {
     format!("script{}", i).parse::<Ident>().unwrap()
 }
 
-fn write_anm(ctx: &BinContext, f: &mut dyn BinWrite, format: &FileFormat, file: &AnmFile) -> Result<(), CompileError> {
+fn write_anm(ctx: &BinContext, f: &mut BinWriter, format: &FileFormat, file: &AnmFile) -> WriteResult {
     let mut last_entry_pos = None;
     let mut next_auto_sprite_id = 0;
-    for entry in &file.entries {
+    for (entry_index, entry) in &file.entries {
         let entry_pos = f.pos()?;
         if let Some(last_entry_pos) = last_entry_pos {
             f.seek_to(last_entry_pos + format.offset_to_next_offset())?;
@@ -654,7 +654,9 @@ fn write_anm(ctx: &BinContext, f: &mut dyn BinWrite, format: &FileFormat, file: 
             f.seek_to(entry_pos)?;
         }
 
-        write_entry(f, &format, entry, &mut next_auto_sprite_id, ctx)?;
+        f.push_location(ErrLocation::InNumbered { what: "entry", number: entry_index }, || {
+            write_entry(f, &format, entry, &mut next_auto_sprite_id, ctx)
+        })?;
 
         last_entry_pos = Some(entry_pos);
     }
@@ -662,7 +664,7 @@ fn write_anm(ctx: &BinContext, f: &mut dyn BinWrite, format: &FileFormat, file: 
 }
 
 fn write_entry(
-    f: &mut dyn BinWrite,
+    f: &mut BinWriter,
     file_format: &FileFormat,
     entry: &Entry,
     // automatic numbering state that needs to persist from one entry to the next
@@ -678,12 +680,13 @@ fn write_entry(
         has_data, low_res_scale,
     } = entry.specs;
 
-    fn missing(path: &str, problem: &str) -> CompileError {
+    fn missing(f: &mut BinWriter, path: &str, problem: &str) -> CompileError {
         const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
-        error!(message(
+
+        error!(
             "entry for '{}' {}\n       {}",
             path, problem, SUGGESTION,
-        ))
+        )
     }
 
     macro_rules! expect {
@@ -691,29 +694,31 @@ fn write_entry(
             Some(x) => x,
             None => {
                 let problem = format!("is missing required field '{}'!", stringify!($name));
-                return Err(missing(&entry.path, &problem));
+                return Err(missing(f, &entry.path, &problem));
             },
         }};
     }
 
-    file_format.write_header(f, &EntryHeaderData {
-        width: expect!(width),
-        height: expect!(height),
-        format: expect!(format),
-        colorkey: expect!(colorkey),
-        offset_x: expect!(offset_x),
-        offset_y: expect!(offset_y),
-        memory_priority: expect!(memory_priority),
-        has_data: expect!(has_data) as u32,
-        low_res_scale: expect!(low_res_scale) as u32,
-        version: file_format.version as u32,
-        num_sprites: entry.sprites.len() as u32,
-        num_scripts: entry.scripts.len() as u32,
-        // we will overwrite these later
-        name_offset: 0, secondary_name_offset: None,
-        next_offset: 0, thtx_offset: None,
+    f.push_location(ErrLocation::In { what: "header" }, || {
+        file_format.write_header(f, &EntryHeaderData {
+            width: expect!(width),
+            height: expect!(height),
+            format: expect!(format),
+            colorkey: expect!(colorkey),
+            offset_x: expect!(offset_x),
+            offset_y: expect!(offset_y),
+            memory_priority: expect!(memory_priority),
+            has_data: expect!(has_data) as u32,
+            low_res_scale: expect!(low_res_scale) as u32,
+            version: file_format.version as u32,
+            num_sprites: entry.sprites.len() as u32,
+            num_scripts: entry.scripts.len() as u32,
+            // we will overwrite these later
+            name_offset: 0, secondary_name_offset: None,
+            next_offset: 0, thtx_offset: None,
+        })
     })?;
-    let has_data = expect!(has_data);
+    let has_data = has_data.expect("already checked");
 
     let sprite_offsets_pos = f.pos()?;
     f.write_u32s(&vec![0; entry.sprites.len()])?;
@@ -735,14 +740,17 @@ fn write_entry(
         let sprite_id = sprite.id.unwrap_or(*next_auto_sprite_id);
         *next_auto_sprite_id = sprite_id + 1;
 
-        write_sprite(f, sprite_id, sprite)?;
+        f.push_location(ErrLocation::InNumbered { what: "sprite with id", number: sprite_id }, || {
+            write_sprite(f, sprite_id, sprite)
+        })?;
         Ok(sprite_offset)
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let script_ids_and_offsets = entry.scripts.iter().map(|(name, script)| {
         let script_offset = f.pos()? - entry_pos;
-        llir::write_instrs(f, instr_format, &script.instrs, ctx)
-            .with_context(|| format!("while writing script '{}'", name))?;
+        f.push_location(ErrLocation::InNumbered { what: "script with id", number: script.id }, || {
+            llir::write_instrs(f, instr_format, &script.instrs, ctx)
+        })?;
 
         Ok((script.id, script_offset))
     }).collect::<WriteResult<Vec<_>>>()?;
@@ -752,12 +760,12 @@ fn write_entry(
         match &entry.texture {
             None => {
                 let problem = format!("has 'has_data: true', but there's no bitmap data available!");
-                return Err(missing(&entry.path, &problem));
+                return Err(missing(f, &entry.path, &problem));
             },
             Some(texture) => {
                 texture_offset = f.pos()? - entry_pos;
                 write_texture(f, texture)?;
-            }
+            },
         }
     };
 
@@ -798,7 +806,7 @@ fn read_sprite(f: &mut dyn BinRead) -> ReadResult<Sprite> {
 }
 
 fn write_sprite(
-    f: &mut dyn BinWrite,
+    f: &mut BinWriter,
     sprite_id: u32,  // we ignore sprite.id because that can be None
     sprite: &Sprite,
 ) -> WriteResult {
@@ -831,7 +839,7 @@ fn read_texture(f: &mut dyn BinRead, with_images: bool, ctx: &BinContext) -> Rea
 }
 
 #[inline(never)]
-fn write_texture(f: &mut dyn BinWrite, texture: &Texture) -> WriteResult {
+fn write_texture(f: &mut BinWriter, texture: &Texture) -> WriteResult {
     f.write_all(b"THTX")?;
 
     f.write_u16(0)?;
@@ -962,7 +970,7 @@ impl FileFormat {
         }
     }
 
-    fn write_header(&self, f: &mut dyn BinWrite, header: &EntryHeaderData) -> WriteResult {
+    fn write_header(&self, f: &mut BinWriter, header: &EntryHeaderData) -> WriteResult {
         if self.version.is_old_header() {
             // old format
             f.write_u32(header.num_sprites as _)?;
@@ -1050,7 +1058,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, _: &BinContext) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, instr: &RawInstr, _: &BinContext) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;
@@ -1066,7 +1074,7 @@ impl InstrFormat for InstrFormat06 {
         opcode == 0 || opcode == 15
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter) -> WriteResult {
         f.write_u32(0)
     }
 }
@@ -1157,7 +1165,7 @@ impl InstrFormat for InstrFormat07 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, _: &BinContext) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, instr: &RawInstr, _: &BinContext) -> WriteResult {
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
         f.write_i16(instr.time as i16)?;
@@ -1166,7 +1174,7 @@ impl InstrFormat for InstrFormat07 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter) -> WriteResult {
         f.write_i16(-1)?;
         f.write_u16(0)?;
         f.write_u16(0)?;

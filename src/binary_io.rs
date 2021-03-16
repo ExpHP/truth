@@ -158,20 +158,20 @@ pub fn cstring_num_bytes(string_len: usize, block_size: usize) -> usize {
 
 pub struct BinWriter<'a, 'ctx, W: BinWrite + ?Sized = dyn BinWrite + 'a> {
     ctx: &'a BinContext<'ctx>,
-    loc_diagnostics: ErrLocationReporter,
+    loc_diagnostics: ErrLocationReporter<'a>,
     writer: W,
 }
 
 /// Tool for reporting locations of errors that cannot be associated with spans, by building a stack of
-/// location hints like "filename.anm: in entry 4: in header: "
+/// location hints like `"filename.anm: in entry 4: in header: "`.
 pub struct ErrLocationReporter {
     pub diagnostics: Rc<DiagnosticEmitter>,
     pub filename: String,
     pub stack: Vec<ErrLocation>,
 }
 
-impl ErrLocationReporter {
-    pub fn annotate<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments) -> T) -> T {
+impl ErrLocationReporter<'_> {
+    pub fn annotate<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
         use std::fmt::Write;
 
         let mut full_loc = String::new();
@@ -181,7 +181,7 @@ impl ErrLocationReporter {
         func(format_args!("{}: {}{}", self.filename, full_loc, e))
     }
 
-    pub fn annotate_noloc<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments) -> T) -> T {
+    pub fn annotate_noloc<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
         func(format_args!("{}: {}", self.filename, e))
     }
 
@@ -198,8 +198,12 @@ impl ErrLocationReporter {
 }
 
 pub enum ErrLocation {
+    /// `"in <what>":`
     In { what: &'static str },
-    InNumbered { what: &'static str, number: i32 },
+    /// `"in <what> <number>":`
+    InNumbered { what: &'static str, number: usize },
+    /// `"in <what> <number>":`
+    InNumbered2 { what: &'static str, number: usize, after: &'static str },
 }
 
 impl fmt::Display for ErrLocation {
@@ -254,14 +258,18 @@ impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
     pub fn write_u32(&mut self, x: u32) -> WriteResult { WriteBytesExt::write_u32::<Le>(&mut self.writer, x).map_err(|e| self.error_noloc(e)) }
     pub fn write_f32(&mut self, x: f32) -> WriteResult { WriteBytesExt::write_f32::<Le>(&mut self.writer, x).map_err(|e| self.error_noloc(e)) }
 
+    pub fn write_all(&mut self, bytes: &[u8]) -> WriteResult {
+        self.writer.write_all(bytes).map_err(|e| self.error_noloc(e))
+    }
+
     /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`.
-    pub fn write_cstring(&mut self, s: &Encoded, block_size: usize) -> WriteResult<()> {
+    pub fn write_cstring(&mut self, s: &Encoded, block_size: usize) -> WriteResult {
         self.write_cstring_masked(s, block_size, 0)
     }
 
     /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`,
     /// then xor-ing every byte (including the nulls) with a mask.
-    pub fn write_cstring_masked(&mut self, s: &Encoded, block_size: usize, mask: u8) -> WriteResult<()> {
+    pub fn write_cstring_masked(&mut self, s: &Encoded, block_size: usize, mask: u8) -> WriteResult {
         let mut to_write = s.0.to_vec();
         let final_len = cstring_num_bytes(to_write.len(), block_size);
         to_write.resize(final_len, 0);
@@ -269,7 +277,7 @@ impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
         for byte in &mut to_write {
             *byte ^= mask;
         }
-        self.writer.write_all(&to_write).map_err(|e| self.error_noloc(e))?;
+        self.write_all(&to_write)?;
         Ok(())
     }
 
@@ -335,7 +343,7 @@ fn test_masked_cstring() {
         let ctx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
         let mut w = BinWriter::from_writer(&ctx, "test".into(), std::io::Cursor::new(vec![]));
         w.write_cstring_masked(&Encoded(bytes.to_vec()), block_size, mask).unwrap();
-        assert_eq!(encoded, w.into_inner().into_inner());
+        assert_eq!(encoded, w.into_inner());
 
         // check reading
         let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own

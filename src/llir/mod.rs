@@ -4,7 +4,7 @@ use anyhow::{bail, Context};
 use enum_map::EnumMap;
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWriter, ReadResult, WriteResult, ErrLocation};
 use crate::context::BinContext;
 use crate::error::CompileError;
 use crate::pos::{Span};
@@ -170,16 +170,19 @@ pub fn read_instrs(
 /// Writes the instructions of a complete script, attaching useful information on errors.
 #[inline(never)]
 pub fn write_instrs(
-    f: &mut dyn BinWrite,
+    f: &mut BinWriter,
     format: &dyn InstrFormat,
     instrs: &[RawInstr],
     ctx: &BinContext<'_>,
 ) -> WriteResult {
     for (index, instr) in instrs.iter().enumerate() {
-        format.write_instr(f, instr, ctx).with_context(|| format!("while writing instruction {}", index))?;
+        f.push_location(ErrLocation::InNumbered { what: "instruction", number: index }, || {
+            format.write_instr(f, instr, ctx)
+        })?;
     }
-    format.write_terminal_instr(f).with_context(|| format!("while writing the script end marker"))?;
-    Ok(())
+    f.push_location(ErrLocation::In { what: "end marker" }, || {
+        format.write_terminal_instr(f)
+    })
 }
 
 // =============================================================================
@@ -304,10 +307,10 @@ pub trait InstrFormat {
     fn read_instr(&self, f: &mut dyn BinRead, ctx: &BinContext<'_>) -> ReadResult<Option<RawInstr>>;
 
     /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, ctx: &BinContext<'_>) -> WriteResult;
+    fn write_instr(&self, f: &mut BinWriter, instr: &RawInstr, ctx: &BinContext<'_>) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult;
+    fn write_terminal_instr(&self, f: &mut BinWriter) -> WriteResult;
 
     // ---------------------------------------------------
     // Special purpose functions only overridden by a few formats
@@ -360,8 +363,8 @@ impl InstrFormat for TestFormat {
 
     fn instr_header_size(&self) -> usize { 4 }
     fn read_instr(&self, _: &mut dyn BinRead, _: &BinContext<'_>) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_instr(&self, _: &mut dyn BinWrite, _: &RawInstr, _: &BinContext<'_>) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_terminal_instr(&self, _: &mut dyn BinWrite) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
+    fn write_instr(&self, _: &mut BinWriter, _: &RawInstr, _: &BinContext<'_>) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_terminal_instr(&self, _: &mut BinWriter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
     fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
         self.anti_scratch_opcode == Some(opcode)
