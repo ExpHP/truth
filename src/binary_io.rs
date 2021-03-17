@@ -16,7 +16,7 @@ use crate::error::ErrorReported;
 
 // Binary file IO uses anyhow instead of codespan_reporting because most span info is lost
 // in the lowered form.
-pub type ReadError = crate::error::SimpleError;
+pub type ReadError = crate::error::ErrorReported;
 pub type WriteError = crate::error::ErrorReported;
 pub type ReadResult<T> = Result<T, ReadError>;
 pub type WriteResult<T = ()> = Result<T, WriteError>;
@@ -55,30 +55,170 @@ impl Encoded {
     pub fn len(&self) -> usize { self.0.len() }
 }
 
-/// Helper extension trait to simplify functions that read from Touhou's binary script files.
+// =================================================================================================
+
+/// Trait alias that allows the creation of a `dyn Read + Seek`.
+pub trait BinRead: Read + Seek {}
+/// Trait alias that allows the creation of a `dyn Write + Seek`.
+pub trait BinWrite: Write + Seek {}
+
+impl<R: Read + Seek> BinRead for R {}
+impl<R: Write + Seek> BinWrite for R {}
+
+/// Helper simplify functions that read from Touhou's binary script files.
 ///
 /// All functions read little endian (because all of the game's binary formats are little endian),
 /// and simpler versions of the Seek API are provided (because the formats are full of offsets).
-pub trait BinRead: Read + Seek {
-    fn read_i8(&mut self) -> ReadResult<i8> { ReadBytesExt::read_i8(self).map_err(Into::into) }
-    fn read_u8(&mut self) -> ReadResult<u8> { ReadBytesExt::read_u8(self).map_err(Into::into) }
-    fn read_i16(&mut self) -> ReadResult<i16> { ReadBytesExt::read_i16::<Le>(self).map_err(Into::into) }
-    fn read_u16(&mut self) -> ReadResult<u16> { ReadBytesExt::read_u16::<Le>(self).map_err(Into::into) }
-    fn read_i32(&mut self) -> ReadResult<i32> { ReadBytesExt::read_i32::<Le>(self).map_err(Into::into) }
-    fn read_u32(&mut self) -> ReadResult<u32> { ReadBytesExt::read_u32::<Le>(self).map_err(Into::into) }
-    fn read_f32(&mut self) -> ReadResult<f32> { ReadBytesExt::read_f32::<Le>(self).map_err(Into::into) }
+pub struct BinReader<'a, 'ctx, W: BinRead + ?Sized = dyn BinRead + 'a> {
+    pub ctx: &'a BinContext<'ctx>,
+    loc_diagnostics: ErrLocationReporter,
+    reader: W,
+}
 
-    fn read_f32s_2(&mut self) -> ReadResult<[f32; 2]> {
+/// Helper to simplify functions that write binary script files for Touhou.
+///
+/// All functions read little endian (because all of the game's binary formats are little endian),
+/// and simpler versions of the Seek API are provided (because the formats are full of offsets).
+pub struct BinWriter<'a, 'ctx, W: BinWrite + ?Sized = dyn BinWrite + 'a> {
+    pub ctx: &'a BinContext<'ctx>,
+    loc_diagnostics: ErrLocationReporter,
+    writer: W,
+}
+
+// -------------
+// from/to inner
+
+impl<'a, 'ctx, R: BinRead + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+    pub fn from_reader(ctx: &'a BinContext<'ctx>, filename: String, reader: R) -> Self where R: Sized {
+        let loc_diagnostics = ErrLocationReporter {
+            diagnostics: ctx.diagnostics.clone(),
+            stack: vec![],
+            filename,
+        };
+        BinReader { ctx, loc_diagnostics, reader }
+    }
+
+    pub fn into_inner(self) -> R where R: Sized { self.reader }
+    pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
+}
+
+impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
+    pub fn from_writer(ctx: &'a BinContext<'ctx>, filename: String, writer: W) -> Self where W: Sized {
+        let loc_diagnostics = ErrLocationReporter {
+            diagnostics: ctx.diagnostics.clone(),
+            stack: vec![],
+            filename,
+        };
+        BinWriter { ctx, loc_diagnostics, writer }
+    }
+
+    pub fn into_inner(self) -> W where W: Sized { self.writer }
+    pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
+}
+
+// ------------
+// file opening
+
+impl<'a, 'ctx> BinReader<'a, 'ctx, fs::File> {
+    pub fn open(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> Result<Self, ErrorReported> {
+        let path = path.as_ref();
+        let path_string = path.display().to_string();
+        let file = fs::File::open(path.as_ref())
+            .map_err(|e| ctx.diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
+
+        Ok(Self::from_reader(ctx, path_string, file))
+    }
+}
+
+impl<'a, 'ctx> BinWriter<'a, 'ctx, fs::File> {
+    pub fn create(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> Result<Self, ErrorReported> {
+        let path = path.as_ref();
+        let path_string = path.display().to_string();
+        let file = fs::File::create(path.as_ref())
+            .map_err(|e| ctx.diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
+
+        Ok(Self::from_writer(ctx, path_string, file))
+    }
+}
+
+// ---------------
+// error reporting
+
+impl<'a, 'ctx, R: BinRead + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+    pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
+        self.loc_diagnostics.stack.push(location);
+        let ret = func(self);
+        self.loc_diagnostics.stack.pop();
+        ret
+    }
+    pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
+    pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
+    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e); }
+    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e); }
+}
+
+impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
+    pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
+        self.loc_diagnostics.stack.push(location);
+        let ret = func(self);
+        self.loc_diagnostics.stack.pop();
+        ret
+    }
+    pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
+    pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
+    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e); }
+    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e); }
+}
+
+// ---------------
+// ergonomic Seek
+
+impl<'a, 'ctx, R: BinRead + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+    pub fn pos(&mut self) -> ReadResult<u64> {
+        self.reader.seek(SeekFrom::Current(0)).map_err(|e| self.error_noloc(e))
+    }
+    pub fn seek_to(&mut self, offset: u64) -> ReadResult<()> {
+        self.reader.seek(SeekFrom::Start(offset)).map_err(|e| self.error_noloc(e))?;
+        Ok(())
+    }
+}
+
+impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
+    pub fn pos(&mut self) -> ReadResult<u64> {
+        self.writer.seek(SeekFrom::Current(0)).map_err(|e| self.error_noloc(e))
+    }
+    pub fn seek_to(&mut self, offset: u64) -> ReadResult<()> {
+        self.writer.seek(SeekFrom::Start(offset)).map_err(|e| self.error_noloc(e))?;
+        Ok(())
+    }
+}
+
+// =============================================================================
+
+impl<'a, 'ctx, R: BinRead + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+    pub fn read_i8(&mut self) -> ReadResult<i8> { ReadBytesExt::read_i8(&mut self.reader).map_err(|e| self.error(e)) }
+    pub fn read_u8(&mut self) -> ReadResult<u8> { ReadBytesExt::read_u8(&mut self.reader).map_err(|e| self.error(e)) }
+    pub fn read_i16(&mut self) -> ReadResult<i16> { ReadBytesExt::read_i16::<Le>(&mut self.reader).map_err(|e| self.error(e)) }
+    pub fn read_u16(&mut self) -> ReadResult<u16> { ReadBytesExt::read_u16::<Le>(&mut self.reader).map_err(|e| self.error(e)) }
+    pub fn read_i32(&mut self) -> ReadResult<i32> { ReadBytesExt::read_i32::<Le>(&mut self.reader).map_err(|e| self.error(e)) }
+    pub fn read_u32(&mut self) -> ReadResult<u32> { ReadBytesExt::read_u32::<Le>(&mut self.reader).map_err(|e| self.error(e)) }
+    pub fn read_f32(&mut self) -> ReadResult<f32> { ReadBytesExt::read_f32::<Le>(&mut self.reader).map_err(|e| self.error(e)) }
+
+    pub fn read_f32s_2(&mut self) -> ReadResult<[f32; 2]> {
         Ok([self.read_f32()?, self.read_f32()?])
     }
-    fn read_f32s_3(&mut self) -> ReadResult<[f32; 3]> {
+    pub fn read_f32s_3(&mut self) -> ReadResult<[f32; 3]> {
         Ok([self.read_f32()?, self.read_f32()?, self.read_f32()?])
     }
 
-    fn read_byte_vec(&mut self, len: usize) -> ReadResult<Vec<u8>> {
+    pub fn read_byte_vec(&mut self, len: usize) -> ReadResult<Vec<u8>> {
         let mut buf = vec![0; len];
-        self.read_exact(&mut buf)?;
+        self.read_exact(&mut buf);
         Ok(buf)
+    }
+
+    pub fn read_exact(&mut self, out: &mut [u8]) -> ReadResult<()> {
+        self.reader.read_exact(out).map_err(|e| self.error(e))
     }
 
     /// Reads a null-terminated string that is zero-padded to a multiple of the given block-size.
@@ -91,7 +231,7 @@ pub trait BinRead: Read + Seek {
     /// the output of [`BinWrite::write_cstring`]), so it only checks the last byte in each block
     /// for a null terminator.  Due to these properties, it is possible for the returned string
     /// to contain an interior null byte for maliciously crafted inputs.
-    fn read_cstring_blockwise(&mut self, block_size: usize) -> ReadResult<Encoded> {
+    pub fn read_cstring_blockwise(&mut self, block_size: usize) -> ReadResult<Encoded> {
         assert_ne!(block_size, 0);
 
         let mut out = vec![];
@@ -114,7 +254,7 @@ pub trait BinRead: Read + Seek {
     /// and finally trims trailing nulls.  The returned value may contain interior nulls.
     ///
     /// The returned string will be less than `num_bytes` long due to the trimming of nulls.
-    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: u8) -> ReadResult<Encoded> {
+    pub fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: u8) -> ReadResult<Encoded> {
         let mut out = self.read_byte_vec(num_bytes)?;
         for byte in &mut out {
             *byte ^= mask;
@@ -125,23 +265,16 @@ pub trait BinRead: Read + Seek {
         Ok(Encoded(out))
     }
 
-    fn expect_magic(&mut self, magic: &str) -> ReadResult<()> {
+    pub fn expect_magic(&mut self, magic: &str) -> ReadResult<()> {
         let mut read_bytes = vec![0; magic.len()];
-        self.take(magic.len() as u64).read_exact(&mut read_bytes)?;
+        self.read_exact(&mut read_bytes)?;
 
         if read_bytes != magic.as_bytes() {
-            bail!("failed to find magic: '{}'", magic);
+            self.error(format_args!("failed to find magic: '{}'", magic));
         }
         Ok(())
     }
 
-    fn pos(&mut self) -> ReadResult<u64> {
-        self.seek(SeekFrom::Current(0)).map_err(Into::into)
-    }
-    fn seek_to(&mut self, offset: u64) -> ReadResult<()> {
-        self.seek(SeekFrom::Start(offset))?;
-        Ok(())
-    }
 }
 
 /// Returns the number of bytes that would be read by [`BinRead::read_cstring`], or written by
@@ -156,100 +289,7 @@ pub fn cstring_num_bytes(string_len: usize, block_size: usize) -> usize {
     }
 }
 
-pub struct BinWriter<'a, 'ctx, W: BinWrite + ?Sized = dyn BinWrite + 'a> {
-    ctx: &'a BinContext<'ctx>,
-    loc_diagnostics: ErrLocationReporter<'a>,
-    writer: W,
-}
-
-/// Tool for reporting locations of errors that cannot be associated with spans, by building a stack of
-/// location hints like `"filename.anm: in entry 4: in header: "`.
-pub struct ErrLocationReporter {
-    pub diagnostics: Rc<DiagnosticEmitter>,
-    pub filename: String,
-    pub stack: Vec<ErrLocation>,
-}
-
-impl ErrLocationReporter<'_> {
-    pub fn annotate<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
-        use std::fmt::Write;
-
-        let mut full_loc = String::new();
-        for loc in &self.stack {
-            write!(full_loc, "{}: ", loc);
-        }
-        func(format_args!("{}: {}{}", self.filename, full_loc, e))
-    }
-
-    pub fn annotate_noloc<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
-        func(format_args!("{}: {}", self.filename, e))
-    }
-
-    pub fn error(&self, e: impl fmt::Display) -> ErrorReported {
-        self.annotate(e, |msg| self.diagnostics.emit(error!("{}", msg)))
-    }
-    /// Generate an error that ignores the location stack and only writes `"<filename>: <message>"`.
-    ///
-    /// Good for general read/write errors that must be caused by an issue with the file object and is not specific
-    /// to the data at this location.
-    pub fn error_noloc(&self, e: impl fmt::Display) -> ErrorReported {
-        self.annotate_noloc(e, |msg| self.diagnostics.emit(error!("{}", msg)))
-    }
-}
-
-pub enum ErrLocation {
-    /// `"in <what>":`
-    In { what: &'static str },
-    /// `"in <what> <number>":`
-    InNumbered { what: &'static str, number: usize },
-    /// `"in <what> <number>":`
-    InNumbered2 { what: &'static str, number: usize, after: &'static str },
-}
-
-impl fmt::Display for ErrLocation {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ErrLocation::In { what } => write!(f, "in {}", what),
-            ErrLocation::InNumbered { what, number } => write!(f, "in {} {}", what, number),
-        }
-    }
-}
-
-impl<'a, 'ctx, W: BinWrite + 'a> BinWriter<'a, 'ctx, W> {
-    pub fn from_writer(ctx: &'a BinContext<'ctx>, filename: String, writer: W) -> Self {
-        let loc_diagnostics = ErrLocationReporter {
-            diagnostics: ctx.diagnostics.clone(),
-            stack: vec![],
-            filename,
-        };
-        BinWriter { ctx, loc_diagnostics, writer }
-    }
-}
-
-impl<'a, 'ctx> BinWriter<'a, 'ctx, fs::File> {
-    pub fn create(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> Result<Self, ErrorReported> {
-        let path = path.as_ref();
-        let path_string = path.display().to_string();
-        let file = fs::File::create(path.as_ref())
-            .map_err(|e| ctx.diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
-
-        Ok(Self::from_writer(ctx, path_string, file))
-    }
-}
-
 impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
-    pub fn into_inner(self) -> W where W: Sized { self.writer }
-    pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
-
-    pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
-        self.loc_diagnostics.stack.push(location);
-        let ret = func(self);
-        self.loc_diagnostics.stack.pop();
-        ret
-    }
-    pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
-    pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-
     pub fn write_i8(&mut self, x: i8) -> WriteResult { WriteBytesExt::write_i8(&mut self.writer, x).map_err(|e| self.error_noloc(e)) }
     pub fn write_u8(&mut self, x: u8) -> WriteResult { WriteBytesExt::write_u8(&mut self.writer, x).map_err(|e| self.error_noloc(e)) }
     pub fn write_i16(&mut self, x: i16) -> WriteResult { WriteBytesExt::write_i16::<Le>(&mut self.writer, x).map_err(|e| self.error_noloc(e)) }
@@ -287,24 +327,68 @@ impl<'a, 'ctx, W: BinWrite + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
     pub fn write_f32s(&mut self, xs: &[f32]) -> WriteResult {
         xs.iter().copied().map(|x| self.write_f32(x)).collect()
     }
-    pub fn pos(&mut self) -> WriteResult<u64> {
-        self.writer.seek(SeekFrom::Current(0)).map_err(|e| self.error_noloc(e))
+}
+
+// =============================================================================
+
+/// Tool for reporting locations of errors that cannot be associated with spans, by building a stack of
+/// location hints like `"filename.anm: in entry 4: in header: "`.
+pub struct ErrLocationReporter {
+    pub diagnostics: Rc<DiagnosticEmitter>,
+    pub filename: String,
+    pub stack: Vec<ErrLocation>,
+}
+
+impl ErrLocationReporter {
+    pub fn annotate<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
+        use std::fmt::Write;
+
+        let mut full_loc = String::new();
+        for loc in &self.stack {
+            write!(full_loc, "{}: ", loc);
+        }
+        func(format_args!("{}: {}{}", self.filename, full_loc, e))
     }
-    pub fn seek_to(&mut self, offset: u64) -> WriteResult {
-        self.writer.seek(SeekFrom::Start(offset)).map_err(|e| self.error_noloc(e))?;
-        Ok(())
+
+    pub fn annotate_noloc<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
+        func(format_args!("{}: {}", self.filename, e))
+    }
+
+    pub fn error(&self, e: impl fmt::Display) -> ErrorReported {
+        self.annotate(e, |msg| self.diagnostics.emit(error!("{}", msg)))
+    }
+    /// Generate an error that ignores the location stack and only writes `"<filename>: <message>"`.
+    ///
+    /// Good for general read/write errors that must be caused by an issue with the file object and is not specific
+    /// to the data at this location.
+    pub fn error_noloc(&self, e: impl fmt::Display) -> ErrorReported {
+        self.annotate_noloc(e, |msg| self.diagnostics.emit(error!("{}", msg)))
+    }
+    pub fn warning(&self, e: impl fmt::Display) -> ErrorReported {
+        self.annotate(e, |msg| self.diagnostics.emit(warning!("{}", msg)))
+    }
+    pub fn warning_noloc(&self, e: impl fmt::Display) -> ErrorReported {
+        self.annotate_noloc(e, |msg| self.diagnostics.emit(warning!("{}", msg)))
     }
 }
 
-/// Helper extension trait to simplify functions that write binary script files for Touhou.
-///
-/// All functions read little endian (because all of the game's binary formats are little endian),
-/// and simpler versions of the Seek API are provided (because the formats are full of offsets).
-pub trait BinWrite: Write + Seek {}
+pub enum ErrLocation {
+    /// `"in <what>":`
+    In { what: &'static str },
+    /// `"in <what> <number>":`
+    InNumbered { what: &'static str, number: usize },
+}
 
-impl<R: Read + Seek> BinRead for R {}
-impl<R: Write + Seek> BinWrite for R {}
+impl fmt::Display for ErrLocation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ErrLocation::In { what } => write!(f, "in {}", what),
+            ErrLocation::InNumbered { what, number } => write!(f, "in {} {}", what, number),
+        }
+    }
+}
 
+// =============================================================================
 
 #[test]
 fn test_cstring_io() {
@@ -322,10 +406,10 @@ fn test_cstring_io() {
         let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
         longer_padded.extend(vec![0; 10]);
 
-        let mut r = std::io::Cursor::new(longer_padded);
+        let mut r = BinReader::from_reader(&ctx, "test".into(), std::io::Cursor::new(longer_padded));
         let read_back = r.read_cstring_blockwise(block_size).unwrap();
         assert_eq!(bytes, &read_back.0[..]);  // make sure it dropped the nul bytes
-        assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
+        assert_eq!(encoded.len() as u64, r.pos().unwrap());
     }
 
     check(4, &[], vec![0, 0, 0, 0]);
@@ -343,16 +427,16 @@ fn test_masked_cstring() {
         let ctx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
         let mut w = BinWriter::from_writer(&ctx, "test".into(), std::io::Cursor::new(vec![]));
         w.write_cstring_masked(&Encoded(bytes.to_vec()), block_size, mask).unwrap();
-        assert_eq!(encoded, w.into_inner());
+        assert_eq!(encoded, w.into_inner().into_writer());
 
         // check reading
         let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
         longer_padded.extend(vec![mask; 10]);
 
-        let mut r = std::io::Cursor::new(longer_padded);
+        let mut r = BinReader::from_reader(&ctx, "test".into(), std::io::Cursor::new(longer_padded));
         let read_back = r.read_cstring_masked_exact(encoded.len(), mask).unwrap();
         assert_eq!(bytes, &read_back.0[..]);  // make sure it dropped the nul bytes
-        assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
+        assert_eq!(encoded.len() as u64, r.pos().unwrap());
     }
 
     check(0x77, 4, &[1, 2, 3], vec![0x76, 0x75, 0x74, 0x77]);

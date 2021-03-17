@@ -1,13 +1,12 @@
-use std::io;
 use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, ReadResult, WriteResult};
+use crate::binary_io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
-use crate::context::{CompilerContext, BinContext};
+use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 
 // =============================================================================
@@ -30,12 +29,12 @@ impl MsgFile {
         compile(&*game_format(game), script, ctx)
     }
 
-    pub fn write_to_stream(&self, mut w: impl io::Write + io::Seek, game: Game, ctx: &BinContext<'_>) -> WriteResult {
-        write_msg(ctx, &mut w, &*game_format(game), self)
+    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
+        write_msg(w, &*game_format(game), self)
     }
 
-    pub fn read_from_stream(mut r: impl io::Read + io::Seek, game: Game, ctx: &BinContext<'_>) -> ReadResult<Self> {
-        read_msg(ctx, &mut r, &*game_format(game))
+    pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
+        read_msg(r, &*game_format(game))
     }
 }
 
@@ -140,8 +139,7 @@ fn compile(
 // =============================================================================
 
 fn read_msg(
-    ctx: &BinContext<'_>,
-    reader: &mut dyn BinRead,
+    reader: &mut BinReader,
     instr_format: &dyn InstrFormat,
 ) -> ReadResult<MsgFile> {
     let start_pos = reader.pos()?;
@@ -183,7 +181,7 @@ fn read_msg(
         let script_pos = start_pos + offset as u64;
         reader.seek_to(script_pos)?;
 
-        let script = llir::read_instrs(reader, instr_format, ctx, script_pos, None)?;
+        let script = llir::read_instrs(reader, instr_format, script_pos, None)?;
         scripts.insert(id as u32, script);
     }
 
@@ -191,8 +189,7 @@ fn read_msg(
 }
 
 fn write_msg(
-    ctx: &BinContext<'_>,
-    f: &mut dyn BinWrite,
+    f: &mut BinWriter,
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
 ) -> WriteResult {
@@ -215,11 +212,11 @@ fn write_msg(
         default_script_offset = default_script_offset.or(Some(script_offset));
 
         script_offsets[id as usize] = Some(script_offset);
-        llir::write_instrs(f, instr_format, script, ctx)?;
+        llir::write_instrs(f, instr_format, script)?;
     }
 
     if default_script_offset.is_none() && msg.script_table_len > 0 {
-        ctx.diagnostics.emit(warning!("script table has no entries to use as a default!"));
+        f.warning(format_args!("script table has no entries to use as a default!"));
     }
     let default_script_offset = default_script_offset.unwrap_or(0);
 
@@ -267,7 +264,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut dyn BinRead, _: &BinContext<'_>) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()?;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
@@ -293,14 +290,14 @@ impl InstrFormat for InstrFormat06 {
         }))
     }
 
-    fn write_instr(&self, f: &mut dyn BinWrite, instr: &RawInstr, ctx: &BinContext<'_>) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
 
         if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            ctx.diagnostics.emit(warning!("\
+            f.warning(format_args!("\
                 wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
                 correctly due to a known limitation of the current implementation.\
             "));
@@ -308,7 +305,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut dyn BinWrite) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter) -> WriteResult {
         f.write_u32(0)
     }
 }

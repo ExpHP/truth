@@ -29,6 +29,7 @@ pub struct CompileError {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use = "When reporting an error, you usually also want to return Err."]
 pub struct ErrorReported;
 
 impl CompileError {
