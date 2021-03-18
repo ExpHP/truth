@@ -276,13 +276,13 @@ fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError
             | ArgEncoding::Padding
             | ArgEncoding::Script
             | ArgEncoding::Sprite
-            => args_blob.write_i32(arg.expect_raw().expect_int())?,
+            => args_blob.write_i32(arg.expect_raw().expect_int()).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::Float
-            => args_blob.write_f32(arg.expect_raw().expect_float())?,
+            => args_blob.write_f32(arg.expect_raw().expect_float()).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::Word
-            => args_blob.write_i16(arg.expect_raw().expect_int() as _)?,
+            => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::String { block_size, mask }
             => {
@@ -295,7 +295,7 @@ fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError
 
     for enc in abi.arg_encodings().skip(args.len()) {
         assert_eq!(enc, ArgEncoding::Padding);
-        args_blob.write_u32(0)?;
+        args_blob.write_u32(0).expect("Cursor<Vec> failed?!");
     }
 
     Ok(RawInstr {
