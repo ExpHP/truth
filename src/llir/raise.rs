@@ -66,14 +66,14 @@ impl<'a> Raiser<'a> {
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
-            self.diagnostics.emit(warning!(
+            let _ = self.diagnostics.emit(warning!(
                 message("instructions with unknown signatures were decompiled to byte blobs."),
                 note(
                     "The following opcodes were affected: {}",
                     self.opcodes_without_abis.iter()
                         .map(|opcode| opcode.to_string()).collect::<Vec<_>>().join(", ")
                 ),
-            ))
+            ));
         }
 
         self.opcodes_without_abis.clear();

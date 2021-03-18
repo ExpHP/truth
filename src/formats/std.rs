@@ -1,10 +1,7 @@
-use std::io;
-
 use indexmap::IndexMap;
-use anyhow::bail;
 
 use crate::ast;
-use crate::binary_io::{BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
+use crate::binary_io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::error::{CompileError, SimpleError};
 use crate::game::Game;
 use crate::ident::{Ident};
@@ -70,7 +67,7 @@ impl StdFile {
         compile_std(&*game_format(game), script, ctx)
     }
 
-    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> Result<(), CompileError> {
+    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
         write_std(&mut w, &*game_format(game), self)
     }
 
@@ -474,15 +471,15 @@ fn read_quad(f: &mut BinReader) -> ReadResult<Option<Quad>> {
         (0, 0x1c) => {},
         (1, 0x24) => {},
         (-1, _) | (0, _) | (1, _) => {
-            f.error(format_args!("unexpected size for type {} quad: {:#x}", kind, size));
+            return Err(f.error(format_args!("unexpected size for type {} quad: {:#x}", kind, size)));
         },
-        _ => f.error(format_args!("unknown quad type: {}", kind)),
+        _ => return Err(f.error(format_args!("unknown quad type: {}", kind))),
     };
 
     let anm_script = f.read_u16()?;
     match f.read_u16()? {
         0 => {},  // This word is zero in the file, and used to store an index in-game.
-        s => f.error(format_args!("unexpected data in quad index field: {:#04x}", s)),
+        s => return Err(f.error(format_args!("unexpected data in quad index field: {:#04x}", s))),
     };
 
     Ok(Some(Quad {
@@ -552,11 +549,10 @@ fn read_instance(f: &mut BinReader, objects: &IndexMap<Sp<Ident>, Object>) -> Re
 fn write_instance(f: &mut BinWriter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
     match objects.get_index_of(&inst.object) {
         Some(object_index) => f.write_u16(object_index as u16)?,
-        // FIXME: This should be a diagnostic. Stop using io::Result noob
-        None => f.ctx.diagnostics.emit(error!(
+        None => return Err(f.ctx.diagnostics.emit(error!(
             message("No object named {}", inst.object),
             primary(&inst.object, "not an object"),
-        )),
+        ))),
     }
     f.write_u16(inst.unknown)?;
     f.write_f32s(&inst.pos)?;
@@ -619,7 +615,7 @@ trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
     fn read_extra(&self, f: &mut BinReader) -> ReadResult<StdExtra>;
-    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> Result<(), CompileError>;
+    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> WriteResult;
     fn instr_format(&self) -> &dyn InstrFormat;
     fn has_strips(&self) -> bool;
 }
@@ -653,7 +649,7 @@ impl FileFormat for FileFormat06 {
         })
     }
 
-    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> Result<(), CompileError> {
+    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th06 { stage_name, bgm } => {
                 write_string_128(f, stage_name)?;
@@ -690,7 +686,7 @@ impl FileFormat for FileFormat10 {
         Ok(StdExtra::Th10 { anm_path: read_string_128(f)? })
     }
 
-    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> Result<(), CompileError> {
+    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th10 { anm_path } => write_string_128(f, anm_path)?,
             StdExtra::Th06 { .. } => unreachable!(),

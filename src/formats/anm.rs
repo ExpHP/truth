@@ -6,7 +6,7 @@ use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::binary_io::{BinReader, BinWriter, Encoded, ReadResult, WriteResult, ErrLocation, DEFAULT_ENCODING};
+use crate::binary_io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, ErrLocation, DEFAULT_ENCODING};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};

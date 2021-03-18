@@ -344,7 +344,7 @@ fn test_precomputed_string_len() {
 
     let arg = LowerArg::Raw(SimpleArg { value: ScalarValue::String(str.into()), is_reg: false });
     let instr = LowerInstr { time: 0, opcode: 1, user_param_mask: None, args: LowerArgs::Known(vec![sp!(arg)]) };
-    let mut ctx = CompilerContext::new();
+    let mut ctx = CompilerContext::new_stderr();
     ctx.set_ins_abi(1, "m".parse().unwrap());
 
     let actual = precompute_instr_args_size(&instr, &ctx.defs).unwrap();

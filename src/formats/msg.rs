@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
-use crate::binary_io::{BinReader, BinWriter, ReadResult, WriteResult};
+use crate::binary_io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
