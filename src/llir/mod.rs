@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Context};
 use enum_map::EnumMap;
 
 use crate::ast;
 use crate::binary_io::{BinReader, BinWriter, ReadResult, WriteResult, ErrLocation};
-use crate::context::BinContext;
 use crate::error::CompileError;
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};

@@ -7,6 +7,7 @@ use std::any::Any;
 use codespan_reporting as cs;
 use cs::term::termcolor as tc;
 
+use crate::error::ErrorReported;
 use crate::pos::{Files, FileId, HasSpan};
 
 type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
