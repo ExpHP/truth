@@ -191,6 +191,10 @@ impl From<Vec<Diagnostic>> for CompileError {
     fn from(diagnostics: Vec<Diagnostic>) -> Self { CompileError { diagnostics } }
 }
 
+impl From<ErrorReported> for CompileError {
+    fn from(_: ErrorReported) -> Self { CompileError { diagnostics: vec![] } }
+}
+
 impl<'a> From<crate::parse::Error<'a>> for CompileError {
     fn from(e: crate::parse::Error<'a>) -> CompileError {
         use lalrpop_util::ParseError::*;

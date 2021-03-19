@@ -62,13 +62,18 @@ pub trait DynReadSeek: Read + Seek {}
 /// Trait alias that allows the creation of a `dyn Write + Seek`.
 pub trait DynWriteSeek: Write + Seek {}
 
+impl<R: Read + Seek> DynReadSeek for R {}
+impl<W: Write + Seek> DynWriteSeek for W {}
+
+// =================================================================================================
+
 /// Helper to simplify functions that read from Touhou's binary script files.
 ///
 /// Implements [`BinRead`] with automatic handling of diagnostics.
-pub struct BinReader<'a, 'ctx, W: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
+pub struct BinReader<'a, 'ctx, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
     pub ctx: &'a BinContext<'ctx>,
     loc_diagnostics: ErrLocationReporter,
-    reader: W,
+    reader: R,
 }
 
 /// Helper to simplify functions that write binary script files for Touhou.
@@ -93,6 +98,11 @@ impl<'a, 'ctx, R: Read + Seek + 'a> BinReader<'a, 'ctx, R> {
         BinReader { ctx, loc_diagnostics, reader }
     }
 
+    pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, 'ctx, R2> {
+        let BinReader { ctx, loc_diagnostics, reader } = self;
+        BinReader { ctx, loc_diagnostics, reader: func(reader) }
+    }
+
     pub fn into_inner(self) -> R { self.reader }
 }
 
@@ -110,6 +120,11 @@ impl<'a, 'ctx, W: Write + Seek + 'a> BinWriter<'a, 'ctx, W> {
         BinWriter { ctx, loc_diagnostics, writer }
     }
 
+    pub fn map_writer<W2: Write + Seek + 'a>(self, func: impl FnOnce(W) -> W2) -> BinWriter<'a, 'ctx, W2> {
+        let BinWriter { ctx, loc_diagnostics, writer } = self;
+        BinWriter { ctx, loc_diagnostics, writer: func(writer) }
+    }
+
     pub fn into_inner(self) -> W { self.writer }
 }
 
@@ -120,18 +135,43 @@ impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
 // ------------
 // file opening
 
+impl<'a, 'ctx> BinReader<'a, 'ctx, io::Cursor<Vec<u8>>> {
+    /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
+    ///
+    /// This is generally the preferred way to work with [`BinReader`], as the size of these files is already constrained
+    /// by limitations of the games, and reading the whole thing up front makes seeking effectively free.
+    pub fn read(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> ReadResult<Self> {
+        let path = path.as_ref();
+        let path_string = path.display().to_string();
+        let bytes = fs::read(path).map_err(|e| ctx.diagnostics.emit(error!("while reading file '{}': {}", path_string, e)))?;
+
+        Ok(Self::from_reader(ctx, path_string, io::Cursor::new(bytes)))
+    }
+}
+
 impl<'a, 'ctx> BinReader<'a, 'ctx, fs::File> {
+    /// Open a file handle for reading and wrap it in a [`BinReader`].
     pub fn open(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> ReadResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
         let file = fs::File::open(path)
-            .map_err(|e| ctx.diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
+            .map_err(|e| ctx.diagnostics.emit(error!("while opening file '{}': {}", path_string, e)))?;
 
         Ok(Self::from_reader(ctx, path_string, file))
     }
 }
 
+impl<'a, 'ctx> BinWriter<'a, 'ctx, io::BufWriter<fs::File>> {
+    /// Create a file and wrap a buffered write handle in a [`BinWriter`].
+    ///
+    /// This is the preferred way to open files for writing.
+    pub fn create_buffered(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> WriteResult<Self> {
+        Ok(BinWriter::create(ctx, path)?.map_writer(io::BufWriter::new))
+    }
+}
+
 impl<'a, 'ctx> BinWriter<'a, 'ctx, fs::File> {
+    /// Create a file and wrap a write handle in a [`BinWriter`].
     pub fn create(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> WriteResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
@@ -346,7 +386,7 @@ pub trait BinWrite {
 
 // =============================================================================
 
-impl<'a, 'ctx, R: Read + Seek + ?Sized> BinRead for BinReader<'a, 'ctx, R> {
+impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, 'ctx, R> {
     type Err = ErrorReported;
     type Reader = R;
 
@@ -354,7 +394,7 @@ impl<'a, 'ctx, R: Read + Seek + ?Sized> BinRead for BinReader<'a, 'ctx, R> {
     fn _bin_read_reader(&mut self) -> &mut Self::Reader { &mut self.reader }
 }
 
-impl<'a, 'ctx, W: Write + Seek + ?Sized> BinWrite for BinWriter<'a, 'ctx, W> {
+impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWrite for BinWriter<'a, 'ctx, W> {
     type Err = ErrorReported;
     type Writer = W;
 

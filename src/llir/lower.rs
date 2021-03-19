@@ -8,7 +8,7 @@ use crate::ast;
 use crate::resolve::DefId;
 use crate::ident::{Ident};
 use crate::context::{CompilerContext, Defs};
-use crate::binary_io::{Encoded, DEFAULT_ENCODING};
+use crate::io::{Encoded, DEFAULT_ENCODING};
 
 mod stackless;
 
@@ -232,7 +232,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, defs: &Defs) -> Result<usize, 
                     let string = arg.expect_raw().expect_string();
                     let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING)?;
                     let string_len = encoded.len();
-                    size += crate::binary_io::cstring_num_bytes(string_len, block_size);
+                    size += crate::io::cstring_num_bytes(string_len, block_size);
                 },
             },
             LowerArg::Local { .. } => size += 4,
@@ -250,7 +250,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, defs: &Defs) -> Result<usize, 
 }
 
 fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError> {
-    use crate::binary_io::BinWrite;
+    use crate::io::BinWrite;
 
     let args = match &instr.args {
         LowerArgs::Known(args) => args,

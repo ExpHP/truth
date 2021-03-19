@@ -1,8 +1,8 @@
 use indexmap::IndexMap;
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::error::{CompileError, SimpleError};
+use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
+use crate::error::{CompileError, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
@@ -59,12 +59,14 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
         decompile_std(&*game_format(game), self, ctx, decompile_kind)
+            .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, CompileError> {
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile_std(&*game_format(game), script, ctx)
+            .map_err(|e| ctx.diagnostics.emit(e))
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {

@@ -49,7 +49,7 @@ pub mod cli_def;
 pub use resolve::{RegId, DefId};
 mod resolve;
 
-mod binary_io;
+mod io;
 
 pub mod llir;
 

@@ -11,7 +11,7 @@ use crate::resolve::{RegId};
 use crate::context::{self, Defs};
 use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
-use crate::binary_io::DEFAULT_ENCODING;
+use crate::io::DEFAULT_ENCODING;
 
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
@@ -543,7 +543,7 @@ fn decode_args_with_abi(
     instr: &RawInstr,
     siggy: &InstrAbi,
 ) -> Result<RaiseInstr, SimpleError> {
-    use crate::binary_io::BinRead;
+    use crate::io::BinRead;
 
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);

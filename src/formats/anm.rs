@@ -6,7 +6,7 @@ use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, ErrLocation, DEFAULT_ENCODING};
+use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, ErrLocation, DEFAULT_ENCODING};
 use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
@@ -27,12 +27,14 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
         decompile(&game_format(game), self, ctx, decompile_kind)
+            .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
-    pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, CompileError> {
+    pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile(&game_format(game), ast, ctx)
+            .map_err(|e| ctx.diagnostics.emit(e))
     }
 
     /// Uses `other` as a source for any missing metadata from the entries, as well as for embedded images.
@@ -57,7 +59,7 @@ impl AnmFile {
         read_anm(&game_format(game), r, with_images)
     }
 
-    pub fn write_thecl_defs(&self, w: impl io::Write) -> WriteResult {
+    pub fn write_thecl_defs(&self, w: impl io::Write) -> Result<(), SimpleError> {
         write_thecl_defs(w, self)
     }
 }

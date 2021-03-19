@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use enum_map::EnumMap;
 
 use crate::ast;
-use crate::binary_io::{BinReader, BinWriter, ReadResult, WriteResult, ErrLocation};
+use crate::io::{BinReader, BinWriter, ReadResult, WriteResult, ErrLocation};
 use crate::error::CompileError;
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};

@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
-use crate::binary_io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError};
+use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
+use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
@@ -21,12 +21,14 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
         decompile(&*game_format(game), self, ctx, decompile_kind)
+            .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, CompileError> {
+    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
         compile(&*game_format(game), script, ctx)
+            .map_err(|e| ctx.diagnostics.emit(e))
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
