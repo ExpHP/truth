@@ -70,11 +70,11 @@ impl StdFile {
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        write_std(&mut w, &*game_format(game), self)
+        write_std(w, &*game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
-        read_std(&mut r, &*game_format(game))
+        read_std(r, &*game_format(game))
     }
 }
 
@@ -424,9 +424,10 @@ fn write_std(f: &mut BinWriter, format: &dyn FileFormat, std: &StdFile) -> Write
 
 fn read_string_128(f: &mut BinReader) -> ReadResult<Sp<String>> {
     f.read_cstring_masked_exact(128, 0x00)?.decode(DEFAULT_ENCODING).map(|x| sp!(x))
+        .map_err(|e| f.error(e))
 }
 fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, s: &Sp<S>) -> WriteResult {
-    let encoded = Encoded::encode(&s, DEFAULT_ENCODING)?;
+    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| f.ctx.diagnostics.emit(e))?;
     if encoded.len() >= 128 {
         return Err(f.ctx.diagnostics.emit(error!(
             message("string too long for STD header"),
@@ -437,18 +438,17 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, s: &Sp<S>) -> WriteResult 
     Ok(())
 }
 
-fn read_object(expected_id: usize, bytes: &mut BinReader) -> ReadResult<Object> {
-    let mut f = bytes;
+fn read_object(expected_id: usize, f: &mut BinReader) -> ReadResult<Object> { ;
     let id = f.read_u16()?;
     if id as usize != expected_id {
-        bytes.warning(format_args!("object has non-sequential id (expected {}, got {})", expected_id, id));
+        f.warning(format_args!("object has non-sequential id (expected {}, got {})", expected_id, id));
     }
 
     let unknown = f.read_u16()?;
     let pos = f.read_f32s_3()?;
     let size = f.read_f32s_3()?;
     let mut quads = vec![];
-    while let Some(quad) = read_quad(&mut f)? {
+    while let Some(quad) = read_quad(f)? {
         quads.push(quad);
     }
     Ok(Object { unknown, pos, size, quads })

@@ -561,12 +561,12 @@ fn read_entry(
     // eprintln!("{:?}", script_ids_and_offsets);
 
     reader.seek_to(entry_pos + header_data.name_offset)?;
-    let path = reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING)?;
+    let path = reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING).map_err(|e| reader.error(e))?;
     let path_2 = match header_data.secondary_name_offset {
         None => None,
         Some(n) => {
             reader.seek_to(entry_pos + n.get())?;
-            Some(reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING)?)
+            Some(reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING).map_err(|e| reader.error(e))?)
         },
     };
 
@@ -710,17 +710,17 @@ fn write_entry(
         ))
     }
 
-    macro_rules! expect {
-        ($name:ident) => { match $name {
-            Some(x) => x,
-            None => {
-                let problem = format!("is missing required field '{}'!", stringify!($name));
-                return Err(missing(f, &entry.path, &problem));
-            },
-        }};
-    }
-
     f.push_location(ErrLocation::In { what: "header" }, |f| {
+        macro_rules! expect {
+            ($name:ident) => { match $name {
+                Some(x) => x,
+                None => {
+                    let problem = format!("is missing required field '{}'!", stringify!($name));
+                    return Err(missing(f, &entry.path, &problem));
+                },
+            }};
+        }
+
         file_format.write_header(f, &EntryHeaderData {
             width: expect!(width),
             height: expect!(height),
@@ -747,12 +747,12 @@ fn write_entry(
     f.write_u32s(&vec![0; 2 * entry.scripts.len()])?;
 
     let path_offset = f.pos()? - entry_pos;
-    f.write_cstring(&Encoded::encode(&entry.path, DEFAULT_ENCODING)?, 16)?;
+    f.write_cstring(&Encoded::encode(&entry.path, DEFAULT_ENCODING).map_err(|e| f.ctx.diagnostics.emit(e))?, 16)?;
 
     let mut path_2_offset = 0;
     if let Some(path_2) = &entry.path_2 {
         path_2_offset = f.pos()? - entry_pos;
-        f.write_cstring(&Encoded::encode(path_2, DEFAULT_ENCODING)?, 16)?;
+        f.write_cstring(&Encoded::encode(path_2, DEFAULT_ENCODING).map_err(|e| f.ctx.diagnostics.emit(e))?, 16)?;
     };
 
     let sprite_offsets = entry.sprites.iter().map(|(_, sprite)| {

@@ -126,7 +126,8 @@ pub mod anm_decompile {
             // Here we don't read the whole thing because seeking can skip costly reads of megabytes of image data.
             //
             // Seeking drops the buffer though, so use a tiny buffer.
-            let mut reader = BinReader::open(&bcx, path)?.map_reader(|r| io::BufReader::with_capacity(64, r));
+            let buffer_size = 64;
+            let mut reader = BinReader::open(&bcx, path)?.map_reader(|r| io::BufReader::with_capacity(buffer_size, r));
             crate::AnmFile::read_from_stream(&mut reader, game, false)
                 .and_then(|anm| anm.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))?
         };

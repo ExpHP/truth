@@ -194,8 +194,8 @@ impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinReader<'a, 'ctx, R> {
     }
     pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
     pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e); }
-    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e); }
+    pub fn warning(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning(e); }
+    pub fn warning_noloc(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning_noloc(e); }
 }
 
 impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
@@ -207,8 +207,8 @@ impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
     }
     pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
     pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e); }
-    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e); }
+    pub fn warning(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning(e); }
+    pub fn warning_noloc(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning_noloc(e); }
 }
 
 // =============================================================================
@@ -241,7 +241,7 @@ pub trait BinRead {
 
     fn read_byte_vec(&mut self, len: usize) -> Result<Vec<u8>, Self::Err> {
         let mut buf = vec![0; len];
-        self.read_exact(&mut buf);
+        self.read_exact(&mut buf)?;
         Ok(buf)
     }
 
@@ -308,7 +308,7 @@ impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinReader<'a, 'ctx, R> {
         self.read_exact(&mut read_bytes)?;
 
         if read_bytes != magic.as_bytes() {
-            self.error(format_args!("failed to find magic: '{}'", magic));
+            return Err(self.error(format_args!("failed to find magic: '{}'", magic)));
         }
         Ok(())
     }
@@ -435,7 +435,7 @@ impl ErrLocationReporter {
 
         let mut full_loc = String::new();
         for loc in &self.stack {
-            write!(full_loc, "{}: ", loc);
+            write!(full_loc, "{}: ", loc).expect("string write failed!?");
         }
         func(format_args!("{}: {}{}", self.filename, full_loc, e))
     }

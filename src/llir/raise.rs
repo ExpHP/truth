@@ -580,7 +580,7 @@ fn decode_args_with_abi(
     }
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
-        diagnostics.emit(warning!(
+        let _ = diagnostics.emit(warning!(
             // this could mean the signature is incomplete
             "unexpected leftover bytes in ins_{}! (read {} bytes out of {} in file!)",
             instr.opcode, args_blob.position(), args_blob.get_ref().len(),
@@ -588,7 +588,7 @@ fn decode_args_with_abi(
     }
 
     if param_mask != 0 {
-        diagnostics.emit(warning!(
+        let _ = diagnostics.emit(warning!(
             "unused bits in ins_{}! (arg {} is a variable, but there are only {} args!)",
             instr.opcode, param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
         ));

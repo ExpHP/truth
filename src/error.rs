@@ -23,6 +23,8 @@ use codespan_reporting as cs;
 /// [`DiagnosticEmitter`]: [`crate::context::diagnostic::DiagnosticEmitter`]
 #[derive(thiserror::Error, Debug, Clone)]
 #[must_use = "A CompileError must be emitted or it will not be seen!"]
+// FIXME: We have to get rid of derive(Error) because now we use `impl Display` in places where it could be easy
+//        to accidentally supply CompileError
 #[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
 pub struct CompileError {
     diagnostics: Vec<Diagnostic>,
