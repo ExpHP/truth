@@ -59,8 +59,8 @@ macro_rules! test {
 
 fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, CompilerContext), (Files, CompileError)> {
     let mut files = Files::new();
-    let mut ctx = CompilerContext::new();
-    ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
+    let mut ctx = CompilerContext::new_stderr();
+    ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP, &ctx.diagnostics).unwrap()).unwrap();
 
     let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
     crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
@@ -523,8 +523,8 @@ test!(
 #[test]
 fn panics_on_cloned_res() {
     let mut files = Files::new();
-    let mut ctx = CompilerContext::new();
-    ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP).unwrap()).unwrap();
+    let mut ctx = CompilerContext::new_stderr();
+    ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP, &ctx.diagnostics).unwrap()).unwrap();
 
     let mut def = files.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
     let mut cloned = files.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();

@@ -7,7 +7,7 @@ use crate::context::CompilerContext;
 
 fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
     let mut expr = sp!(expr);
-    crate::passes::const_simplify::run(&mut expr, &mut CompilerContext::new())?;
+    crate::passes::const_simplify::run(&mut expr, &mut CompilerContext::new_stderr())?;
 
     Ok(expr.value)
 }

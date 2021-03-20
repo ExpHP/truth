@@ -192,8 +192,10 @@ impl TestFile {
     }
 
     pub fn read_anm(&self, format: &Format) -> AnmFile {
-        let reader = std::io::Cursor::new(self.read());
-        AnmFile::read_from_stream(reader, format.game, false).unwrap()
+        let bcx = truth::CompilerContext::new_stderr().to_bin_context();
+
+        let mut reader = truth::io::BinReader::from_reader(&bcx, self.as_path().display().to_string(), std::io::Cursor::new(self.read()));
+        AnmFile::read_from_stream(&mut reader, format.game, false).unwrap()
     }
 }
 

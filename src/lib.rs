@@ -26,7 +26,7 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
-pub use context::{CompilerContext};
+pub use context::{CompilerContext, BinContext};
 pub mod context;
 
 pub use passes::DecompileKind;
@@ -49,7 +49,7 @@ pub mod cli_def;
 pub use resolve::{RegId, DefId};
 mod resolve;
 
-mod io;
+pub mod io;
 
 pub mod llir;
 

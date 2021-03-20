@@ -294,7 +294,7 @@ mod tests {
             let mut files = Files::new();
             let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
-            let mut ctx = CompilerContext::new();
+            let mut ctx = CompilerContext::new_stderr();
             for &(name, reg, ty) in &self.globals {
                 ctx.define_global_reg_alias(reg, name.parse().unwrap());
                 ctx.set_reg_ty(reg, ty.into());

@@ -29,7 +29,7 @@ const OTHER_OPCODE: u16 = 100;
 
 // Note: In these tests, instructions with opcodes < 100 are reserved for specially recognized instructions
 //       and instructions named in the mapfile.  Use opcodes >= 100 for arbitrary instructions in the text.
-fn make_eclmap(vars: &[Var]) -> Eclmap {
+fn load_eclmap(ctx: &mut CompilerContext, vars: &[Var]) {
     let mut lines = vec![];
     lines.push(format!("!anmmap"));
     lines.push(format!("!gvar_types"));
@@ -100,7 +100,8 @@ fn make_eclmap(vars: &[Var]) -> Eclmap {
     lines.extend(ins_names_lines);
     lines.push(format!("!ins_signatures"));
     lines.extend(ins_signatures_lines);
-    Eclmap::parse(&lines.join("\n")).unwrap()
+    let eclmap = Eclmap::parse(&lines.join("\n"), &ctx.diagnostics).unwrap();
+    ctx.extend_from_eclmap(None, &eclmap).unwrap();
 }
 
 fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec<T>> {
@@ -224,12 +225,11 @@ fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
 fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(AstVm, AstVm), CompileError> {
     truth::setup_for_test_harness();
 
-    let mut ctx = CompilerContext::new();
+    let mut ctx = CompilerContext::new_stderr();
+    load_eclmap(&mut ctx, vars);
 
-    let eclmap = make_eclmap(vars);
     let instr_format = make_instr_format(vars);
     let base_vm = make_randomized_vm(vars);
-    ctx.extend_from_eclmap(None, &eclmap).unwrap();
 
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
@@ -264,11 +264,10 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     truth::setup_for_test_harness();
 
     let mut files = Files::new();
-    let mut ctx = CompilerContext::new();
+    let mut ctx = CompilerContext::new_stderr();
+    load_eclmap(&mut ctx, vars);
 
-    let eclmap = make_eclmap(vars);
     let instr_format = make_instr_format(vars);
-    ctx.extend_from_eclmap(None, &eclmap).unwrap();
 
     let parsed_block = {
         let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;

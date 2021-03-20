@@ -78,7 +78,7 @@ mod tests {
 
     fn strip_unused_labels<A: ast::Visitable + Parse>(text: &str) -> A {
         let mut files = Files::new();
-        let mut ctx = CompilerContext::new();
+        let mut ctx = CompilerContext::new_stderr();
 
         let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
         crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
