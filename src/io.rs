@@ -184,8 +184,8 @@ impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     }
     pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
     pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-    pub fn warning(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning(e); }
-    pub fn warning_noloc(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning_noloc(e); }
+    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e) }
+    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e) }
 }
 
 impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
@@ -197,8 +197,8 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
     }
     pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
     pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-    pub fn warning(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning(e); }
-    pub fn warning_noloc(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning_noloc(e); }
+    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e) }
+    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e) }
 }
 
 // =============================================================================
@@ -444,11 +444,11 @@ impl ErrLocationReporter<'_> {
     pub fn error_noloc(&self, e: impl fmt::Display) -> ErrorReported {
         self.annotate_noloc(e, |msg| self.diagnostics.emit(error!("{}", msg)))
     }
-    pub fn warning(&self, e: impl fmt::Display) -> ErrorReported {
-        self.annotate(e, |msg| self.diagnostics.emit(warning!("{}", msg)))
+    pub fn warning(&self, e: impl fmt::Display) {
+        self.annotate(e, |msg| self.diagnostics.emit(warning!("{}", msg)).ignore())
     }
-    pub fn warning_noloc(&self, e: impl fmt::Display) -> ErrorReported {
-        self.annotate_noloc(e, |msg| self.diagnostics.emit(warning!("{}", msg)))
+    pub fn warning_noloc(&self, e: impl fmt::Display) {
+        self.annotate_noloc(e, |msg| self.diagnostics.emit(warning!("{}", msg)).ignore())
     }
 }
 

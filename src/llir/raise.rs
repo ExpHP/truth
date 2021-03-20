@@ -66,14 +66,14 @@ impl<'a> Raiser<'a> {
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
-            let _ = self.diagnostics.emit(warning!(
+            self.diagnostics.emit(warning!(
                 message("instructions with unknown signatures were decompiled to byte blobs."),
                 note(
                     "The following opcodes were affected: {}",
                     self.opcodes_without_abis.iter()
                         .map(|opcode| opcode.to_string()).collect::<Vec<_>>().join(", ")
                 ),
-            ));
+            )).ignore();
         }
 
         self.opcodes_without_abis.clear();
@@ -580,18 +580,18 @@ fn decode_args_with_abi(
     }
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
-        let _ = diagnostics.emit(warning!(
+        diagnostics.emit(warning!(
             // this could mean the signature is incomplete
             "unexpected leftover bytes in ins_{}! (read {} bytes out of {} in file!)",
             instr.opcode, args_blob.position(), args_blob.get_ref().len(),
-        ));
+        )).ignore();
     }
 
     if param_mask != 0 {
-        let _ = diagnostics.emit(warning!(
+        diagnostics.emit(warning!(
             "unused bits in ins_{}! (arg {} is a variable, but there are only {} args!)",
             instr.opcode, param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
-        ));
+        )).ignore();
     }
     Ok(RaiseInstr {
         time: instr.time,

@@ -5,7 +5,7 @@ use anyhow::{bail, Context};
 use crate::Game;
 use crate::diagnostic::DiagnosticEmitter;
 use crate::ident::Ident;
-use crate::error::{SimpleError, ErrorReported};
+use crate::error::{SimpleError};
 
 pub struct Eclmap {
     pub magic: Magic,
@@ -63,7 +63,7 @@ impl Eclmap {
             None => bail!("no !game_files section in gamemap")
         };
         for (key, _) in seqmap.maps {
-            let ErrorReported = diagnostics.emit(warning!("unrecognized section in gamemap: {:?}", key));
+            diagnostics.emit(warning!("unrecognized section in gamemap: {:?}", key)).ignore();
         }
         let rel_path = match game_files.get(&(game.as_number() as i32)) {
             Some(file) => file,
@@ -102,7 +102,7 @@ impl Eclmap {
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
         };
         for (key, _) in maps {
-            let ErrorReported = diagnostics.emit(warning!("unrecognized section in eclmap: {:?}", key));
+            diagnostics.emit(warning!("unrecognized section in eclmap: {:?}", key)).ignore();
         }
 
         Ok(out)
