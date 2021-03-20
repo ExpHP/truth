@@ -865,6 +865,7 @@ version = "0.0.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "atty",
  "byteorder",
  "codespan",
  "codespan-reporting",

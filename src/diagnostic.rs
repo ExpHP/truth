@@ -92,7 +92,12 @@ impl DiagnosticEmitter {
 
     /// Create a [`DiagnosticEmitter`] that writes diagnostics to the standard error stream.
     pub fn new_stderr() -> Self {
-        Self::from_writer(tc::StandardStream::stderr(tc::ColorChoice::Auto))
+        // contrary to what you might expect, ColorChoice::Auto does not check isatty
+        let color = match atty::is(atty::Stream::Stderr) {
+            true => tc::ColorChoice::Auto,
+            false => tc::ColorChoice::Never,
+        };
+        Self::from_writer(tc::StandardStream::stderr(color))
     }
 
     /// Create a [`DiagnosticEmitter`] that captures diagnostic output which can be recovered
