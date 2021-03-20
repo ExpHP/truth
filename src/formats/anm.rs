@@ -750,12 +750,12 @@ fn write_entry(
     f.write_u32s(&vec![0; 2 * entry.scripts.len()])?;
 
     let path_offset = f.pos()? - entry_pos;
-    f.write_cstring(&Encoded::encode(&entry.path, DEFAULT_ENCODING).map_err(|e| f.ctx.diagnostics.emit(e))?, 16)?;
+    f.write_cstring(&Encoded::encode(&entry.path, DEFAULT_ENCODING).map_err(|e| f.diagnostics.emit(e))?, 16)?;
 
     let mut path_2_offset = 0;
     if let Some(path_2) = &entry.path_2 {
         path_2_offset = f.pos()? - entry_pos;
-        f.write_cstring(&Encoded::encode(path_2, DEFAULT_ENCODING).map_err(|e| f.ctx.diagnostics.emit(e))?, 16)?;
+        f.write_cstring(&Encoded::encode(path_2, DEFAULT_ENCODING).map_err(|e| f.diagnostics.emit(e))?, 16)?;
     };
 
     let sprite_offsets = entry.sprites.iter().map(|(_, sprite)| {

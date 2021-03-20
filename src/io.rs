@@ -1,6 +1,5 @@
 use std::io::{self, Write, Seek, Read, SeekFrom};
 use std::path::Path;
-use std::rc::Rc;
 use std::fmt;
 use std::fs;
 
@@ -10,7 +9,6 @@ use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 pub use anyhow::bail;
 
 use crate::pos::Sp;
-use crate::context::BinContext;
 use crate::diagnostic::DiagnosticEmitter;
 use crate::error::ErrorReported;
 
@@ -70,122 +68,114 @@ impl<W: Write + Seek> DynWriteSeek for W {}
 /// Helper to simplify functions that read from Touhou's binary script files.
 ///
 /// Implements [`BinRead`] with automatic handling of diagnostics.
-pub struct BinReader<'a, 'ctx, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
-    pub ctx: &'a BinContext<'ctx>,
-    loc_diagnostics: ErrLocationReporter,
+pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
+    pub diagnostics: &'a DiagnosticEmitter,
+    loc_diagnostics: ErrLocationReporter<'a>,
     reader: R,
 }
 
 /// Helper to simplify functions that write binary script files for Touhou.
 ///
 /// Implements [`BinWrite`] with automatic handling of diagnostics.
-pub struct BinWriter<'a, 'ctx, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
-    pub ctx: &'a BinContext<'ctx>,
-    loc_diagnostics: ErrLocationReporter,
+pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
+    pub diagnostics: &'a DiagnosticEmitter,
+    loc_diagnostics: ErrLocationReporter<'a>,
     writer: W,
 }
 
 // -------------
 // from/to inner
 
-impl<'a, 'ctx, R: Read + Seek + 'a> BinReader<'a, 'ctx, R> {
-    pub fn from_reader(ctx: &'a BinContext<'ctx>, filename: String, reader: R) -> Self {
-        let loc_diagnostics = ErrLocationReporter {
-            diagnostics: ctx.diagnostics.clone(),
-            stack: vec![],
-            filename,
-        };
-        BinReader { ctx, loc_diagnostics, reader }
+impl<'a, R: Read + Seek + 'a> BinReader<'a, R> {
+    pub fn from_reader(diagnostics: &'a DiagnosticEmitter, filename: String, reader: R) -> Self {
+        let loc_diagnostics = ErrLocationReporter { diagnostics, stack: vec![], filename };
+        BinReader { diagnostics, loc_diagnostics, reader }
     }
 
-    pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, 'ctx, R2> {
-        let BinReader { ctx, loc_diagnostics, reader } = self;
-        BinReader { ctx, loc_diagnostics, reader: func(reader) }
+    pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, R2> {
+        let BinReader { diagnostics, loc_diagnostics, reader } = self;
+        BinReader { diagnostics, loc_diagnostics, reader: func(reader) }
     }
 
     pub fn into_inner(self) -> R { self.reader }
 }
 
-impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
 }
 
-impl<'a, 'ctx, W: Write + Seek + 'a> BinWriter<'a, 'ctx, W> {
-    pub fn from_writer(ctx: &'a BinContext<'ctx>, filename: String, writer: W) -> Self {
-        let loc_diagnostics = ErrLocationReporter {
-            diagnostics: ctx.diagnostics.clone(),
-            stack: vec![],
-            filename,
-        };
-        BinWriter { ctx, loc_diagnostics, writer }
+impl<'a, W: Write + Seek + 'a> BinWriter<'a, W> {
+    pub fn from_writer(diagnostics: &'a DiagnosticEmitter, filename: String, writer: W) -> Self {
+        let loc_diagnostics = ErrLocationReporter { diagnostics, stack: vec![], filename };
+        BinWriter { diagnostics, loc_diagnostics, writer }
     }
 
-    pub fn map_writer<W2: Write + Seek + 'a>(self, func: impl FnOnce(W) -> W2) -> BinWriter<'a, 'ctx, W2> {
-        let BinWriter { ctx, loc_diagnostics, writer } = self;
-        BinWriter { ctx, loc_diagnostics, writer: func(writer) }
+    pub fn map_writer<W2: Write + Seek + 'a>(self, func: impl FnOnce(W) -> W2) -> BinWriter<'a, W2> {
+        let BinWriter { diagnostics, loc_diagnostics, writer } = self;
+        BinWriter { diagnostics, loc_diagnostics, writer: func(writer) }
     }
 
     pub fn into_inner(self) -> W { self.writer }
 }
 
-impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
+impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
     pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
 }
 
 // ------------
 // file opening
 
-impl<'a, 'ctx> BinReader<'a, 'ctx, io::Cursor<Vec<u8>>> {
+impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
     /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
     ///
     /// This is generally the preferred way to work with [`BinReader`], as the size of these files is already constrained
     /// by limitations of the games, and reading the whole thing up front makes seeking effectively free.
-    pub fn read(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> ReadResult<Self> {
+    pub fn read(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
-        let bytes = fs::read(path).map_err(|e| ctx.diagnostics.emit(error!("while reading file '{}': {}", path_string, e)))?;
+        let bytes = fs::read(path).map_err(|e| diagnostics.emit(error!("while reading file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_reader(ctx, path_string, io::Cursor::new(bytes)))
+        Ok(Self::from_reader(diagnostics, path_string, io::Cursor::new(bytes)))
     }
 }
 
-impl<'a, 'ctx> BinReader<'a, 'ctx, fs::File> {
+impl<'a> BinReader<'a, fs::File> {
     /// Open a file handle for reading and wrap it in a [`BinReader`].
-    pub fn open(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> ReadResult<Self> {
+    pub fn open(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
         let file = fs::File::open(path)
-            .map_err(|e| ctx.diagnostics.emit(error!("while opening file '{}': {}", path_string, e)))?;
+            .map_err(|e| diagnostics.emit(error!("while opening file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_reader(ctx, path_string, file))
+        Ok(Self::from_reader(diagnostics, path_string, file))
     }
 }
 
-impl<'a, 'ctx> BinWriter<'a, 'ctx, io::BufWriter<fs::File>> {
+impl<'a> BinWriter<'a, io::BufWriter<fs::File>> {
     /// Create a file and wrap a buffered write handle in a [`BinWriter`].
     ///
     /// This is the preferred way to open files for writing.
-    pub fn create_buffered(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> WriteResult<Self> {
-        Ok(BinWriter::create(ctx, path)?.map_writer(io::BufWriter::new))
+    pub fn create_buffered(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
+        Ok(BinWriter::create(diagnostics, path)?.map_writer(io::BufWriter::new))
     }
 }
 
-impl<'a, 'ctx> BinWriter<'a, 'ctx, fs::File> {
+impl<'a> BinWriter<'a, fs::File> {
     /// Create a file and wrap a write handle in a [`BinWriter`].
-    pub fn create(ctx: &'a BinContext<'ctx>, path: impl AsRef<Path>) -> WriteResult<Self> {
+    pub fn create(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
         let file = fs::File::create(path)
-            .map_err(|e| ctx.diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
+            .map_err(|e| diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_writer(ctx, path_string, file))
+        Ok(Self::from_writer(diagnostics, path_string, file))
     }
 }
 
 // ---------------
 // error reporting
 
-impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
         self.loc_diagnostics.stack.push(location);
         let ret = func(self);
@@ -198,7 +188,7 @@ impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinReader<'a, 'ctx, R> {
     pub fn warning_noloc(&mut self, e: impl fmt::Display) { let ErrorReported = self.loc_diagnostics.warning_noloc(e); }
 }
 
-impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWriter<'a, 'ctx, W> {
+impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
     pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
         self.loc_diagnostics.stack.push(location);
         let ret = func(self);
@@ -302,7 +292,7 @@ pub trait BinRead {
     }
 }
 
-impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinReader<'a, 'ctx, R> {
+impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     pub fn expect_magic(&mut self, magic: &str) -> ReadResult<()> {
         let mut read_bytes = vec![0; magic.len()];
         self.read_exact(&mut read_bytes)?;
@@ -386,7 +376,7 @@ pub trait BinWrite {
 
 // =============================================================================
 
-impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, 'ctx, R> {
+impl<'a, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, R> {
     type Err = ErrorReported;
     type Reader = R;
 
@@ -394,7 +384,7 @@ impl<'a, 'ctx, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, 'ctx, R> 
     fn _bin_read_reader(&mut self) -> &mut Self::Reader { &mut self.reader }
 }
 
-impl<'a, 'ctx, W: Write + Seek + ?Sized + 'a> BinWrite for BinWriter<'a, 'ctx, W> {
+impl<'a, W: Write + Seek + ?Sized + 'a> BinWrite for BinWriter<'a, W> {
     type Err = ErrorReported;
     type Writer = W;
 
@@ -423,13 +413,13 @@ impl<W: Write + Seek> BinWrite for W {
 
 /// Tool for reporting locations of errors that cannot be associated with spans, by building a stack of
 /// location hints like `"filename.anm: in entry 4: in header: "`.
-pub struct ErrLocationReporter {
-    pub diagnostics: Rc<DiagnosticEmitter>,
+pub struct ErrLocationReporter<'a> {
+    pub diagnostics: &'a DiagnosticEmitter,
     pub filename: String,
     pub stack: Vec<ErrLocation>,
 }
 
-impl ErrLocationReporter {
+impl ErrLocationReporter<'_> {
     pub fn annotate<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
         use std::fmt::Write;
 

@@ -1,7 +1,6 @@
 //! Structs that carry important global compiler state.
 
 use std::path::PathBuf;
-use std::rc::Rc;
 
 use crate::ident::GensymContext;
 use crate::resolve::Resolutions;
@@ -44,9 +43,9 @@ pub use crate::diagnostic::DiagnosticEmitter;
 /// (e.g. [`llir::RawInstr`] holds an args blob so that reading/writing doesn't require signatures.
 /// [`crate::passes::resolve_names::assign_res_ids`] allows the parser to not require `Resolutions`, and
 /// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CompilerContext<'ctx> {
-    pub diagnostics: Rc<DiagnosticEmitter>,
+    pub diagnostics: DiagnosticEmitter,
 
     /// Catalogues all loaded mapfiles for generating imports.
     mapfiles: Vec<PathBuf>,
@@ -69,18 +68,14 @@ pub struct CompilerContext<'ctx> {
     _lifetime: std::marker::PhantomData<*mut &'ctx ()>, // invariant
 }
 
-/// Context available when reading/writing binary files.
-#[derive(Debug, Clone)]
-pub struct BinContext<'ctx> {
-    pub diagnostics: Rc<DiagnosticEmitter>,
-
-    /// FIXME: remove if still unused after a long time
-    _lifetime: std::marker::PhantomData<*mut &'ctx ()>, // invariant
-}
-
 impl<'ctx> CompilerContext<'ctx> {
-    pub fn from_diagnostic_emitter(diagnostics: Rc<DiagnosticEmitter>) -> Self {
-        CompilerContext {
+    // NOTE: this takes a continuation to accommodate the scope and deallocation of an arena,
+    //       if we were to ever add one.  (the context cannot escape the continuation)
+    pub fn from_diagnostic_emitter<T>(
+        diagnostics: DiagnosticEmitter,
+        cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T,
+    ) -> T {
+        cont(CompilerContext {
             diagnostics,
             mapfiles: Default::default(),
             resolutions: Default::default(),
@@ -89,26 +84,17 @@ impl<'ctx> CompilerContext<'ctx> {
             consts: Default::default(),
             initial_ribs: Default::default(),
             _lifetime: Default::default(),
-        }
-    }
-
-    pub fn to_bin_context(&self) -> BinContext<'ctx> {
-        BinContext::from_diagnostic_emitter(self.diagnostics.clone())
+        })
     }
 
     /// Create a [`CompilerContext`] that writes diagnostics to the standard error stream.
-    pub fn new_stderr() -> Self { Self::from_diagnostic_emitter(DiagnosticEmitter::new_stderr()) }
+    pub fn new_stderr<T>(cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T) -> T {
+        Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured(), cont)
+    }
 
     /// Create a [`CompilerContext`] that captures diagnostic output which can be recovered
     /// by calling [`DiagnosticEmitter::get_captured_diagnostics`].
-    pub fn new_captured() -> Self { Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured()) }
-}
-
-impl<'ctx> BinContext<'ctx> {
-    pub fn from_diagnostic_emitter(diagnostics: Rc<DiagnosticEmitter>) -> Self {
-        BinContext {
-            diagnostics,
-            _lifetime: Default::default(),
-        }
+    pub fn new_captured<T>(cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T) -> T {
+        Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured(), cont)
     }
 }

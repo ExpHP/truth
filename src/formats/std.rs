@@ -427,9 +427,9 @@ fn read_string_128(f: &mut BinReader) -> ReadResult<Sp<String>> {
         .map_err(|e| f.error(e))
 }
 fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, s: &Sp<S>) -> WriteResult {
-    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| f.ctx.diagnostics.emit(e))?;
+    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| f.diagnostics.emit(e))?;
     if encoded.len() >= 128 {
-        return Err(f.ctx.diagnostics.emit(error!(
+        return Err(f.diagnostics.emit(error!(
             message("string too long for STD header"),
             primary(s, "{} bytes (max allowed: 127)", encoded.len()),
         )));
@@ -551,7 +551,7 @@ fn read_instance(f: &mut BinReader, objects: &IndexMap<Sp<Ident>, Object>) -> Re
 fn write_instance(f: &mut BinWriter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
     match objects.get_index_of(&inst.object) {
         Some(object_index) => f.write_u16(object_index as u16)?,
-        None => return Err(f.ctx.diagnostics.emit(error!(
+        None => return Err(f.diagnostics.emit(error!(
             message("No object named {}", inst.object),
             primary(&inst.object, "not an object"),
         ))),

@@ -172,7 +172,7 @@ fn read_msg(
         //
         // Generate a warning if we're wrong, as we will fail to round trip this file.
         if let Some(old_id) = first_id_for_offsets.get(&offset) {
-            let ErrorReported = reader.ctx.diagnostics.emit(warning!(
+            let ErrorReported = reader.diagnostics.emit(warning!(
                 "script id {} reuses script id {}, but due to language limitations, when recompiled it will reuse script {} instead",
                 id, old_id, default_offset.unwrap(),
             ));

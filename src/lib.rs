@@ -26,7 +26,7 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
-pub use context::{CompilerContext, BinContext};
+pub use context::{CompilerContext};
 pub mod context;
 
 pub use passes::DecompileKind;

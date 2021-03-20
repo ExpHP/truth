@@ -19,32 +19,32 @@ impl Truth<'_> {
     ///
     /// Due to the borrowed data inside the type, it cannot be directly returned, and is instead "returned"
     /// by passing it into a continuation function.
-    pub fn new_stderr<T>(cont: impl FnOnce(&mut Truth<'_>) -> T) -> T {
-        let mut ctx = Truth { ctx: CompilerContext::new_stderr() };
-        cont(&mut ctx)
+    pub fn new_stderr<T>(cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
+        CompilerContext::new_stderr(|ctx| cont(&mut Truth { ctx }))
     }
 }
 
 /// # Reading text files
 impl Truth<'_> {
     pub fn load_mapfile(&mut self, text: &str) -> Result<(), ErrorReported> {
-        // let mut ctx = crate::CompilerContext::new_stderr();
-        // ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source, &ctx.diagnostics)?)
-        unimplemented!("load_mapfile")
+        crate::Eclmap::parse(text, &self.ctx.diagnostics)
+            .and_then(|eclmap| self.ctx.extend_from_eclmap(None, &eclmap))
+            .map_err(|e| self.emit(error!("{:#}", e)))
     }
 
     pub fn read_mapfile_and_record(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
-        // use anyhow::Context; // FIXME remove
-        //
-        // let eclmap = Eclmap::load(filepath, game, &self.ctx.diagnostics)?;
-        // self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
-        //     .with_context(|| format!("while applying '{}'", filepath.display()))?;
-        unimplemented!("read_mapfile_and_record")
+        use anyhow::Context; // FIXME remove
+
+        crate::Eclmap::load(filepath, game, &self.ctx.diagnostics)
+            .and_then(|eclmap| {
+                self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
+                    .with_context(|| format!("while applying '{}'", filepath.display()))
+            })
+            .map_err(|e| self.emit(error!("{:#}", e)))
     }
 
     pub fn read_script(&mut self, path: &Path) -> Result<ast::Script, ErrorReported> {
-        // self.files.read_file(&path).map_err(|e| self.ctx.diagnostics.emit(e))?
-        unimplemented!("read_script")
+        self.ctx.diagnostics.files.read_file(&path).map_err(|e| self.ctx.diagnostics.emit(e)).map(|sp| sp.value)
     }
 }
 
@@ -103,10 +103,9 @@ impl Truth<'_> {
 /// # Binary file IO
 impl Truth<'_> {
     pub fn read_anm(&mut self, game: Game, path: &Path, with_images: bool) -> Result<crate::AnmFile, ErrorReported> {
-        let bcx = self.ctx.to_bin_context();
         match with_images {
             true => {
-                let mut reader = BinReader::read(&bcx, path)?;
+                let mut reader = BinReader::read(&self.ctx.diagnostics, path)?;
                 crate::AnmFile::read_from_stream(&mut reader, game, with_images)
             },
             false => {
@@ -114,26 +113,26 @@ impl Truth<'_> {
                 //
                 // Seeking drops the buffer though, so use a tiny buffer.
                 let buffer_size = 64;
-                let mut reader = BinReader::open(&bcx, path)?.map_reader(|r| std::io::BufReader::with_capacity(buffer_size, r));
+                let mut reader = BinReader::open(&self.ctx.diagnostics, path)?.map_reader(|r| std::io::BufReader::with_capacity(buffer_size, r));
                 crate::AnmFile::read_from_stream(&mut reader, game, with_images)
             },
         }
     }
     pub fn read_msg(&mut self, game: Game, path: &Path) -> Result<crate::MsgFile, ErrorReported> {
-        crate::MsgFile::read_from_stream(&mut BinReader::read(&self.ctx.to_bin_context(), path)?, game)
+        crate::MsgFile::read_from_stream(&mut BinReader::read(&self.ctx.diagnostics, path)?, game)
     }
     pub fn read_std(&mut self, game: Game, path: &Path) -> Result<crate::StdFile, ErrorReported> {
-        crate::StdFile::read_from_stream(&mut BinReader::read(&self.ctx.to_bin_context(), path)?, game)
+        crate::StdFile::read_from_stream(&mut BinReader::read(&self.ctx.diagnostics, path)?, game)
     }
 
     pub fn write_anm(&mut self, game: Game, outpath: &Path, middle: &crate::AnmFile) -> Result<(), ErrorReported> {
-        crate::AnmFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.to_bin_context(), outpath)?, game)
+        crate::AnmFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.diagnostics, outpath)?, game)
     }
     pub fn write_msg(&mut self, game: Game, outpath: &Path, middle: &crate::MsgFile) -> Result<(), ErrorReported> {
-        crate::MsgFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.to_bin_context(), outpath)?, game)
+        crate::MsgFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.diagnostics, outpath)?, game)
     }
     pub fn write_std(&mut self, game: Game, outpath: &Path, middle: &crate::StdFile) -> Result<(), ErrorReported> {
-        crate::StdFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.to_bin_context(), outpath)?, game)
+        crate::StdFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.diagnostics, outpath)?, game)
     }
 
     /// Like [`std::fs::write`] with error handling.

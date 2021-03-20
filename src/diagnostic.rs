@@ -1,7 +1,6 @@
 
 use std::fmt;
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::any::Any;
 
 use codespan_reporting as cs;
@@ -67,7 +66,7 @@ impl Diagnostic {
 
 /// Type responsible for emitting diagnostics and storing the metadata necessary to render them.
 pub struct DiagnosticEmitter {
-    files: Files,
+    pub files: Files,
     config: cs::term::Config,
     writer: Box<RefCell<dyn WriteError>>,
 }
@@ -92,15 +91,15 @@ impl DiagnosticEmitter {
     }
 
     /// Create a [`DiagnosticEmitter`] that writes diagnostics to the standard error stream.
-    pub fn new_stderr() -> Rc<Self> {
-        Rc::new(Self::from_writer(tc::StandardStream::stderr(tc::ColorChoice::Auto)))
+    pub fn new_stderr() -> Self {
+        Self::from_writer(tc::StandardStream::stderr(tc::ColorChoice::Auto))
     }
 
     /// Create a [`DiagnosticEmitter`] that captures diagnostic output which can be recovered
     /// by calling [`Self::get_captured_diagnostics`].
-    pub fn new_captured() -> Rc<Self> {
+    pub fn new_captured() -> Self {
         let writer: CapturedWriter = tc::NoColor::new(vec![]);
-        Rc::new(Self::from_writer(writer))
+        Self::from_writer(writer)
     }
 
     pub fn emit(&self, errors: impl Into<Vec<Diagnostic>>) -> ErrorReported {
