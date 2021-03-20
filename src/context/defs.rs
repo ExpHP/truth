@@ -4,8 +4,7 @@ use anyhow::Context;
 
 use crate::ast;
 use crate::context::CompilerContext;
-use crate::diagnostic::DiagnosticEmitter;
-use crate::error::{CompileError, SimpleError};
+use crate::error::{CompileError, SimpleError, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
@@ -92,7 +91,7 @@ impl CompilerContext<'_> {
         if let Err(old) = self.defs.reg_alias_rib.insert(sp!(ident.clone()), def_id) {
             let old_reg = self.defs.var_reg(old.def_id).unwrap();
             if old_reg != reg {
-                self.diagnostics.emit(warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg));
+                let ErrorReported = self.diagnostics.emit(warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg));
             }
         }
 
@@ -380,7 +379,7 @@ impl CompilerContext<'_> {
             let (_, old_opcode) = self.define_global_ins_alias(opcode as u16, ident.clone());
             if let Some(old_opcode) = old_opcode {
                 if opcode as u16 != old_opcode {
-                    self.diagnostics.emit(warning!("name '{}' used for multiple opcodes in mapfiles: {}, {}", ident, old_opcode, opcode));
+                    let ErrorReported = self.diagnostics.emit(warning!("name '{}' used for multiple opcodes in mapfiles: {}, {}", ident, old_opcode, opcode));
                 }
             }
         }
@@ -396,7 +395,7 @@ impl CompilerContext<'_> {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
                 _ => {
-                    self.diagnostics.emit(warning!("In mapfile: Ignoring invalid variable type '{}' for gvar {}", value, reg));
+                    let ErrorReported = self.diagnostics.emit(warning!("In mapfile: Ignoring invalid variable type '{}' for gvar {}", value, reg));
                     continue;
                 },
             };

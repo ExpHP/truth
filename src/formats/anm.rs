@@ -519,6 +519,7 @@ fn read_anm(format: &FileFormat, reader: &mut BinReader, with_images: bool) -> R
     let mut next_script_index = 0;
     loop {
         let (entry, control_flow) = read_entry(format, reader, with_images, &mut next_script_index)?;
+        entries.push(entry);
         match control_flow {
             ControlFlow::Continue => {},
             ControlFlow::Stop => break,

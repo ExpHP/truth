@@ -64,7 +64,7 @@ impl CompileError {
     /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
     /// nodes is required.
     #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
-    pub fn emit<'a>(&mut self, files: &'a impl cs::files::Files<'a, FileId=FileId>) {
+    pub fn emit<'a>(&mut self, _files: &'a impl cs::files::Files<'a, FileId=FileId>) {
         // use cs::term::termcolor as tc;
         //
         // if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
@@ -87,9 +87,9 @@ impl CompileError {
     #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
     pub fn emit_to_writer<'a>(
         self,
-        writer: &mut dyn cs::term::termcolor::WriteColor,
-        files: &'a impl cs::files::Files<'a, FileId=FileId>,
-        config: &cs::term::Config,
+        _writer: &mut dyn cs::term::termcolor::WriteColor,
+        _files: &'a impl cs::files::Files<'a, FileId=FileId>,
+        _config: &cs::term::Config,
     ) {
         // for e in self.diagnostics.drain(..) {
         //     cs::term::emit(writer, config, files, &e.imp)
@@ -102,7 +102,7 @@ impl CompileError {
 
     /// Render the errors to a text string with no color escapes.  Intended mainly for unit tests.
     #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
-    pub fn to_string<'a>(&self, files: &'a impl cs::files::Files<'a, FileId=FileId>) -> String {
+    pub fn to_string<'a>(&self, _files: &'a impl cs::files::Files<'a, FileId=FileId>) -> String {
         // use codespan_reporting::term::{self, termcolor as tc};
         //
         // let mut writer = tc::NoColor::new(vec![]);

@@ -13,7 +13,7 @@ use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
 use crate::resolve::DefId;
-use crate::diagnostic::{Diagnostic, DiagnosticEmitter};
+use crate::diagnostic::Diagnostic;
 use crate::ast::TypeKeyword;
 
 /// Performs type-checking.

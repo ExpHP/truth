@@ -438,7 +438,7 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, s: &Sp<S>) -> WriteResult 
     Ok(())
 }
 
-fn read_object(expected_id: usize, f: &mut BinReader) -> ReadResult<Object> { ;
+fn read_object(expected_id: usize, f: &mut BinReader) -> ReadResult<Object> {
     let id = f.read_u16()?;
     if id as usize != expected_id {
         f.warning(format_args!("object has non-sequential id (expected {}, got {})", expected_id, id));
