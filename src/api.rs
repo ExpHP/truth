@@ -2,8 +2,9 @@ use std::path::Path;
 
 use crate::ast;
 use crate::game::Game;
+use crate::diagnostic::DiagnosticEmitter;
 use crate::error::ErrorReported;
-use crate::context::CompilerContext;
+use crate::context::{CompilerContext, Scope};
 use crate::io::{BinReader, BinWriter};
 use crate::passes::DecompileKind;
 
@@ -16,35 +17,47 @@ pub struct Truth<'ctx> {
     ctx: CompilerContext<'ctx>,
 }
 
-/// # Construction
+/// Builder for constructing [`Truth`].
+pub struct Builder {
+    capture_diagnostics: bool,
+}
+
+impl Default for Builder {
+    fn default() -> Self { Self::new() }
+}
+
+impl Builder {
+    pub fn new() -> Self {
+        Builder {
+            capture_diagnostics: false,
+        }
+    }
+
+    pub fn capture_diagnostics(&mut self, capture: bool) -> &mut Self {
+        self.capture_diagnostics = capture; self
+    }
+
+    pub fn build<'ctx>(&self, scope: &'ctx Scope) -> Truth<'ctx> {
+        let diagnostics = match self.capture_diagnostics {
+            true => DiagnosticEmitter::new_captured(),
+            false => DiagnosticEmitter::new_stderr(),
+        };
+        Truth { ctx: CompilerContext::new(scope, diagnostics) }
+    }
+
+    /// Automatically creates a [`Scope`] for simple use cases.  The [`Truth`] instance will be unable
+    /// to escape the closure.
+    pub fn build_scoped<T>(&self, cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
+        let scope = Scope::default();
+        cont(&mut self.build(&scope))
+    }
+}
+
+// =============================================================================
+
+/// # Special
 impl Truth<'_> {
-    /// Construct a new instance that prints diagnostics to STDERR.
-    ///
-    /// Due to the borrowed data inside the type, it cannot be directly returned, and is instead "returned"
-    /// by passing it into a continuation function.
-    pub fn new_stderr<T>(cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
-        CompilerContext::new_stderr(|ctx| cont(&mut Truth { ctx }))
-    }
-
-    /// Construct a new instance that prints diagnostics to STDERR.
-    ///
-    /// Due to the borrowed data inside the type, it cannot be directly returned, and is instead "returned"
-    /// by passing it into a continuation function.
-    pub fn new_captured<T>(cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
-        CompilerContext::new_captured(|ctx| cont(&mut Truth { ctx }))
-    }
-
-    // FIXME: These are only here to expedite the current refactoring and will be removed shortly
-    #[deprecated]
-    pub fn new_stderr_static() -> Truth<'static> {
-        Truth { ctx: CompilerContext::new_stderr_static() }
-    }
-
-    #[deprecated]
-    pub fn new_captured_static() -> Truth<'static> {
-        Truth { ctx: CompilerContext::new_captured_static() }
-    }
-
+    /// **Note:** Requires having called [`Builder::capture_diagnostics`].
     pub fn get_captured_diagnostics(&self) -> Option<String> {
         self.ctx.diagnostics.get_captured_diagnostics()
     }

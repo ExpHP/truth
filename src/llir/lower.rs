@@ -345,18 +345,19 @@ fn test_precomputed_string_len() {
     let arg = LowerArg::Raw(SimpleArg { value: ScalarValue::String(str.into()), is_reg: false });
     let instr = LowerInstr { time: 0, opcode: 1, user_param_mask: None, args: LowerArgs::Known(vec![sp!(arg)]) };
 
-    CompilerContext::new_stderr(|mut ctx| {
-        ctx.set_ins_abi(1, "m".parse().unwrap());
+    let scope = crate::Scope::new();
+    let mut ctx = CompilerContext::new(&scope, crate::diagnostic::DiagnosticEmitter::new_stderr());
 
-        let actual = precompute_instr_args_size(&instr, &ctx.defs).unwrap();
-        let expected = encode_args(&instr, &ctx.defs).unwrap().args_blob.len();
-        assert_eq!(actual, expected);
+    ctx.set_ins_abi(1, "m".parse().unwrap());
 
-        // the written length should be *slightly more* than sjis_len because there's the null terminator
-        // and padding.  That's not too well-defined to check, though.
-        //
-        // However, we can be sure of the following, because the SJIS string is so much shorter than the
-        // UTF8 encoding.
-        assert!(actual < utf8_len);
-    });
+    let actual = precompute_instr_args_size(&instr, &ctx.defs).unwrap();
+    let expected = encode_args(&instr, &ctx.defs).unwrap().args_blob.len();
+    assert_eq!(actual, expected);
+
+    // the written length should be *slightly more* than sjis_len because there's the null terminator
+    // and padding.  That's not too well-defined to check, though.
+    //
+    // However, we can be sure of the following, because the SJIS string is so much shorter than the
+    // UTF8 encoding.
+    assert!(actual < utf8_len);
 }

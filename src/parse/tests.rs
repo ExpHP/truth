@@ -1,12 +1,16 @@
 use crate::ast;
 use crate::meta;
+use crate::diagnostic::DiagnosticEmitter;
 use crate::parse::Parse;
 use crate::error::CompileError;
 use crate::context::CompilerContext;
 
 fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
+    let scope = crate::Scope::new();
+    let mut ctx = CompilerContext::new(&scope, DiagnosticEmitter::new_stderr());
+
     let mut expr = sp!(expr);
-    crate::passes::const_simplify::run(&mut expr, &mut CompilerContext::new_stderr_static())?;
+    crate::passes::const_simplify::run(&mut expr, &mut ctx)?;
 
     Ok(expr.value)
 }
@@ -149,15 +153,16 @@ fn string_escape() {
 
 #[track_caller]
 fn expect_parse_error<T: Parse>(expected: &str, source: &str) -> String {
-    crate::Truth::new_captured(|truth| {
-        let _ = truth.parse::<T>("<input>", source.as_bytes()).err().unwrap();
-        let err_str = truth.get_captured_diagnostics().unwrap();
+    let scope = crate::Scope::new();
+    let mut truth = crate::Builder::new().capture_diagnostics(true).build(&scope);
 
-        if !err_str.contains(expected) {
-            panic!("expected not found in error message!  error: `{}`  expected: {:?}", err_str, expected)
-        }
-        err_str
-    })
+    let _ = truth.parse::<T>("<input>", source.as_bytes()).err().unwrap();
+    let err_str = truth.get_captured_diagnostics().unwrap();
+
+    if !err_str.contains(expected) {
+        panic!("expected not found in error message!  error: `{}`  expected: {:?}", err_str, expected)
+    }
+    err_str
 }
 
 macro_rules! parse_error_snapshot_test {

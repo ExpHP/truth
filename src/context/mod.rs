@@ -60,26 +60,16 @@ pub struct CompilerContext<'ctx> {
     /// The initial set of ribs for name resolution, containing names from mapfiles and meta.
     pub initial_ribs: Vec<Rib>,
 
-    /// Ok so... the field that I initially added that needed a lifetime doesn't need one anymore,
-    /// but this is here because we might still eventually need a lifetime for arenas, so I don't
-    /// want to have to undo the changes that added 'ctx quite just yet.
-    ///
-    /// FIXME: remove if still unused after a long time
-    _lifetime: std::marker::PhantomData<*mut &'ctx ()>, // invariant
+    /// Arenas and stuff.
+    _scope: &'ctx Scope,
+
+    // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
+    // may eventually have AST nodes inside a struct inside a RefCell), so let's force this constraint now.
+    _make_invariant: std::marker::PhantomData<*mut &'ctx ()>,
 }
 
 impl<'ctx> CompilerContext<'ctx> {
-    // NOTE: this takes a continuation to accommodate the scope and deallocation of an arena,
-    //       if we were to ever add one.  (the context cannot escape the continuation)
-    pub fn from_diagnostic_emitter<T>(
-        diagnostics: DiagnosticEmitter,
-        cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T,
-    ) -> T {
-        cont(Self::make_static(diagnostics))
-    }
-
-    // FIXME remove
-    fn make_static(diagnostics: DiagnosticEmitter) -> CompilerContext<'static> {
+    pub fn new(scope: &'ctx Scope, diagnostics: DiagnosticEmitter) -> Self {
         CompilerContext {
             diagnostics,
             mapfiles: Default::default(),
@@ -88,22 +78,24 @@ impl<'ctx> CompilerContext<'ctx> {
             gensym: Default::default(),
             consts: Default::default(),
             initial_ribs: Default::default(),
-            _lifetime: Default::default(),
+            _scope: scope,
+            _make_invariant: Default::default(),
         }
     }
+}
 
-    /// Create a [`CompilerContext`] that writes diagnostics to the standard error stream.
-    pub fn new_stderr<T>(cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T) -> T {
-        Self::from_diagnostic_emitter(DiagnosticEmitter::new_stderr(), cont)
-    }
+/// The object that the `'ctx` lifetime on [`crate::api::Truth`] primarily originates from.
+/// Holds arenas for compilation.
+///
+/// (currently it holds nothing, and is only here in order to make it easier to add arenas in the future,
+///  by forcing all code to take `'ctx` into account)
+///
+/// FIXME: remove if still unused after a long time
+#[derive(Debug, Default)]
+pub struct Scope {
+    _priv: (),
+}
 
-    /// Create a [`CompilerContext`] that captures diagnostic output which can be recovered
-    /// by calling [`DiagnosticEmitter::get_captured_diagnostics`].
-    pub fn new_captured<T>(cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T) -> T {
-        Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured(), cont)
-    }
-
-    // FIXME remove
-    #[deprecated] pub(crate) fn new_stderr_static() -> CompilerContext<'static> { Self::make_static(DiagnosticEmitter::new_stderr()) }
-    #[deprecated] pub(crate) fn new_captured_static() -> CompilerContext<'static> { Self::make_static(DiagnosticEmitter::new_captured()) }
+impl Scope {
+    pub fn new() -> Self { Self::default() }
 }

@@ -75,7 +75,8 @@ mod tests {
     use crate::parse::Parse;
 
     fn strip_unused_labels<A: ast::Visitable + Parse>(text: &str) -> A {
-        let mut truth = crate::Truth::new_stderr_static();
+        let scope = crate::Scope::new();
+        let mut truth = crate::Builder::new().build(&scope);
 
         let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
         let ctx = truth.ctx();

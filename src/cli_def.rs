@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use crate::api::Truth;
 use crate::game::Game;
-use crate::error::{CompileError, SimpleError, ErrorReported};
+use crate::error::{SimpleError, ErrorReported};
 
 pub fn main(version: &str) -> ! {
     let mut args = std::env::args();
@@ -425,10 +425,13 @@ fn load_mapfiles(
 // =============================================================================
 
 fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) -> ! {
-    Truth::new_stderr(|truth| match func(truth) {
+    let scope = crate::Scope::new();
+    let mut truth = crate::Builder::new().build(&scope);
+
+    match func(&mut truth) {
         Ok(()) => std::process::exit(0),
         Err(ErrorReported) => std::process::exit(1),
-    })
+    }
 }
 
 // =============================================================================
@@ -518,9 +521,8 @@ mod cli {
                 print_usage(&program, usage_args);
                 eprintln!();
 
-                // FIXME MAKENICE
                 let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
-                let crate::error::ErrorReported = crate::Truth::new_stderr(|truth| truth.emit(CompileError::from(e)));
+                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(error!("{:#}", e)).ignore();
                 std::process::exit(1);
             },
         }
@@ -564,7 +566,7 @@ mod cli {
                 eprintln!();
 
                 let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
-                CompileError::from(e).emit_nospans();
+                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(error!("{:#}", e)).ignore();
                 std::process::exit(1);
             },
         }

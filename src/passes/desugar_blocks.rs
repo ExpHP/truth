@@ -289,7 +289,8 @@ mod tests {
 
     impl<S: AsRef<[u8]>> TestSpec<S> {
         fn run(self) -> AstVm {
-            let mut truth = crate::Truth::new_stderr_static();
+            let scope = crate::Scope::new();
+            let mut truth = crate::Builder::new().build(&scope);
             let mut ast = truth.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let mut ctx = truth.ctx();

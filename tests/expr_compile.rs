@@ -215,7 +215,9 @@ const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
 /// that it knows should not have been used for scratch.
 #[track_caller]
 fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
-    Truth::new_stderr(|truth| _run_randomized_test(truth, vars, text))
+    let scope = truth::Scope::new();
+    let mut truth = truth::Builder::new().build(&scope);
+    _run_randomized_test(&mut truth, vars, text)
 }
 
 #[track_caller]
@@ -261,7 +263,8 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> (AstVm, 
 fn expect_not_enough_vars(vars: &[Var], text: &str) {
     truth::setup_for_test_harness();
 
-    let mut truth = Truth::new_captured_static();
+    let scope = truth::Scope::new();
+    let mut truth = truth::Builder::new().capture_diagnostics(true).build(&scope);
     load_eclmap(&mut truth, vars);
 
     let instr_format = make_instr_format(vars);
@@ -277,7 +280,8 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         block
     };
 
-    let _ = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, truth.ctx()).unwrap_err();
+    let err = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, truth.ctx()).unwrap_err();
+    truth.emit(err).ignore();
     let err_s = truth.get_captured_diagnostics().unwrap();
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }

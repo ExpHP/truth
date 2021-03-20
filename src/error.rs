@@ -31,8 +31,17 @@ pub struct CompileError {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[must_use = "When reporting an error, you usually also want to return Err."]
+#[must_use = "When reporting an error, you usually also want to return Err.  Call `.ignore()` to explicitly ignore."]
 pub struct ErrorReported;
+
+impl ErrorReported {
+    /// Explicitly drop this [`ErrorReported`] value.
+    ///
+    /// This is like `let _ = ...` or `drop(...)`, but as a named method that helps clarify intent (and that would
+    /// stop compiling by design if a refactoring changed the error to a different type that actually contained
+    /// a payload).
+    pub fn ignore(self) {}
+}
 
 impl CompileError {
     /// Zips two CompileError results, combining the errors if they both fail.

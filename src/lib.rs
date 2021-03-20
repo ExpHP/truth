@@ -26,7 +26,7 @@ pub mod meta;
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
-pub use context::{CompilerContext};
+pub use context::{Scope, CompilerContext};
 pub mod context;
 
 pub use passes::DecompileKind;
@@ -60,7 +60,7 @@ pub mod vm;
 pub use value::{ScalarValue, ScalarType};
 mod value;
 
-pub use api::Truth;
+pub use api::{Builder, Truth};
 mod api;
 
 pub trait VeclikeIterator: ExactSizeIterator + DoubleEndedIterator { }
