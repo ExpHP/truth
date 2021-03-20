@@ -477,8 +477,8 @@ fn test_cstring_io() {
         assert_eq!(cstring_num_bytes(bytes.len(), block_size), encoded.len());
 
         // check writing
-        let ctx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
-        let mut w = BinWriter::from_writer(&ctx, "test".into(), std::io::Cursor::new(vec![]));
+        let diagnostics = DiagnosticEmitter::new_stderr();
+        let mut w = BinWriter::from_writer(&diagnostics, "test".into(), std::io::Cursor::new(vec![]));
         w.write_cstring(&Encoded(bytes.to_vec()), block_size).unwrap();
         assert_eq!(encoded, w.into_inner().into_inner());
 

@@ -100,19 +100,6 @@ impl CompileError {
         panic!();
     }
 
-    /// Render the errors to a text string with no color escapes.  Intended mainly for unit tests.
-    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
-    pub fn to_string<'a>(&self, _files: &'a impl cs::files::Files<'a, FileId=FileId>) -> String {
-        // use codespan_reporting::term::{self, termcolor as tc};
-        //
-        // let mut writer = tc::NoColor::new(vec![]);
-        // for e in &self.diagnostics {
-        //     term::emit(&mut writer, &*TERM_CONFIG, files, &e.imp).unwrap();
-        // }
-        // String::from_utf8(writer.into_inner()).expect("codespan crate wrote non-UTF8?!")
-        panic!()
-    }
-
     /// Emit errors that contain no labels.
     ///
     /// It is a bug to call this when there is any possibility that the errors have labels.

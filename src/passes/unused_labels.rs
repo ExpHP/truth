@@ -73,16 +73,14 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
 mod tests {
     use super::*;
     use crate::parse::Parse;
-    use crate::pos::Files;
-    use crate::context::CompilerContext;
 
     fn strip_unused_labels<A: ast::Visitable + Parse>(text: &str) -> A {
-        let mut files = Files::new();
-        let mut ctx = CompilerContext::new_stderr();
+        let mut truth = crate::Truth::new_stderr_static();
 
-        let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
-        crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
-        crate::passes::resolve_names::run(&parsed, &mut ctx).unwrap();
+        let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
+        let ctx = truth.ctx();
+        crate::passes::resolve_names::assign_res_ids(&mut parsed, ctx).unwrap();
+        crate::passes::resolve_names::run(&parsed, ctx).unwrap();
         crate::passes::unused_labels::run(&mut parsed).unwrap();
 
         parsed

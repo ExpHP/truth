@@ -3,8 +3,8 @@
 
 #[macro_use]
 extern crate truth;
-use truth::{ast, llir, vm::AstVm, CompileError};
-use truth::{Files, Eclmap, CompilerContext, ScalarValue, ScalarType as Ty, RegId};
+use truth::{ast, llir, vm::AstVm};
+use truth::{Truth, ScalarValue, ScalarType as Ty, RegId};
 
 use rand::Rng;
 
@@ -29,7 +29,7 @@ const OTHER_OPCODE: u16 = 100;
 
 // Note: In these tests, instructions with opcodes < 100 are reserved for specially recognized instructions
 //       and instructions named in the mapfile.  Use opcodes >= 100 for arbitrary instructions in the text.
-fn load_eclmap(ctx: &mut CompilerContext, vars: &[Var]) {
+fn load_eclmap(truth: &mut Truth, vars: &[Var]) {
     let mut lines = vec![];
     lines.push(format!("!anmmap"));
     lines.push(format!("!gvar_types"));
@@ -100,8 +100,7 @@ fn load_eclmap(ctx: &mut CompilerContext, vars: &[Var]) {
     lines.extend(ins_names_lines);
     lines.push(format!("!ins_signatures"));
     lines.extend(ins_signatures_lines);
-    let eclmap = Eclmap::parse(&lines.join("\n"), &ctx.diagnostics).unwrap();
-    ctx.extend_from_eclmap(None, &eclmap).unwrap();
+    truth.load_mapfile(&lines.join("\n")).unwrap();
 }
 
 fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec<T>> {
@@ -216,35 +215,34 @@ const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
 /// that it knows should not have been used for scratch.
 #[track_caller]
 fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
-    let mut files = Files::new();
-    _run_randomized_test(&mut files, vars, text)
-        .unwrap_or_else(|e| panic!("{}", e.to_string(&files)))
+    Truth::new_stderr(|truth| _run_randomized_test(truth, vars, text))
 }
 
 #[track_caller]
-fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(AstVm, AstVm), CompileError> {
+fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> (AstVm, AstVm) {
     truth::setup_for_test_harness();
 
-    let mut ctx = CompilerContext::new_stderr();
-    load_eclmap(&mut ctx, vars);
+    load_eclmap(truth, vars);
 
     let instr_format = make_instr_format(vars);
     let base_vm = make_randomized_vm(vars);
 
     let parsed_block = {
-        let mut block = files.parse::<ast::Block>("<input>", text.as_ref())?.value;
+        let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
-        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ctx).unwrap();
-        truth::passes::resolve_names::run(&block, &mut ctx)?;
-        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ctx)?;
-        truth::passes::desugar_blocks::run(&mut block, &mut ctx)?;
+        let ctx = truth.ctx();
+        truth::passes::resolve_names::assign_res_ids(&mut block, ctx).unwrap();
+        truth::passes::resolve_names::run(&block, ctx).unwrap();
+        truth::passes::resolve_names::aliases_to_raw(&mut block, ctx).unwrap();
+        truth::passes::desugar_blocks::run(&mut block, ctx).unwrap();
         block
     };
 
+    let ctx = truth.ctx();
     let old_stmts = parsed_block.0;
-    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, &mut ctx)?;
-    let mut new_block = ast::Block(llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(&instr_format, &instrs, &ctx.defs)?);
-    truth::passes::resolve_names::aliases_to_raw(&mut new_block, &mut ctx)?;
+    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, ctx).unwrap();
+    let mut new_block = ast::Block(llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(&instr_format, &instrs, &ctx.defs).unwrap());
+    truth::passes::resolve_names::aliases_to_raw(&mut new_block, ctx).unwrap();
 
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
@@ -255,7 +253,7 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");
     assert_eq!(old_vm.instr_log, new_vm.instr_log);
-    Ok((old_vm, new_vm))
+    (old_vm, new_vm)
 }
 
 /// Checks that attempting to compile this produces a "no more registers of this type" error.
@@ -263,24 +261,24 @@ fn _run_randomized_test(files: &mut Files, vars: &[Var], text: &str) -> Result<(
 fn expect_not_enough_vars(vars: &[Var], text: &str) {
     truth::setup_for_test_harness();
 
-    let mut files = Files::new();
-    let mut ctx = CompilerContext::new_stderr();
-    load_eclmap(&mut ctx, vars);
+    let mut truth = Truth::new_captured_static();
+    load_eclmap(&mut truth, vars);
 
     let instr_format = make_instr_format(vars);
 
     let parsed_block = {
-        let mut block = files.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
+        let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
-        truth::passes::resolve_names::assign_res_ids(&mut block, &mut ctx).unwrap();
-        truth::passes::resolve_names::run(&block, &mut ctx).unwrap();
-        truth::passes::resolve_names::aliases_to_raw(&mut block, &mut ctx).unwrap();
-        truth::passes::desugar_blocks::run(&mut block, &mut ctx).unwrap();
+        let ctx = truth.ctx();
+        truth::passes::resolve_names::assign_res_ids(&mut block, ctx).unwrap();
+        truth::passes::resolve_names::run(&block, ctx).unwrap();
+        truth::passes::resolve_names::aliases_to_raw(&mut block, ctx).unwrap();
+        truth::passes::desugar_blocks::run(&mut block, ctx).unwrap();
         block
     };
 
-    let err = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, &mut ctx).unwrap_err();
-    let err_s = err.to_string(&files);
+    let _ = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, truth.ctx()).unwrap_err();
+    let err_s = truth.get_captured_diagnostics().unwrap();
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }
 

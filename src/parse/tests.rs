@@ -1,13 +1,12 @@
 use crate::ast;
 use crate::meta;
-use crate::pos::Files;
 use crate::parse::Parse;
 use crate::error::CompileError;
 use crate::context::CompilerContext;
 
 fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
     let mut expr = sp!(expr);
-    crate::passes::const_simplify::run(&mut expr, &mut CompilerContext::new_stderr())?;
+    crate::passes::const_simplify::run(&mut expr, &mut CompilerContext::new_stderr_static())?;
 
     Ok(expr.value)
 }
@@ -150,14 +149,15 @@ fn string_escape() {
 
 #[track_caller]
 fn expect_parse_error<T: Parse>(expected: &str, source: &str) -> String {
-    let mut files = Files::new();
-    let result = files.parse::<T>("<input>", source.as_bytes());
-    let err_str = result.err().unwrap().to_string(&files);
+    crate::Truth::new_captured(|truth| {
+        let _ = truth.parse::<T>("<input>", source.as_bytes()).err().unwrap();
+        let err_str = truth.get_captured_diagnostics().unwrap();
 
-    if !err_str.contains(expected) {
-        panic!("expected not found in error message!  error: `{}`  expected: {:?}", err_str, expected)
-    }
-    err_str
+        if !err_str.contains(expected) {
+            panic!("expected not found in error message!  error: `{}`  expected: {:?}", err_str, expected)
+        }
+        err_str
+    })
 }
 
 macro_rules! parse_error_snapshot_test {

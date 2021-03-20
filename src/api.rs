@@ -9,6 +9,9 @@ use crate::passes::DecompileKind;
 
 /// Front-end API of `truth`, for direct use by `truth`'s various entry point functions, as well
 /// as by unit tests.
+///
+/// The main purpose is to reduce the number of types that code outside of the crate needs to know about
+/// or import.  To this end, its methods cover a wide variety of uses.
 pub struct Truth<'ctx> {
     ctx: CompilerContext<'ctx>,
 }
@@ -21,6 +24,29 @@ impl Truth<'_> {
     /// by passing it into a continuation function.
     pub fn new_stderr<T>(cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
         CompilerContext::new_stderr(|ctx| cont(&mut Truth { ctx }))
+    }
+
+    /// Construct a new instance that prints diagnostics to STDERR.
+    ///
+    /// Due to the borrowed data inside the type, it cannot be directly returned, and is instead "returned"
+    /// by passing it into a continuation function.
+    pub fn new_captured<T>(cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
+        CompilerContext::new_captured(|ctx| cont(&mut Truth { ctx }))
+    }
+
+    // FIXME: These are only here to expedite the current refactoring and will be removed shortly
+    #[deprecated]
+    pub fn new_stderr_static() -> Truth<'static> {
+        Truth { ctx: CompilerContext::new_stderr_static() }
+    }
+
+    #[deprecated]
+    pub fn new_captured_static() -> Truth<'static> {
+        Truth { ctx: CompilerContext::new_captured_static() }
+    }
+
+    pub fn get_captured_diagnostics(&self) -> Option<String> {
+        self.ctx.diagnostics.get_captured_diagnostics()
     }
 }
 
@@ -148,3 +174,19 @@ impl Truth<'_> {
     }
 }
 
+/// # Functions for use by tests
+///
+/// Sometimes tests want finer control over what's happening than any API we're willing to commit to yet.
+impl<'ctx> Truth<'ctx> {
+    #[doc(hidden)]
+    pub fn parse<A: crate::parse::Parse>(&mut self, display_name: &str, text: &[u8]) -> Result<crate::pos::Sp<A>, ErrorReported> {
+        self.ctx.diagnostics.files.parse::<A>(display_name, text)
+            .map_err(|e| self.emit(e))
+    }
+
+    #[doc(hidden)]
+    pub fn ctx(&mut self) -> &mut CompilerContext<'ctx> { &mut self.ctx }
+
+    #[doc(hidden)]
+    pub fn diagnostics(&self) -> &crate::diagnostic::DiagnosticEmitter { &self.ctx.diagnostics }
+}

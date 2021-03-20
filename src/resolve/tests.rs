@@ -1,8 +1,5 @@
-use crate::pos::Files;
 use crate::parse::Parse;
 use crate::fmt::Format;
-use crate::error::CompileError;
-use crate::eclmap::Eclmap;
 use crate::context::CompilerContext;
 use crate::ast;
 
@@ -57,47 +54,60 @@ macro_rules! test {
     ) => {};
 }
 
-fn resolve<A: ast::Visitable + Parse>(text: &str) -> Result<(A, CompilerContext), (Files, CompileError)> {
-    let mut files = Files::new();
-    let mut ctx = CompilerContext::new_stderr();
-    ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP, &ctx.diagnostics).unwrap()).unwrap();
+fn resolve<
+    A: ast::Visitable + Parse,
+    F: FnOnce(Result<(A, &mut CompilerContext<'_>), String>) -> T,
+    T,
+>(text: &str, cont: F) -> T {
+    crate::Truth::new_captured(|truth| {
+        truth.load_mapfile(ECLMAP).unwrap();
 
-    let mut parsed = files.parse::<A>("<input>", text.as_ref()).unwrap().value;
-    crate::passes::resolve_names::assign_res_ids(&mut parsed, &mut ctx).unwrap();
-    match crate::passes::resolve_names::run(&parsed, &mut ctx) {
-        Ok(()) => Ok((parsed, ctx)),
-        Err(e) => Err((files, e)),
-    }
+        let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
+        let ctx = truth.ctx();
+        crate::passes::resolve_names::assign_res_ids(&mut parsed, ctx).unwrap();
+        match crate::passes::resolve_names::run(&parsed, ctx) {
+            Ok(()) => cont(Ok((parsed, ctx))),
+            Err(e) => {
+                let _ = truth.emit(e);
+                cont(Err(truth.get_captured_diagnostics().unwrap()))
+            },
+        }
+    })
 }
 
 fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
-    let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files)));
+    resolve::<A, _, _>(text, |result| {
+        let (mut parsed, ctx) = result.unwrap_or_else(|e| panic!("{}", e));
 
-    // add suffixes so we can visualize the effects of name resolution
-    crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
+        // add suffixes so we can visualize the effects of name resolution
+        crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
 
-    crate::fmt::stringify(&parsed)
+        crate::fmt::stringify(&parsed)
+    })
 }
 
 fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
-    let (mut parsed, ctx) = resolve::<A>(text).unwrap_or_else(|(files, e)| panic!("{}", e.to_string(&files)));
+    resolve::<A, _, _>(text, |result| {
+        let (mut parsed, ctx) = result.unwrap_or_else(|e| panic!("{}", e));
 
-    // add suffixes so we can visualize the effects of name resolution
-    let count_per_ident = crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
+        // add suffixes so we can visualize the effects of name resolution
+        let count_per_ident = crate::passes::debug::make_idents_unique::run(&mut parsed, &ctx.resolutions).unwrap();
 
-    for (ident, count) in count_per_ident {
-        if count != 1 {
-            let reformatted = crate::fmt::stringify(&parsed);
-            panic!("[all_names_unique] failed on ident '{}'.\nResolved output:\n\n{}", ident, reformatted)
+        for (ident, count) in count_per_ident {
+            if count != 1 {
+                let reformatted = crate::fmt::stringify(&parsed);
+                panic!("[all_names_unique] failed on ident '{}'.\nResolved output:\n\n{}", ident, reformatted)
+            }
         }
-    }
+    })
 }
 
 fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
-    let (files, err) = resolve::<A>(text).err().unwrap();
-    let err_msg = err.to_string(&files);
-    assert!(err_msg.contains(expected), "{}", err_msg);
-    err_msg
+    resolve::<A, _, _>(text, |result| {
+        let err_msg = result.err().unwrap();
+        assert!(err_msg.contains(expected), "{}", err_msg);
+        err_msg
+    })
 }
 
 // =========================================================================
@@ -522,16 +532,18 @@ test!(
 #[should_panic(expected = "resolved multiple times")]
 #[test]
 fn panics_on_cloned_res() {
-    let mut files = Files::new();
-    let mut ctx = CompilerContext::new_stderr();
-    ctx.extend_from_eclmap(None, &Eclmap::parse(ECLMAP, &ctx.diagnostics).unwrap()).unwrap();
+    crate::Truth::new_stderr(|truth| {
+        truth.load_mapfile(ECLMAP).unwrap();
 
-    let mut def = files.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
-    let mut cloned = files.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
-    crate::passes::resolve_names::assign_res_ids(&mut def, &mut ctx).unwrap();
-    crate::passes::resolve_names::assign_res_ids(&mut cloned, &mut ctx).unwrap();
+        let mut def = truth.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
+        let mut cloned = truth.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
 
-    let block = ast::Block(vec![def, cloned.clone(), cloned]);
+        let ctx = truth.ctx();
+        crate::passes::resolve_names::assign_res_ids(&mut def, ctx).unwrap();
+        crate::passes::resolve_names::assign_res_ids(&mut cloned, ctx).unwrap();
 
-    crate::passes::resolve_names::run(&block, &mut ctx).unwrap();
+        let block = ast::Block(vec![def, cloned.clone(), cloned]);
+
+        crate::passes::resolve_names::run(&block, ctx).unwrap();
+    })
 }

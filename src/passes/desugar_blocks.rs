@@ -278,8 +278,6 @@ type JumpInfo = Option<(Sp<ast::CondKeyword>, ast::Cond)>;
 #[cfg(test)]
 mod tests {
     use crate::ast;
-    use crate::pos::Files;
-    use crate::context::CompilerContext;
     use crate::resolve::RegId;
     use crate::vm::{AstVm, LoggedCall};
     use crate::value::{ScalarValue::{Int}, ScalarType as Ty};
@@ -291,10 +289,10 @@ mod tests {
 
     impl<S: AsRef<[u8]>> TestSpec<S> {
         fn run(self) -> AstVm {
-            let mut files = Files::new();
-            let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
+            let mut truth = crate::Truth::new_stderr_static();
+            let mut ast = truth.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
-            let mut ctx = CompilerContext::new_stderr();
+            let mut ctx = truth.ctx();
             for &(name, reg, ty) in &self.globals {
                 ctx.define_global_reg_alias(reg, name.parse().unwrap());
                 ctx.set_reg_ty(reg, ty.into());

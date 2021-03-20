@@ -75,7 +75,12 @@ impl<'ctx> CompilerContext<'ctx> {
         diagnostics: DiagnosticEmitter,
         cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T,
     ) -> T {
-        cont(CompilerContext {
+        cont(Self::make_static(diagnostics))
+    }
+
+    // FIXME remove
+    fn make_static(diagnostics: DiagnosticEmitter) -> CompilerContext<'static> {
+        CompilerContext {
             diagnostics,
             mapfiles: Default::default(),
             resolutions: Default::default(),
@@ -84,12 +89,12 @@ impl<'ctx> CompilerContext<'ctx> {
             consts: Default::default(),
             initial_ribs: Default::default(),
             _lifetime: Default::default(),
-        })
+        }
     }
 
     /// Create a [`CompilerContext`] that writes diagnostics to the standard error stream.
     pub fn new_stderr<T>(cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T) -> T {
-        Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured(), cont)
+        Self::from_diagnostic_emitter(DiagnosticEmitter::new_stderr(), cont)
     }
 
     /// Create a [`CompilerContext`] that captures diagnostic output which can be recovered
@@ -97,4 +102,8 @@ impl<'ctx> CompilerContext<'ctx> {
     pub fn new_captured<T>(cont: impl for<'a> FnOnce(CompilerContext<'a>) -> T) -> T {
         Self::from_diagnostic_emitter(DiagnosticEmitter::new_captured(), cont)
     }
+
+    // FIXME remove
+    #[deprecated] pub(crate) fn new_stderr_static() -> CompilerContext<'static> { Self::make_static(DiagnosticEmitter::new_stderr()) }
+    #[deprecated] pub(crate) fn new_captured_static() -> CompilerContext<'static> { Self::make_static(DiagnosticEmitter::new_captured()) }
 }

@@ -440,8 +440,6 @@ impl AstVm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pos::Files;
-    use crate::context::CompilerContext;
     use crate::value::{ScalarValue::{Int, Float}, ScalarType as Ty};
 
     struct TestSpec<S> {
@@ -455,18 +453,18 @@ mod tests {
 
     impl<S: AsRef<[u8]>> TestSpec<S> {
         fn prepare(&self) -> (ast::Block, Resolutions) {
-            let mut files = Files::new();
-            let mut ast = files.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
+            let mut truth = crate::Truth::new_stderr_static();
+            let mut ast = truth.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
-            let mut ctx = CompilerContext::new_stderr();
+            let ctx = truth.ctx();
             for &(alias, reg, ty) in &self.globals {
                 ctx.define_global_reg_alias(reg, alias.parse().unwrap());
                 ctx.set_reg_ty(reg, ty.into());
             }
-            crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ctx).unwrap();
-            crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();
-            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
-            (ast.value, ctx.resolutions)
+            crate::passes::resolve_names::assign_res_ids(&mut ast.value, ctx).unwrap();
+            crate::passes::resolve_names::run(&ast.value, ctx).unwrap();
+            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, ctx).unwrap();
+            (ast.value, ctx.resolutions.clone())
         }
     }
 
