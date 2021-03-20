@@ -1,13 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
-use crate::ast;
+use crate::api::Truth;
 use crate::game::Game;
-use crate::io::{BinReader, BinWriter};
-use crate::diagnostic::DiagnosticEmitter;
-use crate::context::BinContext;
-use crate::error::{CompileError, SimpleError};
-use crate::pos::Files;
+use crate::error::{CompileError, SimpleError, ErrorReported};
 
 pub fn main(version: &str) -> ! {
     let mut args = std::env::args();
@@ -81,15 +77,15 @@ pub mod ecl_reformat {
             options: (cli::input(),),
         });
 
-        wrap_fancy_errors(|files| run(files, input));
+        wrap_exit_code(|truth| run(truth, input));
     }
 
-    fn run(files: &mut Files, path: impl AsRef<Path>) -> Result<(), CompileError> {
-        let script = files.read_file::<ast::Script>(path.as_ref())?;
+    fn run(truth: &mut Truth, path: impl AsRef<Path>) -> Result<(), ErrorReported> {
+        let ast = truth.read_script(path.as_ref())?;
 
         let stdout = io::stdout();
         let mut f = crate::Formatter::new(io::BufWriter::new(stdout.lock()));
-        f.fmt(&script)?;
+        f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
         Ok(())
     }
 }
@@ -105,34 +101,26 @@ pub mod anm_decompile {
         });
 
         let stdout = io::stdout();
-        wrap_fancy_errors(|_files| {
+        wrap_exit_code(|truth| {
             let fmt_config = crate::fmt::Config::new().max_columns(max_columns);
             let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-            run(&mut f, game, input.as_ref(), mapfile)
+            run(truth, &mut f, game, input.as_ref(), mapfile)
         });
     }
 
     pub(super) fn run(
-        out: &mut crate::Formatter<impl io::Write>,
+        truth: &mut Truth,
+        stdout: &mut crate::Formatter<impl io::Write>,
         game: Game,
         path: &Path,
         map_path: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        let ctx = init_context(game, map_path, crate::anm::game_core_mapfile(game))?;
-        let bcx = ctx.to_bin_context();
+        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
 
-        let script = {
-            // Here we don't read the whole thing because seeking can skip costly reads of megabytes of image data.
-            //
-            // Seeking drops the buffer though, so use a tiny buffer.
-            let buffer_size = 64;
-            let mut reader = BinReader::open(&bcx, path)?.map_reader(|r| io::BufReader::with_capacity(buffer_size, r));
-            crate::AnmFile::read_from_stream(&mut reader, game, false)
-                .and_then(|anm| anm.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))?
-        };
-
-        out.fmt(&script)?;
+        let anm = truth.read_anm(game, path, false)?;
+        let ast = truth.decompile_anm(game, &anm, crate::DecompileKind::Fancy)?;
+        stdout.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
         Ok(())
     }
 }
@@ -151,26 +139,23 @@ pub mod anm_compile {
             ),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &script_path, &output, &image_sources, mapfile, output_thecl_defs));
+        wrap_exit_code(|truth| run(truth, game, &script_path, &output, &image_sources, mapfile, output_thecl_defs));
     }
 
     pub(super) fn run(
-        files: &mut Files,
+        truth: &mut Truth,
         game: Game,
         script_path: &Path,
         outpath: &Path,
         cli_image_source_paths: &[PathBuf],
         map_path: Option<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
-        let mut ctx = init_context(game, map_path, crate::anm::game_core_mapfile(game))?;
-        let bcx = ctx.to_bin_context();
+    ) -> Result<(), ErrorReported> {
+        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
 
-        let ast = files.read_file::<ast::Script>(&script_path)?;
-
-        load_mapfiles_from_pragmas(game, &mut ctx, &ast)?;
-
-        let mut compiled = crate::AnmFile::compile_from_ast(game, &ast, &mut ctx)?;
+        let ast = truth.read_script(&script_path)?;
+        truth.load_mapfiles_from_pragmas(game, &ast)?;
+        let mut compiled = truth.compile_anm(game, &ast)?;
 
         // image sources referenced in file take precedence
         let mut image_source_paths = vec![];
@@ -180,20 +165,14 @@ pub mod anm_compile {
         image_source_paths.extend(cli_image_source_paths.iter().cloned());
 
         for image_source_path in image_source_paths.iter() {
-            let source_anm_file = {
-                crate::AnmFile::read_from_stream(&mut BinReader::read(&bcx, image_source_path)?, game, true)?
-            };
-            compiled.apply_image_source(source_anm_file)?;
+            let source_anm = truth.read_anm(game, image_source_path, true)?;
+            compiled.apply_image_source(source_anm)?;
         }
 
-        compiled.write_to_stream(&mut BinWriter::create_buffered(&bcx, outpath)?, game)?;
+        truth.write_anm(game, &outpath, &compiled)?;
 
         if let Some(outpath) = output_thecl_defs {
-            use anyhow::Context; // FIXME remove
-
-            compiled.write_thecl_defs(io::BufWriter::new(fs_create(&outpath)?))
-                .with_context(|| format!("while writing '{}'", outpath.display()))
-                .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))?;
+            truth.write_file(&outpath, compiled.generate_thecl_defs()?)?
         }
 
         Ok(())
@@ -210,19 +189,17 @@ pub mod anm_redump {
             options: (cli::input(), cli::required_output(), cli::game()),
         });
 
-        wrap_fancy_errors(|_| run(game, input.as_ref(), output.as_ref()))
+        wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
     }
 
     fn run(
+        truth: &mut Truth,
         game: Game,
         path: &Path,
         outpath: &Path,
-    ) -> Result<(), CompileError> {
-        let bcx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
-        let anm_file = crate::AnmFile::read_from_stream(&mut BinReader::read(&bcx, path)?, game, true)?;
-
-        anm_file.write_to_stream(&mut BinWriter::create_buffered(&bcx, outpath)?, game)?;
-        Ok(())
+    ) -> Result<(), ErrorReported> {
+        let anm = truth.read_anm(game, path, true)?;
+        truth.write_anm(game, outpath, &anm)
     }
 }
 
@@ -239,28 +216,28 @@ pub mod anm_benchmark {
             ),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &anm_path, &script_path, &output, mapfile))
+        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, mapfile))
     }
 
     fn run(
-        files: &mut Files,
+        truth: &mut Truth,
         game: Game,
         anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
         map_path: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
             use anyhow::Context; // FIXME remove
 
             let fmt_config = crate::fmt::Config::new().max_columns(100);
-            let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display()))?;
+            let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display())).map_err(|e| truth.emit(error!("{:#}", e)))?;
             let mut f = crate::Formatter::with_config(io::BufWriter::new(script_out), fmt_config);
-            super::anm_decompile::run(&mut f, game, anm_path, map_path.clone())?;
+            super::anm_decompile::run(truth, &mut f, game, anm_path, map_path.clone())?;
             drop(f);
 
-            super::anm_compile::run(files, game, script_path, outpath, &image_source_paths, map_path.clone(), None)?;
+            super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, map_path.clone(), None)?;
         }
     }
 }
@@ -275,26 +252,24 @@ pub mod std_compile {
             options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &input, &output, mapfile));
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
     }
 
     fn run(
-        files: &mut Files,
+        truth: &mut Truth,
         game: Game,
         path: &Path,
         outpath: &Path,
         map_path: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
-        let mut ctx = init_context(game, map_path, crate::std::game_core_mapfile(game))?;
-        let bcx = ctx.to_bin_context();
+    ) -> Result<(), ErrorReported> {
+        load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
 
-        let script = files.read_file::<ast::Script>(&path)?;
-        load_mapfiles_from_pragmas(game, &mut ctx, &script)?;
-        script.expect_no_image_sources()?;
+        let ast = truth.read_script(&path)?;
+        truth.load_mapfiles_from_pragmas(game, &ast)?;
+        truth.expect_no_image_sources(&ast)?;
 
-        let std = crate::StdFile::compile_from_ast(game, &script, &mut ctx)?;
-
-        std.write_to_stream(&mut BinWriter::create_buffered(&bcx, outpath)?, game)?;
+        let std = truth.compile_std(game, &ast)?;
+        truth.write_std(game, outpath, &std)?;
         Ok(())
     }
 }
@@ -308,28 +283,26 @@ pub mod std_decompile {
             usage_args: "FILE -g GAME [OPTIONS...]",
             options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
         });
-        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile))
+        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile))
     }
 
     fn run(
+        truth: &mut Truth,
         game: Game,
         path: &Path,
         ncol: usize,
         map_path: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
-        let ctx = init_context(game, map_path, crate::std::game_core_mapfile(game))?;
-        let bcx = ctx.to_bin_context();
+        load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
 
-        let script = {
-            crate::StdFile::read_from_stream(&mut BinReader::read(&bcx, path)?, game)
-                .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))?
-        };
+        let std = truth.read_std(game, path)?;
+        let ast = truth.decompile_std(game, &std, crate::DecompileKind::Fancy)?;
 
         let stdout = io::stdout();
         let fmt_config = crate::fmt::Config::new().max_columns(ncol);
         let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-        f.fmt(&script)?;
+        f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
         Ok(())
     }
 }
@@ -344,18 +317,17 @@ pub mod msg_redump {
             options: (cli::input(), cli::required_output(), cli::game()),
         });
 
-        wrap_fancy_errors(|_| run(game, input.as_ref(), output.as_ref()))
+        wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
     }
 
     fn run(
+        truth: &mut Truth,
         game: Game,
         path: &Path,
         outpath: &Path,
-    ) -> Result<(), CompileError> {
-        let bcx = BinContext::from_diagnostic_emitter(DiagnosticEmitter::new_stderr());
-        let msg_file = crate::MsgFile::read_from_stream(&mut BinReader::read(&bcx, &path)?, game)?;
-
-        msg_file.write_to_stream(&mut BinWriter::create_buffered(&bcx, outpath)?, game)?;
+    ) -> Result<(), ErrorReported> {
+        let msg = truth.read_msg(game, path)?;
+        truth.write_msg(game, outpath, &msg)?;
         Ok(())
     }
 }
@@ -370,26 +342,24 @@ pub mod msg_compile {
             options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
         });
 
-        wrap_fancy_errors(|files| run(files, game, &input, &output, mapfile));
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
     }
 
     fn run(
-        files: &mut Files,
+        truth: &mut Truth,
         game: Game,
         path: &Path,
         outpath: &Path,
         map_path: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
-        let mut ctx = init_context(game, map_path, crate::msg::game_core_mapfile(game))?;
-        let bcx = ctx.to_bin_context();
+    ) -> Result<(), ErrorReported> {
+        load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
 
-        let script = files.read_file::<ast::Script>(&path)?;
-        load_mapfiles_from_pragmas(game, &mut ctx, &script)?;
-        script.expect_no_image_sources()?;
+        let ast = truth.read_script(&path)?;
+        truth.load_mapfiles_from_pragmas(game, &ast)?;
+        truth.expect_no_image_sources(&ast)?;
 
-        let std = crate::MsgFile::compile_from_ast(game, &script, &mut ctx)?;
-
-        std.write_to_stream(&mut BinWriter::create_buffered(&bcx, outpath)?, game)?;
+        let msg = truth.compile_msg(game, &ast)?;
+        truth.write_msg(game, outpath, &msg)?;
         Ok(())
     }
 }
@@ -403,28 +373,26 @@ pub mod msg_decompile {
             usage_args: "FILE -g GAME [OPTIONS...]",
             options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
         });
-        wrap_fancy_errors(|_files| run(game, &input, max_columns, mapfile))
+        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile))
     }
 
     fn run(
+        truth: &mut Truth,
         game: Game,
         path: &Path,
         ncol: usize,
         map_path: Option<PathBuf>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-        let ctx = init_context(game, map_path, crate::msg::game_core_mapfile(game))?;
-        let bcx = ctx.to_bin_context();
+        load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
 
-        let script = {
-            crate::MsgFile::read_from_stream(&mut BinReader::read(&bcx, path)?, game)
-                .and_then(|parsed| parsed.decompile_to_ast(game, &ctx, crate::DecompileKind::Fancy))?
-        };
+        let msg = truth.read_msg(game, path)?;
+        let ast = truth.decompile_msg(game, &msg, crate::DecompileKind::Fancy)?;
 
         let stdout = io::stdout();
         let fmt_config = crate::fmt::Config::new().max_columns(ncol);
         let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-        f.fmt(&script)?;
+        f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
         Ok(())
     }
 }
@@ -440,59 +408,27 @@ fn maybe_use_default_mapfile_for_decomp(
 }
 
 /// Loads the user's mapfile and the core mapfile.
-fn init_context(
+fn load_mapfiles(
+    truth: &mut Truth,
     game: Game,
     mapfile_arg: Option<PathBuf>,
     core_mapfile_source: &str,
-) -> Result<crate::CompilerContext, CompileError> {
-    use crate::Eclmap;
-
-    let mut ctx = crate::CompilerContext::new_stderr();
-    ctx.extend_from_eclmap(None, &Eclmap::parse(core_mapfile_source, &ctx.diagnostics)?).expect("failed to parse core mapfile!?");
+) -> Result<(), ErrorReported> {
+    truth.load_mapfile(core_mapfile_source).expect("failed to parse core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
-        use anyhow::Context; // FIXME remove
-
-        let eclmap = Eclmap::load(&mapfile_arg, Some(game), &ctx.diagnostics)?;
-        ctx.extend_from_eclmap(Some(&mapfile_arg), &eclmap)
-            .with_context(|| format!("while applying '{}'", mapfile_arg.display()))?;
-    }
-    Ok(ctx)
-}
-
-/// Loads mapfiles from a parsed script.
-fn load_mapfiles_from_pragmas(game: Game, ctx: &mut crate::CompilerContext, script: &ast::Script) -> Result<(), CompileError> {
-    for path_literal in &script.mapfiles {
-        let path: &Path = path_literal.string.as_ref();
-
-        crate::error::group_anyhow(|| {
-            let eclmap = crate::Eclmap::load(&path, Some(game), &ctx.diagnostics)?;
-            ctx.extend_from_eclmap(Some(path), &eclmap)?;
-            Ok(())
-        }).map_err(|e| crate::error!(
-            message("{:#}", e), primary(path_literal, "error loading mapfile"),
-        ))?
+        truth.read_mapfile_and_record(&mapfile_arg, Some(game))?;
     }
     Ok(())
 }
 
 // =============================================================================
 
-fn fs_create(path: impl AsRef<Path>) -> Result<fs::File, SimpleError> {
-    use anyhow::Context; // FIXME remove
-
-    fs::File::create(path.as_ref()).with_context(|| format!("creating file '{}'", path.as_ref().display()))
-}
-
-fn wrap_fancy_errors(func: impl FnOnce(&mut Files) -> Result<(), CompileError>) -> ! {
-    let mut files = Files::new();
-    match func(&mut files) {
+fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) -> ! {
+    Truth::new_stderr(|truth| match func(truth) {
         Ok(()) => std::process::exit(0),
-        Err(mut e) => {
-            let _ = e.emit(&files);
-            std::process::exit(1);
-        }
-    }
+        Err(ErrorReported) => std::process::exit(1),
+    })
 }
 
 // =============================================================================
@@ -582,8 +518,9 @@ mod cli {
                 print_usage(&program, usage_args);
                 eprintln!();
 
+                // FIXME MAKENICE
                 let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
-                CompileError::from(e).emit_nospans();
+                let crate::error::ErrorReported = crate::Truth::new_stderr(|truth| truth.emit(CompileError::from(e)));
                 std::process::exit(1);
             },
         }

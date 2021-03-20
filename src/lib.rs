@@ -60,6 +60,9 @@ pub mod vm;
 pub use value::{ScalarValue, ScalarType};
 mod value;
 
+pub use api::Truth;
+mod api;
+
 pub trait VeclikeIterator: ExactSizeIterator + DoubleEndedIterator { }
 impl<Xs: ExactSizeIterator + DoubleEndedIterator> VeclikeIterator for Xs { }
 

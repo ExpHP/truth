@@ -47,7 +47,7 @@ impl AnmFile {
     /// If multiple entries have the same path, then the first one with that path in `other` applies to the first
     /// one with that path in `self`, and so on in matching order.  This is to facilitate recompilation of files
     /// like `ascii.anm`, which have multiple `"@R"` entries.
-    pub fn apply_image_source(&mut self, other: Self) -> Result<(), CompileError> {
+    pub fn apply_image_source(&mut self, other: Self) -> Result<(), ErrorReported> {
         apply_image_source(self, other)
     }
 
@@ -59,8 +59,10 @@ impl AnmFile {
         read_anm(&game_format(game), r, with_images)
     }
 
-    pub fn write_thecl_defs(&self, w: impl io::Write) -> Result<(), SimpleError> {
-        write_thecl_defs(w, self)
+    pub fn generate_thecl_defs(&self) -> Result<String, ErrorReported> {
+        let mut bytes = vec![];
+        write_thecl_defs(&mut bytes, self).expect("io::Error writing to Vec<u8>?!");
+        Ok(String::from_utf8(bytes).expect("write_thecl_defs wrote non-utf8?!"))
     }
 }
 
@@ -245,7 +247,7 @@ fn decompile(
     Ok(out)
 }
 
-fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), CompileError> {
+fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), ErrorReported> {
     let mut src_entries_by_path: IndexMap<_, Vec<_>> = IndexMap::new();
     for entry in src_file.entries {
         src_entries_by_path.entry(entry.path.clone()).or_default().push(entry);
@@ -262,7 +264,7 @@ fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), 
     Ok(())
 }
 
-fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Result<(), CompileError> {
+fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Result<(), ErrorReported> {
     let dest_specs = &mut dest_file.specs;
 
     // though it's tedious, we fully unpack this struct to that the compiler doesn't
@@ -383,7 +385,7 @@ fn compile(
 fn write_thecl_defs(
     mut w: impl io::Write,
     anm: &AnmFile,
-) -> Result<(), SimpleError> {
+) -> Result<(), io::Error> {
     let mut script_index = 0;
     for entry in &anm.entries {
         for name in entry.scripts.keys() {
