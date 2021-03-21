@@ -182,7 +182,7 @@ impl Truth<'_> {
 
 /// # Diagnostics
 impl Truth<'_> {
-    pub fn emit(&self, e: impl Into<Vec<crate::diagnostic::Diagnostic>>) -> ErrorReported {
+    pub fn emit(&self, e: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
         self.ctx.diagnostics.emit(e)
     }
 }

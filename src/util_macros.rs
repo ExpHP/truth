@@ -82,6 +82,12 @@ macro_rules! error {
     ($($arg:tt)+) => { $crate::error::CompileError::from($crate::_diagnostic!(@error, $($arg)+)) };
 }
 
+// TODO: Rename to error!
+#[macro_export]
+macro_rules! error_d {
+    ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
+}
+
 /// Generates a [`crate::diagnostic::Diagnostic`] of severity `warning`.
 #[macro_export]
 macro_rules! warning {

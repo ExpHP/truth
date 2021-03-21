@@ -2,10 +2,16 @@
 source: tests/integration/type_check.rs
 expression: stderr
 ---
-error: value-returning function without a return
+warning: value-returning function without a return
    ┌─ <input>:25:9
    │
 25 │         inline int foo() { }
    │         ^^^^^^^^^^^^^^^^^^^^ has no return statements
+
+error: feature not supported by format
+   ┌─ <input>:25:9
+   │
+25 │         inline int foo() { }
+   │         ^^^^^^^^^^^^^^^^^^^^ not supported by ANM files
 
 

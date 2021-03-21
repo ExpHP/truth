@@ -13,8 +13,6 @@ type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
 type CsLabel = cs::diagnostic::Label<FileId>;
 
 /// Builder pattern for a single diagnostic message (warning or error).
-///
-/// It converts into [`CompileError`] using [`From`], so a `?` should suffice.
 #[derive(Debug, Clone)]
 #[must_use = "A Diagnostic must be emitted or it will not be seen!"]
 pub struct Diagnostic {
@@ -107,9 +105,9 @@ impl DiagnosticEmitter {
         Self::from_writer(writer)
     }
 
-    pub fn emit(&self, errors: impl Into<Vec<Diagnostic>>) -> ErrorReported {
+    pub fn emit(&self, errors: impl IntoDiagnostics) -> ErrorReported {
         // NOTE: we don't take an iterator because the iterator could call `.emit()` and lead to a runtime borrow conflict.
-        for diag in errors.into() {
+        for diag in errors.into_diagnostics() {
             let mut writer = self.writer.borrow_mut();
             cs::term::emit(writer.as_write_color(), &self.config, &self.files, &diag.imp)
                 .unwrap_or_else(|fmt_err| {
@@ -151,6 +149,14 @@ fn default_term_config() -> cs::term::Config {
 
 type CapturedWriter = tc::NoColor<Vec<u8>>;
 
-impl From<Diagnostic> for Vec<Diagnostic> {
-    fn from(d: Diagnostic) -> Vec<Diagnostic> { vec![d] }
+pub trait IntoDiagnostics {
+    fn into_diagnostics(self) -> Vec<Diagnostic>;
+}
+
+impl IntoDiagnostics for Diagnostic {
+    fn into_diagnostics(self) -> Vec<Diagnostic> { vec![self] }
+}
+
+impl IntoDiagnostics for Vec<Diagnostic> {
+    fn into_diagnostics(self) -> Vec<Diagnostic> { self }
 }
