@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 
 use crate::Ident;
-use crate::error::CompileError;
+use crate::error::ErrorReported;
 use crate::ast::{self, Visit, VisitMut};
 use crate::pos::Sp;
 
 /// Removes unused labels from function bodies.
 ///
 /// To use this, you must call a method whose scope is at least as large as [`VisitMut::visit_root_block`].
-pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), CompileError> {
+pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReported> {
     let mut visitor = Visitor { used_labels_stack: vec![] };
     ast.visit_mut_with(&mut visitor);
     Ok(())

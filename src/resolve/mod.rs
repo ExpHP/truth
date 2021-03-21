@@ -74,7 +74,7 @@ pub mod rib {
     use super::*;
 
     use crate::pos::{Sp, Span};
-    use crate::error::CompileError;
+    use crate::diagnostic::Diagnostic;
 
     /// A helper used during name resolution to track stacks of [`Ribs`] representing the current scope
     ///
@@ -224,7 +224,7 @@ pub mod rib {
         }
 
         /// Resolve an identifier by walking backwards through the stack of ribs.
-        pub fn resolve(&self, ns: Namespace, cur_span: Span, cur_ident: &Ident) -> Result<DefId, CompileError> {
+        pub fn resolve(&self, ns: Namespace, cur_span: Span, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
             // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
             let mut crossed_local_border = None::<&str>;
 
@@ -238,7 +238,7 @@ pub mod rib {
                         let local_kind = rib.noun();
                         let local_span = def.def_ident_span;
                         let item_kind = crossed_local_border.unwrap();
-                        return Err(error!(
+                        return Err(error_d!(
                             message("cannot use {} from outside {}", local_kind, item_kind),
                             primary(cur_span, "used in a nested {}", item_kind),
                             secondary(local_span, "defined here"),
@@ -249,7 +249,7 @@ pub mod rib {
                 }
             } // for rib in ....
 
-            Err(error!(
+            Err(error_d!(
                 message("unknown {} '{}'", ns.noun_long(), cur_ident),
                 primary(cur_span, "not found in this scope"),
             ))
@@ -272,7 +272,7 @@ mod resolve_vars {
     use super::*;
     use crate::ast::{self, Visit};
     use crate::pos::Sp;
-    use crate::error::{CompileError, ErrorStore};
+    use crate::error::{ErrorReported, ErrorStore};
     use super::rib::{RibKind, RibStacks};
 
     /// Visitor that performs name resolution. Please don't use this directly,
@@ -282,7 +282,7 @@ mod resolve_vars {
     /// be in scope at any given point in the graph.
     pub struct Visitor<'a, 'ctx> {
         rib_stacks: RibStacks,
-        errors: ErrorStore,
+        errors: ErrorStore<ErrorReported>,
         ctx: &'a mut CompilerContext<'ctx>,
     }
 
@@ -295,7 +295,7 @@ mod resolve_vars {
             }
         }
 
-        pub fn finish(self) -> Result<(), CompileError> {
+        pub fn finish(self) -> Result<(), ErrorReported> {
             self.errors.into_result(())
         }
     }
@@ -407,7 +407,7 @@ mod resolve_vars {
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
             if let ast::VarName::Normal { ref ident, .. } = var.name {
                 match self.rib_stacks.resolve(Namespace::Vars, var.span, ident) {
-                    Err(e) => self.errors.append(e),
+                    Err(e) => self.errors.append(self.ctx.diagnostics.emit(e)),
                     Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 }
             }
@@ -417,7 +417,7 @@ mod resolve_vars {
             if let ast::Expr::Call { name, .. } = &expr.value {
                 if let ast::CallableName::Normal { ident, .. } = &name.value {
                     match self.rib_stacks.resolve(Namespace::Funcs, name.span, ident) {
-                        Err(e) => self.errors.append(e),
+                        Err(e) => self.errors.append(self.ctx.diagnostics.emit(e)),
                         Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }
                 }
@@ -452,11 +452,11 @@ mod resolve_vars {
 
             if let Err(old_def) = rib.insert(ident.clone(), def_id) {
                 let noun = rib.noun();
-                self.errors.append(error!(
+                self.errors.append(self.ctx.diagnostics.emit(error!(
                     message("redefinition of {} '{}'", noun, ident),
                     primary(ident.span, "redefinition of {}", noun),
                     secondary(old_def.def_ident_span, "originally defined here"),
-                ));
+                )));
             }
         }
 

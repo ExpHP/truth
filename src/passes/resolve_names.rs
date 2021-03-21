@@ -1,14 +1,14 @@
 use crate::ast;
 use crate::pos::Sp;
 use crate::context::CompilerContext;
-use crate::error::CompileError;
+use crate::error::ErrorReported;
 use crate::ident::ResIdent;
 
 /// Assign [`ResId`]s to names in a script parsed from text.
 ///
 /// This is an extremely early preprocessing pass, preferably done immediately after parsing.
 /// (it can't be done during parsing because parsing should not require access to [`CompilerContext`])
-pub fn assign_res_ids<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), CompileError> {
+pub fn assign_res_ids<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = AssignResIdsVisitor { ctx };
     ast.visit_mut_with(&mut v);
     Ok(())
@@ -28,7 +28,7 @@ pub fn assign_res_ids<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<
 /// This means that, if you clone an AST node and then run name resolution on the original, then the
 /// names will also be resolved in the copy.  This property is important to helping make some parts
 /// of `const` evaluation tractable.  (especially consts defined in meta, like sprite ids)
-pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<(), CompileError> {
+pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = crate::resolve::ResolveVarsVisitor::new(ctx);
     ast.visit_with(&mut v);
     v.finish()
@@ -37,7 +37,7 @@ pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<
 /// Convert any register aliases and instruction aliases to `REG[10000]` and `ins_32` syntax.
 ///
 /// Requires name resolution to have been performed.
-pub fn aliases_to_raw<A: ast::Visitable>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), CompileError> {
+pub fn aliases_to_raw<A: ast::Visitable>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = AliasesToRawVisitor { ctx };
     ast.visit_mut_with(&mut v);
     Ok(())
@@ -57,7 +57,7 @@ pub fn aliases_to_raw<A: ast::Visitable>(ast: &mut A, ctx: &CompilerContext<'_>)
 ///  I did try separating this into two passes (one that switches to aliases, another that strips sigils
 ///  from non-`REG`s) but ran into https://github.com/ExpHP/truth/issues/13 when the second pass
 ///  encountered things like `sprite24`.
-pub fn raw_to_aliases<A: ast::Visitable>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), CompileError> {
+pub fn raw_to_aliases<A: ast::Visitable>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = RawToAliasesVisitor { ctx };
     ast.visit_mut_with(&mut v);
     Ok(())

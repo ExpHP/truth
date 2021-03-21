@@ -34,7 +34,7 @@
 
 use crate::value::ScalarValue;
 use crate::ast;
-use crate::error::{CompileError, ErrorStore};
+use crate::error::{ErrorReported, ErrorStore};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 
@@ -160,7 +160,7 @@ impl ast::Expr {
 /// Performs const simplification.
 ///
 /// See the [the module-level documentation][self] for more details.
-pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &CompilerContext) -> Result<(), CompileError> {
+pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &CompilerContext) -> Result<(), ErrorReported> {
     let mut visitor = Visitor { errors: ErrorStore::new(), ctx };
     ast.visit_mut_with(&mut visitor);
     visitor.errors.into_result(())
@@ -168,7 +168,7 @@ pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &CompilerContext) -> Result<(), 
 
 struct Visitor<'a, 'ctx> {
     ctx: &'a CompilerContext<'ctx>,
-    errors: ErrorStore,
+    errors: ErrorStore<ErrorReported>,
 }
 
 impl ast::VisitMut for Visitor<'_, '_> {

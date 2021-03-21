@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::ast;
-use crate::error::{CompileError};
-use crate::diagnostic::Diagnostic;
+use crate::error::{ErrorReported};
+use crate::diagnostic::{Diagnostic, DiagnosticEmitter};
 use crate::pos::{Sp, Span};
 use crate::resolve::{DefId, Resolutions};
 use crate::context::Defs;
@@ -51,9 +51,9 @@ impl Consts {
     /// Evaluates and caches the expressions assigned to all `const` variables, and performs
     /// all deferred equality checks.
     #[doc(hidden)]
-    pub fn evaluate_all_deferred(&mut self, defs: &Defs, resolutions: &Resolutions) -> Result<(), CompileError> {
-        self.do_deferred_evaluations(defs, resolutions)?;
-        self.do_deferred_equality(defs)
+    pub fn evaluate_all_deferred(&mut self, defs: &Defs, resolutions: &Resolutions, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
+        self.do_deferred_evaluations(defs, resolutions, diagnostics)?;
+        self.do_deferred_equality(defs, diagnostics)
     }
 
     /// Get the value of a const.  In order for this to return `Some`, calls must have been made at
@@ -62,15 +62,15 @@ impl Consts {
         self.values.get(&def_id)
     }
 
-    fn do_deferred_evaluations(&mut self, defs: &Defs, resolutions: &Resolutions) -> Result<(), CompileError> {
+    fn do_deferred_evaluations(&mut self, defs: &Defs, resolutions: &Resolutions, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
         let deferred_def_ids = std::mem::replace(&mut self.deferred_def_ids, vec![]);
         for def_id in deferred_def_ids {
-            Evaluator::run_rooted(self, def_id, defs, resolutions)?;
+            Evaluator::run_rooted(self, def_id, defs, resolutions, diagnostics)?;
         }
         Ok(())
     }
 
-    fn do_deferred_equality(&mut self, defs: &Defs) -> Result<(), CompileError> {
+    fn do_deferred_equality(&mut self, defs: &Defs, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
         let deferred_equality_checks = std::mem::replace(&mut self.deferred_equality_checks, vec![]);
 
         for EqualityCheck { noun, def_1, def_2 } in deferred_equality_checks {
@@ -80,11 +80,11 @@ impl Consts {
                 let ident = defs.var_name(def_2);
                 let span_1 = defs.var_decl_span(def_1).expect("missing span for def_1");
                 let span_2 = defs.var_decl_span(def_2).expect("missing span for def_2");
-                return Err(error!(
+                return Err(diagnostics.emit(error!(
                     message("ambiguous value for {} '{}'", noun, ident),
                     primary(span_2, "definition with value {}", value_2),
                     secondary(span_1, "definition with value {}", value_1),
-                ));
+                )));
             }
         }
         Ok(())
@@ -100,19 +100,20 @@ struct Evaluator<'a> {
     eval_stack: Vec<DefId>,
     defs: &'a Defs,
     resolutions: &'a Resolutions,
+    diagnostics: &'a DiagnosticEmitter,
 }
 
 impl<'a> Evaluator<'a> {
     // Ensure that the given DefId (and anything else it depends on) is cached.
-    fn run_rooted(consts: &'a mut Consts, def_id: DefId, defs: &Defs, resolutions: &Resolutions) -> Result<(), CompileError> {
+    fn run_rooted(consts: &mut Consts, def_id: DefId, defs: &Defs, resolutions: &Resolutions, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
         Evaluator {
-            consts, defs, resolutions,
+            consts, defs, resolutions, diagnostics,
             eval_stack: vec![]
         }._get_or_compute(None, def_id).map(|_| ())
     }
 
     // Get the cached value for a DefId, or compute one and store it.
-    fn _get_or_compute(&mut self, use_span: Option<Span>, def_id: DefId) -> Result<ScalarValue, CompileError> {
+    fn _get_or_compute(&mut self, use_span: Option<Span>, def_id: DefId) -> Result<ScalarValue, ErrorReported> {
         if let Some(value) = (*(&*self.consts)).values.get(&def_id) {
             return Ok(value.clone());
         }
@@ -122,11 +123,11 @@ impl<'a> Evaluator<'a> {
         assert_eq!(self.eval_stack.len() > 0, use_span.is_some());
         if self.eval_stack.contains(&def_id) {
             let root_def_span = self.defs.var_decl_span(self.eval_stack[0]).expect("consts always have name spans");
-            return Err(error!(
+            return Err(self.diagnostics.emit(error!(
                 message("cycle in const definition"),
                 primary(root_def_span, "cyclic const"),
                 secondary(use_span.expect("len > 0"), "depends on its own value here"),
-            ));
+            )));
         }
 
         let expr = {
@@ -149,7 +150,7 @@ impl<'a> Evaluator<'a> {
     // !!! IMPORTANT !!!
     // This function must be updated in sync with the const simplification pass.
     // (it did not seem possible to factor the shared logic out...)
-    fn _const_eval(&mut self, expr: &Sp<ast::Expr>) -> Result<ScalarValue, CompileError> {
+    fn _const_eval(&mut self, expr: &Sp<ast::Expr>) -> Result<ScalarValue, ErrorReported> {
         match &expr.value {
             &ast::Expr::LitInt { value, .. } => return Ok(ScalarValue::Int(value)),
             &ast::Expr::LitFloat { value, .. } => return Ok(ScalarValue::Float(value)),
@@ -196,19 +197,19 @@ impl<'a> Evaluator<'a> {
         Err(self.non_const_error(expr.span))
     }
 
-    fn non_const_error(&self, non_const_span: Span) -> CompileError {
+    fn non_const_error(&self, non_const_span: Span) -> ErrorReported {
         let mut diag = non_const_error(non_const_span);
         if let Some(&def_id) = self.eval_stack.last() {
             let cur_def_span = self.defs.var_decl_span(def_id).expect("consts always have name spans");
             diag.secondary(cur_def_span, format!("while evaluating this const"));
         }
-        diag.into()
+        self.diagnostics.emit(diag)
     }
 }
 
 pub fn non_const_error(non_const_span: Span) -> Diagnostic {
-    let mut diag = Diagnostic::error();
-    diag.message(format!("const evaluation error"));
-    diag.primary(non_const_span, format!("non-const expression"));
-    diag
+    error_d!(
+        message("const evaluation error"),
+        primary(non_const_span, "non-const expression")
+    )
 }

@@ -64,7 +64,7 @@ fn resolve<A: ast::Visitable + Parse>(truth: &mut Truth, text: &str) -> Result<A
     match crate::passes::resolve_names::run(&parsed, ctx) {
         Ok(()) => Ok(parsed),
         Err(e) => {
-            truth.emit(e).ignore();
+            e.ignore();
             Err(truth.get_captured_diagnostics().unwrap())
         },
     }

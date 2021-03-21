@@ -4,20 +4,20 @@
 //! the output more expressive.
 
 use std::collections::{BTreeMap, HashMap};
-use crate::error::SimpleError;
+use crate::error::ErrorReported;
 use crate::ast::{self, VisitMut};
 use crate::ident::Ident;
 use crate::pos::Sp;
 
 /// Decompiles `if { ... } else if { ... } else { ... }` chains.
-pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V) -> Result<(), SimpleError> {
+pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReported> {
     let mut visitor = IfElseVisitor { label_refcounts_stack: vec![] };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
 
 /// Decompiles `loop { ... }` and `do { ... } while (<cond>)`.
-pub fn decompile_loop<V: ast::Visitable>(ast: &mut V) -> Result<(), SimpleError> {
+pub fn decompile_loop<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReported> {
     let mut visitor = LoopVisitor { label_refcounts_stack: vec![] };
     ast.visit_mut_with(&mut visitor);
     Ok(())
