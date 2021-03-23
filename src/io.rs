@@ -1,6 +1,5 @@
 use std::io::{self, Write, Seek, Read, SeekFrom};
 use std::path::Path;
-use std::fmt;
 use std::fs;
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
@@ -10,7 +9,7 @@ pub use anyhow::bail;
 
 use crate::pos::Sp;
 use crate::diagnostic::DiagnosticEmitter;
-use crate::error::ErrorReported;
+use crate::error::{ErrorReported, unspanned};
 
 // Binary file IO uses anyhow instead of codespan_reporting because most span info is lost
 // in the lowered form.
@@ -32,9 +31,9 @@ pub type Encoding = &'static encoding_rs::Encoding;
 pub use encoding_rs::SHIFT_JIS as DEFAULT_ENCODING;
 
 impl Encoded {
-    pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, crate::error::CompileError> {
+    pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, crate::diagnostic::Diagnostic> {
         match enc.encode(str.value.as_ref()) {
-            (_, _, true) => Err(error!(
+            (_, _, true) => Err(error_d!(
                 message("string encoding error"),
                 primary(str, "cannot be encoded using '{}'", enc.name()),
             )),
@@ -70,7 +69,7 @@ impl<W: Write + Seek> DynWriteSeek for W {}
 /// Implements [`BinRead`] with automatic handling of diagnostics.
 pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
     pub diagnostics: &'a DiagnosticEmitter,
-    loc_diagnostics: ErrLocationReporter<'a>,
+    root_loc: unspanned::WhileReading,
     reader: R,
 }
 
@@ -79,7 +78,7 @@ pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
 /// Implements [`BinWrite`] with automatic handling of diagnostics.
 pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
     pub diagnostics: &'a DiagnosticEmitter,
-    loc_diagnostics: ErrLocationReporter<'a>,
+    root_loc: unspanned::WhileWriting,
     writer: W,
 }
 
@@ -88,37 +87,37 @@ pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
 
 impl<'a, R: Read + Seek + 'a> BinReader<'a, R> {
     pub fn from_reader(diagnostics: &'a DiagnosticEmitter, filename: String, reader: R) -> Self {
-        let loc_diagnostics = ErrLocationReporter { diagnostics, stack: vec![], filename };
-        BinReader { diagnostics, loc_diagnostics, reader }
+        let root_loc = unspanned::WhileReading(filename);
+        BinReader { diagnostics, root_loc, reader }
     }
 
     pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, R2> {
-        let BinReader { diagnostics, loc_diagnostics, reader } = self;
-        BinReader { diagnostics, loc_diagnostics, reader: func(reader) }
+        let BinReader { diagnostics, root_loc, reader } = self;
+        BinReader { diagnostics, root_loc, reader: func(reader) }
     }
-
     pub fn into_inner(self) -> R { self.reader }
-}
-
-impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
 }
 
 impl<'a, W: Write + Seek + 'a> BinWriter<'a, W> {
     pub fn from_writer(diagnostics: &'a DiagnosticEmitter, filename: String, writer: W) -> Self {
-        let loc_diagnostics = ErrLocationReporter { diagnostics, stack: vec![], filename };
-        BinWriter { diagnostics, loc_diagnostics, writer }
+        let root_loc = unspanned::WhileWriting(filename);
+        BinWriter { diagnostics, root_loc, writer }
     }
 
     pub fn map_writer<W2: Write + Seek + 'a>(self, func: impl FnOnce(W) -> W2) -> BinWriter<'a, W2> {
-        let BinWriter { diagnostics, loc_diagnostics, writer } = self;
-        BinWriter { diagnostics, loc_diagnostics, writer: func(writer) }
+        let BinWriter { diagnostics, root_loc, writer } = self;
+        BinWriter { diagnostics, root_loc, writer: func(writer) }
     }
-
     pub fn into_inner(self) -> W { self.writer }
 }
 
+impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
+    pub fn root_loc(&self) -> impl unspanned::Annotate { self.root_loc.clone() }
+    pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
+}
+
 impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
+    pub fn root_loc(&self) -> impl unspanned::Annotate { self.root_loc.clone() }
     pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
 }
 
@@ -176,29 +175,15 @@ impl<'a> BinWriter<'a, fs::File> {
 // error reporting
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
-        self.loc_diagnostics.stack.push(location);
-        let ret = func(self);
-        self.loc_diagnostics.stack.pop();
-        ret
+    pub fn emit(&self, errors: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
+        self.diagnostics.emit(errors)
     }
-    pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
-    pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e) }
-    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e) }
 }
 
 impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
-    pub fn push_location<T>(&mut self, location: ErrLocation, func: impl FnOnce(&mut Self) -> T) -> T {
-        self.loc_diagnostics.stack.push(location);
-        let ret = func(self);
-        self.loc_diagnostics.stack.pop();
-        ret
+    pub fn emit(&self, errors: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
+        self.diagnostics.emit(errors)
     }
-    pub fn error(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error(e) }
-    pub fn error_noloc(&mut self, e: impl fmt::Display) -> ErrorReported { self.loc_diagnostics.error_noloc(e) }
-    pub fn warning(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning(e) }
-    pub fn warning_noloc(&mut self, e: impl fmt::Display) { self.loc_diagnostics.warning_noloc(e) }
 }
 
 // =============================================================================
@@ -236,7 +221,7 @@ pub trait BinRead {
     }
 
     fn read_exact(&mut self, out: &mut [u8]) -> Result<(), Self::Err> {
-        self._bin_read_reader().read_exact(out).map_err(|e| self._bin_read_io_error(e))
+        io::Read::read_exact(self._bin_read_reader(), out).map_err(|e| self._bin_read_io_error(e))
     }
 
     /// Reads a null-terminated string that is zero-padded to a multiple of the given block-size.
@@ -293,12 +278,12 @@ pub trait BinRead {
 }
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn expect_magic(&mut self, magic: &str) -> ReadResult<()> {
+    pub fn expect_magic(&mut self, loc: &impl unspanned::Annotate, magic: &str) -> ReadResult<()> {
         let mut read_bytes = vec![0; magic.len()];
         self.read_exact(&mut read_bytes)?;
 
         if read_bytes != magic.as_bytes() {
-            return Err(self.error(format_args!("failed to find magic: '{}'", magic)));
+            return Err(self.emit(error!("{}{}", loc, magic)));
         }
         Ok(())
     }
@@ -336,7 +321,7 @@ pub trait BinWrite {
     fn write_f32(&mut self, x: f32) -> Result<(), Self::Err> { WriteBytesExt::write_f32::<Le>(self._bin_write_writer(), x).map_err(|e| self._bin_write_io_error(e)) }
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), Self::Err> {
-        self._bin_write_writer().write_all(bytes).map_err(|e| self._bin_write_io_error(e))
+        io::Write::write_all(self._bin_write_writer(), bytes).map_err(|e| self._bin_write_io_error(e))
     }
 
     /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`.
@@ -354,7 +339,7 @@ pub trait BinWrite {
         for byte in &mut to_write {
             *byte ^= mask;
         }
-        self.write_all(&to_write)?;
+        BinWrite::write_all(self, &to_write)?;
         Ok(())
     }
 
@@ -380,7 +365,9 @@ impl<'a, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, R> {
     type Err = ErrorReported;
     type Reader = R;
 
-    fn _bin_read_io_error(&mut self, err: io::Error) -> Self::Err { self.error_noloc(err) }
+    fn _bin_read_io_error(&mut self, err: io::Error) -> Self::Err {
+        self.emit(error!("{}{}", self.root_loc, err))
+    }
     fn _bin_read_reader(&mut self) -> &mut Self::Reader { &mut self.reader }
 }
 
@@ -388,11 +375,13 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWrite for BinWriter<'a, W> {
     type Err = ErrorReported;
     type Writer = W;
 
-    fn _bin_write_io_error(&mut self, err: io::Error) -> Self::Err { self.error_noloc(err) }
+    fn _bin_write_io_error(&mut self, err: io::Error) -> Self::Err {
+        self.emit(error!("{}{}", self.root_loc, err))
+    }
     fn _bin_write_writer(&mut self) -> &mut Self::Writer { &mut self.writer }
 }
 
-impl<R: Read + Seek> BinRead for R {
+impl<R: Read + Seek + ?Sized> BinRead for R {
     type Err = io::Error;
     type Reader = R;
 
@@ -400,72 +389,12 @@ impl<R: Read + Seek> BinRead for R {
     fn _bin_read_reader(&mut self) -> &mut Self::Reader { self }
 }
 
-impl<W: Write + Seek> BinWrite for W {
+impl<W: Write + Seek + ?Sized> BinWrite for W {
     type Err = io::Error;
     type Writer = W;
 
     fn _bin_write_io_error(&mut self, err: io::Error) -> Self::Err { err }
     fn _bin_write_writer(&mut self) -> &mut Self::Writer { self }
-}
-
-// =============================================================================
-
-
-/// Tool for reporting locations of errors that cannot be associated with spans, by building a stack of
-/// location hints like `"filename.anm: in entry 4: in header: "`.
-pub struct ErrLocationReporter<'a> {
-    pub diagnostics: &'a DiagnosticEmitter,
-    pub filename: String,
-    pub stack: Vec<ErrLocation>,
-}
-
-impl ErrLocationReporter<'_> {
-    pub fn annotate<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
-        use std::fmt::Write;
-
-        let mut full_loc = String::new();
-        for loc in &self.stack {
-            write!(full_loc, "{}: ", loc).expect("string write failed!?");
-        }
-        func(format_args!("{}: {}{}", self.filename, full_loc, e))
-    }
-
-    pub fn annotate_noloc<T>(&self, e: impl fmt::Display, func: impl FnOnce(fmt::Arguments<'_>) -> T) -> T {
-        func(format_args!("{}: {}", self.filename, e))
-    }
-
-    pub fn error(&self, e: impl fmt::Display) -> ErrorReported {
-        self.annotate(e, |msg| self.diagnostics.emit(error!("{}", msg)))
-    }
-    /// Generate an error that ignores the location stack and only writes `"<filename>: <message>"`.
-    ///
-    /// Good for general read/write errors that must be caused by an issue with the file object and is not specific
-    /// to the data at this location.
-    pub fn error_noloc(&self, e: impl fmt::Display) -> ErrorReported {
-        self.annotate_noloc(e, |msg| self.diagnostics.emit(error!("{}", msg)))
-    }
-    pub fn warning(&self, e: impl fmt::Display) {
-        self.annotate(e, |msg| self.diagnostics.emit(warning!("{}", msg)).ignore())
-    }
-    pub fn warning_noloc(&self, e: impl fmt::Display) {
-        self.annotate_noloc(e, |msg| self.diagnostics.emit(warning!("{}", msg)).ignore())
-    }
-}
-
-pub enum ErrLocation {
-    /// `"in <what>":`
-    In { what: &'static str },
-    /// `"in <what> <number>":`
-    InNumbered { what: &'static str, number: usize },
-}
-
-impl fmt::Display for ErrLocation {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ErrLocation::In { what } => write!(f, "in {}", what),
-            ErrLocation::InNumbered { what, number } => write!(f, "in {} {}", what, number),
-        }
-    }
 }
 
 // =============================================================================

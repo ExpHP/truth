@@ -143,7 +143,7 @@ impl CompileError {
 /// shortly before being displayed to the user.
 pub type SimpleError = anyhow::Error;
 
-// -------------------------
+// =============================================================================
 
 /// An accumulator for errors that provides a straightforward way of converting to
 /// a `Result<T, CompileError>` based on whether any errors have occurred.
@@ -335,7 +335,7 @@ fn test_collect_with_recovery() {
     assert_eq!(result.unwrap_err().diagnostics.len(), 5);
 }
 
-// -------------------------
+// =============================================================================
 
 /// Implementation of [`codespan_reporting::files::Files`] where all methods panic.
 #[doc(hidden)]
@@ -355,7 +355,7 @@ impl<'a> codespan_reporting::files::Files<'a> for PanicFiles {
     fn line_range(&'a self, _: FileId, _: usize) -> CsResult<std::ops::Range<usize>> { unreachable!("span in emit_nospans!") }
 }
 
-// -------------------------
+// =============================================================================
 
 /// Utility that makes it easier to apply `anyhow::Context` to all errors in a region of code.
 ///
@@ -379,4 +379,86 @@ pub(crate) fn group_anyhow<T>(
     func: impl FnOnce() -> Result<T, anyhow::Error>,
 ) -> Result<T, anyhow::Error> {
     func()
+}
+
+// =============================================================================
+
+pub mod unspanned {
+    use std::fmt;
+
+    pub trait Annotate: fmt::Display {
+        fn chain_with<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
+        where
+            Self: Sized,
+            Label: Fn(&mut fmt::Formatter) -> fmt::Result + 'a,
+            Callback: FnOnce(&'_ Node<'a, Self, Label>) -> T,
+        { cb(&Node { parent: self, label }) }
+    }
+
+    impl<'a, Parent, Label> Annotate for Node<'a, Parent, Label>
+    where
+        Parent: fmt::Display,
+        Label: Fn(&mut fmt::Formatter) -> fmt::Result + 'a,
+    {}
+
+    #[derive(Debug, Clone)] pub struct WhileReading(pub String);
+    #[derive(Debug, Clone)] pub struct WhileWriting(pub String);
+
+    impl fmt::Display for WhileReading {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}: ", self.0)
+        }
+    }
+    impl fmt::Display for WhileWriting {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "while writing {}: ", self.0)
+        }
+    }
+    impl Annotate for WhileReading {}
+    impl Annotate for WhileWriting {}
+
+    pub struct Node<'a, Parent: ?Sized, Label> {
+        parent: &'a Parent,
+        label: Label,
+    }
+
+    pub struct Annotated<'a, Anno: ?Sized, Msg> {
+        anno: &'a Anno,
+        message: Msg,
+    }
+
+    impl<Parent, Label> fmt::Display for Node<'_, Parent, Label>
+    where
+        Parent: fmt::Display,
+        Label: Fn(&mut fmt::Formatter) -> fmt::Result,
+    {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(self.parent, f)?;
+            (self.label)(f)?;
+            fmt::Display::fmt(": ", f)?;
+            Ok(())
+        }
+    }
+
+    impl<Anno: fmt::Display, Msg: fmt::Display> fmt::Display for Annotated<'_, Anno, Msg> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(&self.anno, f)?;
+            fmt::Display::fmt(&self.message, f)
+        }
+    }
+
+    #[test]
+    fn test() {
+        // here's how we'd typically write a function signature
+        fn func(loc: &impl Annotate) -> String {
+            let x = 3;
+            loc.chain_with(|f| write!(f, "thing {}", x), |loc| {
+                loc.chain_with(|f| write!(f, "while eating a sub"), |loc| {
+                    format!("{}{}", loc, "blah")
+                })
+            })
+        }
+
+        assert_eq!(func(&WhileReading("a".into())), "a: thing 3: while eating a sub: blah");
+    }
 }

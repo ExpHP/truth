@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, ErrorReported};
+use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, ErrorReported, unspanned};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
@@ -32,11 +32,13 @@ impl MsgFile {
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        write_msg(w, &*game_format(game), self)
+        let loc = w.root_loc();
+        write_msg(w, &loc, &*game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
-        read_msg(r, &*game_format(game))
+        let loc = r.root_loc();
+        read_msg(r, &loc, &*game_format(game))
     }
 }
 
@@ -142,6 +144,7 @@ fn compile(
 
 fn read_msg(
     reader: &mut BinReader,
+    loc: &impl unspanned::Annotate,
     instr_format: &dyn InstrFormat,
 ) -> ReadResult<MsgFile> {
     let start_pos = reader.pos()?;
@@ -159,49 +162,55 @@ fn read_msg(
     let mut scripts = BTreeMap::new();
     let mut first_id_for_offsets = BTreeMap::new();  // maps offsets to first id they're associated with
     let mut default_offset = None;
+
     for (id, offset) in script_offsets.into_iter().enumerate() {
         // leave filler scripts out of the output object
         if default_offset == Some(offset) {
             continue;
         }
 
-        default_offset.get_or_insert(offset);
+        loc.chain_with(|f| write!(f, "script id {}", id), |loc| {
+            default_offset.get_or_insert(offset);
 
-        // Currently, when compiling we assume that the only script that ever gets reused is the first script.
-        // (and we have no way to represent other methods of script reuse)
-        //
-        // Generate a warning if we're wrong, as we will fail to round trip this file.
-        if let Some(old_id) = first_id_for_offsets.get(&offset) {
-            reader.diagnostics.emit(warning!(
-                "script id {} reuses script id {}, but due to language limitations, when recompiled it will reuse script {} instead",
-                id, old_id, default_offset.unwrap(),
-            )).ignore();
-        } else {
-            first_id_for_offsets.insert(offset, id);
-        }
+            // Currently, when compiling we assume that the only script that ever gets reused is the first script.
+            // (and we have no way to represent other methods of script reuse)
+            //
+            // Generate a warning if we're wrong, as we will fail to round trip this file.
+            if let Some(old_id) = first_id_for_offsets.get(&offset) {
+                reader.diagnostics.emit(warning!(
+                    "{}reuses script id {}, but due to language limitations, when recompiled it will reuse script {} instead",
+                    loc, old_id, default_offset.unwrap(),
+                )).ignore();
+            } else {
+                first_id_for_offsets.insert(offset, id);
+            }
 
-        let script_pos = start_pos + offset as u64;
-        reader.seek_to(script_pos)?;
+            let script_pos = start_pos + offset as u64;
+            reader.seek_to(script_pos)?;
 
-        let script = llir::read_instrs(reader, instr_format, script_pos, None)?;
-        scripts.insert(id as u32, script);
+            let script = llir::read_instrs(reader, loc, instr_format, script_pos, None)?;
+            scripts.insert(id as u32, script);
+
+            Ok::<_, ErrorReported>(())
+        })?;
     }
 
     Ok(MsgFile { script_table_len, scripts })
 }
 
 fn write_msg(
-    f: &mut BinWriter,
+    w: &mut BinWriter,
+    loc: &impl unspanned::Annotate,
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
 ) -> WriteResult {
-    let start_pos = f.pos()?;
+    let start_pos = w.pos()?;
 
-    f.write_u32(msg.script_table_len as _)?;
+    w.write_u32(msg.script_table_len as _)?;
 
-    let script_offsets_pos = f.pos()?;
+    let script_offsets_pos = w.pos()?;
     for _ in 0..msg.script_table_len {
-        f.write_u32(0)?;
+        w.write_u32(0)?;
     }
 
     // The script offset table tends to look like
@@ -210,26 +219,28 @@ fn write_msg(
     let mut default_script_offset = None;
     let mut script_offsets = vec![None; msg.script_table_len as usize];
     for (&id, script) in &msg.scripts {
-        let script_offset = f.pos()? - start_pos;
+        let script_offset = w.pos()? - start_pos;
         default_script_offset = default_script_offset.or(Some(script_offset));
 
         script_offsets[id as usize] = Some(script_offset);
-        llir::write_instrs(f, instr_format, script)?;
+        loc.chain_with(|f| write!(f, "script id {}", id), |loc| {
+            llir::write_instrs(w, loc, instr_format, script)
+        })?;
     }
 
     if default_script_offset.is_none() && msg.script_table_len > 0 {
-        f.warning(format_args!("script table has no entries to use as a default!"));
+        w.emit(warning!("{}script table has no entries to use as a default!", loc)).ignore();
     }
     let default_script_offset = default_script_offset.unwrap_or(0);
 
-    let end_pos = f.pos()?;
+    let end_pos = w.pos()?;
 
-    f.seek_to(script_offsets_pos)?;
+    w.seek_to(script_offsets_pos)?;
     assert_eq!(script_offsets.len(), msg.script_table_len as usize);
     for offset in script_offsets {
-        f.write_u32(offset.unwrap_or(default_script_offset) as u32)?;
+        w.write_u32(offset.unwrap_or(default_script_offset) as u32)?;
     }
-    f.seek_to(end_pos)?;
+    w.seek_to(end_pos)?;
     Ok(())
 }
 
@@ -266,7 +277,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut BinReader) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn unspanned::Annotate) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()?;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
@@ -292,22 +303,22 @@ impl InstrFormat for InstrFormat06 {
         }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, loc: &dyn unspanned::Annotate, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
 
         if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            f.warning(format_args!("\
-                wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
+            f.emit(warning!("\
+                {}wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
                 correctly due to a known limitation of the current implementation.\
-            "));
+            ", loc)).ignore();
         }
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn unspanned::Annotate) -> WriteResult {
         f.write_u32(0)
     }
 }
