@@ -40,6 +40,14 @@ impl Diagnostic {
         self
     }
 
+    /// Prepend a string to the message.  This is used to provide location info on diagnostic messages
+    /// that do not have spans.  (e.g. they come from decompiled binary data)
+    fn prefix_existing_message(&mut self, prefix: impl fmt::Display) -> &mut Self {
+        let message = std::mem::replace(&mut self.imp.message, String::new());
+        self.imp.message = format!("{}{}", prefix, message);
+        self
+    }
+
     /// Add a label of type 'primary'.
     pub fn primary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
         let span = span.span();
@@ -159,4 +167,144 @@ impl IntoDiagnostics for Diagnostic {
 
 impl IntoDiagnostics for Vec<Diagnostic> {
     fn into_diagnostics(self) -> Vec<Diagnostic> { self }
+}
+
+// =============================================================================
+
+pub use unspanned::UnspannedEmitter;
+pub mod unspanned {
+    use super::*;
+    use std::fmt;
+
+    pub trait UnspannedEmitter: fmt::Display {
+        fn _emitter(&self) -> &DiagnosticEmitter;
+
+        fn chain_with<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
+        where
+            Self: Sized,
+            Label: Fn(&mut fmt::Formatter) -> fmt::Result + 'a,
+            Callback: FnOnce(&'_ NodeWith<&'a Self, Label>) -> T,
+        { cb(&NodeWith { parent: self, label }) }
+
+        fn chain<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
+        where
+            Self: Sized,
+            Label: fmt::Display + 'a,
+            Callback: FnOnce(&'_ Node<&'a Self, Label>) -> T,
+        { cb(&Node { parent: self, label }) }
+
+        fn emit(&self, diagnostics: impl IntoDiagnostics) -> ErrorReported
+        where
+            Self: Sized,
+        {
+            diagnostics.into_diagnostics().into_iter().for_each(|d| self.emit_one(d).ignore());
+            ErrorReported
+        }
+
+        fn emit_one(&self, mut diagnostic: Diagnostic) -> ErrorReported {
+            diagnostic.prefix_existing_message(self);
+            self._emitter().emit(diagnostic)
+        }
+    }
+
+    impl UnspannedEmitter for Root<'_> {
+        fn _emitter(&self) -> &DiagnosticEmitter { &self.0 }
+    }
+
+    impl fmt::Display for Root<'_> {
+        fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result { Ok(()) }
+    }
+
+    impl<Parent, Label> UnspannedEmitter for Node<Parent, Label>
+    where
+        Parent: UnspannedEmitter,
+        Label: fmt::Display,
+    {
+        fn _emitter(&self) -> &DiagnosticEmitter { self.parent._emitter() }
+    }
+
+    impl<Parent, LabelFn> UnspannedEmitter for NodeWith<Parent, LabelFn>
+    where
+        Parent: UnspannedEmitter,
+        LabelFn: Fn(&mut fmt::Formatter) -> fmt::Result,
+    {
+        fn _emitter(&self) -> &DiagnosticEmitter { self.parent._emitter() }
+    }
+
+    pub type WhileReading<'a> = Node<Root<'a>, String>;
+    pub fn while_reading<'a>(filename: &str, diagnostics: &'a DiagnosticEmitter) -> WhileReading<'a> {
+        Node {
+            parent: Root(diagnostics),
+            label: format!("{}", filename),
+        }
+    }
+    pub type WhileWriting<'a> = Node<Root<'a>, String>;
+    pub fn while_writing<'a>(filename: &str, diagnostics: &'a DiagnosticEmitter) -> WhileWriting<'a> {
+        Node {
+            parent: Root(diagnostics),
+            label: format!("while writing {}", filename),
+        }
+    }
+
+    impl<T: UnspannedEmitter> UnspannedEmitter for &'_ T {
+        fn _emitter(&self) -> &DiagnosticEmitter { (**self)._emitter() }
+    }
+
+    #[derive(Clone)] pub struct Root<'a>(pub &'a DiagnosticEmitter);
+    #[derive(Clone)] pub struct Node<Parent, Label> {
+        parent: Parent,
+        label: Label,
+    }
+    #[derive(Clone)] pub struct NodeWith<Parent, LabelFn> {
+        parent: Parent,
+        label: LabelFn,
+    }
+
+    impl<Parent, Label> fmt::Display for Node<Parent, Label>
+    where
+        Parent: fmt::Display,
+        Label: fmt::Display,
+    {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(&self.parent, f)?;
+            fmt::Display::fmt(&self.label, f)?;
+            fmt::Display::fmt(": ", f)?;
+            Ok(())
+        }
+    }
+
+    impl<Parent, Label> fmt::Display for NodeWith<Parent, Label>
+    where
+        Parent: fmt::Display,
+        Label: Fn(&mut fmt::Formatter) -> fmt::Result,
+    {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fmt::Display::fmt(&self.parent, f)?;
+            (self.label)(f)?;
+            fmt::Display::fmt(": ", f)?;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test() {
+        let diagnostics = DiagnosticEmitter::new_captured();
+
+        // here's how we'd typically write a function signature
+        fn func(emitter: &impl UnspannedEmitter) {
+            let x = 3;
+            emitter.chain_with(|f| write!(f, "thing {}", x), |emitter| {
+                emitter.chain("while eating a sub", |emitter| {
+                    emitter.emit(warning!("blah {}", 20)).ignore();
+                })
+            })
+        }
+
+        let emitter = unspanned::while_reading("a.txt", &diagnostics);
+        func(&emitter);
+
+        let stderr = diagnostics.get_captured_diagnostics().unwrap();
+        assert!(stderr.contains("a.txt: thing 3: while eating a sub: blah 20"));
+        assert_snapshot!(stderr);
+    }
 }

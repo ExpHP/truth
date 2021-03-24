@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, ErrorReported, unspanned};
+use crate::diagnostic::UnspannedEmitter;
+use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
@@ -32,13 +33,13 @@ impl MsgFile {
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        let loc = w.root_loc();
-        write_msg(w, &loc, &*game_format(game), self)
+        let emitter = w.emitter();
+        write_msg(w, &emitter, &*game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
-        let loc = r.root_loc();
-        read_msg(r, &loc, &*game_format(game))
+        let emitter = r.emitter();
+        read_msg(r, &emitter, &*game_format(game))
     }
 }
 
@@ -144,7 +145,7 @@ fn compile(
 
 fn read_msg(
     reader: &mut BinReader,
-    loc: &impl unspanned::Annotate,
+    emitter: &impl UnspannedEmitter,
     instr_format: &dyn InstrFormat,
 ) -> ReadResult<MsgFile> {
     let start_pos = reader.pos()?;
@@ -169,7 +170,7 @@ fn read_msg(
             continue;
         }
 
-        loc.chain_with(|f| write!(f, "script id {}", id), |loc| {
+        emitter.chain_with(|f| write!(f, "script id {}", id), |emitter| {
             default_offset.get_or_insert(offset);
 
             // Currently, when compiling we assume that the only script that ever gets reused is the first script.
@@ -177,9 +178,9 @@ fn read_msg(
             //
             // Generate a warning if we're wrong, as we will fail to round trip this file.
             if let Some(old_id) = first_id_for_offsets.get(&offset) {
-                reader.diagnostics.emit(warning!(
-                    "{}reuses script id {}, but due to language limitations, when recompiled it will reuse script {} instead",
-                    loc, old_id, default_offset.unwrap(),
+                emitter.emit(warning!(
+                    "reuses script id {}, but due to language limitations, when recompiled it will reuse script {} instead",
+                    old_id, default_offset.unwrap(),
                 )).ignore();
             } else {
                 first_id_for_offsets.insert(offset, id);
@@ -188,7 +189,7 @@ fn read_msg(
             let script_pos = start_pos + offset as u64;
             reader.seek_to(script_pos)?;
 
-            let script = llir::read_instrs(reader, loc, instr_format, script_pos, None)?;
+            let script = llir::read_instrs(reader, emitter, instr_format, script_pos, None)?;
             scripts.insert(id as u32, script);
 
             Ok::<_, ErrorReported>(())
@@ -200,7 +201,7 @@ fn read_msg(
 
 fn write_msg(
     w: &mut BinWriter,
-    loc: &impl unspanned::Annotate,
+    emitter: &impl UnspannedEmitter,
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
 ) -> WriteResult {
@@ -223,13 +224,13 @@ fn write_msg(
         default_script_offset = default_script_offset.or(Some(script_offset));
 
         script_offsets[id as usize] = Some(script_offset);
-        loc.chain_with(|f| write!(f, "script id {}", id), |loc| {
-            llir::write_instrs(w, loc, instr_format, script)
+        emitter.chain_with(|f| write!(f, "script id {}", id), |emitter| {
+            llir::write_instrs(w, emitter, instr_format, script)
         })?;
     }
 
     if default_script_offset.is_none() && msg.script_table_len > 0 {
-        w.emit(warning!("{}script table has no entries to use as a default!", loc)).ignore();
+        emitter.emit(warning!("script table has no entries to use as a default!")).ignore();
     }
     let default_script_offset = default_script_offset.unwrap_or(0);
 
@@ -277,7 +278,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn unspanned::Annotate) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()?;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
@@ -303,22 +304,22 @@ impl InstrFormat for InstrFormat06 {
         }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, loc: &dyn unspanned::Annotate, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
 
         if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            f.emit(warning!("\
-                {}wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
+            emitter.emit_one(warning!("\
+                wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
                 correctly due to a known limitation of the current implementation.\
-            ", loc)).ignore();
+            ")).ignore();
         }
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn unspanned::Annotate) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
         f.write_u32(0)
     }
 }

@@ -8,8 +8,8 @@ use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 pub use anyhow::bail;
 
 use crate::pos::Sp;
-use crate::diagnostic::DiagnosticEmitter;
-use crate::error::{ErrorReported, unspanned};
+use crate::diagnostic::{DiagnosticEmitter, unspanned::{self, UnspannedEmitter}};
+use crate::error::{ErrorReported};
 
 // Binary file IO uses anyhow instead of codespan_reporting because most span info is lost
 // in the lowered form.
@@ -68,8 +68,8 @@ impl<W: Write + Seek> DynWriteSeek for W {}
 ///
 /// Implements [`BinRead`] with automatic handling of diagnostics.
 pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
-    pub diagnostics: &'a DiagnosticEmitter,
-    root_loc: unspanned::WhileReading,
+    /// Emitter with no additional context beyond the filename.
+    root_emitter: unspanned::WhileReading<'a>,
     reader: R,
 }
 
@@ -77,8 +77,7 @@ pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
 ///
 /// Implements [`BinWrite`] with automatic handling of diagnostics.
 pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
-    pub diagnostics: &'a DiagnosticEmitter,
-    root_loc: unspanned::WhileWriting,
+    root_emitter: unspanned::WhileWriting<'a>,
     writer: W,
 }
 
@@ -86,38 +85,38 @@ pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
 // from/to inner
 
 impl<'a, R: Read + Seek + 'a> BinReader<'a, R> {
-    pub fn from_reader(diagnostics: &'a DiagnosticEmitter, filename: String, reader: R) -> Self {
-        let root_loc = unspanned::WhileReading(filename);
-        BinReader { diagnostics, root_loc, reader }
+    pub fn from_reader(diagnostics: &'a DiagnosticEmitter, filename: &str, reader: R) -> Self {
+        let emitter = unspanned::while_reading(filename, diagnostics);
+        BinReader { root_emitter: emitter, reader }
     }
 
     pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, R2> {
-        let BinReader { diagnostics, root_loc, reader } = self;
-        BinReader { diagnostics, root_loc, reader: func(reader) }
+        let BinReader { root_emitter: emitter, reader } = self;
+        BinReader { root_emitter: emitter, reader: func(reader) }
     }
     pub fn into_inner(self) -> R { self.reader }
 }
 
 impl<'a, W: Write + Seek + 'a> BinWriter<'a, W> {
-    pub fn from_writer(diagnostics: &'a DiagnosticEmitter, filename: String, writer: W) -> Self {
-        let root_loc = unspanned::WhileWriting(filename);
-        BinWriter { diagnostics, root_loc, writer }
+    pub fn from_writer(diagnostics: &'a DiagnosticEmitter, filename: &str, writer: W) -> Self {
+        let emitter = unspanned::while_writing(filename, diagnostics);
+        BinWriter { root_emitter: emitter, writer }
     }
 
     pub fn map_writer<W2: Write + Seek + 'a>(self, func: impl FnOnce(W) -> W2) -> BinWriter<'a, W2> {
-        let BinWriter { diagnostics, root_loc, writer } = self;
-        BinWriter { diagnostics, root_loc, writer: func(writer) }
+        let BinWriter { root_emitter: emitter, writer } = self;
+        BinWriter { root_emitter: emitter, writer: func(writer) }
     }
     pub fn into_inner(self) -> W { self.writer }
 }
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn root_loc(&self) -> impl unspanned::Annotate { self.root_loc.clone() }
+    pub fn emitter(&self) -> impl UnspannedEmitter + 'a { self.root_emitter.clone() }
     pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
 }
 
 impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
-    pub fn root_loc(&self) -> impl unspanned::Annotate { self.root_loc.clone() }
+    pub fn emitter(&self) -> impl UnspannedEmitter + 'a { self.root_emitter.clone() }
     pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
 }
 
@@ -134,7 +133,7 @@ impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
         let path_string = path.display().to_string();
         let bytes = fs::read(path).map_err(|e| diagnostics.emit(error!("while reading file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_reader(diagnostics, path_string, io::Cursor::new(bytes)))
+        Ok(Self::from_reader(diagnostics, &path_string, io::Cursor::new(bytes)))
     }
 }
 
@@ -146,7 +145,7 @@ impl<'a> BinReader<'a, fs::File> {
         let file = fs::File::open(path)
             .map_err(|e| diagnostics.emit(error!("while opening file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_reader(diagnostics, path_string, file))
+        Ok(Self::from_reader(diagnostics, &path_string, file))
     }
 }
 
@@ -167,22 +166,7 @@ impl<'a> BinWriter<'a, fs::File> {
         let file = fs::File::create(path)
             .map_err(|e| diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_writer(diagnostics, path_string, file))
-    }
-}
-
-// ---------------
-// error reporting
-
-impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn emit(&self, errors: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
-        self.diagnostics.emit(errors)
-    }
-}
-
-impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
-    pub fn emit(&self, errors: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
-        self.diagnostics.emit(errors)
+        Ok(Self::from_writer(diagnostics, &path_string, file))
     }
 }
 
@@ -278,12 +262,12 @@ pub trait BinRead {
 }
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn expect_magic(&mut self, loc: &impl unspanned::Annotate, magic: &str) -> ReadResult<()> {
+    pub fn expect_magic(&mut self, emitter: &impl UnspannedEmitter, magic: &str) -> ReadResult<()> {
         let mut read_bytes = vec![0; magic.len()];
         self.read_exact(&mut read_bytes)?;
 
         if read_bytes != magic.as_bytes() {
-            return Err(self.emit(error!("{}{}", loc, magic)));
+            return Err(emitter.emit(error!("failed to find magic: '{}'", magic)));
         }
         Ok(())
     }
@@ -366,7 +350,9 @@ impl<'a, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, R> {
     type Reader = R;
 
     fn _bin_read_io_error(&mut self, err: io::Error) -> Self::Err {
-        self.emit(error!("{}{}", self.root_loc, err))
+        // This deliberately uses the root emitter to print just the filename (without any more context) since
+        // it's for things like access errors and EoF errors.
+        self.root_emitter.emit(error!("{}{}", self.root_emitter, err))
     }
     fn _bin_read_reader(&mut self) -> &mut Self::Reader { &mut self.reader }
 }
@@ -376,7 +362,9 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWrite for BinWriter<'a, W> {
     type Writer = W;
 
     fn _bin_write_io_error(&mut self, err: io::Error) -> Self::Err {
-        self.emit(error!("{}{}", self.root_loc, err))
+        // This deliberately uses the root emitter to print just the filename (without any more context) since
+        // it's for things like access errors and EoF errors.
+        self.root_emitter.emit(error!("{}{}", self.root_emitter, err))
     }
     fn _bin_write_writer(&mut self) -> &mut Self::Writer { &mut self.writer }
 }

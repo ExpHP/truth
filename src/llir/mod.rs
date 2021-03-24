@@ -4,7 +4,8 @@ use enum_map::EnumMap;
 
 use crate::ast;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
-use crate::error::{CompileError, unspanned};
+use crate::diagnostic::UnspannedEmitter;
+use crate::error::{CompileError};
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
@@ -134,7 +135,7 @@ fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
 #[inline(never)]
 pub fn read_instrs(
     r: &mut BinReader,
-    loc: &impl unspanned::Annotate,
+    emitter: &impl UnspannedEmitter,
     format: &dyn InstrFormat,
     starting_offset: u64,
     end_offset: Option<u64>,
@@ -142,8 +143,8 @@ pub fn read_instrs(
     let mut script = vec![];
     let mut offset = starting_offset;
     for index in 0.. {
-        let instr = loc.chain_with(|f| write!(f, "in instruction {}", index), |loc| {
-            format.read_instr(r, loc)
+        let instr = emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
+            format.read_instr(r, emitter)
         })?;
         if let Some(instr) = instr {
             offset += format.instr_size(&instr) as u64;
@@ -153,11 +154,11 @@ pub fn read_instrs(
                 match offset.cmp(&end_offset) {
                     std::cmp::Ordering::Less => {},
                     std::cmp::Ordering::Equal => {
-                        r.emit(warning!("{}missing end-of-script marker will be added on recompilation", loc)).ignore();
+                        emitter.emit(warning!("missing end-of-script marker will be added on recompilation")).ignore();
                         break;
                     },
                     std::cmp::Ordering::Greater => {
-                        return Err(r.emit(error!("{}script read past expected end at offset {:#x} (we're now at offset {:#x}!)", loc, end_offset, offset)));
+                        return Err(emitter.emit(error!("script read past expected end at offset {:#x} (we're now at offset {:#x}!)", end_offset, offset)));
                     },
                 }
             }
@@ -172,17 +173,17 @@ pub fn read_instrs(
 #[inline(never)]
 pub fn write_instrs(
     f: &mut BinWriter,
-    loc: &impl unspanned::Annotate,
+    emitter: &impl UnspannedEmitter,
     format: &dyn InstrFormat,
     instrs: &[RawInstr],
 ) -> WriteResult {
     for (index, instr) in instrs.iter().enumerate() {
-        loc.chain_with(|f| write!(f, "in instruction {}", index), |loc| {
-            format.write_instr(f, loc, instr)
+        emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
+            format.write_instr(f, emitter, instr)
         })?;
     }
-    loc.chain_with(|f| write!(f, "writing script end marker"), |loc| {
-        format.write_terminal_instr(f, loc)
+    emitter.chain_with(|f| write!(f, "writing script end marker"), |emitter| {
+        format.write_terminal_instr(f, emitter)
     })
 }
 
@@ -305,13 +306,13 @@ pub trait InstrFormat {
     ///
     /// Should return `None` when it reaches the marker that indicates the end of the script.
     /// When this occurs, it may leave the `Cursor` in an indeterminate state.
-    fn read_instr(&self, f: &mut BinReader, loc: &dyn unspanned::Annotate) -> ReadResult<Option<RawInstr>>;
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>>;
 
     /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut BinWriter, loc: &dyn unspanned::Annotate, instr: &RawInstr) -> WriteResult;
+    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
-    fn write_terminal_instr(&self, f: &mut BinWriter, loc: &dyn unspanned::Annotate) -> WriteResult;
+    fn write_terminal_instr(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter) -> WriteResult;
 
     // ---------------------------------------------------
     // Special purpose functions only overridden by a few formats
@@ -363,9 +364,9 @@ impl InstrFormat for TestFormat {
     }
 
     fn instr_header_size(&self) -> usize { 4 }
-    fn read_instr(&self, _: &mut BinReader, _: &dyn unspanned::Annotate) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_instr(&self, _: &mut BinWriter, _: &dyn unspanned::Annotate, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn unspanned::Annotate) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
+    fn read_instr(&self, _: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_instr(&self, _: &mut BinWriter, _: &dyn UnspannedEmitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
     fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
         self.anti_scratch_opcode == Some(opcode)

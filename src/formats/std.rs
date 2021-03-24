@@ -2,7 +2,8 @@ use indexmap::IndexMap;
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::error::{CompileError, SimpleError, ErrorReported, unspanned};
+use crate::diagnostic::UnspannedEmitter;
+use crate::error::{CompileError, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
@@ -70,13 +71,13 @@ impl StdFile {
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        let loc = w.root_loc();
-        write_std(w, &loc, &*game_format(game), self)
+        let emitter = w.emitter();
+        write_std(w, &emitter, &*game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
-        let loc = r.root_loc();
-        read_std(r, &loc, &*game_format(game))
+        let emitter = r.emitter();
+        read_std(r, &emitter, &*game_format(game))
     }
 }
 
@@ -338,7 +339,7 @@ fn compile_std(
 
 // =============================================================================
 
-fn read_std(reader: &mut BinReader, loc: &impl unspanned::Annotate, format: &dyn FileFormat) -> ReadResult<StdFile> {
+fn read_std(reader: &mut BinReader, emitter: &impl UnspannedEmitter, format: &dyn FileFormat) -> ReadResult<StdFile> {
     let start_pos = reader.pos()?;
 
     let num_objects = reader.read_u16()? as usize;
@@ -346,7 +347,7 @@ fn read_std(reader: &mut BinReader, loc: &impl unspanned::Annotate, format: &dyn
     let instances_offset = reader.read_u32()? as u64;
     let script_offset = reader.read_u32()? as u64;
     let unknown = reader.read_u32()?;
-    let extra = format.read_extra(reader, loc)?;
+    let extra = format.read_extra(reader, emitter)?;
 
     let object_offsets = (0..num_objects).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
     let objects = (0..num_objects)
@@ -356,8 +357,8 @@ fn read_std(reader: &mut BinReader, loc: &impl unspanned::Annotate, format: &dyn
             reader.seek_to(start_pos + object_offsets[i] as u64)?;
 
             let expected_id = i;
-            let value = loc.chain_with(|f| write!(f, "object at index {}", i), |loc| {
-                read_object(reader, loc, expected_id)
+            let value = emitter.chain_with(|f| write!(f, "object at index {}", i), |emitter| {
+                read_object(reader, emitter, expected_id)
             })?;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
@@ -366,21 +367,21 @@ fn read_std(reader: &mut BinReader, loc: &impl unspanned::Annotate, format: &dyn
     let instances = {
         reader.seek_to(start_pos + instances_offset)?;
         let mut vec = vec![];
-        while let Some(instance) = read_instance(reader, loc, &objects)? {
+        while let Some(instance) = read_instance(reader, emitter, &objects)? {
             vec.push(instance);
         }
         vec
     };
 
     reader.seek_to(start_pos + script_offset)?;
-    let script = llir::read_instrs(reader, loc, format.instr_format(), 0, None)?;
+    let script = llir::read_instrs(reader, emitter, format.instr_format(), 0, None)?;
 
     Ok(StdFile { unknown, extra, objects, instances, script })
 }
 
 fn write_std(
     f: &mut BinWriter,
-    loc: &impl unspanned::Annotate,
+    emitter: &impl UnspannedEmitter,
     format: &dyn FileFormat,
     std: &StdFile,
 ) -> WriteResult {
@@ -396,7 +397,7 @@ fn write_std(
 
     f.write_u32(std.unknown)?;
 
-    format.write_extra(f, &std.extra)?;
+    format.write_extra(f, emitter, &std.extra)?;
 
     let object_offsets_pos = f.pos()?;
     for _ in &std.objects {
@@ -406,19 +407,19 @@ fn write_std(
     let mut object_offsets = vec![];
     for (object_id, object) in std.objects.values().enumerate() {
         object_offsets.push(f.pos()? - start_pos);
-        write_object(f, loc, &*format, object_id, object)?;
+        write_object(f, emitter, &*format, object_id, object)?;
     }
 
     let instances_offset = f.pos()? - start_pos;
     for instance in &std.instances {
-        write_instance(f, instance, &std.objects)?;
+        write_instance(f, emitter, instance, &std.objects)?;
     }
     write_terminal_instance(f)?;
 
     let instr_format = format.instr_format();
 
     let script_offset = f.pos()? - start_pos;
-    llir::write_instrs(f, loc, instr_format, &std.script)?;
+    llir::write_instrs(f, emitter, instr_format, &std.script)?;
 
     let end_pos = f.pos()?;
     f.seek_to(instances_offset_pos)?;
@@ -433,15 +434,15 @@ fn write_std(
     Ok(())
 }
 
-fn read_string_128(r: &mut BinReader, loc: &dyn unspanned::Annotate) -> ReadResult<Sp<String>> {
+fn read_string_128(r: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<Sp<String>> {
     r.read_cstring_masked_exact(128, 0x00)?
         .decode(DEFAULT_ENCODING).map(|x| sp!(x))
-        .map_err(|e| r.emit(error!("{}{}", loc, e)))
+        .map_err(|e| emitter.emit_one(error_d!("{}", e)))
 }
-fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, s: &Sp<S>) -> WriteResult {
-    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| f.diagnostics.emit(e))?;
+fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, s: &Sp<S>) -> WriteResult {
+    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| emitter.emit_one(e))?;
     if encoded.len() >= 128 {
-        return Err(f.diagnostics.emit(error!(
+        return Err(emitter.emit_one(error_d!(
             message("string too long for STD header"),
             primary(s, "{} bytes (max allowed: 127)", encoded.len()),
         )));
@@ -450,34 +451,34 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, s: &Sp<S>) -> WriteResult 
     Ok(())
 }
 
-fn read_object(f: &mut BinReader, loc: &impl unspanned::Annotate, expected_id: usize) -> ReadResult<Object> {
+fn read_object(f: &mut BinReader, emitter: &impl UnspannedEmitter, expected_id: usize) -> ReadResult<Object> {
     let id = f.read_u16()?;
     if id as usize != expected_id {
-        f.diagnostics.emit(warning!("{}object has non-sequential id (expected {}, got {})", loc, expected_id, id)).ignore();
+        emitter.emit(warning!("object has non-sequential id (expected {}, got {})", expected_id, id)).ignore();
     }
 
     let unknown = f.read_u16()?;
     let pos = f.read_f32s_3()?;
     let size = f.read_f32s_3()?;
     let mut quads = vec![];
-    while let Some(quad) = read_quad(f, loc)? {
+    while let Some(quad) = read_quad(f, emitter)? {
         quads.push(quad);
     }
     Ok(Object { unknown, pos, size, quads })
 }
 
-fn write_object(f: &mut BinWriter, loc: &impl unspanned::Annotate, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
+fn write_object(f: &mut BinWriter, emitter: &impl UnspannedEmitter, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
     f.write_u16(id as u16)?;
     f.write_u16(x.unknown)?;
     f.write_f32s(&x.pos)?;
     f.write_f32s(&x.size)?;
     for quad in &x.quads {
-        write_quad(f, loc, format, quad)?;
+        write_quad(f, emitter, format, quad)?;
     }
     write_terminal_quad(f)
 }
 
-fn read_quad(f: &mut BinReader, loc: &impl unspanned::Annotate) -> ReadResult<Option<Quad>> {
+fn read_quad(f: &mut BinReader, emitter: &impl UnspannedEmitter) -> ReadResult<Option<Quad>> {
     let kind = f.read_i16()?;
     let size = f.read_u16()?;
     match (kind, size) {
@@ -485,15 +486,15 @@ fn read_quad(f: &mut BinReader, loc: &impl unspanned::Annotate) -> ReadResult<Op
         (0, 0x1c) => {},
         (1, 0x24) => {},
         (-1, _) | (0, _) | (1, _) => {
-            return Err(f.emit(error!("{}unexpected size for type {} quad: {:#x}", loc, kind, size)));
+            return Err(emitter.emit(error!("unexpected size for type {} quad: {:#x}", kind, size)));
         },
-        _ => return Err(f.emit(error!("{}unknown quad type: {}", loc, kind))),
+        _ => return Err(emitter.emit(error!("unknown quad type: {}", kind))),
     };
 
     let anm_script = f.read_u16()?;
     match f.read_u16()? {
         0 => {},  // This word is zero in the file, and used to store an index in-game.
-        s => return Err(f.emit(warning!("{}unexpected data in quad index field: {:#04x}", loc, s))),
+        s => return Err(emitter.emit(warning!("unexpected data in quad index field: {:#04x}", s))),
     };
 
     Ok(Some(Quad {
@@ -513,7 +514,7 @@ fn read_quad(f: &mut BinReader, loc: &impl unspanned::Annotate) -> ReadResult<Op
     }))
 }
 
-fn write_quad(f: &mut BinWriter, loc: &impl unspanned::Annotate, format: &dyn FileFormat, quad: &Quad) -> WriteResult {
+fn write_quad(f: &mut BinWriter, emitter: &impl UnspannedEmitter, format: &dyn FileFormat, quad: &Quad) -> WriteResult {
     let (kind, size) = match quad.extra {
         QuadExtra::Rect { .. } => (0, 0x1c),
         QuadExtra::Strip { .. } => (1, 0x24),
@@ -530,7 +531,7 @@ fn write_quad(f: &mut BinWriter, loc: &impl unspanned::Annotate, format: &dyn Fi
         QuadExtra::Strip { start, end, width } => {
             if !format.has_strips() {
                 // FIXME: Could be better with a span, maybe check earlier
-                f.emit(warning!("{}'strip' quads can only be used in TH08 and TH09!", loc)).ignore();
+                emitter.emit(warning!("'strip' quads can only be used in TH08 and TH09!")).ignore();
             }
             f.write_f32s(&start)?;
             f.write_f32s(&end)?;
@@ -546,7 +547,7 @@ fn write_terminal_quad(f: &mut BinWriter) -> WriteResult {
 }
 
 
-fn read_instance(f: &mut BinReader, loc: &impl unspanned::Annotate, objects: &IndexMap<Sp<Ident>, Object>) -> ReadResult<Option<Instance>> {
+fn read_instance(f: &mut BinReader, emitter: &impl UnspannedEmitter, objects: &IndexMap<Sp<Ident>, Object>) -> ReadResult<Option<Instance>> {
     let object_id = f.read_u16()?;
     let unknown = f.read_u16()?;
     if object_id == 0xffff {
@@ -554,16 +555,16 @@ fn read_instance(f: &mut BinReader, loc: &impl unspanned::Annotate, objects: &In
     }
     let object = match objects.get_index(object_id as usize) {
         Some((ident, _)) => ident.clone(),
-        None => return Err(f.emit(error!("{}object index too large! ({}, but there are only {} objects)", loc, object_id, objects.len()))),
+        None => return Err(emitter.emit(error!("object index too large! ({}, but there are only {} objects)", object_id, objects.len()))),
     };
     let pos = f.read_f32s_3()?;
     Ok(Some(Instance { object, unknown, pos }))
 }
 
-fn write_instance(f: &mut BinWriter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
+fn write_instance(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
     match objects.get_index_of(&inst.object) {
         Some(object_index) => f.write_u16(object_index as u16)?,
-        None => return Err(f.emit(error!(
+        None => return Err(emitter.emit_one(error_d!(
             message("No object named {}", inst.object),
             primary(&inst.object, "not an object"),
         ))),
@@ -628,8 +629,8 @@ struct FileFormat10 {
 trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
-    fn read_extra(&self, f: &mut BinReader, loc: &dyn unspanned::Annotate) -> ReadResult<StdExtra>;
-    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> WriteResult;
+    fn read_extra(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<StdExtra>;
+    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, x: &StdExtra) -> WriteResult;
     fn instr_format(&self) -> &dyn InstrFormat;
     fn has_strips(&self) -> bool;
 }
@@ -652,10 +653,10 @@ impl FileFormat for FileFormat06 {
         }
     }
 
-    fn read_extra(&self, f: &mut BinReader, loc: &dyn unspanned::Annotate) -> ReadResult<StdExtra> {
-        let stage_name = read_string_128(f, loc)?;
-        let bgm_names = (0..4).map(|_| read_string_128(f, loc)).collect::<Result<Vec<_>, _>>()?;
-        let bgm_paths = (0..4).map(|_| read_string_128(f, loc)).collect::<Result<Vec<_>, _>>()?;
+    fn read_extra(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<StdExtra> {
+        let stage_name = read_string_128(f, emitter)?;
+        let bgm_names = (0..4).map(|_| read_string_128(f, emitter)).collect::<Result<Vec<_>, _>>()?;
+        let bgm_paths = (0..4).map(|_| read_string_128(f, emitter)).collect::<Result<Vec<_>, _>>()?;
         let mut bgms = bgm_names.into_iter().zip(bgm_paths).map(|(name, path)| Std06Bgm { name, path });
         Ok(StdExtra::Th06 {
             stage_name,
@@ -663,14 +664,14 @@ impl FileFormat for FileFormat06 {
         })
     }
 
-    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> WriteResult {
+    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th06 { stage_name, bgm } => {
-                write_string_128(f, stage_name)?;
+                write_string_128(f, emitter, stage_name)?;
                 let bgm_names = bgm.iter().map(|Std06Bgm { name, .. }| name);
                 let bgm_paths = bgm.iter().map(|Std06Bgm { path, .. }| path);
                 for s in bgm_names.chain(bgm_paths) {
-                    write_string_128(f, s)?;
+                    write_string_128(f, emitter, s)?;
                 }
             },
             StdExtra::Th10 { .. } => unreachable!(),
@@ -696,13 +697,13 @@ impl FileFormat for FileFormat10 {
         }
     }
 
-    fn read_extra(&self, f: &mut BinReader, loc: &dyn unspanned::Annotate) -> ReadResult<StdExtra> {
-        Ok(StdExtra::Th10 { anm_path: read_string_128(f, loc)? })
+    fn read_extra(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<StdExtra> {
+        Ok(StdExtra::Th10 { anm_path: read_string_128(f, emitter)? })
     }
 
-    fn write_extra(&self, f: &mut BinWriter, x: &StdExtra) -> WriteResult {
+    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, x: &StdExtra) -> WriteResult {
         match x {
-            StdExtra::Th10 { anm_path } => write_string_128(f, anm_path)?,
+            StdExtra::Th10 { anm_path } => write_string_128(f, emitter, anm_path)?,
             StdExtra::Th06 { .. } => unreachable!(),
         };
         Ok(())
@@ -729,7 +730,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn unspanned::Annotate) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let argsize = f.read_u16()?;
@@ -742,7 +743,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn unspanned::Annotate, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(12)?;  // this version writes argsize rather than instr size
@@ -751,7 +752,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn unspanned::Annotate) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
         for _ in 0..5 {
             f.write_i32(-1)?;
         }
@@ -780,7 +781,7 @@ impl InstrFormat for InstrFormat10 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn unspanned::Annotate) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
@@ -792,7 +793,7 @@ impl InstrFormat for InstrFormat10 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn unspanned::Annotate, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
@@ -800,7 +801,7 @@ impl InstrFormat for InstrFormat10 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn unspanned::Annotate) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
         for _ in 0..5 {
             f.write_i32(-1)?;
         }
