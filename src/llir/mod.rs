@@ -5,7 +5,6 @@ use enum_map::EnumMap;
 use crate::ast;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, UnspannedEmitter};
-use crate::error::{CompileError};
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
@@ -117,8 +116,8 @@ impl From<String> for SimpleArg {
     fn from(x: String) -> SimpleArg { SimpleArg { value: ScalarValue::String(x), is_reg: false } }
 }
 
-fn unsupported(span: &crate::pos::Span, what: &str) -> CompileError {
-    error!(
+fn unsupported(span: &crate::pos::Span, what: &str) -> Diagnostic {
+    error_d!(
         message("feature not supported by format"),
         primary(span, "{} not supported by format", what),
     )

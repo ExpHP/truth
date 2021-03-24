@@ -569,8 +569,9 @@ mod tests {
 
     #[track_caller]
     fn str_meta(s: &str) -> Sp<Meta> {
-        let mut files = crate::pos::Files::new();
-        files.parse("<input>", s.as_bytes()).unwrap()
+        let scope = crate::Scope::new();
+        let mut truth = crate::Builder::new().build(&scope);
+        truth.parse("<input>", s.as_bytes()).unwrap()
     }
 
     #[derive(Debug, PartialEq, Eq)]

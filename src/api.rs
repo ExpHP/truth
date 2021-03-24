@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::ast;
 use crate::game::Game;
-use crate::diagnostic::DiagnosticEmitter;
+use crate::diagnostic::{DiagnosticEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, Scope};
 use crate::io::{BinReader, BinWriter};
@@ -83,7 +83,20 @@ impl Truth<'_> {
     }
 
     pub fn read_script(&mut self, path: &Path) -> Result<ast::Script, ErrorReported> {
-        self.ctx.diagnostics.files.read_file(&path).map_err(|e| self.ctx.diagnostics.emit(e)).map(|sp| sp.value)
+        let bytes = crate::io::fs_read(path).map_err(|e| self.emit(e))?;
+        self.parse(&path.to_string_lossy(), &bytes).map(|x| x.value)
+    }
+
+    /// Parse a piece of text into any parse-able AST node.
+    ///
+    /// The name does not need to be a valid path or even unique; for instance, it is common to use
+    /// the name `"<input>"` for source text not associated with any file.
+    pub fn parse<A: crate::parse::Parse>(&mut self, display_name: &str, text: &[u8]) -> Result<crate::pos::Sp<A>, ErrorReported> {
+        let (file_id, source_str) = self.ctx.diagnostics.files.add(display_name, text).map_err(|e| self.emit(e))?;
+        let mut state = crate::parse::State::new();
+
+        A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, source_str))
+            .map_err(|e| self.emit(e))
     }
 }
 
@@ -182,7 +195,7 @@ impl Truth<'_> {
 
 /// # Diagnostics
 impl Truth<'_> {
-    pub fn emit(&self, e: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
+    pub fn emit(&self, e: impl IntoDiagnostics) -> ErrorReported {
         self.ctx.diagnostics.emit(e)
     }
 }
@@ -192,14 +205,5 @@ impl Truth<'_> {
 /// Sometimes tests want finer control over what's happening than any API we're willing to commit to yet.
 impl<'ctx> Truth<'ctx> {
     #[doc(hidden)]
-    pub fn parse<A: crate::parse::Parse>(&mut self, display_name: &str, text: &[u8]) -> Result<crate::pos::Sp<A>, ErrorReported> {
-        self.ctx.diagnostics.files.parse::<A>(display_name, text)
-            .map_err(|e| self.emit(e))
-    }
-
-    #[doc(hidden)]
     pub fn ctx(&mut self) -> &mut CompilerContext<'ctx> { &mut self.ctx }
-
-    #[doc(hidden)]
-    pub fn diagnostics(&self) -> &crate::diagnostic::DiagnosticEmitter { &self.ctx.diagnostics }
 }

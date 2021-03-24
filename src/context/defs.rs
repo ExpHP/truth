@@ -4,7 +4,7 @@ use anyhow::Context;
 
 use crate::ast;
 use crate::context::CompilerContext;
-use crate::error::{CompileError, SimpleError};
+use crate::error::{ErrorReported, SimpleError};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
@@ -611,11 +611,11 @@ impl Signature {
         signature_from_func_ast(ty_keyword, params)
     }
 
-    pub(crate) fn validate(&self, ctx: &CompilerContext) -> Result<(), CompileError> {
+    pub(crate) fn validate(&self, ctx: &CompilerContext) -> Result<(), ErrorReported> {
         self._check_non_optional_after_optional(ctx)
     }
 
-    fn _check_non_optional_after_optional(&self, ctx: &CompilerContext) -> Result<(), CompileError> {
+    fn _check_non_optional_after_optional(&self, ctx: &CompilerContext) -> Result<(), ErrorReported> {
         let mut first_optional = None;
         for param in self.params.iter() {
             if param.default.is_some() {
@@ -623,11 +623,11 @@ impl Signature {
             } else if let Some(optional) = first_optional {
                 let opt_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(optional)).expect("func params must have spans");
                 let non_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
-                return Err(error!(
+                return Err(ctx.diagnostics.emit(error!(
                     message("invalid function signature"),
                     primary(non_span, "non-optional parameter after optional"),
                     secondary(opt_span, "optional parameter"),
-                ));
+                )));
             }
         }
         Ok(())

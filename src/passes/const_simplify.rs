@@ -19,16 +19,16 @@
 //! use truth::context::CompilerContext;
 //! use truth::passes;
 //!
-//! let mut files = Files::new();
-//! let mut ctx = CompilerContext::new();
+//! let scope = truth::Scope::new();
+//! let mut truth = truth::Builder::new().build(&scope);
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * %REG[100] : 4.0";
-//! let mut expr: Sp<ast::Expr> = files.parse("<input>", text).unwrap();
+//! let mut expr: Sp<ast::Expr> = truth.parse("<input>", text).unwrap();
 //!
 //! passes::const_simplify::run(&mut expr, &ctx).expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * %REG[100]";
-//! let expected: Sp<ast::Expr> = files.parse("<input>", text_simplified).unwrap();
+//! let expected: Sp<ast::Expr> = truth.parse("<input>", text_simplified).unwrap();
 //! assert_eq!(expr, expected);
 //! ```
 

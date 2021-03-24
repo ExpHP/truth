@@ -5,10 +5,8 @@
 use std::fmt;
 use std::borrow::Cow;
 use std::num::NonZeroU32;
-use std::path::Path;
 
 use crate::diagnostic::Diagnostic;
-use crate::parse::Parse;
 use crate::parse::lexer;
 
 pub type FileId = Option<NonZeroU32>;
@@ -80,8 +78,7 @@ macro_rules! sp_pat {
 /// An implementation of [`codespan_reporting::files::Files`] for `truth`.
 ///
 /// This is the type responsible for keeping track of source text so that snippets can be displayed
-/// in diagnostic error messages.  It provides helper methods for parsing text in a manner which
-/// automatically records that text for these purposes.
+/// in diagnostic error messages.
 #[derive(Debug, Clone)]
 pub struct Files {
     inner: cs_files::SimpleFiles<String, String>,
@@ -91,11 +88,11 @@ impl Files {
     pub fn new() -> Self { Files { inner: cs_files::SimpleFiles::new() } }
 
     /// Add a piece of source text to the database, and give it a name (usually a filepath)
-    /// which will appear in error messages.  Also validate the source as UTF-8 with a fancy error.
+    /// which will appear in error messages.  Also validate the source as UTF-8.
     ///
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
-    pub fn add<'a>(&mut self, name: &str, source: &'a [u8]) -> Result<(FileId, &'a str), Vec<Diagnostic>> {
+    pub fn add<'a>(&mut self, name: &str, source: &'a [u8]) -> Result<(FileId, &'a str), Diagnostic> {
         // FIXME number of full scans across text can probably be reduced here
         let file_id = Self::shift_file_id(self.inner.add(
             name.to_owned(),
@@ -103,40 +100,14 @@ impl Files {
         ));
         let str = std::str::from_utf8(source).map_err(|err| {
             let pos = err.valid_up_to();
-            vec![error_d!(
+            error_d!(
                 message("invalid UTF-8"),
                 primary(Span::new(file_id, BytePos(pos as _), BytePos(pos as _)), "not valid UTF-8"),
                 note("truth expects all input script files to be UTF-8 regardless of the output encoding"),
-            )]
+            )
         })?;
 
         Ok((file_id, str))
-    }
-
-    /// Read a file from the filesystem and automatically parse it into an AST type.
-    ///
-    /// This is just a wrapper around [`Self::parse`] and [`std::fs::read`] with suitable
-    /// handling of errors.
-    pub fn read_file<T: Parse>(&mut self, path: &Path)
-        -> Result<Sp<T>, Vec<Diagnostic>>
-    {
-        let bytes = crate::io::fs_read(path).map_err(|e| vec![e])?;
-        self.parse(&path.to_string_lossy(), &bytes)
-    }
-
-    /// Convenience method to parse a piece of code in a way that ensures that the `Span`s will
-    /// be available for diagnostic rendering.
-    ///
-    /// The name does not need to be a valid path or even unique; for instance, it is common to use
-    /// the name `"<input>"` for source text not associated with any file.
-    pub fn parse<T: Parse>(&mut self, filename: &str, source: &[u8])
-        -> Result<Sp<T>, Vec<Diagnostic>>
-    {
-        let (file_id, source_str) = self.add(filename, source.as_ref())?;
-        let mut state = crate::parse::State::new();
-
-        T::parse_stream(&mut state, lexer::Lexer::new(file_id, source_str))
-            .map_err(crate::diagnostic::IntoDiagnostics::into_diagnostics)
     }
 
     fn unshift_file_id(file_id: FileId) -> Result<usize, cs_files::Error> {
