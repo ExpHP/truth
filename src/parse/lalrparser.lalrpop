@@ -214,7 +214,7 @@ ItemFuncHeader: ast::Item = {
         "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
         => ast::Item::Func { qualifier, ty_keyword, ident, params, code: None },
 
-    Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> ! =>? Err(error_d!(
+    Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> ! =>? Err(error!(
         message("too many function qualifiers"),
         primary(second, "extra qualifier"),
     ).into()),
@@ -274,7 +274,7 @@ MetaBracedFields: meta::Fields = {
             let new_key_span = key.span;
             match map.entry(key) {
                 indexmap::map::Entry::Vacant(entry) => { entry.insert(value); },
-                indexmap::map::Entry::Occupied(entry) => return Err(error_d!(
+                indexmap::map::Entry::Occupied(entry) => return Err(error!(
                     message("duplicate metadata field '{}'", entry.key()),
                     primary(new_key_span, "duplicate key"),
                     // FIXME: OccupiedEntry::key currently gives the new key so we can't do this
@@ -393,7 +393,7 @@ StmtDeclarationListItem: (Sp<ast::Var>, Option<Sp<ast::Expr>>) = {
 ConstDeclarationListItem: (Sp<ast::Var>, Sp<ast::Expr>) = {
     <tuple:StmtDeclarationListItem> =>? match tuple {
         (var, Some(expr)) => Ok((var, expr)),
-        (var, None) => Err(error_d!(
+        (var, None) => Err(error!(
             message("uninitialized const var"),
             primary(var, "needs a value"),
         ).into()),
@@ -442,7 +442,7 @@ CondKeyword: ast::CondKeyword = {
 
 DifficultyLabel: ast::DifficultyLabel = {
     // TODO: Actually parse
-    <l: @L> <s:DIFFICULTY> <r: @R> =>? Err(error_d!(
+    <l: @L> <s:DIFFICULTY> <r: @R> =>? Err(error!(
         message("unsupported syntax"),
         primary(Span::from_locs(l, r), "difficulty flags not yet implemented"),
     ).into()),
@@ -587,7 +587,7 @@ ExprTerm: ast::Expr = {
 
     // This syntax is reserved.
     // The only reason we parse it right now is just to prove that adding it wouldn't make the grammar ambiguous.
-    <l: @L> <_v: Var> "[" <_e: Expr> "]" <r: @R> =>? Err(error_d!(
+    <l: @L> <_v: Var> "[" <_e: Expr> "]" <r: @R> =>? Err(error!(
         message("invalid operation"),
         primary(Span::from_locs(l, r), "array indexing is not a thing, sorry"),
     ).into()),
@@ -603,7 +603,7 @@ ExprCallParenArgs: Vec<Sp<ast::Expr>> = {
     <tup:ExprCallParenArgsWithPseudos> =>? {
         let (pseudos, args) = tup;
         match pseudos.len() {
-            0 => Err(error_d!(
+            0 => Err(error!(
                 message("unexpected pseudo-arg"),
                 primary(pseudos[0].tag_span(), "only permitted in instruction calls"),
             ).into()),
@@ -618,7 +618,7 @@ ExprCallParenArgsWithPseudos: (Vec<Sp<ast::PseudoArg>>, Vec<Sp<ast::Expr>>) = {
 
         let args = things.drain(pseudo_end..).map(|x| match x {
             util::Either::That(arg) => Ok(arg),
-            util::Either::This(pseudo) => Err(error_d!(
+            util::Either::This(pseudo) => Err(error!(
                 message("invalid pseudo-arg"),
                 primary(pseudo.tag_span(), "must come before other arguments"),
             )),
@@ -651,7 +651,7 @@ PseudoArgKind: ast::PseudoArgKind = {
             .map(|&(_, token)| token)
             .next().ok_or_else(|| {
                 let expected = PAIRS.iter().map(|x| x.0).collect::<Vec<_>>().join(", ");
-                error_d!(
+                error!(
                     message("invalid pseudo-arg"),
                     primary(Span::from_locs(l, r), "not a pseudo-arg"),
                     note("valid pseudo-args are: {}", expected),
@@ -680,7 +680,7 @@ LitString: ast::LitString = {
                             true => format!("'{}'", c),
                             false => format!("U+{:04x}", c as u32),
                         };
-                        return Err(error_d!(
+                        return Err(error!(
                             message("invalid escape character {}", escape),
                             primary(Span::from_locs(l, r), "contains invalid escape"),
                         ).into());
@@ -728,7 +728,7 @@ LitIntUnsigned: i32 = {
     <l: @L> <result: LitIntUnsigned_Result> <r: @R> =>? {
         // Note: Parsing numbers in the range 2^31..2^32 without overflow errors is deliberately supported
         result.map(|x: u32| x as i32)
-            .map_err(|e| error_d!(
+            .map_err(|e| error!(
                 message("bad integer literal"),
                 primary(Span::from_locs(l, r), "{}", e)
             ).into())
@@ -807,7 +807,7 @@ RawInsIdent: u16 = {
         assert!(ins_ident.starts_with("ins_"));
         let num_str = &ins_ident["ins_".len()..];
         if !CANONICAL_INT_RE.is_match(num_str) {
-            return Err(error_d!(
+            return Err(error!(
                 message("invalid instruction identifier"),
                 primary(Span::from_locs(l, r), "invalid instruction identifier"),
                 note(r#"identifiers beginning with 'ins_' must end in a canonically-formatted integer, e.g. 'ins_42'."#),
@@ -816,7 +816,7 @@ RawInsIdent: u16 = {
 
         num_str.parse()
             // this error is mostly for overflow
-            .map_err(|e| error_d!(
+            .map_err(|e| error!(
                 message("invalid instruction identifier"),
                 primary(Span::from_locs(l, r), "{}", e),
             ).into())
@@ -829,7 +829,7 @@ RawInsIdent: u16 = {
 #[inline]
 FuncTypeKeyword: ast::TypeKeyword = {
     <keyword:Sp<TypeKeyword>> =>? match keyword.value {
-        token![var] => Err(error_d!(
+        token![var] => Err(error!(
             message("var-typed function"),
             primary(keyword, "cannot be used on functions"),
         ).into()),
@@ -840,7 +840,7 @@ FuncTypeKeyword: ast::TypeKeyword = {
 #[inline]
 ConstVarTypeKeyword: ast::TypeKeyword = {
     <keyword:Sp<VarTypeKeyword>> =>? match keyword.value {
-        token![var] => return Err(error_d!(
+        token![var] => return Err(error!(
             message("illegal untyped const"),
             primary(keyword, "const vars must have a type"),
         ).into()),
@@ -851,7 +851,7 @@ ConstVarTypeKeyword: ast::TypeKeyword = {
 #[inline]
 LocalVarTypeKeyword: ast::TypeKeyword = {
     <keyword:Sp<VarTypeKeyword>> =>? match keyword.value {
-        token![string] => Err(error_d!(
+        token![string] => Err(error!(
             message("non-const string variable"),
             primary(keyword, "only possible for const vars"),
         ).into()),
@@ -862,7 +862,7 @@ LocalVarTypeKeyword: ast::TypeKeyword = {
 #[inline]
 VarTypeKeyword: ast::TypeKeyword = {
     <keyword:Sp<TypeKeyword>> =>? match keyword.value {
-        token![void] => Err(error_d!(
+        token![void] => Err(error!(
             message("void-typed variable"),
             primary(keyword, "variables must have a value"),
         ).into()),

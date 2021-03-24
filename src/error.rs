@@ -1,34 +1,4 @@
 use crate::pos::{FileId};
-use crate::diagnostic::Diagnostic;
-
-use codespan_reporting as cs;
-
-/// An error type that is intended to be pretty-printed through [`codespan_reporting`].
-///
-/// A [`CompileError`] may contain multiple errors.  It may even contain no errors!  This can
-/// happen if errors were already emitted.  Even a [`CompileError`] with no errors should be
-/// treated as a "failure".  (if you want to create an accumulator of errors where having no
-/// errors is considered to be a success, see [`ErrorStore`]).
-///
-/// **Do not use this type to hold non-fatal diagnostics.**
-/// Use [`Vec<Diagnostic>`][`Diagnostic`] instead.
-///
-/// There is no general recommendation regarding whether errors should be emitted immediately
-/// using [`DiagnosticEmitter`], or if they should be accumulated using [`Self::join`] and
-/// [`Self::append`] and returned en masse to the caller.  Usage of [`DiagnosticEmitter`] is a
-/// *requirement* for non-fatal diagnostics (i.e. warnings) with spans; however, many pieces of code
-/// in the compiler that don't need to generate warnings may prefer to return their errors, simply
-/// because this allows for somewhat looser coupling.
-///
-/// [`DiagnosticEmitter`]: [`crate::context::diagnostic::DiagnosticEmitter`]
-#[derive(thiserror::Error, Debug, Clone)]
-#[must_use = "A CompileError must be emitted or it will not be seen!"]
-// FIXME: We have to get rid of derive(Error) because now we use `impl Display` in places where it could be easy
-//        to accidentally supply CompileError
-#[error("a diagnostic wasn't formatted. This is a bug! The diagnostic was: {:?}", .diagnostics)]
-pub struct CompileError {
-    diagnostics: Vec<Diagnostic>,
-}
 
 /// A dummy error type with no payload.
 ///
@@ -53,89 +23,6 @@ impl ErrorReported {
     pub fn ignore(self) {}
 }
 
-impl CompileError {
-    /// Zips two CompileError results, combining the errors if they both fail.
-    pub fn join<A, B>(a: Result<A, CompileError>, b: Result<B, CompileError>) -> Result<(A, B), CompileError> {
-        match (a, b) {
-            (Ok(a), Ok(b)) => Ok((a, b)),
-            (Err(e), Ok(_)) => Err(e),
-            (Ok(_), Err(e)) => Err(e),
-            (Err(mut a), Err(b)) => {
-                a.append(b);
-                Err(a)
-            },
-        }
-    }
-}
-
-impl CompileError {
-    /// Create an empty [`CompileError`].  Even an empty [`CompileError`] is still an error!
-    pub fn new() -> CompileError {
-        CompileError { diagnostics: vec![] }
-    }
-
-    pub fn append(&mut self, mut other: CompileError) {
-        self.diagnostics.append(&mut other.diagnostics);
-    }
-
-    /// Drain all errors from this object and write them to the standard error stream.
-    ///
-    /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
-    /// nodes is required.
-    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
-    pub fn emit<'a>(&mut self, _files: &'a impl cs::files::Files<'a, FileId=FileId>) {
-        // use cs::term::termcolor as tc;
-        //
-        // if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
-        //     // use eprint! so that the test harness can capture it
-        //     let mut writer = tc::NoColor::new(vec![]);
-        //     self.emit_to_writer(&mut writer, files, &*TERM_CONFIG);
-        //     eprint!("{}", std::str::from_utf8(&writer.into_inner()).unwrap());
-        // } else {
-        //     // typical
-        //     let writer = tc::StandardStream::stderr(tc::ColorChoice::Auto);
-        //     self.emit_to_writer(&mut writer.lock(), files, &*TERM_CONFIG);
-        // }
-        panic!()
-    }
-
-    /// Drain all errors from this object and write them to some output terminal.
-    ///
-    /// In order to render spans correctly, the [`crate::Files`] instance used to parse AST
-    /// nodes is required.
-    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
-    pub fn emit_to_writer<'a>(
-        self,
-        _writer: &mut dyn cs::term::termcolor::WriteColor,
-        _files: &'a impl cs::files::Files<'a, FileId=FileId>,
-        _config: &cs::term::Config,
-    ) {
-        // for e in self.diagnostics.drain(..) {
-        //     cs::term::emit(writer, config, files, &e.imp)
-        //         .unwrap_or_else(|fmt_err| {
-        //             panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", e.imp, fmt_err)
-        //         });
-        // }
-        panic!();
-    }
-
-    /// Emit errors that contain no labels.
-    ///
-    /// It is a bug to call this when there is any possibility that the errors have labels.
-    /// It should only be used when reading e.g. binary files, which have no position info.
-    #[deprecated] // generate warnings to help us move things to DiagnosticEmitter
-    pub fn emit_nospans<'a>(&mut self) {
-        // // because there are no labels, we know the methods of the Files will never be used,
-        // // so we can use a dummy implementation.
-        // let result = self.emit(&crate::error::PanicFiles);
-        //
-        // // The only possible error here is an IO Error.  This would suggest STDERR is not writable,
-        // // which is hardly any reason to stop what we're doing, so just ignore all errors.
-        // drop(result);
-        panic!()
-    }
-}
-
 /// Error type used by parts of the codebase that don't have access to spans.
 ///
 /// These parts of the codebase use `anyhow` to produce a single, fatal error message that may
@@ -148,7 +35,7 @@ pub type SimpleError = anyhow::Error;
 /// An accumulator for errors that provides a straightforward way of converting to
 /// a `Result<T, CompileError>` based on whether any errors have occurred.
 #[derive(Debug, Clone)]
-pub struct ErrorStore<E = CompileError> {
+pub struct ErrorStore<E = ErrorReported> {
     errors: Option<E>,
 }
 
@@ -157,7 +44,6 @@ pub trait ErrorMerge {
     fn err_merge_append(&mut self, new_error: Self);
 }
 
-impl ErrorMerge for CompileError { fn err_merge_append(&mut self, new: CompileError) { self.append(new) } }
 impl ErrorMerge for ErrorReported { fn err_merge_append(&mut self, _: ErrorReported) {} }
 
 impl<E: ErrorMerge> ErrorStore<E> {
@@ -191,46 +77,6 @@ impl<E: ErrorMerge> ErrorStore<E> {
 }
 
 // -------------------------
-
-// needed by DiagnosticEmitter::emit
-impl crate::diagnostic::IntoDiagnostics for crate::error::CompileError {
-    fn into_diagnostics(self) -> Vec<Diagnostic> { self.diagnostics }
-}
-
-// -------------------------
-
-impl From<Diagnostic> for CompileError {
-    fn from(d: Diagnostic) -> Self { CompileError { diagnostics: vec![d] } }
-}
-
-impl From<Vec<Diagnostic>> for CompileError {
-    fn from(diagnostics: Vec<Diagnostic>) -> Self { CompileError { diagnostics } }
-}
-
-impl From<ErrorReported> for CompileError {
-    fn from(_: ErrorReported) -> Self { CompileError { diagnostics: vec![] } }
-}
-
-impl From<anyhow::Error> for CompileError {
-    fn from(e: anyhow::Error) -> CompileError {
-        error!(message("{:#}", e)).into()
-    }
-}
-
-impl From<std::io::Error> for CompileError {
-    #[track_caller]
-    fn from(e: std::io::Error) -> CompileError {
-        // obviously not ideal but it's better than sitting there with a vague "file not found"
-        // and no backtrace
-        panic!("{}", e)
-    }
-}
-
-impl From<crate::fmt::Error> for CompileError {
-    fn from(e: crate::fmt::Error) -> CompileError {
-        SimpleError::from(e).into()
-    }
-}
 
 /// Trait for running an iterator and continuing after an `Err` to collect more errors.
 pub trait GatherErrorIteratorExt {
@@ -268,6 +114,7 @@ where
 
 #[test]
 fn test_collect_with_recovery() {
+    let scope = crate::Scope::new();
     // straightforward usage
     let result = (0..10).map(|x| match x % 2 {
         0 => Ok(x),

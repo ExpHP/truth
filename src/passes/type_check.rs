@@ -640,7 +640,7 @@ impl ExprTypeChecker<'_, '_> {
         if types.0 == types.1 {
             Ok(types.0)
         } else {
-            let mut error = error_d!(
+            let mut error = error!(
                 message("type error"),
                 primary(spans.1, "{}", types.1.descr()),
                 secondary(spans.0, "{}", types.0.descr()),
@@ -677,7 +677,7 @@ impl ExprTypeChecker<'_, '_> {
         if ty == expected {
             Ok(())
         } else {
-            let mut error = error_d!(
+            let mut error = error!(
                 message("type error"),
                 primary(value_span, "{}", ty.descr()),
             );
@@ -696,7 +696,7 @@ impl ExprTypeChecker<'_, '_> {
             ScalarType::Int => Ok(()),
             ScalarType::Float => Ok(()),
             _ => {
-                let mut error = error_d!(
+                let mut error = error!(
                     message("type error"),
                     primary(value_span, "{}", ty.descr()),
                 );
@@ -713,7 +713,7 @@ impl ExprTypeChecker<'_, '_> {
     /// Reject void types.
     fn require_value(&self, ty: ExprType, cause: Span, span: Span) -> ImplResult<ScalarType> {
         ty.as_value_ty().ok_or_else(|| {
-            let mut error = error_d!(
+            let mut error = error!(
                 message("type error"),
                 primary(span, "void type"),
             );

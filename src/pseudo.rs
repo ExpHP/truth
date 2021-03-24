@@ -24,7 +24,7 @@ impl PseudoArgData {
                     let value: &Sp<ast::Expr> = &pseudo.value.value;
 
                     if let Some(prev) = $option.take() {
-                        return Err(error_d!(
+                        return Err(error!(
                             message("duplicate pseudo-arg"),
                             primary(value, "duplicate pseudo-arg"),
                             secondary(prev, "previously supplied here"),
@@ -34,7 +34,7 @@ impl PseudoArgData {
                     $option = Some({
                         value.$as_const_method()
                             .map(|const_value| sp!(value.span => const_value))
-                            .ok_or_else(|| error_d!(
+                            .ok_or_else(|| error!(
                                 message("non-const pseudo-arg"),
                                 primary(value, "non-const pseudo-arg"),
                             ))?
@@ -68,7 +68,7 @@ fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, Diagnostic> {
             'a'..='f' => (c as u32 as u8 - b'a' + 10),
             'A'..='F' => (c as u32 as u8 - b'A' + 10),
             '0'..='9' => (c as u32 as u8 - b'0'),
-            _ => return Err(error_d!(
+            _ => return Err(error!(
                 message("invalid character '{}' in blob literal", c),
                 primary(str, "invalid blob literal"),
             )),
@@ -81,14 +81,14 @@ fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, Diagnostic> {
     }
 
     if first_char.is_some() {
-        return Err(error_d!(
+        return Err(error!(
             message("odd number of hexadecimal digits in blob literal"),
             primary(str, "invalid blob literal"),
         ));
     }
 
     if out.len() % 4 != 0 {
-        return Err(error_d!(
+        return Err(error!(
             message("number of bytes in blob not divisible by 4 (remainder: {})", out.len() % 4),
             primary(str, "invalid blob literal"),
         ))

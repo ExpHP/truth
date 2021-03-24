@@ -33,7 +33,7 @@ pub use encoding_rs::SHIFT_JIS as DEFAULT_ENCODING;
 impl Encoded {
     pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, Diagnostic> {
         match enc.encode(str.value.as_ref()) {
-            (_, _, true) => Err(error_d!(
+            (_, _, true) => Err(error!(
                 message("string encoding error"),
                 primary(str, "cannot be encoded using '{}'", enc.name()),
             )),
@@ -126,7 +126,7 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
 /// Reads all contents of a file into memory.
 pub fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, Diagnostic> {
     let path = path.as_ref();
-    fs::read(path).map_err(|e| error_d!("while reading file '{}': {}", path.display(), e))
+    fs::read(path).map_err(|e| error!("while reading file '{}': {}", path.display(), e))
 }
 
 impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {

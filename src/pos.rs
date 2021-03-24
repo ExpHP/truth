@@ -100,7 +100,7 @@ impl Files {
         ));
         let str = std::str::from_utf8(source).map_err(|err| {
             let pos = err.valid_up_to();
-            error_d!(
+            error!(
                 message("invalid UTF-8"),
                 primary(Span::new(file_id, BytePos(pos as _), BytePos(pos as _)), "not valid UTF-8"),
                 note("truth expects all input script files to be UTF-8 regardless of the output encoding"),

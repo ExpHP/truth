@@ -117,7 +117,7 @@ impl From<String> for SimpleArg {
 }
 
 fn unsupported(span: &crate::pos::Span, what: &str) -> Diagnostic {
-    error_d!(
+    error!(
         message("feature not supported by format"),
         primary(span, "{} not supported by format", what),
     )
@@ -237,7 +237,7 @@ impl IntrinsicInstrs {
     pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, Diagnostic> {
         match self.intrinsic_opcodes.get(&intrinsic) {
             Some(&opcode) => Ok(opcode),
-            None => Err(error_d!(
+            None => Err(error!(
                 message("feature not supported by format"),
                 primary(span, "{} not supported in this game", descr),
             )),

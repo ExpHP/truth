@@ -73,18 +73,9 @@ macro_rules! _diagnostic {
     }};
 }
 
-/// Generates a [`crate::error::CompileError`] of severity `error`.
-///
-/// If you want to modify the error after the macro call (by dynamically adding labels/notes),
-/// try the [`crate::diagnostic::Diagnostic`] builder API instead.
+/// Generates a [`crate::diagnostic::Diagnostic`] of severity `error`.
 #[macro_export]
 macro_rules! error {
-    ($($arg:tt)+) => { $crate::error::CompileError::from($crate::_diagnostic!(@error, $($arg)+)) };
-}
-
-// TODO: Rename to error!
-#[macro_export]
-macro_rules! error_d {
     ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
 }
 
@@ -92,12 +83,4 @@ macro_rules! error_d {
 #[macro_export]
 macro_rules! warning {
     ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
-}
-
-/// Generates and immediately emits a `CompileError` of severity `warning` that has no labels.
-#[macro_export]
-macro_rules! fast_warning {
-    ($($fmt_arg:tt)+) => {{
-        $crate::warning!(message($($fmt_arg)+)).emit_nospans()
-    }};
 }

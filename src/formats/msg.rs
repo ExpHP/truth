@@ -70,7 +70,7 @@ fn decompile(
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
-    error_d!(
+    error!(
         message("feature not supported by format"),
         primary(span, "not supported by MSG files"),
     )

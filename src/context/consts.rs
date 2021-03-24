@@ -208,7 +208,7 @@ impl<'a> Evaluator<'a> {
 }
 
 pub fn non_const_error(non_const_span: Span) -> Diagnostic {
-    error_d!(
+    error!(
         message("const evaluation error"),
         primary(non_const_span, "non-const expression")
     )

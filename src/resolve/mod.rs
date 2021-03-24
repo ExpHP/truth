@@ -238,7 +238,7 @@ pub mod rib {
                         let local_kind = rib.noun();
                         let local_span = def.def_ident_span;
                         let item_kind = crossed_local_border.unwrap();
-                        return Err(error_d!(
+                        return Err(error!(
                             message("cannot use {} from outside {}", local_kind, item_kind),
                             primary(cur_span, "used in a nested {}", item_kind),
                             secondary(local_span, "defined here"),
@@ -249,7 +249,7 @@ pub mod rib {
                 }
             } // for rib in ....
 
-            Err(error_d!(
+            Err(error!(
                 message("unknown {} '{}'", ns.noun_long(), cur_ident),
                 primary(cur_span, "not found in this scope"),
             ))

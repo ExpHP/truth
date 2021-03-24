@@ -313,7 +313,7 @@ fn encode_args(instr: &LowerInstr, defs: &context::Defs, diagnostics: &context::
 
 fn compute_param_mask(args: &[Sp<LowerArg>], diagnostics: &context::DiagnosticEmitter) -> Result<u16, ErrorReported> {
     if args.len() > 16 {
-        return Err(diagnostics.emit(error_d!(
+        return Err(diagnostics.emit(error!(
             message("too many arguments in instruction!"),
             primary(args[16], "too many arguments"),
         )));

@@ -705,7 +705,7 @@ impl Lowerer<'_, '_> {
 // that would be used to read the temporary.  This does feel like an unusual time to perform this check,
 // but it works out this way because we need to go from a type with a string variant to a type that has none.
 fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarSigil, Diagnostic> {
-    ty.sigil().ok_or_else(|| error_d!(
+    ty.sigil().ok_or_else(|| error!(
         message("runtime temporary of non-numeric type"),
         primary(span, "temporary {} cannot be created", ty.descr_plural())
     ))

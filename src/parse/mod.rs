@@ -61,17 +61,17 @@ impl crate::diagnostic::IntoDiagnostics for Error<'_> {
 
         match self {
             User { error } => vec![error],
-            UnrecognizedEOF { location, ref expected } => vec![error_d!(
+            UnrecognizedEOF { location, ref expected } => vec![error!(
                 message("unexpected EOF"),
                 primary(Span::from_locs(location, location), "unexpected EOF"),
                 note("{}", DisplayExpected(expected)),
             )],
-            UnrecognizedToken { token: (start, token, end), ref expected } => vec![error_d!(
+            UnrecognizedToken { token: (start, token, end), ref expected } => vec![error!(
                 message("unexpected token `{}`", token),
                 primary(Span::from_locs(start, end), "unexpected token"),
                 note("{}", DisplayExpected(expected)),
             )],
-            ExtraToken { token: (start, token, end) } => vec![error_d!(
+            ExtraToken { token: (start, token, end) } => vec![error!(
                 message("unexpected extra token `{}`", token),
                 primary(Span::from_locs(start, end), "extra token"),
             )],

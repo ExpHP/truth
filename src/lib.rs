@@ -1,8 +1,6 @@
 #[macro_use]
 mod util_macros;
 
-pub use error::{CompileError};
-
 pub mod error;
 pub mod diagnostic;
 

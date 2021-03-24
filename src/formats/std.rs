@@ -257,7 +257,7 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ctx: &CompilerContext, 
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
-    error_d!(
+    error!(
         message("feature not supported by format"),
         primary(span, "not supported by STD files"),
     )
@@ -287,34 +287,34 @@ fn compile_std(
             match &item.value {
                 ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], ident: None, fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
-                        return Err(emit(error_d!(
+                        return Err(emit(error!(
                             message("'meta' supplied multiple times"),
                             primary(kw_span, "duplicate 'meta'"),
                             secondary(prev_kw_span, "previously supplied here"),
                         )));
                     }
                 },
-                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(emit(error_d!(
+                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(emit(error!(
                     message("unexpected named meta '{}' in STD file", ident),
                     primary(ident, "unexpected name"),
                 ))),
-                ast::Item::Meta { keyword, .. } => return Err(emit(error_d!(
+                ast::Item::Meta { keyword, .. } => return Err(emit(error!(
                     message("unexpected '{}' in STD file", keyword),
                     primary(keyword, "not valid in STD files"),
                 ))),
-                ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error_d!(
+                ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
                 ))),
                 ast::Item::AnmScript { number: None, ident, code, .. } => {
                     if ident != "main" {
-                        return Err(emit(error_d!(
+                        return Err(emit(error!(
                             message("STD script must be called 'main'"),
                             primary(ident, "invalid name for STD script"),
                         )));
                     }
                     if let Some((prev_item, _)) = found_main_sub.replace((item, code)) {
-                        return Err(emit(error_d!(
+                        return Err(emit(error!(
                             message("redefinition of 'main' script"),
                             primary(item, "this defines a script called 'main'..."),
                             secondary(prev_item, "...but 'main' was already defined here"),
@@ -327,8 +327,8 @@ fn compile_std(
         }
         match (found_meta, found_main_sub) {
             (Some((_, meta)), Some((_, main))) => (meta, main),
-            (None, _) => return Err(emit(error_d!("missing 'main' sub"))),
-            (Some(_), None) => return Err(emit(error_d!("missing 'meta' section"))),
+            (None, _) => return Err(emit(error!("missing 'main' sub"))),
+            (Some(_), None) => return Err(emit(error!("missing 'meta' section"))),
         }
     };
 
@@ -437,12 +437,12 @@ fn write_std(
 fn read_string_128(r: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<Sp<String>> {
     r.read_cstring_masked_exact(128, 0x00)?
         .decode(DEFAULT_ENCODING).map(|x| sp!(x))
-        .map_err(|e| emitter.emit_one(error_d!("{}", e)))
+        .map_err(|e| emitter.emit_one(error!("{}", e)))
 }
 fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, s: &Sp<S>) -> WriteResult {
     let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| emitter.emit_one(e))?;
     if encoded.len() >= 128 {
-        return Err(emitter.emit_one(error_d!(
+        return Err(emitter.emit_one(error!(
             message("string too long for STD header"),
             primary(s, "{} bytes (max allowed: 127)", encoded.len()),
         )));
@@ -564,7 +564,7 @@ fn read_instance(f: &mut BinReader, emitter: &impl UnspannedEmitter, objects: &I
 fn write_instance(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
     match objects.get_index_of(&inst.object) {
         Some(object_index) => f.write_u16(object_index as u16)?,
-        None => return Err(emitter.emit_one(error_d!(
+        None => return Err(emitter.emit_one(error!(
             message("No object named {}", inst.object),
             primary(&inst.object, "not an object"),
         ))),

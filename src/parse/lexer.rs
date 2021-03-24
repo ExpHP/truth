@@ -212,7 +212,7 @@ impl<'a> Iterator for Lexer<'a> {
             let start = (self.file_id, BytePos(range.start as _));
             let end = (self.file_id, BytePos(range.end as _));
             match token {
-                Token::Error => Err(error_d!(
+                Token::Error => Err(error!(
                     message("invalid token"),
                     primary(crate::pos::Span::from_locs(start, end), "invalid token"),
                 )),
