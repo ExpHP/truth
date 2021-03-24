@@ -8,7 +8,7 @@ use indexmap::{IndexSet, IndexMap};
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::UnspannedEmitter;
-use crate::error::{CompileError, GatherErrorIteratorExt, SimpleError, ErrorReported};
+use crate::error::{GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
@@ -35,7 +35,6 @@ impl AnmFile {
 
     pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile(&game_format(game), ast, ctx)
-            .map_err(|e| ctx.diagnostics.emit(e))
     }
 
     /// Uses `other` as a source for any missing metadata from the entries, as well as for embedded images.
@@ -306,7 +305,7 @@ fn compile(
     format: &FileFormat,
     ast: &ast::Script,
     ctx: &mut CompilerContext,
-) -> Result<AnmFile, CompileError> {
+) -> Result<AnmFile, ErrorReported> {
     let instr_format = format.instr_format();
 
     let mut ast = ast.clone();
@@ -348,28 +347,28 @@ fn compile(
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
-                cur_entry = Some(Entry::from_fields(fields)?);
+                cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.diagnostics.emit(e))?);
                 cur_group = vec![];
             },
             &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
-                if cur_entry.is_none() { return Err(error!(
+                if cur_entry.is_none() { return Err(ctx.diagnostics.emit(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),
                     note("at least one `entry` must come before scripts in an ANM file"),
-                ))}
+                )))}
                 cur_group.push((ident, code));
                 script_names.push(ident);
             },
             ast::Item::ConstVar { .. } => {},
-            _ => return Err(error!(
+            _ => return Err(ctx.diagnostics.emit(error!(
                 message("feature not supported by format"),
                 primary(item, "not supported by ANM files"),
-            )),
+            ))),
         }
     }
 
     match cur_entry {
-        None => return Err(error!("empty ANM script")),
+        None => return Err(ctx.diagnostics.emit(error!("empty ANM script"))),
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
     }
 
@@ -380,7 +379,7 @@ fn compile(
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }
-        Ok::<_, CompileError>(entry)
+        Ok::<_, ErrorReported>(entry)
     }).collect_with_recovery()?;
     Ok(AnmFile { entries })
 }
@@ -406,7 +405,7 @@ fn gather_sprite_id_exprs(
     ast: &ast::Script,
     ctx: &mut CompilerContext,
     extra_type_checks: &mut Vec<crate::passes::type_check::ShallowTypeCheck>,
-) -> Result<Vec<(Sp<ResIdent>, Sp<ast::Expr>)>, CompileError> {
+) -> Result<Vec<(Sp<ResIdent>, Sp<ast::Expr>)>, ErrorReported> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
         ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
         _ => None,
@@ -415,7 +414,10 @@ fn gather_sprite_id_exprs(
     let mut auto_sprites = sequential_int_exprs(sp!(0.into()));
     let mut out = vec![];
     for entry_fields in all_entries {
-        let sprites = meta::ParseObject::new(entry_fields).expect_field::<IndexMap<Sp<Ident>, ProtoSprite<'_>>>("sprites")?;
+        type ProtoSprites<'a> = IndexMap<Sp<Ident>, ProtoSprite<'a>>;
+
+        let sprites = meta::ParseObject::new(entry_fields).expect_field::<ProtoSprites>("sprites");
+        let sprites = sprites.map_err(|e| ctx.diagnostics.emit(e))?;
         for (ident, sprite) in sprites {
             if let Some(id_expr) = sprite.id_expr.cloned() {
                 // currently nothing else can really type-check this before const evaluation, so add a deferred check
@@ -466,7 +468,7 @@ impl<'m> FromMeta<'m> for ProtoSprite<'m> {
     }
 }
 
-fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<i32>)>, CompileError> {
+fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<i32>)>, ErrorReported> {
     let mut next_auto_script = 0;
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
@@ -483,11 +485,11 @@ fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Ind
                     },
                     indexmap::map::Entry::Occupied(e) => {
                         let (prev_ident, _) = e.get();
-                        return Err(error!(
+                        return Err(ctx.diagnostics.emit(error!(
                             message("duplicate script '{}'", ident),
                             primary(ident, "redefined here"),
                             secondary(prev_ident, "originally defined here"),
-                        ));
+                        )));
                     },
                 }
             },

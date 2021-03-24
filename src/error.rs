@@ -1,4 +1,4 @@
-use crate::pos::{FileId, Span};
+use crate::pos::{FileId};
 use crate::diagnostic::Diagnostic;
 
 use codespan_reporting as cs;
@@ -209,51 +209,6 @@ impl From<Vec<Diagnostic>> for CompileError {
 
 impl From<ErrorReported> for CompileError {
     fn from(_: ErrorReported) -> Self { CompileError { diagnostics: vec![] } }
-}
-
-impl<'a> From<crate::parse::Error<'a>> for CompileError {
-    fn from(e: crate::parse::Error<'a>) -> CompileError {
-        use lalrpop_util::ParseError::*;
-
-        match e {
-            User { error } => error.into(),
-            UnrecognizedEOF { location, ref expected } => error!(
-                message("unexpected EOF"),
-                primary(Span::from_locs(location, location), "unexpected EOF"),
-                note("{}", DisplayExpected(expected)),
-            ),
-            UnrecognizedToken { token: (start, token, end), ref expected } => error!(
-                message("unexpected token `{}`", token),
-                primary(Span::from_locs(start, end), "unexpected token"),
-                note("{}", DisplayExpected(expected)),
-            ),
-            ExtraToken { token: (start, token, end) } => error!(
-                message("unexpected extra token `{}`", token),
-                primary(Span::from_locs(start, end), "extra token"),
-            ),
-            InvalidToken { .. } => unreachable!("we don't use lalrpop's lexer"),
-        }
-    }
-}
-
-struct DisplayExpected<'a>(&'a [String]);
-impl std::fmt::Display for DisplayExpected<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // copied from lalrpop_util
-        if !self.0.is_empty() {
-            writeln!(f)?;
-            for (i, e) in self.0.iter().enumerate() {
-                let sep = match i {
-                    0 => "Expected one of",
-                    _ if i < self.0.len() - 1 => ",",
-                    // Last expected message to be written
-                    _ => " or",
-                };
-                write!(f, "{} {}", sep, e)?;
-            }
-        }
-        Ok(())
-    }
 }
 
 impl From<anyhow::Error> for CompileError {

@@ -2,8 +2,8 @@ use indexmap::IndexMap;
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::UnspannedEmitter;
-use crate::error::{CompileError, SimpleError, ErrorReported};
+use crate::diagnostic::{Diagnostic, UnspannedEmitter};
+use crate::error::{SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
@@ -67,7 +67,6 @@ impl StdFile {
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile_std(&*game_format(game), script, ctx)
-            .map_err(|e| ctx.diagnostics.emit(e))
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
@@ -257,8 +256,8 @@ fn decompile_std(format: &dyn FileFormat, std: &StdFile, ctx: &CompilerContext, 
     Ok(script)
 }
 
-fn unsupported(span: &crate::pos::Span) -> CompileError {
-    error!(
+fn unsupported(span: &crate::pos::Span) -> Diagnostic {
+    error_d!(
         message("feature not supported by format"),
         primary(span, "not supported by STD files"),
     )
@@ -268,7 +267,7 @@ fn compile_std(
     format: &dyn FileFormat,
     script: &ast::Script,
     ctx: &mut CompilerContext,
-) -> Result<StdFile, CompileError> {
+) -> Result<StdFile, ErrorReported> {
     let script = {
         let mut script = script.clone();
 
@@ -281,58 +280,59 @@ fn compile_std(
         script
     };
 
+    let emit = |e| ctx.diagnostics.emit(e);
     let (meta, main_sub) = {
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
                 ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], ident: None, fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
-                        return Err(error!(
+                        return Err(emit(error_d!(
                             message("'meta' supplied multiple times"),
                             primary(kw_span, "duplicate 'meta'"),
                             secondary(prev_kw_span, "previously supplied here"),
-                        ));
+                        )));
                     }
                 },
-                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(error!(
+                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(emit(error_d!(
                     message("unexpected named meta '{}' in STD file", ident),
                     primary(ident, "unexpected name"),
-                )),
-                ast::Item::Meta { keyword, .. } => return Err(error!(
+                ))),
+                ast::Item::Meta { keyword, .. } => return Err(emit(error_d!(
                     message("unexpected '{}' in STD file", keyword),
                     primary(keyword, "not valid in STD files"),
-                )),
-                ast::Item::AnmScript { number: Some(number), .. } => return Err(error!(
+                ))),
+                ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error_d!(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
-                )),
+                ))),
                 ast::Item::AnmScript { number: None, ident, code, .. } => {
                     if ident != "main" {
-                        return Err(error!(
+                        return Err(emit(error_d!(
                             message("STD script must be called 'main'"),
                             primary(ident, "invalid name for STD script"),
-                        ));
+                        )));
                     }
                     if let Some((prev_item, _)) = found_main_sub.replace((item, code)) {
-                        return Err(error!(
+                        return Err(emit(error_d!(
                             message("redefinition of 'main' script"),
                             primary(item, "this defines a script called 'main'..."),
                             secondary(prev_item, "...but 'main' was already defined here"),
-                        ));
+                        )));
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
-                ast::Item::Func { .. } => return Err(unsupported(&item.span)),
+                ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }
         match (found_meta, found_main_sub) {
             (Some((_, meta)), Some((_, main))) => (meta, main),
-            (None, _) => return Err(error!(message("missing 'main' sub"))),
-            (Some(_), None) => return Err(error!(message("missing 'meta' section"))),
+            (None, _) => return Err(emit(error_d!("missing 'main' sub"))),
+            (Some(_), None) => return Err(emit(error_d!("missing 'meta' section"))),
         }
     };
 
-    let mut out = StdFile::init_from_meta(format, meta)?;
+    let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.diagnostics.emit(e))?;
     out.script = crate::llir::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ctx)?;
     Ok(out)
 }

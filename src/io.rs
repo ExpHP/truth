@@ -8,7 +8,7 @@ use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 pub use anyhow::bail;
 
 use crate::pos::Sp;
-use crate::diagnostic::{DiagnosticEmitter, unspanned::{self, UnspannedEmitter}};
+use crate::diagnostic::{Diagnostic, DiagnosticEmitter, unspanned::{self, UnspannedEmitter}};
 use crate::error::{ErrorReported};
 
 // Binary file IO uses anyhow instead of codespan_reporting because most span info is lost
@@ -31,7 +31,7 @@ pub type Encoding = &'static encoding_rs::Encoding;
 pub use encoding_rs::SHIFT_JIS as DEFAULT_ENCODING;
 
 impl Encoded {
-    pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, crate::diagnostic::Diagnostic> {
+    pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, Diagnostic> {
         match enc.encode(str.value.as_ref()) {
             (_, _, true) => Err(error_d!(
                 message("string encoding error"),
@@ -123,6 +123,12 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
 // ------------
 // file opening
 
+/// Reads all contents of a file into memory.
+pub fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, Diagnostic> {
+    let path = path.as_ref();
+    fs::read(path).map_err(|e| error_d!("while reading file '{}': {}", path.display(), e))
+}
+
 impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
     /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
     ///
@@ -130,8 +136,8 @@ impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
     /// by limitations of the games, and reading the whole thing up front makes seeking effectively free.
     pub fn read(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
         let path = path.as_ref();
+        let bytes = fs_read(path).map_err(|e| diagnostics.emit(e))?;
         let path_string = path.display().to_string();
-        let bytes = fs::read(path).map_err(|e| diagnostics.emit(error!("while reading file '{}': {}", path_string, e)))?;
 
         Ok(Self::from_reader(diagnostics, &path_string, io::Cursor::new(bytes)))
     }

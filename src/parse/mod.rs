@@ -3,7 +3,7 @@ use lalrpop_util::lalrpop_mod;
 use crate::error::CompileError;
 use crate::ast;
 use crate::meta;
-use crate::pos::{Sp};
+use crate::pos::{Sp, Span};
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 mod lalrparser_util;
@@ -55,6 +55,51 @@ impl State {
         image_sources: vec![],
         time_stack: vec![0],
     }}
+}
+
+impl crate::diagnostic::IntoDiagnostics for Error<'_> {
+    fn into_diagnostics(self) -> Vec<crate::diagnostic::Diagnostic> {
+        use lalrpop_util::ParseError::*;
+
+        match self {
+            User { error } => error.into_diagnostics(),
+            UnrecognizedEOF { location, ref expected } => vec![error_d!(
+                message("unexpected EOF"),
+                primary(Span::from_locs(location, location), "unexpected EOF"),
+                note("{}", DisplayExpected(expected)),
+            )],
+            UnrecognizedToken { token: (start, token, end), ref expected } => vec![error_d!(
+                message("unexpected token `{}`", token),
+                primary(Span::from_locs(start, end), "unexpected token"),
+                note("{}", DisplayExpected(expected)),
+            )],
+            ExtraToken { token: (start, token, end) } => vec![error_d!(
+                message("unexpected extra token `{}`", token),
+                primary(Span::from_locs(start, end), "extra token"),
+            )],
+            InvalidToken { .. } => unreachable!("we don't use lalrpop's lexer"),
+        }
+    }
+}
+
+struct DisplayExpected<'a>(&'a [String]);
+impl std::fmt::Display for DisplayExpected<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // copied from lalrpop_util
+        if !self.0.is_empty() {
+            writeln!(f)?;
+            for (i, e) in self.0.iter().enumerate() {
+                let sep = match i {
+                    0 => "Expected one of",
+                    _ if i < self.0.len() - 1 => ",",
+                    // Last expected message to be written
+                    _ => " or",
+                };
+                write!(f, "{} {}", sep, e)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Return type of the LALRPOP `Anything` parser.

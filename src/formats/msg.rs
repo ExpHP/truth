@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::UnspannedEmitter;
-use crate::error::{GatherErrorIteratorExt, CompileError, SimpleError, ErrorReported};
+use crate::diagnostic::{Diagnostic, UnspannedEmitter};
+use crate::error::{GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
@@ -29,7 +29,6 @@ impl MsgFile {
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
         compile(&*game_format(game), script, ctx)
-            .map_err(|e| ctx.diagnostics.emit(e))
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
@@ -70,8 +69,8 @@ fn decompile(
     Ok(script)
 }
 
-fn unsupported(span: &crate::pos::Span) -> CompileError {
-    error!(
+fn unsupported(span: &crate::pos::Span) -> Diagnostic {
+    error_d!(
         message("feature not supported by format"),
         primary(span, "not supported by MSG files"),
     )
@@ -81,7 +80,7 @@ fn compile(
     instr_format: &dyn InstrFormat,
     ast: &ast::Script,
     ctx: &mut CompilerContext,
-) -> Result<MsgFile, CompileError> {
+) -> Result<MsgFile, ErrorReported> {
     let ast = {
         let mut ast = ast.clone();
 
@@ -106,28 +105,28 @@ fn compile(
 
                 if id < 0 {
                     let span = number.expect("since it's the first negative it must be explicit!").span;
-                    return Err(error!(
+                    return Err(ctx.diagnostics.emit(error!(
                         message("unexpected negative script id in MSG file"),
                         primary(span, "negative id in MSG file")
-                    ));
+                    )));
                 }
 
                 match scripts_by_id.entry(id as u32) {
-                    btree_map::Entry::Occupied(e) => return Err(error!(
+                    btree_map::Entry::Occupied(e) => return Err(ctx.diagnostics.emit(error!(
                         message("multiple scripts with same ID number"),
                         primary(ident, "script with duplicate id"),
                         secondary(e.get().0, "original script here"),
-                    )),
+                    ))),
                     btree_map::Entry::Vacant(e) => e.insert((ident.span, code)),
                 };
             },
-            ast::Item::Meta { keyword, .. } => return Err(error!(
+            ast::Item::Meta { keyword, .. } => return Err(ctx.diagnostics.emit(error!(
                 message("unexpected '{}' in MSG file", keyword),
                 primary(keyword, "not valid in MSG files"),
-            )),
+            ))),
             ast::Item::ConstVar { .. } => {},
 
-            ast::Item::Func { .. } => return Err(unsupported(&item.span)),
+            ast::Item::Func { .. } => return Err(ctx.diagnostics.emit(unsupported(&item.span))),
         }
     }
 
@@ -135,8 +134,8 @@ fn compile(
     Ok(MsgFile {
         script_table_len,
         scripts: scripts_by_id.into_iter().map(|(id, (_, script_ast))| {
-            let compiled = llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ctx)?;
-            Ok::<_, CompileError>((id, compiled))
+            llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ctx)
+                .map(|compiled| (id, compiled))
         }).collect_with_recovery()?,
     })
 }

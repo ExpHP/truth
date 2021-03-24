@@ -99,29 +99,29 @@ impl<'a> FromMetaError<'a> {
     }
 }
 
-impl From<FromMetaError<'_>> for crate::error::CompileError {
-    fn from(e: FromMetaError<'_>) -> Self { match e {
-        FromMetaError::TypeError { expected, got } => error!(
+impl crate::diagnostic::IntoDiagnostics for FromMetaError<'_> {
+    fn into_diagnostics(self) -> Vec<crate::diagnostic::Diagnostic> { match self {
+        FromMetaError::TypeError { expected, got } => vec![error_d!(
             message("type error"),
             primary(got, "expected {}", expected),
-        ),
-        FromMetaError::NonConstExpr { expr } => error!(
+        )],
+        FromMetaError::NonConstExpr { expr } => vec![error_d!(
             message("const expression required"),
             primary(expr, "non-const expression"),
-        ),
-        FromMetaError::MissingField { fields, missing } => error!(
+        )],
+        FromMetaError::MissingField { fields, missing } => vec![error_d!(
             message("incomplete metadata object"),
             primary(fields, "missing field '{}'", missing),
-        ),
-        FromMetaError::UnrecognizedField { invalid } => error!(
+        )],
+        FromMetaError::UnrecognizedField { invalid } => vec![error_d!(
             message("unexpected field in metadata"),
             primary(invalid, "not a valid field here"),
-        ),
-        FromMetaError::UnrecognizedVariant { invalid, valid_variants } => error!(
+        )],
+        FromMetaError::UnrecognizedVariant { invalid, valid_variants } => vec![error_d!(
             message("unrecognized variant in metadata"),
             primary(invalid, "unrecognized variant"),
             note("valid choices: [{}]", valid_variants),
-        ),
+        )],
     }}
 }
 
