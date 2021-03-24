@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ast;
-use crate::error::CompileError;
+use crate::error::ErrorReported;
 use crate::resolve::{DefId, Resolutions};
 use crate::ident::{Ident, ResIdent};
 
@@ -19,7 +19,7 @@ use crate::ident::{Ident, ResIdent};
 ///
 /// Note that [`CompilerContext`] and spans will still refer to the old identifiers.  To get the
 /// most out of this, try formatting the modified node [to a string][`crate::fmt::stringify`].
-pub fn run<A: ast::Visitable>(ast: &mut A, resolutions: &Resolutions) -> Result<HashMap<Ident, u32>, CompileError> {
+pub fn run<A: ast::Visitable>(ast: &mut A, resolutions: &Resolutions) -> Result<HashMap<Ident, u32>, ErrorReported> {
     let mut v = Visitor {
         resolutions,
         next_numbers: Default::default(),

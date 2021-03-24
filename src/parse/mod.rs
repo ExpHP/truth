@@ -1,6 +1,6 @@
 use lalrpop_util::lalrpop_mod;
 
-use crate::error::CompileError;
+use crate::diagnostic::Diagnostic;
 use crate::ast;
 use crate::meta;
 use crate::pos::{Sp, Span};
@@ -31,7 +31,7 @@ pub trait Parse: Sized {
 }
 
 
-pub type Error<'input> = lalrpop_util::ParseError<lexer::Location, Token<'input>, CompileError>;
+pub type Error<'input> = lalrpop_util::ParseError<lexer::Location, Token<'input>, Diagnostic>;
 pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 
 
@@ -43,9 +43,7 @@ pub struct State {
     /// When we are parsing instructions, tracks the last time label so that we can produce an
     /// AST with time fields instead of explicit labels.
     ///
-    /// A stack is used *as if* we supported nested function definitions.  In practice, the level at
-    /// index 0 gets used exclusively when parsing `Stmt` at toplevel, and a level at index 1 gets
-    /// used when parsing `Item`s.
+    /// It is a stack in order to support nested function definitions.
     time_stack: Vec<i32>,
 }
 
@@ -62,7 +60,7 @@ impl crate::diagnostic::IntoDiagnostics for Error<'_> {
         use lalrpop_util::ParseError::*;
 
         match self {
-            User { error } => error.into_diagnostics(),
+            User { error } => vec![error],
             UnrecognizedEOF { location, ref expected } => vec![error_d!(
                 message("unexpected EOF"),
                 primary(Span::from_locs(location, location), "unexpected EOF"),

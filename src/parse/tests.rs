@@ -2,10 +2,20 @@ use crate::ast;
 use crate::meta;
 use crate::diagnostic::DiagnosticEmitter;
 use crate::parse::Parse;
-use crate::error::CompileError;
+use crate::error::ErrorReported;
 use crate::context::CompilerContext;
 
-fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, CompileError> {
+// This is for quick-and-dirty use only; the spans in the output will have incomplete information
+// as it is not connected to any Files object.
+fn parse<A: Parse>(s: &str) -> super::Result<'_, A> {
+    let mut state = super::State::new();
+    super::Parse::parse_stream(&mut state, super::Lexer::new(None, s.as_ref()))
+        .map(|x| x.value)
+}
+
+// This extremely hasty const simplification pass won't handle const vars at all, but is
+// still useful for checking how expressions are parsed (especially w.r.t. precedence).
+fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, ErrorReported> {
     let scope = crate::Scope::new();
     let mut ctx = CompilerContext::new(&scope, DiagnosticEmitter::new_stderr());
 
@@ -44,7 +54,7 @@ fn expr_parse() {
 #[test]
 fn expr_const_overflow() {
     assert_eq!(
-        simplify_expr(ast::Expr::parse("0x100000 * 0xffff").unwrap()).unwrap(),
+        simplify_expr(parse::<ast::Expr>("0x100000 * 0xffff").unwrap()).unwrap(),
         ast::Expr::from(0xfff00000_u32 as i32),
     );
 }
@@ -55,13 +65,13 @@ fn parse_color() {
     // we should at least be able to parse unsigned ints with MSB = 1,
     // which often show up in colors.
     assert_eq!(
-        simplify_expr(ast::Expr::parse("0xff000000").unwrap()).unwrap(),
+        simplify_expr(parse::<ast::Expr>("0xff000000").unwrap()).unwrap(),
         ast::Expr::from(0xff000000_u32 as i32),
     );
 }
 
 fn time_label_test(text: &'static str, expected_times: Vec<i32>) {
-    let item = ast::Item::parse(text).unwrap();
+    let item = parse::<ast::Item>(text).unwrap();
     let parsed_times = {
         let block = match item {
             ast::Item::Func { code: Some(block), .. } => block,
@@ -110,23 +120,22 @@ fn block_outer_time_label() {
 
 #[test]
 fn parse_trailing_comma() {
-    use ast::Expr;
-
-    assert!(Expr::parse("foo(1)").is_ok());
-    assert!(Expr::parse("foo(1,)").is_ok());
-    assert!(Expr::parse("foo(1, 2, 3)").is_ok());
-    assert!(Expr::parse("foo(1, 2, 3,)").is_ok());
-    assert!(Expr::parse("foo(1, 2, ,)").is_err());
-    assert!(Expr::parse("foo(,1, 2)").is_err());
-    assert!(Expr::parse("foo(,)").is_err());
-    assert!(Expr::parse("foo()").is_ok());
+    assert!(parse::<ast::Expr>("foo(1)").is_ok());
+    assert!(parse::<ast::Expr>("foo(1,)").is_ok());
+    assert!(parse::<ast::Expr>("foo(1, 2, 3)").is_ok());
+    assert!(parse::<ast::Expr>("foo(1, 2, 3,)").is_ok());
+    assert!(parse::<ast::Expr>("foo(1, 2, ,)").is_err());
+    assert!(parse::<ast::Expr>("foo(,1, 2)").is_err());
+    assert!(parse::<ast::Expr>("foo(,)").is_err());
+    assert!(parse::<ast::Expr>("foo()").is_ok());
 }
 
 #[test]
 fn parse_escape() {
-    use ast::Expr;
-
-    assert_eq!(Expr::parse(r#" "\r\n\\\"\0" "#).unwrap(), Expr::LitString(ast::LitString { string: "\r\n\\\"\0".to_string() }));
+    assert_eq!(
+        parse::<ast::Expr>(r#" "\r\n\\\"\0" "#).unwrap(),
+        ast::Expr::LitString(ast::LitString { string: "\r\n\\\"\0".to_string() }),
+    );
 }
 
 #[test]
@@ -134,21 +143,21 @@ fn var_parse() {
     use ast::{Var, VarSigil};
     use crate::resolve::RegId;
 
-    assert_eq!(Var::parse("$REG[244]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(244).into() });
-    assert_eq!(Var::parse("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(-99998).into() });
-    assert_eq!(Var::parse("REG[244]").unwrap(), Var { ty_sigil: None, name: RegId(244).into() });
-    assert_eq!(Var::parse("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Float), name: RegId(-99998).into() });
-    assert!(Var::parse("REG[-99998999999]").is_err());
-    assert!(matches!(Var::parse("lmao").unwrap(), Var { ty_sigil: None, .. }));
-    assert!(matches!(Var::parse("$lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Int), .. }));
-    assert!(matches!(Var::parse("%lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Float), .. }));
+    assert_eq!(parse::<Var>("$REG[244]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(244).into() });
+    assert_eq!(parse::<Var>("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(-99998).into() });
+    assert_eq!(parse::<Var>("REG[244]").unwrap(), Var { ty_sigil: None, name: RegId(244).into() });
+    assert_eq!(parse::<Var>("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Float), name: RegId(-99998).into() });
+    assert!(parse::<Var>("REG[-99998999999]").is_err());
+    assert!(matches!(parse::<Var>("lmao").unwrap(), Var { ty_sigil: None, .. }));
+    assert!(matches!(parse::<Var>("$lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Int), .. }));
+    assert!(matches!(parse::<Var>("%lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Float), .. }));
 }
 
 #[test]
 fn string_escape() {
     use ast::LitString;
 
-    assert_eq!(LitString::parse(r#" "ab\\\"\r\nd" "#).unwrap(), LitString { string: "ab\\\"\r\nd".into() });
+    assert_eq!(parse::<LitString>(r#" "ab\\\"\r\nd" "#).unwrap(), LitString { string: "ab\\\"\r\nd".into() });
 }
 
 #[track_caller]

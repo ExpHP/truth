@@ -7,8 +7,8 @@
 
 use std::fmt;
 
+use crate::diagnostic::Diagnostic;
 use crate::pos::{FileId, BytePos};
-use crate::error::CompileError;
 
 macro_rules! define_token_enum {
     (
@@ -205,14 +205,14 @@ impl<'input> Lexer<'input> {
 pub type Location = (FileId, BytePos);
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<(Location, Token<'a>, Location), CompileError>;
+    type Item = Result<(Location, Token<'a>, Location), Diagnostic>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.imp.next().map(|(token, range)| {
             let start = (self.file_id, BytePos(range.start as _));
             let end = (self.file_id, BytePos(range.end as _));
             match token {
-                Token::Error => Err(error!(
+                Token::Error => Err(error_d!(
                     message("invalid token"),
                     primary(crate::pos::Span::from_locs(start, end), "invalid token"),
                 )),
