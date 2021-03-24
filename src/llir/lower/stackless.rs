@@ -4,10 +4,10 @@
 
 use std::collections::{HashMap, BTreeSet};
 
-use super::{unsupported, LowerStmt, LowerInstr, LowerArgs, LowerArg};
+use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
-use crate::error::{GatherErrorIteratorExt, CompileError};
+use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, Expr};
 use crate::resolve::{DefId, RegId};
@@ -29,16 +29,16 @@ impl Lowerer<'_, '_> {
     pub fn lower_sub_ast(
         &mut self,
         code: &[Sp<ast::Stmt>],
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         let mut th06_anm_end_span = None;
         code.iter().map(|stmt| {
             if let Some(end) = th06_anm_end_span {
-                if !matches!(&stmt.body, ast::StmtBody::NoInstruction) { return Err(error!(
+                if !matches!(&stmt.body, ast::StmtBody::NoInstruction) { return Err(self.ctx.diagnostics.emit(error!(
                     message("statement after end of script"),
                     primary(&stmt, "forbidden statement"),
                     secondary(&end, "marks the end of the script"),
                     note("In EoSD ANM, every script must have a single exit point (opcode 0 or 15), as the final instruction."),
-                ))}
+                )))}
             }
 
             match &stmt.body {
@@ -79,7 +79,7 @@ impl Lowerer<'_, '_> {
                             th06_anm_end_span = Some(name);
                         }
                     },
-                    _ => return Err(unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
+                    _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
                 }, // match expr
 
                 ast::StmtBody::Label(ident) => self.out.push(LowerStmt::Label { time: stmt.time, label: ident.clone() }),
@@ -88,7 +88,7 @@ impl Lowerer<'_, '_> {
 
                 ast::StmtBody::NoInstruction => {}
 
-                _ => return Err(unsupported(&stmt.span, stmt.body.descr())),
+                _ => return Err(self.unsupported(&stmt.span, stmt.body.descr())),
             }
             Ok(())
         }).collect_with_recovery()
@@ -104,7 +104,7 @@ impl Lowerer<'_, '_> {
         name: &Sp<ast::CallableName>,
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<Expr>],
-    ) -> Result<u16, CompileError> {
+    ) -> Result<u16, ErrorReported> {
         // all function statements currently refer to single instructions
         let opcode = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
 
@@ -118,15 +118,15 @@ impl Lowerer<'_, '_> {
         opcode: u16,
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<Expr>],
-    ) -> Result<u16, CompileError> {
+    ) -> Result<u16, ErrorReported> {
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
             pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask,
-        } = PseudoArgData::from_pseudos(pseudos)?;
+        } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.diagnostics.emit(e))?;
 
         if let Some(pop) = pseudo_pop {
             if pop.value != 0 {
-                return Err(unsupported(&pop.span, "stack-pop pseudo argument"));
+                return Err(self.unsupported(&pop.span, "stack-pop pseudo argument"));
             }
         }
 
@@ -153,7 +153,7 @@ impl Lowerer<'_, '_> {
                             lowered
                         },
                     };
-                    Ok::<_, CompileError>(lowered)
+                    Ok::<_, ErrorReported>(lowered)
                 }).collect_with_recovery()?)
             },
         };
@@ -179,9 +179,9 @@ impl Lowerer<'_, '_> {
         stmt_time: i32,
         keyword: &Sp<ast::TypeKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
-    ) -> Result<(), CompileError>{
+    ) -> Result<(), ErrorReported>{
         if keyword.value == token![var] {
-            return Err(unsupported(&keyword.span, "untyped variables"));
+            return Err(self.unsupported(&keyword.span, "untyped variables"));
         }
 
         for pair in vars {
@@ -206,7 +206,7 @@ impl Lowerer<'_, '_> {
         var: &Sp<ast::Var>,
         assign_op: &Sp<ast::AssignOpKind>,
         rhs: &Sp<ast::Expr>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
 
         let data_rhs = match classify_expr(rhs, self.ctx)? {
@@ -255,7 +255,7 @@ impl Lowerer<'_, '_> {
                 match assign_op.value {
                     // a = <big expr>
                     // if none of the other branches handled it yet, we can't do it
-                    ast::AssignOpKind::Assign => Err(unsupported(&rhs.span, "this expression")),
+                    ast::AssignOpKind::Assign => Err(self.unsupported(&rhs.span, "this expression")),
 
                     // a += <expr>;
                     // split out to: `tmp = <expr>;  a += tmp;`
@@ -281,7 +281,7 @@ impl Lowerer<'_, '_> {
         a: &Sp<Expr>,
         binop: &Sp<ast::BinopKind>,
         b: &Sp<Expr>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         // So right here, we have something like `v = <A> * <B>`. If <A> and <B> are both simple arguments (literals or
         // variables), we can emit this as one instruction. Otherwise, we need to break it up.  In the general case this
         // would mean producing
@@ -358,7 +358,7 @@ impl Lowerer<'_, '_> {
         rhs_span: Span,
         unop: &Sp<ast::UnopKind>,
         b: &Sp<Expr>,
-    ) -> Result<(), CompileError> {
+    ) -> Result<(), ErrorReported> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == token![-] {
             let ty = b.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
@@ -399,7 +399,7 @@ impl Lowerer<'_, '_> {
                     token![unop -] => unreachable!(),
 
                     // TODO: we *could* polyfill this with some conditional jumps but bleccccch
-                    token![!] => return Err(unsupported(&span, "logical not operator")),
+                    token![!] => return Err(self.unsupported(&span, "logical not operator")),
 
                     token![sin] |
                     token![cos] |
@@ -415,9 +415,9 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_time: i32, goto: &ast::StmtGoto) -> Result<(), CompileError> {
+    fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_time: i32, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
         if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
-            return Err(unsupported(&stmt_span, "goto @ time"));
+            return Err(self.unsupported(&stmt_span, "goto @ time"));
         }
 
         let (label_arg, time_arg) = lower_goto_args(goto);
@@ -439,7 +439,7 @@ impl Lowerer<'_, '_> {
         keyword: &Sp<ast::CondKeyword>,
         cond: &Sp<ast::Cond>,
         goto: &ast::StmtGoto,
-    ) -> Result<(), CompileError>{
+    ) -> Result<(), ErrorReported>{
         match &cond.value {
             ast::Cond::PreDecrement(var) => self.lower_cond_jump_predecrement(stmt_span, stmt_time, keyword, var, goto),
             ast::Cond::Expr(expr) => self.lower_cond_jump_expr(stmt_span, stmt_time, keyword, expr, goto),
@@ -453,19 +453,13 @@ impl Lowerer<'_, '_> {
         keyword: &Sp<ast::CondKeyword>,
         var: &Sp<ast::Var>,
         goto: &ast::StmtGoto,
-    ) -> Result<(), CompileError>{
+    ) -> Result<(), ErrorReported>{
         match keyword.value {
             // 'if (--var) goto label'
             token![if] => {
                 let (arg_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 let (arg_label, arg_time) = lower_goto_args(goto);
-                if ty_var != ScalarType::Int {
-                    return Err(error!(
-                        message("type error"),
-                        primary(var, "expected an int, got {}", ty_var.descr()),
-                        secondary(keyword, "required by this"),
-                    ));
-                }
+                assert_eq!(ty_var, ScalarType::Int, "shoulda been type-checked!");
 
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
@@ -503,7 +497,7 @@ impl Lowerer<'_, '_> {
         keyword: &Sp<ast::CondKeyword>,
         expr: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
-    ) -> Result<(), CompileError>{
+    ) -> Result<(), ErrorReported>{
         match &expr.value {
             // 'if (<A> <= <B>) goto label'
             // 'unless (<A> <= <B>) goto label'
@@ -545,7 +539,7 @@ impl Lowerer<'_, '_> {
         binop: &Sp<ast::BinopKind>,
         b: &Sp<Expr>,
         goto: &ast::StmtGoto,
-    ) -> Result<(), CompileError>{
+    ) -> Result<(), ErrorReported>{
         match (classify_expr(a, self.ctx)?, classify_expr(b, self.ctx)?) {
             // `if (<A> != <B>) ...` (or `unless (<A> != <B>) ...`)
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
@@ -593,7 +587,7 @@ impl Lowerer<'_, '_> {
       binop: &Sp<ast::BinopKind>,
       b: &Sp<Expr>,
       goto: &ast::StmtGoto,
-  ) -> Result<(), CompileError> {
+  ) -> Result<(), ErrorReported> {
         let is_easy_case = match (keyword.value, binop.value) {
             (token![if], token![||]) => true,
             (token![if], token![&&]) => false,
@@ -640,7 +634,7 @@ impl Lowerer<'_, '_> {
         &mut self,
         time: i32,
         data: &TemporaryExpr<'_>,
-    ) -> Result<(DefId, Sp<Expr>), CompileError> {
+    ) -> Result<(DefId, Sp<Expr>), ErrorReported> {
         let (def_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty)?;
         let var_as_expr = self.compute_temporary_expr(time, &var, data)?;
 
@@ -656,18 +650,18 @@ impl Lowerer<'_, '_> {
         time: i32,
         var: &Sp<ast::Var>,
         data: &TemporaryExpr<'_>,
-    ) -> Result<Sp<Expr>, CompileError> {
+    ) -> Result<Sp<Expr>, ErrorReported> {
         let eq_sign = sp!(data.tmp_expr.span => token![=]);
         self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
 
         let mut read_var = var.clone();
-        let read_ty_sigil = get_temporary_read_ty(data.read_ty, var.span)?;
+        let read_ty_sigil = get_temporary_read_ty(data.read_ty, var.span).map_err(|e| self.ctx.diagnostics.emit(e))?;
         read_var.ty_sigil = Some(read_ty_sigil);
         Ok(sp!(var.span => ast::Expr::Var(read_var)))
     }
 
     /// Emits an intrinsic that cleans up a register-allocated temporary.
-    fn undefine_temporary(&mut self, def_id: DefId) -> Result<(), CompileError> {
+    fn undefine_temporary(&mut self, def_id: DefId) -> Result<(), ErrorReported> {
         self.out.push(LowerStmt::RegFree { def_id });
         Ok(())
     }
@@ -680,12 +674,12 @@ impl Lowerer<'_, '_> {
         &mut self,
         span: Span,
         tmp_ty: ScalarType,
-    ) -> Result<(DefId, Sp<ast::Var>), CompileError> {
+    ) -> Result<(DefId, Sp<ast::Var>), ErrorReported> {
         // FIXME: It bothers me that we have to actually allocate an identifier here.
         let ident = self.ctx.gensym.gensym("temp");
         let ident = sp!(span => self.ctx.resolutions.attach_fresh_res(ident));
         let def_id = self.ctx.define_local(ident.clone(), tmp_ty.into());
-        let sigil = get_temporary_read_ty(tmp_ty, span)?;
+        let sigil = get_temporary_read_ty(tmp_ty, span).map_err(|e| self.ctx.diagnostics.emit(e))?;
 
         let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
         self.out.push(LowerStmt::RegAlloc { def_id, cause: span });
@@ -693,8 +687,12 @@ impl Lowerer<'_, '_> {
         Ok((def_id, var))
     }
 
-    fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
-        self.intrinsic_instrs.get_opcode(kind, span, descr)
+    fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, ErrorReported> {
+        self.intrinsic_instrs.get_opcode(kind, span, descr).map_err(|e| self.ctx.diagnostics.emit(e))
+    }
+
+    fn unsupported(&self, span: &crate::pos::Span, what: &str) -> ErrorReported {
+        self.ctx.diagnostics.emit(super::unsupported(span, what))
     }
 }
 
@@ -706,8 +704,8 @@ impl Lowerer<'_, '_> {
 // Basically, this function performs this check at the time that we are trying to generate the Var expression
 // that would be used to read the temporary.  This does feel like an unusual time to perform this check,
 // but it works out this way because we need to go from a type with a string variant to a type that has none.
-fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarSigil, CompileError> {
-    ty.sigil().ok_or_else(|| error!(
+fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarSigil, Diagnostic> {
+    ty.sigil().ok_or_else(|| error_d!(
         message("runtime temporary of non-numeric type"),
         primary(span, "temporary {} cannot be created", ty.descr_plural())
     ))
@@ -731,7 +729,7 @@ struct TemporaryExpr<'a> {
     read_ty: ScalarType,
 }
 
-fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<ExprClass<'a>, CompileError> {
+fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<ExprClass<'a>, ErrorReported> {
     match arg.value {
         ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
             lowered: sp!(arg.span => LowerArg::Raw(value.into())),
@@ -777,7 +775,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
     }
 }
 
-fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<LowerArg>, ScalarType), CompileError> {
+fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<LowerArg>, ScalarType), ErrorReported> {
     let read_ty = ctx.var_read_ty_from_ast(var).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
     // Up to this point in compilation, register aliases use Var::Named.
@@ -826,7 +824,7 @@ pub (in crate::llir::lower) fn assign_registers(
     code: &mut [LowerStmt],
     format: &dyn InstrFormat,
     ctx: &CompilerContext,
-) -> Result<(), CompileError> {
+) -> Result<(), ErrorReported> {
     let used_regs = get_used_regs(code);
 
     let mut unused_regs = format.general_use_regs();
@@ -869,7 +867,7 @@ pub (in crate::llir::lower) fn assign_registers(
                         ));
                     }
 
-                    error
+                    ctx.diagnostics.emit(error)
                 })?;
 
                 assert!(local_regs.insert(*def_id, (reg, required_ty, *cause)).is_none());
@@ -898,12 +896,10 @@ pub (in crate::llir::lower) fn assign_registers(
 
     if has_anti_scratch_ins {
         if let Some(span) = has_used_scratch {
-            return Err(error!(
+            return Err(ctx.diagnostics.emit(error!(
                 message("scratch registers are disabled in this script"),
                 primary(span, "this requires a scratch register"),
-                // FIXME: If we ever add spans around Instr, we should give its span instead of this unhelpful note
-                note("Automatic register allocation is disabled in this script because it contains an instruction that uses variables without mentioning them"),
-            ))
+            )))
         }
     }
 

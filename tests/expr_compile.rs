@@ -280,8 +280,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         block
     };
 
-    let err = llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, truth.ctx()).unwrap_err();
-    truth.emit(err).ignore();
+    llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, truth.ctx()).unwrap_err().ignore();
     let err_s = truth.get_captured_diagnostics().unwrap();
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }

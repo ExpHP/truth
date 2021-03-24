@@ -3,7 +3,7 @@
 
 use crate::ast;
 use crate::pos::Sp;
-use crate::error::CompileError;
+use crate::diagnostic::Diagnostic;
 
 /// A normalized form of the pseudo-args in an instruction call.
 pub struct PseudoArgData {
@@ -13,7 +13,7 @@ pub struct PseudoArgData {
 }
 
 impl PseudoArgData {
-    pub fn from_pseudos(pseudos: &[Sp<ast::PseudoArg>]) -> Result<PseudoArgData, CompileError> {
+    pub fn from_pseudos(pseudos: &[Sp<ast::PseudoArg>]) -> Result<PseudoArgData, Diagnostic> {
         let mut param_mask = None;
         let mut blob = None;
         let mut pop = None;
@@ -24,7 +24,7 @@ impl PseudoArgData {
                     let value: &Sp<ast::Expr> = &pseudo.value.value;
 
                     if let Some(prev) = $option.take() {
-                        return Err(error!(
+                        return Err(error_d!(
                             message("duplicate pseudo-arg"),
                             primary(value, "duplicate pseudo-arg"),
                             secondary(prev, "previously supplied here"),
@@ -34,7 +34,7 @@ impl PseudoArgData {
                     $option = Some({
                         value.$as_const_method()
                             .map(|const_value| sp!(value.span => const_value))
-                            .ok_or_else(|| error!(
+                            .ok_or_else(|| error_d!(
                                 message("non-const pseudo-arg"),
                                 primary(value, "non-const pseudo-arg"),
                             ))?
@@ -57,7 +57,7 @@ impl PseudoArgData {
     }
 }
 
-fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, CompileError> {
+fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, Diagnostic> {
     let mut out = vec![];
     let mut first_char = None;
     for c in str.chars() {
@@ -68,7 +68,7 @@ fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, CompileError> {
             'a'..='f' => (c as u32 as u8 - b'a' + 10),
             'A'..='F' => (c as u32 as u8 - b'A' + 10),
             '0'..='9' => (c as u32 as u8 - b'0'),
-            _ => return Err(error!(
+            _ => return Err(error_d!(
                 message("invalid character '{}' in blob literal", c),
                 primary(str, "invalid blob literal"),
             )),
@@ -81,14 +81,14 @@ fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, CompileError> {
     }
 
     if first_char.is_some() {
-        return Err(error!(
+        return Err(error_d!(
             message("odd number of hexadecimal digits in blob literal"),
             primary(str, "invalid blob literal"),
         ));
     }
 
     if out.len() % 4 != 0 {
-        return Err(error!(
+        return Err(error_d!(
             message("number of bytes in blob not divisible by 4 (remainder: {})", out.len() % 4),
             primary(str, "invalid blob literal"),
         ))

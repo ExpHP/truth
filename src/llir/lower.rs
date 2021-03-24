@@ -2,12 +2,12 @@ use std::collections::{HashMap};
 
 use super::{unsupported, SimpleArg};
 use crate::llir::{RawInstr, InstrFormat, ArgEncoding, ScalarType};
-use crate::error::{GatherErrorIteratorExt, CompileError};
+use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast;
 use crate::resolve::DefId;
 use crate::ident::{Ident};
-use crate::context::{CompilerContext, Defs};
+use crate::context::{self, CompilerContext};
 use crate::io::{Encoded, DEFAULT_ENCODING};
 
 mod stackless;
@@ -80,7 +80,7 @@ pub fn lower_sub_ast_to_instrs(
     instr_format: &dyn InstrFormat,
     code: &[Sp<ast::Stmt>],
     ctx: &mut CompilerContext<'_>,
-) -> Result<Vec<RawInstr>, CompileError> {
+) -> Result<Vec<RawInstr>, ErrorReported> {
     use stackless::{Lowerer, assign_registers};
 
     let mut lowerer = Lowerer {
@@ -93,11 +93,11 @@ pub fn lower_sub_ast_to_instrs(
     let mut out = lowerer.out;
 
     // And now postprocess
-    encode_labels(&mut out, instr_format, 0, &ctx.defs)?;
+    encode_labels(&mut out, instr_format, 0, &ctx.defs, &ctx.diagnostics)?;
     assign_registers(&mut out, instr_format, &ctx)?;
 
     out.into_iter().filter_map(|x| match x {
-        LowerStmt::Instr(instr) => Some(encode_args(&instr, &ctx.defs)),
+        LowerStmt::Instr(instr) => Some(encode_args(&instr, &ctx.defs, &ctx.diagnostics)),
         LowerStmt::Label { .. } => None,
         LowerStmt::RegAlloc { .. } => None,
         LowerStmt::RegFree { .. } => None,
@@ -111,9 +111,10 @@ fn encode_labels(
     code: &mut [LowerStmt],
     format: &dyn InstrFormat,
     initial_offset: u64,
-    defs: &Defs,
-) -> Result<(), CompileError> {
-    let label_info = gather_label_info(format, initial_offset, code, defs)?;
+    defs: &context::Defs,
+    diagnostics: &context::DiagnosticEmitter,
+) -> Result<(), ErrorReported> {
+    let label_info = gather_label_info(format, initial_offset, code, defs, diagnostics)?;
 
     code.iter_mut().map(|thing| {
         match thing {
@@ -127,10 +128,10 @@ fn encode_labels(
                             LowerArg::TimeOf(_) => arg.value = LowerArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },
-                        None => return Err(error!{
+                        None => return Err(diagnostics.emit(error!{
                             message("undefined label '{}'", label),
                             primary(arg, "there is no label by this name"),
-                        }),
+                        })),
                     },
                     _ => {},
                 }
@@ -149,8 +150,9 @@ fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: u64,
     code: &[LowerStmt],
-    defs: &Defs,
-) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, CompileError> {
+    defs: &context::Defs,
+    diagnostics: &context::DiagnosticEmitter,
+) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, ErrorReported> {
     use std::collections::hash_map::Entry;
 
     let mut offset = initial_offset;
@@ -158,7 +160,7 @@ fn gather_label_info(
     code.iter().map(|thing| {
         match *thing {
             LowerStmt::Instr(ref instr) => {
-                offset += precompute_instr_size(instr, format, defs)? as u64;
+                offset += precompute_instr_size(instr, format, defs, diagnostics)? as u64;
             },
             LowerStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
@@ -166,11 +168,11 @@ fn gather_label_info(
                         e.insert(RawLabelInfo { time, offset });
                     },
                     Entry::Occupied(e) => {
-                        return Err(error!{
+                        return Err(diagnostics.emit(error!{
                             message("duplicate label '{}'", label),
                             primary(label, "redefined here"),
                             secondary(e.key(), "originally defined here"),
-                        });
+                        }));
                     },
                 }
             },
@@ -192,13 +194,13 @@ fn gather_label_info(
 /// fixing jump labels requires us to know the size before the args are fully encoded.
 ///
 /// Unlike [`encode_args`], this has to deal with variants of [`LowerArg`] that are not the raw argument.
-fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, defs: &Defs) -> Result<usize, CompileError> {
-    let arg_size = precompute_instr_args_size(instr, defs)?;
+fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, defs: &context::Defs, diagnostics: &context::DiagnosticEmitter) -> Result<usize, ErrorReported> {
+    let arg_size = precompute_instr_args_size(instr, defs, diagnostics)?;
 
     Ok(instr_format.instr_header_size() + arg_size)
 }
 
-fn precompute_instr_args_size(instr: &LowerInstr, defs: &Defs) -> Result<usize, CompileError> {
+fn precompute_instr_args_size(instr: &LowerInstr, defs: &context::Defs, diagnostics: &context::DiagnosticEmitter) -> Result<usize, ErrorReported> {
     let args = match &instr.args {
         LowerArgs::Known(args) => args,
         LowerArgs::Unknown(blob) => {
@@ -230,7 +232,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, defs: &Defs) -> Result<usize, 
                 => {
                     // blech, we have to encode the string (which allocates) just to compute the correct length!
                     let string = arg.expect_raw().expect_string();
-                    let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING)?;
+                    let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| diagnostics.emit(e))?;
                     let string_len = encoded.len();
                     size += crate::io::cstring_num_bytes(string_len, block_size);
                 },
@@ -249,7 +251,7 @@ fn precompute_instr_args_size(instr: &LowerInstr, defs: &Defs) -> Result<usize, 
     Ok(size)
 }
 
-fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError> {
+fn encode_args(instr: &LowerInstr, defs: &context::Defs, diagnostics: &context::DiagnosticEmitter) -> Result<RawInstr, ErrorReported> {
     use crate::io::BinWrite;
 
     let args = match &instr.args {
@@ -287,8 +289,8 @@ fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError
             | ArgEncoding::String { block_size, mask }
             => {
                 let string = arg.expect_raw().expect_string();
-                let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING)?;
-                args_blob.write_cstring_masked(&encoded, block_size, mask)?
+                let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| diagnostics.emit(e))?;
+                args_blob.write_cstring_masked(&encoded, block_size, mask).expect("Cursor<Vec> failed?!")
             },
         }
     }
@@ -303,18 +305,18 @@ fn encode_args(instr: &LowerInstr, defs: &Defs) -> Result<RawInstr, CompileError
         opcode: instr.opcode,
         param_mask: match instr.user_param_mask {
             Some(user_provided_mask) => user_provided_mask,
-            None => compute_param_mask(&args)?,
+            None => compute_param_mask(&args, diagnostics)?,
         },
         args_blob: args_blob.into_inner(),
     })
 }
 
-fn compute_param_mask(args: &[Sp<LowerArg>]) -> Result<u16, CompileError> {
+fn compute_param_mask(args: &[Sp<LowerArg>], diagnostics: &context::DiagnosticEmitter) -> Result<u16, ErrorReported> {
     if args.len() > 16 {
-        return Err(error!(
+        return Err(diagnostics.emit(error_d!(
             message("too many arguments in instruction!"),
             primary(args[16], "too many arguments"),
-        ));
+        )));
     }
     let mut mask = 0;
     for arg in args.iter().rev(){
@@ -350,8 +352,8 @@ fn test_precomputed_string_len() {
 
     ctx.set_ins_abi(1, "m".parse().unwrap());
 
-    let actual = precompute_instr_args_size(&instr, &ctx.defs).unwrap();
-    let expected = encode_args(&instr, &ctx.defs).unwrap().args_blob.len();
+    let actual = precompute_instr_args_size(&instr, &ctx.defs, &ctx.diagnostics).unwrap();
+    let expected = encode_args(&instr, &ctx.defs, &ctx.diagnostics).unwrap().args_blob.len();
     assert_eq!(actual, expected);
 
     // the written length should be *slightly more* than sjis_len because there's the null terminator

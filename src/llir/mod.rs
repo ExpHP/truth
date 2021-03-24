@@ -4,7 +4,7 @@ use enum_map::EnumMap;
 
 use crate::ast;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::UnspannedEmitter;
+use crate::diagnostic::{Diagnostic, UnspannedEmitter};
 use crate::error::{CompileError};
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
@@ -235,10 +235,10 @@ impl IntrinsicInstrs {
         IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes }
     }
 
-    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, CompileError> {
+    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, Diagnostic> {
         match self.intrinsic_opcodes.get(&intrinsic) {
             Some(&opcode) => Ok(opcode),
-            None => Err(error!(
+            None => Err(error_d!(
                 message("feature not supported by format"),
                 primary(span, "{} not supported in this game", descr),
             )),
