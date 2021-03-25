@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Context, ensure, bail};
-
 use crate::ast::{self, Expr};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
-use crate::error::{group_anyhow, SimpleError};
+use crate::diagnostic::{UnspannedEmitter};
+use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::resolve::{RegId};
 use crate::context::{self, Defs};
@@ -38,7 +37,7 @@ struct UnknownArgsData {
 /// can be given at the end of decompilation.
 pub struct Raiser<'a> {
     opcodes_without_abis: BTreeSet<u16>,
-    diagnostics: &'a context::DiagnosticEmitter,
+    _diagnostics: &'a context::DiagnosticEmitter,
 }
 
 impl Drop for Raiser<'_> {
@@ -51,22 +50,23 @@ impl<'a> Raiser<'a> {
     pub fn new(diagnostics: &'a context::DiagnosticEmitter) -> Self {
         Raiser {
             opcodes_without_abis: Default::default(),
-            diagnostics,
+            _diagnostics: diagnostics,
         }
     }
 
     pub fn raise_instrs_to_sub_ast(
         &mut self,
+        emitter: &dyn UnspannedEmitter,
         instr_format: &dyn InstrFormat,
         raw_script: &[RawInstr],
         defs: &Defs,
-    ) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
-        raise_instrs_to_sub_ast(self, instr_format, raw_script, defs)
+    ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+        raise_instrs_to_sub_ast(self, &emitter, instr_format, raw_script, defs)
     }
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
-            self.diagnostics.emit(warning!(
+            self._diagnostics.emit(warning!(
                 message("instructions with unknown signatures were decompiled to byte blobs."),
                 note(
                     "The following opcodes were affected: {}",
@@ -82,16 +82,17 @@ impl<'a> Raiser<'a> {
 
 fn raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
+    emitter: &impl UnspannedEmitter,
     instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
     defs: &Defs,
-) -> Result<Vec<Sp<ast::Stmt>>, SimpleError> {
+) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
-    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(raw_instr, defs)).collect::<Result<_, _>>()?;
+    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(emitter, raw_instr, defs)).collect::<Result<_, _>>()?;
 
     let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
-    let offset_labels = generate_offset_labels(&script, &instr_offsets, &jump_data)?;
+    let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
     let mut out = vec![sp!(ast::Stmt {
         time: script.get(0).map(|x| x.time).unwrap_or(0),
         body: ast::StmtBody::NoInstruction,
@@ -103,7 +104,7 @@ fn raise_instrs_to_sub_ast(
             out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
         }
 
-        let body = raise_instr(instr_format, instr, defs, &intrinsic_instrs, &offset_labels)?;
+        let body = raise_instr(emitter, instr_format, instr, defs, &intrinsic_instrs, &offset_labels)?;
         out.push(rec_sp!(Span::NULL => stmt!(at #(instr.time), #body)));
     }
 
@@ -151,7 +152,7 @@ fn gather_jump_time_args(
     script: &[RaiseInstr],
     defs: &Defs,
     instr_format: &dyn InstrFormat,
-) -> Result<JumpData, SimpleError> {
+) -> Result<JumpData, ErrorReported> {
     let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
 
     for instr in script {
@@ -164,15 +165,16 @@ fn gather_jump_time_args(
 }
 
 fn generate_offset_labels(
+    emitter: &impl UnspannedEmitter,
     script: &[RaiseInstr],
     instr_offsets: &[u64],
     jump_data: &JumpData,
-) -> Result<BTreeMap<u64, Label>, SimpleError> {
+) -> Result<BTreeMap<u64, Label>, ErrorReported> {
     let mut offset_labels = BTreeMap::new();
     for (&offset, time_args) in &jump_data.all_offset_args {
         let dest_index = {
             instr_offsets.binary_search(&offset)
-                .map_err(|_| anyhow::anyhow!("an instruction has a bad jump offset!"))?
+                .map_err(|_| emitter.emit(error!("an instruction has a bad jump offset!")))?
         };
         // Find out the time range between this instruction and the previous one
         // (the or_else triggers when dest_index == script.len() (label after last instruction))
@@ -254,14 +256,15 @@ fn extract_jump_args_by_signature(
 
 
 fn raise_instr(
+    emitter: &impl UnspannedEmitter,
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
-) -> Result<ast::StmtBody, SimpleError> {
+) -> Result<ast::StmtBody, ErrorReported> {
     match &instr.args {
-        RaiseArgs::Decoded(args) => raise_decoded_instr(instr_format, instr, args, defs, intrinsic_instrs, offset_labels),
+        RaiseArgs::Decoded(args) => raise_decoded_instr(emitter, instr_format, instr, args, defs, intrinsic_instrs, offset_labels),
         RaiseArgs::Unknown(args) => raise_unknown_instr(instr, args),
     }
 }
@@ -269,7 +272,7 @@ fn raise_instr(
 fn raise_unknown_instr(
     instr: &RaiseInstr,
     args: &UnknownArgsData,
-) -> Result<ast::StmtBody, SimpleError> {
+) -> Result<ast::StmtBody, ErrorReported> {
     let mut pseudos = vec![];
     if args.param_mask != 0 {
         pseudos.push(sp!(ast::PseudoArg {
@@ -293,115 +296,128 @@ fn raise_unknown_instr(
 }
 
 fn raise_decoded_instr(
+    emitter: &impl UnspannedEmitter,
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
     args: &[SimpleArg],
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
-) -> Result<ast::StmtBody, SimpleError> {
+) -> Result<ast::StmtBody, ErrorReported> {
     let opcode = instr.opcode;
     let abi = defs.ins_abi(instr.opcode).expect("decoded, so abi is known");
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
+    macro_rules! ensure {
+        ($emitter:ident, $cond:expr, $($arg:tt)+) => {
+            if !$cond { return Err(emitter.emit(error!($($arg)+))); }
+        };
+    }
+    macro_rules! warn_unless {
+        ($emitter:ident, $cond:expr, $($arg:tt)+) => {
+            if !$cond { emitter.emit(warning!($($arg)+)).ignore(); }
+        };
+    }
+
     match intrinsic_instrs.get_intrinsic(opcode) {
-        Some(IntrinsicInstrKind::Jmp) => group_anyhow(|| {
+        Some(IntrinsicInstrKind::Jmp) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
             let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
 
             // This one is >= because it exists in early STD where there can be padding args.
-            ensure!(args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
-            ensure!(args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
+            ensure!(emitter, args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
+            warn_unless!(emitter, args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
             let goto = raise_jump_args(&args[0], args.get(1), instr_format, offset_labels);
             Ok(stmt_goto!(rec_sp!(Span::NULL => goto #(goto.destination) #(goto.time))))
-        }).with_context(|| format!("while decompiling a 'goto' operation")),
+        }),
 
 
-        Some(IntrinsicInstrKind::AssignOp(op, ty)) => group_anyhow(|| {
-            ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_reg(&args[0], ty)?;
-            let value = raise_arg(&args[1], encodings[1])?;
+        Some(IntrinsicInstrKind::AssignOp(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
+            ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
+            let var = raise_arg_to_reg(emitter, &args[0], ty)?;
+            let value = raise_arg(emitter, &args[1], encodings[1])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var #op #value)))
-        }).with_context(|| format!("while decompiling a '{}' operation", op)),
+        }),
 
 
-        Some(IntrinsicInstrKind::Binop(op, ty)) => group_anyhow(|| {
-            ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_reg(&args[0], ty)?;
-            let a = raise_arg(&args[1], encodings[1])?;
-            let b = raise_arg(&args[2], encodings[2])?;
+        Some(IntrinsicInstrKind::Binop(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
+            ensure!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
+            let var = raise_arg_to_reg(emitter, &args[0], ty)?;
+            let a = raise_arg(emitter, &args[1], encodings[1])?;
+            let b = raise_arg(emitter, &args[2], encodings[2])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_binop!(#a #op #b))))
-        }).with_context(|| format!("while decompiling a '{}' operation", op)),
+        }),
 
 
-        Some(IntrinsicInstrKind::Unop(op, ty)) => group_anyhow(|| {
-            ensure!(args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_reg(&args[0], ty)?;
-            let b = raise_arg(&args[1], encodings[1])?;
+        Some(IntrinsicInstrKind::Unop(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a unary '{}' operation", op), |emitter| {
+            ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
+            let var = raise_arg_to_reg(emitter, &args[0], ty)?;
+            let b = raise_arg(emitter, &args[1], encodings[1])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_unop!(#op #b))))
-        }).with_context(|| format!("while decompiling a unary '{}' operation", op)),
+        }),
 
 
-        Some(IntrinsicInstrKind::InterruptLabel) => group_anyhow(|| {
+        Some(IntrinsicInstrKind::InterruptLabel) => emitter.chain("while decompiling an interrupt label", |emitter| {
             // This one is >= because it exists in STD where there can be padding args.
-            ensure!(args.len() >= 1, "expected {} args, got {}", 1, args.len());
-            ensure!(args[1..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
+            ensure!(emitter, args.len() >= 1, "expected {} args, got {}", 1, args.len());
+            warn_unless!(emitter, args[1..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
             Ok(stmt_interrupt!(rec_sp!(Span::NULL => #(args[0].expect_immediate_int()) )))
-        }).with_context(|| format!("while decompiling an interrupt label")),
+        }),
 
 
-        Some(IntrinsicInstrKind::CountJmp) => group_anyhow(|| {
-            ensure!(args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_reg(&args[0], ScalarType::Int)?;
+        Some(IntrinsicInstrKind::CountJmp) => emitter.chain("while decompiling a decrement jump", |emitter| {
+            warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
+            let var = raise_arg_to_reg(emitter, &args[0], ScalarType::Int)?;
             let goto = raise_jump_args(&args[1], Some(&args[2]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 if (decvar: #var) goto #(goto.destination) #(goto.time)
             )))
-        }).with_context(|| format!("while decompiling a decrement jump")),
+        }),
 
 
-        Some(IntrinsicInstrKind::CondJmp(op, _)) => group_anyhow(|| {
-            ensure!(args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let a = raise_arg(&args[0], encodings[0])?;
-            let b = raise_arg(&args[1], encodings[1])?;
+        Some(IntrinsicInstrKind::CondJmp(op, _)) => emitter.chain("while decompiling a conditional jump", |emitter| {
+            warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
+            let a = raise_arg(emitter, &args[0], encodings[0])?;
+            let b = raise_arg(emitter, &args[1], encodings[1])?;
             let goto = raise_jump_args(&args[2], Some(&args[3]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
             )))
-        }).with_context(|| format!("while decompiling a conditional jump")),
+        }),
 
 
         // Default behavior for general instructions
-        None => group_anyhow(|| {
+        None => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
             let abi = expect_abi(instr, defs);
 
             Ok(ast::StmtBody::Expr(sp!(Expr::Call {
                 name: sp!(ast::CallableName::Ins { opcode }),
                 pseudos: vec![],
-                args: raise_args(args, abi)?,
+                args: raise_args(emitter, args, abi)?,
             })))
-        }).with_context(|| format!("while decompiling ins_{}", opcode)),
+        }),
     }
 }
 
 
-fn raise_args(args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, SimpleError> {
+fn raise_args(emitter: &impl UnspannedEmitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, ErrorReported> {
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
-        bail!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
+        error!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
     }
 
     let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
-        let arg_ast = raise_arg(&arg, enc).with_context(|| format!("in argument {}", i + 1))?;
-        Ok(sp!(arg_ast))
-    }).collect::<Result<Vec<_>, SimpleError>>()?;
+        emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
+            Ok(sp!(raise_arg(emitter, &arg, enc)?))
+        })
+    }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
     // drop early STD padding args from the end as long as they're zero
     for (enc, arg) in abi.arg_encodings().zip(args).rev() {
@@ -413,7 +429,7 @@ fn raise_args(args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, Simpl
     Ok(out)
 }
 
-fn raise_arg(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
+fn raise_arg(emitter: &impl UnspannedEmitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
     if raw.is_reg {
         let ty = match enc {
             | ArgEncoding::Padding
@@ -426,20 +442,20 @@ fn raise_arg(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
             | ArgEncoding::Float
             => ScalarType::Float,
 
-            | ArgEncoding::JumpTime => bail!("unexpected register used as jump time"),
-            | ArgEncoding::JumpOffset => bail!("unexpected register used as jump offset"),
-            | ArgEncoding::Word => bail!("unexpected register used as word-sized argument"),
-            | ArgEncoding::String { .. } => bail!("unexpected register used as string argument"),
+            | ArgEncoding::JumpTime => return Err(emitter.emit(error!("unexpected register used as jump time"))),
+            | ArgEncoding::JumpOffset => return Err(emitter.emit(error!("unexpected register used as jump offset"))),
+            | ArgEncoding::Word => return Err(emitter.emit(error!("unexpected register used as word-sized argument"))),
+            | ArgEncoding::String { .. } => return Err(emitter.emit(error!("unexpected register used as string argument"))),
         };
-        Ok(Expr::Var(sp!(raise_arg_to_reg(raw, ty)?)))
+        Ok(Expr::Var(sp!(raise_arg_to_reg(emitter, raw, ty)?)))
     } else {
-        raise_arg_to_literal(raw, enc)
+        raise_arg_to_literal(emitter, raw, enc)
     }
 }
 
-fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, SimpleError> {
+fn raise_arg_to_literal(emitter: &impl UnspannedEmitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
     if raw.is_reg {
-        bail!("expected an immediate, got a variable");
+        return Err(emitter.emit(error!("expected an immediate, got a register")));
     }
 
     match enc {
@@ -478,13 +494,13 @@ fn raise_arg_to_literal(raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, Simpl
         // also need to add labels as expressions and `timeof(label)`.
         | ArgEncoding::JumpOffset
         | ArgEncoding::JumpTime
-        => bail!("unexpected jump-related arg in non-jump instruction"),
+        => Err(emitter.emit(error!("unexpected jump-related arg in non-jump instruction"))),
     }
 }
 
-fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleError> {
+fn raise_arg_to_reg(emitter: &impl UnspannedEmitter, raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
     if !raw.is_reg {
-        bail!("expected a variable, got an immediate");
+        return Err(emitter.emit(error!("expected a variable, got an immediate")));
     }
     let ty_sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
     let reg = match ty_sigil {
@@ -492,7 +508,7 @@ fn raise_arg_to_reg(raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, SimpleE
         ast::VarSigil::Float => {
             let float_reg = raw.expect_float();
             if float_reg != f32::round(float_reg) {
-                bail!("non-integer float variable [{}] in binary file!", float_reg);
+                return Err(emitter.emit(error!("non-integer float variable [{}] in binary file!", float_reg)));
             }
             RegId(float_reg as i32)
         },
@@ -517,9 +533,9 @@ fn raise_jump_args(
 // =============================================================================
 
 impl Raiser<'_> {
-    fn decode_args(&mut self, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, SimpleError> {
+    fn decode_args(&mut self, emitter: &impl UnspannedEmitter, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         match defs.ins_abi(instr.opcode) {
-            Some(abi) => decode_args_with_abi(&self.diagnostics, instr, abi),
+            Some(abi) => decode_args_with_abi(emitter, instr, abi),
 
             // No ABI. Fall back to decompiling as a blob.
             None => {
@@ -539,20 +555,31 @@ impl Raiser<'_> {
 }
 
 fn decode_args_with_abi(
-    diagnostics: &context::DiagnosticEmitter,
+    emitter: &impl UnspannedEmitter,
     instr: &RawInstr,
     siggy: &InstrAbi,
-) -> Result<RaiseInstr, SimpleError> {
+) -> Result<RaiseInstr, ErrorReported> {
     use crate::io::BinRead;
 
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];
+    let mut remaining_len = instr.args_blob.len();
+
+    fn decrease_len(emitter: &impl UnspannedEmitter, remaining_len: &mut usize, amount: usize) -> Result<(), ErrorReported> {
+        if *remaining_len < amount {
+            return Err(emitter.emit(error!("not enough bytes in instruction")));
+        }
+        *remaining_len -= amount;
+        Ok(())
+    }
+
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
         let is_reg = param_mask % 2 == 1;
         param_mask /= 2;
 
-        let value = crate::error::group_anyhow(|| match enc {
+
+        let value = emitter.chain_with(|f| write!(f, "in argument {} of ins_{}", arg_index + 1, instr.opcode), |emitter| match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
@@ -560,36 +587,49 @@ fn decode_args_with_abi(
             | ArgEncoding::Padding
             | ArgEncoding::Sprite
             | ArgEncoding::Script
-            => Ok(ScalarValue::Int(args_blob.read_u32()? as i32)),
+            => {
+                decrease_len(emitter, &mut remaining_len, 4);
+                Ok(ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32))
+            },
 
             | ArgEncoding::Float
-            => Ok(ScalarValue::Float(f32::from_bits(args_blob.read_u32()?))),
+            => {
+                decrease_len(emitter, &mut remaining_len, 4);
+                Ok(ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len"))))
+            },
 
             | ArgEncoding::Word
-            => Ok(ScalarValue::Int(args_blob.read_i16()? as i32)),
+            => {
+                decrease_len(emitter, &mut remaining_len, 2);
+                Ok(ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32))
+            },
 
             | ArgEncoding::String { block_size: _, mask }
             => {
                 // read to end
-                let read_len = args_blob.get_ref().len() - args_blob.pos()? as usize;
-                Ok(ScalarValue::String(args_blob.read_cstring_masked_exact(read_len, mask)?.decode(DEFAULT_ENCODING)?))
+                let read_len = remaining_len;
+                decrease_len(emitter, &mut remaining_len, read_len);
+
+                let encoded = args_blob.read_cstring_masked_exact(read_len, mask).map_err(|e| emitter.emit(error!("{}", e)))?;
+                let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(error!("{}", e)))?;
+                Ok(ScalarValue::String(string))
             },
-        }).with_context(|| format!("in argument {} of ins_{}", arg_index + 1, instr.opcode))?;
+        })?;
 
         args.push(SimpleArg { value, is_reg })
     }
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
-        diagnostics.emit(warning!(
+        emitter.emit(warning!(
             // this could mean the signature is incomplete
-            "unexpected leftover bytes in ins_{}! (read {} bytes out of {} in file!)",
+            "unexpected leftover bytes in ins_{}! (read {} bytes out of {}!)",
             instr.opcode, args_blob.position(), args_blob.get_ref().len(),
         )).ignore();
     }
 
     if param_mask != 0 {
-        diagnostics.emit(warning!(
-            "unused bits in ins_{}! (arg {} is a variable, but there are only {} args!)",
+        emitter.emit(warning!(
+            "unused mask bits in ins_{}! (arg {} is a register, but there are only {} args!)",
             instr.opcode, param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),
         )).ignore();
     }

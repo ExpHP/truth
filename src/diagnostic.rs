@@ -246,7 +246,7 @@ pub mod unspanned {
         }
     }
 
-    impl<T: UnspannedEmitter> UnspannedEmitter for &'_ T {
+    impl<T: UnspannedEmitter + ?Sized> UnspannedEmitter for &'_ T {
         fn _emitter(&self) -> &DiagnosticEmitter { (**self)._emitter() }
     }
 
