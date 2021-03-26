@@ -96,3 +96,9 @@ impl<'ctx> CompilerContext<'ctx> {
 pub struct Scope {
     diagnostics: DiagnosticEmitter,
 }
+
+impl Scope {
+    pub fn new(diagnostics: DiagnosticEmitter) -> Self {
+        Scope { diagnostics }
+    }
+}

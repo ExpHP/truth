@@ -43,7 +43,7 @@ impl Builder {
             true => DiagnosticEmitter::new_captured(),
             false => DiagnosticEmitter::new_stderr(),
         };
-        Scope { diagnostics }
+        Scope::new(diagnostics)
     }
 
     pub fn capture_diagnostics(&mut self, capture: bool) -> &mut Self {
@@ -100,7 +100,7 @@ impl Truth<'_> {
         let (file_id, source_str) = self.ctx.diagnostics.files.add(display_name, text).map_err(|e| self.emit(e))?;
         let mut state = crate::parse::State::new();
 
-        A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, source_str))
+        A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
             .map_err(|e| self.emit(e))
     }
 }
