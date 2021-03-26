@@ -71,8 +71,8 @@ fn resolve<A: ast::Visitable + Parse>(truth: &mut Truth, text: &str) -> Result<A
 }
 
 fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
-    let scope = crate::Scope::new();
-    let mut truth = crate::Builder::new().capture_diagnostics(true).build(&scope);
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let mut truth = scope.truth();
 
     let mut parsed = resolve::<A>(&mut truth, text).unwrap_or_else(|e| panic!("{}", e));
 
@@ -83,8 +83,8 @@ fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
 }
 
 fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
-    let scope = crate::Scope::new();
-    let mut truth = crate::Builder::new().capture_diagnostics(true).build(&scope);
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let mut truth = scope.truth();
 
     let mut parsed = resolve::<A>(&mut truth, text).unwrap_or_else(|e| panic!("{}", e));
 
@@ -100,8 +100,8 @@ fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
 }
 
 fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
-    let scope = crate::Scope::new();
-    let mut truth = crate::Builder::new().capture_diagnostics(true).build(&scope);
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let mut truth = scope.truth();
 
     let err_msg = resolve::<A>(&mut truth, text).err().unwrap();
     assert!(err_msg.contains(expected), "{}", err_msg);
@@ -530,8 +530,8 @@ test!(
 #[should_panic(expected = "resolved multiple times")]
 #[test]
 fn panics_on_cloned_res() {
-    let scope = crate::Scope::new();
-    let mut truth = crate::Builder::new().build(&scope);
+    let mut scope = crate::Builder::new().build();
+    let mut truth = scope.truth();
     truth.load_mapfile(ECLMAP).unwrap();
 
     let mut def = truth.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();

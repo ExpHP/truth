@@ -16,8 +16,9 @@ fn parse<A: Parse>(s: &str) -> super::Result<'_, A> {
 // This extremely hasty const simplification pass won't handle const vars at all, but is
 // still useful for checking how expressions are parsed (especially w.r.t. precedence).
 fn simplify_expr(expr: ast::Expr) -> Result<ast::Expr, ErrorReported> {
-    let scope = crate::Scope::new();
-    let mut ctx = CompilerContext::new(&scope, DiagnosticEmitter::new_stderr());
+    let mut scope = crate::Builder::new().build();
+    let mut truth = scope.truth();
+    let mut ctx = truth.ctx();
 
     let mut expr = sp!(expr);
     crate::passes::const_simplify::run(&mut expr, &mut ctx)?;
@@ -162,8 +163,8 @@ fn string_escape() {
 
 #[track_caller]
 fn expect_parse_error<T: Parse>(expected: &str, source: &str) -> String {
-    let scope = crate::Scope::new();
-    let mut truth = crate::Builder::new().capture_diagnostics(true).build(&scope);
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let mut truth = scope.truth();
 
     let _ = truth.parse::<T>("<input>", source.as_bytes()).err().unwrap();
     let err_str = truth.get_captured_diagnostics().unwrap();

@@ -932,8 +932,8 @@ mod tests {
 
     // Parse and dump back out, with some max columns.
     fn reformat_bytes<T: crate::parse::Parse + Format>(ncol: usize, text: &[u8]) -> Vec<u8> {
-        let scope = crate::Scope::new();
-        let mut truth = crate::Builder::new().build(&scope);
+        let mut scope = crate::Builder::new().build();
+        let mut truth = scope.truth();
         let mut f = Formatter::with_config(vec![], Config::new().max_columns(ncol));
         let value = truth.parse::<T>("<input>", text).unwrap();
         f.fmt(&value).unwrap();

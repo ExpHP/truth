@@ -425,8 +425,8 @@ fn load_mapfiles(
 // =============================================================================
 
 fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) -> ! {
-    let scope = crate::Scope::new();
-    let mut truth = crate::Builder::new().build(&scope);
+    let mut scope = crate::Builder::new().build();
+    let mut truth = scope.truth();
 
     match func(&mut truth) {
         Ok(()) => std::process::exit(0),

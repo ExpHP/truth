@@ -19,8 +19,8 @@
 //! use truth::context::CompilerContext;
 //! use truth::passes;
 //!
-//! let scope = truth::Scope::new();
-//! let mut truth = truth::Builder::new().build(&scope);
+//! let mut scope = crate::Builder::new().build();
+//! let mut truth = scope.truth();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * %REG[100] : 4.0";
 //! let mut expr: Sp<ast::Expr> = truth.parse("<input>", text).unwrap();

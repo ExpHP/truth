@@ -45,7 +45,7 @@ pub use crate::diagnostic::DiagnosticEmitter;
 /// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
 #[derive(Debug)]
 pub struct CompilerContext<'ctx> {
-    pub diagnostics: DiagnosticEmitter,
+    pub diagnostics: &'ctx DiagnosticEmitter,
 
     /// Catalogues all loaded mapfiles for generating imports.
     mapfiles: Vec<PathBuf>,
@@ -60,7 +60,7 @@ pub struct CompilerContext<'ctx> {
     /// The initial set of ribs for name resolution, containing names from mapfiles and meta.
     pub initial_ribs: Vec<Rib>,
 
-    /// Arenas and stuff.
+    /// The location where any data behind a `&'ctx` reference is *actually* stored.
     _scope: &'ctx Scope,
 
     // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
@@ -69,9 +69,9 @@ pub struct CompilerContext<'ctx> {
 }
 
 impl<'ctx> CompilerContext<'ctx> {
-    pub fn new(scope: &'ctx Scope, diagnostics: DiagnosticEmitter) -> Self {
+    pub fn new(scope: &'ctx Scope) -> Self {
         CompilerContext {
-            diagnostics,
+            diagnostics: &scope.diagnostics,
             mapfiles: Default::default(),
             resolutions: Default::default(),
             defs: Default::default(),
@@ -84,18 +84,15 @@ impl<'ctx> CompilerContext<'ctx> {
     }
 }
 
-/// The object that the `'ctx` lifetime on [`crate::api::Truth`] primarily originates from.
-/// Holds arenas for compilation.
+/// The object that the `'ctx` lifetime on [`Truth`] primarily originates from.
+/// May be used to store the following things:
 ///
-/// (currently it holds nothing, and is only here in order to make it easier to add arenas in the future,
-///  by forcing all code to take `'ctx` into account)
+/// * Arenas, as these must outlive [`Truth`].
+/// * Things like [`DiagnosticEmitter`], where a piece of code may want to be able to use
+///   both a `&DiagnosticEmitter` and a `&mut CompilerContext` at the same time.
 ///
-/// FIXME: remove if still unused after a long time
-#[derive(Debug, Default)]
+/// [`Truth`]: [`crate::api::Truth`]
+#[derive(Debug)]
 pub struct Scope {
-    _priv: (),
-}
-
-impl Scope {
-    pub fn new() -> Self { Self::default() }
+    diagnostics: DiagnosticEmitter,
 }

@@ -192,8 +192,8 @@ impl TestFile {
     }
 
     pub fn read_anm(&self, format: &Format) -> AnmFile {
-        let scope = truth::Scope::new();
-        let mut truth = truth::Builder::new().build(&scope);
+        let mut scope = crate::Builder::new().build();
+        let mut truth = scope.truth();
         truth.read_anm(format.game, self.as_path(), false).unwrap()
     }
 }

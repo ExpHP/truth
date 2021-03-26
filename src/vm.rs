@@ -453,8 +453,8 @@ mod tests {
 
     impl<S: AsRef<[u8]>> TestSpec<S> {
         fn prepare(&self) -> (ast::Block, Resolutions) {
-            let scope = crate::Scope::new();
-            let mut truth = crate::Builder::new().build(&scope);
+            let mut scope = crate::Builder::new().build();
+            let mut truth = scope.truth();
             let mut ast = truth.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
 
             let ctx = truth.ctx();

@@ -11,6 +11,8 @@ use crate::passes::DecompileKind;
 /// Front-end API of `truth`, for direct use by `truth`'s various entry point functions, as well
 /// as by unit tests.
 ///
+/// To construct one, see [`Builder`].
+///
 /// The main purpose is to reduce the number of types that code outside of the crate needs to know about
 /// or import.  To this end, its methods cover a wide variety of uses.
 pub struct Truth<'ctx> {
@@ -33,23 +35,26 @@ impl Builder {
         }
     }
 
-    pub fn capture_diagnostics(&mut self, capture: bool) -> &mut Self {
-        self.capture_diagnostics = capture; self
-    }
-
-    pub fn build<'ctx>(&self, scope: &'ctx Scope) -> Truth<'ctx> {
+    /// Begin constructing the compiler using the settings stored on this [`Builder`].
+    ///
+    /// To finish constructing it, store the result in a local variable and call [`Scope::truth`].
+    pub fn build(&self) -> Scope {
         let diagnostics = match self.capture_diagnostics {
             true => DiagnosticEmitter::new_captured(),
             false => DiagnosticEmitter::new_stderr(),
         };
-        Truth { ctx: CompilerContext::new(scope, diagnostics) }
+        Scope { diagnostics }
     }
 
-    /// Automatically creates a [`Scope`] for simple use cases.  The [`Truth`] instance will be unable
-    /// to escape the closure.
-    pub fn build_scoped<T>(&self, cont: impl for<'a> FnOnce(&mut Truth<'a>) -> T) -> T {
-        let scope = Scope::default();
-        cont(&mut self.build(&scope))
+    pub fn capture_diagnostics(&mut self, capture: bool) -> &mut Self {
+        self.capture_diagnostics = capture; self
+    }
+}
+
+impl Scope {
+    /// Create an instance of the compiler backed by this [`Scope`].
+    pub fn truth(&mut self) -> Truth<'_> {
+        Truth { ctx: CompilerContext::new(self) }
     }
 }
 
