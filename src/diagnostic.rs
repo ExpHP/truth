@@ -245,6 +245,16 @@ pub mod unspanned {
             label: format!("while writing {}", filename),
         }
     }
+    pub type WhileDecompiling<'a> = Node<Root<'a>, String>;
+    pub fn while_decompiling<'a>(filename: Option<&str>, diagnostics: &'a DiagnosticEmitter) -> WhileDecompiling<'a> {
+        Node {
+            parent: Root(diagnostics),
+            label: match filename {
+                Some(filename) => format!("{}", filename),
+                None => format!("while decompiling"),
+            }
+        }
+    }
 
     impl<T: UnspannedEmitter + ?Sized> UnspannedEmitter for &'_ T {
         fn _emitter(&self) -> &DiagnosticEmitter { (**self)._emitter() }

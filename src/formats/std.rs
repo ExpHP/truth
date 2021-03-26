@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::{Diagnostic, UnspannedEmitter};
+use crate::diagnostic::{Diagnostic, unspanned, UnspannedEmitter};
 use crate::error::{SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident};
@@ -22,6 +22,8 @@ pub struct StdFile {
     pub instances: Vec<Instance>,
     pub script: Vec<RawInstr>,
     pub extra: StdExtra,
+    /// Filename of a read binary file, for display purposes only.
+    binary_filename: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,8 +62,9 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        decompile_std(&*game_format(game), self, ctx, decompile_kind)
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+        let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
+        decompile_std(self, &emitter, &*game_format(game), ctx, decompile_kind)
             .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
@@ -89,6 +92,7 @@ impl StdFile {
             instances: m.expect_field("instances")?,
             script: vec![],
             extra: file_format.extra_from_meta(&mut m)?,
+            binary_filename: None,
         };
         m.finish()?;
         Ok(out)
@@ -229,11 +233,17 @@ impl ToMeta for Instance {
 
 // =============================================================================
 
-fn decompile_std(format: &dyn FileFormat, std: &StdFile, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, SimpleError> {
+fn decompile_std(
+    std: &StdFile,
+    emitter: &impl UnspannedEmitter,
+    format: &dyn FileFormat,
+    ctx: &mut CompilerContext,
+    decompile_kind: DecompileKind,
+) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(instr_format, script, &ctx.defs)?;
+    let code = llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?;
 
     let mut script = ast::Script {
         mapfiles: ctx.mapfiles_to_ast(),
@@ -376,7 +386,8 @@ fn read_std(reader: &mut BinReader, emitter: &impl UnspannedEmitter, format: &dy
     reader.seek_to(start_pos + script_offset)?;
     let script = llir::read_instrs(reader, emitter, format.instr_format(), 0, None)?;
 
-    Ok(StdFile { unknown, extra, objects, instances, script })
+    let binary_filename = Some(reader.display_filename().to_string());
+    Ok(StdFile { unknown, extra, objects, instances, script, binary_filename })
 }
 
 fn write_std(

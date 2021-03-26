@@ -7,7 +7,7 @@ use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::UnspannedEmitter;
+use crate::diagnostic::{UnspannedEmitter, unspanned};
 use crate::error::{GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
@@ -25,11 +25,14 @@ use crate::resolve::RegId;
 #[derive(Debug, Clone)]
 pub struct AnmFile {
     pub entries: Vec<Entry>,
+    /// Filename of a read binary file, for display purposes only.
+    binary_filename: Option<String>,
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        decompile(&game_format(game), self, ctx, decompile_kind)
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+        let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
+        decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
             .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
@@ -209,9 +212,10 @@ impl FromMeta<'_> for Sprite {
 // =============================================================================
 
 fn decompile(
-    format: &FileFormat,
     anm_file: &AnmFile,
-    ctx: &CompilerContext,
+    emitter: &impl UnspannedEmitter,
+    format: &FileFormat,
+    ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
     let instr_format = format.instr_format();
@@ -226,7 +230,7 @@ fn decompile(
         }));
 
         for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ctx.defs)?;
+            let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -381,7 +385,7 @@ fn compile(
         }
         Ok::<_, ErrorReported>(entry)
     }).collect_with_recovery()?;
-    Ok(AnmFile { entries })
+    Ok(AnmFile { entries, binary_filename: None })
 }
 
 fn write_thecl_defs(
@@ -538,7 +542,8 @@ fn read_anm(
         }
     }
 
-    let mut anm = AnmFile { entries };
+    let binary_filename = Some(reader.display_filename().to_string());
+    let mut anm = AnmFile { entries, binary_filename };
     strip_unnecessary_sprite_ids(&mut anm);
     Ok(anm)
 }

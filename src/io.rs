@@ -70,6 +70,7 @@ impl<W: Write + Seek> DynWriteSeek for W {}
 pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
     /// Emitter with no additional context beyond the filename.
     root_emitter: unspanned::WhileReading<'a>,
+    display_filename: String,
     reader: R,
 }
 
@@ -77,6 +78,7 @@ pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
 ///
 /// Implements [`BinWrite`] with automatic handling of diagnostics.
 pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
+    /// Emitter with no additional context beyond the filename.
     root_emitter: unspanned::WhileWriting<'a>,
     writer: W,
 }
@@ -87,12 +89,12 @@ pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
 impl<'a, R: Read + Seek + 'a> BinReader<'a, R> {
     pub fn from_reader(diagnostics: &'a DiagnosticEmitter, filename: &str, reader: R) -> Self {
         let emitter = unspanned::while_reading(filename, diagnostics);
-        BinReader { root_emitter: emitter, reader }
+        BinReader { root_emitter: emitter, reader, display_filename: filename.to_owned() }
     }
 
     pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, R2> {
-        let BinReader { root_emitter: emitter, reader } = self;
-        BinReader { root_emitter: emitter, reader: func(reader) }
+        let BinReader { root_emitter: emitter, reader, display_filename } = self;
+        BinReader { root_emitter: emitter, reader: func(reader), display_filename }
     }
     pub fn into_inner(self) -> R { self.reader }
 }
@@ -113,6 +115,7 @@ impl<'a, W: Write + Seek + 'a> BinWriter<'a, W> {
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     pub fn emitter(&self) -> impl UnspannedEmitter + 'a { self.root_emitter.clone() }
     pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
+    pub fn display_filename(&self) -> &str { &self.display_filename }
 }
 
 impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {

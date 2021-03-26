@@ -147,13 +147,13 @@ impl Truth<'_> {
     }
 
     pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        crate::AnmFile::decompile_to_ast(middle, game, &self.ctx, decompile_kind)
+        crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
     }
     pub fn decompile_msg(&mut self, game: Game, middle: &crate::MsgFile, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        crate::MsgFile::decompile_to_ast(middle, game, &self.ctx, decompile_kind)
+        crate::MsgFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
     }
     pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        crate::StdFile::decompile_to_ast(middle, game, &self.ctx, decompile_kind)
+        crate::StdFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
     }
 }
 

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::{Diagnostic, UnspannedEmitter};
+use crate::diagnostic::{Diagnostic, unspanned, UnspannedEmitter};
 use crate::error::{GatherErrorIteratorExt, SimpleError, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
@@ -19,11 +19,14 @@ pub struct MsgFile {
     /// last full one, so we must store its true length.
     pub script_table_len: u32,
     pub scripts: BTreeMap<u32, Vec<RawInstr>>,
+    /// Filename of a read binary file, for display purposes only.
+    binary_filename: Option<String>,
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        decompile(&*game_format(game), self, ctx, decompile_kind)
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+        let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
+        decompile(self, &emitter, &*game_format(game), ctx, decompile_kind)
             .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
@@ -45,9 +48,10 @@ impl MsgFile {
 // =============================================================================
 
 fn decompile(
-    instr_format: &dyn InstrFormat,
     msg: &MsgFile,
-    ctx: &CompilerContext,
+    emitter: &impl UnspannedEmitter,
+    instr_format: &dyn InstrFormat,
+    ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, SimpleError> {
     let mut raiser = llir::Raiser::new(&ctx.diagnostics);
@@ -55,7 +59,7 @@ fn decompile(
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items: msg.scripts.iter().map(|(&id, instrs)| {
-            let code = raiser.raise_instrs_to_sub_ast(instr_format, instrs, &ctx.defs)?;
+            let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
 
             Ok(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id as _)),
@@ -137,6 +141,7 @@ fn compile(
             llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ctx)
                 .map(|compiled| (id, compiled))
         }).collect_with_recovery()?,
+        binary_filename: None,
     })
 }
 
@@ -195,7 +200,8 @@ fn read_msg(
         })?;
     }
 
-    Ok(MsgFile { script_table_len, scripts })
+    let binary_filename = Some(reader.display_filename().to_owned());
+    Ok(MsgFile { script_table_len, scripts, binary_filename })
 }
 
 fn write_msg(
