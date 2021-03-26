@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use anyhow::Context;
-
 use crate::ast;
 use crate::context::CompilerContext;
-use crate::error::{ErrorReported, SimpleError};
+use crate::diagnostic::{unspanned, UnspannedEmitter};
+use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
@@ -370,7 +369,15 @@ impl CompilerContext<'_> {
     /// Add info from an eclmap.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
-    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) -> Result<(), SimpleError> {
+    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) -> Result<(), ErrorReported> {
+        let emitter = {
+            let error_label = match path {
+                Some(path) => path.to_string_lossy().into_owned(),
+                None => format!("in mapfile"),
+            };
+            unspanned::make_root(error_label, self.diagnostics)
+        };
+
         if let Some(path) = path {
             self.mapfiles.push(path.to_owned());
         }
@@ -379,23 +386,29 @@ impl CompilerContext<'_> {
             let (_, old_opcode) = self.define_global_ins_alias(opcode as u16, ident.clone());
             if let Some(old_opcode) = old_opcode {
                 if opcode as u16 != old_opcode {
-                    self.diagnostics.emit(warning!("name '{}' used for multiple opcodes in mapfiles: {}, {}", ident, old_opcode, opcode)).ignore();
+                    emitter.emit(warning!("name '{}' used for multiple opcodes: {}, {}", ident, old_opcode, opcode)).ignore();
                 }
             }
         }
-        for (&opcode, abi_str) in &eclmap.ins_signatures {
-            let abi = abi_str.parse().with_context(|| format!("in signature for opcode {}", opcode))?;
-            self.set_ins_abi(opcode as u16, abi);
-        }
+
+        eclmap.ins_signatures.iter().map(|(&opcode, abi_str)| {
+            emitter.chain_with(|f| write!(f, "in signature for opcode {}", opcode), |emitter| {
+                let abi = abi_str.parse().map_err(|e| emitter.emit(e))?;
+                self.set_ins_abi(opcode as u16, abi);
+                Ok::<_, ErrorReported>(())
+            })
+        }).collect_with_recovery()?;
+
         for (&reg, ident) in &eclmap.gvar_names {
             self.define_global_reg_alias(RegId(reg), ident.clone());
         }
+
         for (&reg, value) in &eclmap.gvar_types {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
                 _ => {
-                    self.diagnostics.emit(warning!("In mapfile: Ignoring invalid variable type '{}' for gvar {}", value, reg)).ignore();
+                    emitter.emit(warning!("ignoring invalid variable type '{}' for gvar {}", value, reg)).ignore();
                     continue;
                 },
             };

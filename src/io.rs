@@ -42,9 +42,9 @@ impl Encoded {
         }
     }
 
-    pub fn decode(&self, enc: Encoding) -> Result<String, crate::error::SimpleError> {
+    pub fn decode(&self, enc: Encoding) -> Result<String, Diagnostic> {
         match enc.decode_without_bom_handling(self.0.as_ref()) {
-            (_, true) => bail!("could not read string using encoding '{}'", enc.name()),
+            (_, true) => Err(error!("could not read string using encoding '{}'", enc.name())),
             (str, _) => Ok(str.into_owned().into()),
         }
     }
@@ -126,12 +126,6 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
 // ------------
 // file opening
 
-/// Reads all contents of a file into memory.
-pub fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, Diagnostic> {
-    let path = path.as_ref();
-    fs::read(path).map_err(|e| error!("while reading file '{}': {}", path.display(), e))
-}
-
 impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
     /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
     ///
@@ -177,6 +171,30 @@ impl<'a> BinWriter<'a, fs::File> {
 
         Ok(Self::from_writer(diagnostics, &path_string, file))
     }
+}
+
+// =============================================================================
+// Other IO wrappers.
+
+/// Wraps [`std::fs::read`].
+pub fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, Diagnostic> {
+    let path = path.as_ref();
+    fs::read(path).map_err(|e| error!("while reading file '{}': {}", path.display(), e))
+}
+
+/// Make a path "nice" for display, *if possible*.
+pub fn nice_display_path(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref();
+    nice_or_bust(path).unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+fn nice_or_bust(path: impl AsRef<Path>) -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let absolute = cwd.join(path.as_ref());
+
+    // (just bail if it's not a child. "../../../other/place" would hardly be nice.)
+    let relative = absolute.strip_prefix(&cwd).ok()?;
+    Some(relative.to_string_lossy().into_owned())
 }
 
 // =============================================================================

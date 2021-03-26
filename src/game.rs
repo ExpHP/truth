@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::diagnostic::Diagnostic;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Game {
     Th06, Th07, Th08, Th09, Th095, Th10, Alcostg, Th11, Th12,
@@ -8,7 +10,7 @@ pub enum Game {
 macro_rules! max_game_str { () => { "th17" }; }
 
 impl std::str::FromStr for Game {
-    type Err = anyhow::Error;
+    type Err = Diagnostic;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "alcostg" {
@@ -16,10 +18,10 @@ impl std::str::FromStr for Game {
         }
 
         let err_suffix = concat!("(valid games are th06 to ", max_game_str!(), ", or alcostg.  Point titles are written as e.g. th095)");
-        let invalid_game = || anyhow::anyhow!("game not invalid: {} {}", s, err_suffix);
-        let unsupported_pc98 = || anyhow::anyhow!("game not supported (PC-98): {} {}", s, err_suffix);
-        let unsupported_fighter = || anyhow::anyhow!("game not supported (fighter): {} {}", s, err_suffix);
-        let unknown_game = || anyhow::anyhow!("unknown game: {} {}", s, err_suffix);
+        let invalid_game = || error!("game not invalid: {} {}", s, err_suffix);
+        let unsupported_pc98 = || error!("game not supported (PC-98): {} {}", s, err_suffix);
+        let unsupported_fighter = || error!("game not supported (fighter): {} {}", s, err_suffix);
+        let unknown_game = || error!("unknown game: {} {}", s, err_suffix);
 
         let s = s.strip_prefix("th").unwrap_or(s);
         match s.parse::<u32>().map_err(|_| invalid_game())? {

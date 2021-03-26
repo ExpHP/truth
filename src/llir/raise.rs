@@ -578,7 +578,6 @@ fn decode_args_with_abi(
         let is_reg = param_mask % 2 == 1;
         param_mask /= 2;
 
-
         let value = emitter.chain_with(|f| write!(f, "in argument {} of ins_{}", arg_index + 1, instr.opcode), |emitter| match enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
@@ -610,8 +609,8 @@ fn decode_args_with_abi(
                 let read_len = remaining_len;
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let encoded = args_blob.read_cstring_masked_exact(read_len, mask).map_err(|e| emitter.emit(error!("{}", e)))?;
-                let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(error!("{}", e)))?;
+                let encoded = args_blob.read_cstring_masked_exact(read_len, mask).expect("already checked len");
+                let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
                 Ok(ScalarValue::String(string))
             },
         })?;

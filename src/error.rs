@@ -23,13 +23,6 @@ impl ErrorReported {
     pub fn ignore(self) {}
 }
 
-/// Error type used by parts of the codebase that don't have access to spans.
-///
-/// These parts of the codebase use `anyhow` to produce a single, fatal error message that may
-/// include a chain of context.  This is always ultimately converted into a [`CompileError`]
-/// shortly before being displayed to the user.
-pub type SimpleError = anyhow::Error;
-
 // =============================================================================
 
 /// An accumulator for errors that provides a straightforward way of converting to

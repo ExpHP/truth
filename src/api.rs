@@ -71,20 +71,13 @@ impl Truth<'_> {
 /// # Reading text files
 impl Truth<'_> {
     pub fn load_mapfile(&mut self, text: &str) -> Result<(), ErrorReported> {
-        crate::Eclmap::parse(text, &self.ctx.diagnostics)
-            .and_then(|eclmap| self.ctx.extend_from_eclmap(None, &eclmap))
-            .map_err(|e| self.emit(error!("{:#}", e)))
+        let eclmap = crate::Eclmap::parse(text, &self.ctx.diagnostics)?;
+        self.ctx.extend_from_eclmap(None, &eclmap)
     }
 
     pub fn read_mapfile_and_record(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
-        use anyhow::Context; // FIXME remove
-
-        crate::Eclmap::load(filepath, game, &self.ctx.diagnostics)
-            .and_then(|eclmap| {
-                self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
-                    .with_context(|| format!("while applying '{}'", filepath.display()))
-            })
-            .map_err(|e| self.emit(error!("{:#}", e)))
+        let eclmap = crate::Eclmap::load(filepath, game, &self.ctx.diagnostics)?;
+        self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
     }
 
     pub fn read_script(&mut self, path: &Path) -> Result<ast::Script, ErrorReported> {

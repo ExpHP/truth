@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Diagnostic, unspanned, UnspannedEmitter};
-use crate::error::{SimpleError, ErrorReported};
+use crate::error::ErrorReported;
 use crate::game::Game;
 use crate::ident::{Ident};
 use crate::llir::{self, RawInstr, InstrFormat};
@@ -239,7 +239,7 @@ fn decompile_std(
     format: &dyn FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
-) -> Result<ast::Script, SimpleError> {
+) -> Result<ast::Script, ErrorReported> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
@@ -448,7 +448,7 @@ fn write_std(
 fn read_string_128(r: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<Sp<String>> {
     r.read_cstring_masked_exact(128, 0x00)?
         .decode(DEFAULT_ENCODING).map(|x| sp!(x))
-        .map_err(|e| emitter.emit_one(error!("{}", e)))
+        .map_err(|e| emitter.emit_one(e))
 }
 fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, s: &Sp<S>) -> WriteResult {
     let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| emitter.emit_one(e))?;

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, btree_map};
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, unspanned, UnspannedEmitter};
-use crate::error::{GatherErrorIteratorExt, SimpleError, ErrorReported};
+use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
 use crate::pos::{Span};
@@ -27,7 +27,6 @@ impl MsgFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
         let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
         decompile(self, &emitter, &*game_format(game), ctx, decompile_kind)
-            .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
@@ -53,7 +52,7 @@ fn decompile(
     instr_format: &dyn InstrFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
-) -> Result<ast::Script, SimpleError> {
+) -> Result<ast::Script, ErrorReported> {
     let mut raiser = llir::Raiser::new(&ctx.diagnostics);
     let mut script = ast::Script {
         mapfiles: ctx.mapfiles_to_ast(),
@@ -67,7 +66,7 @@ fn decompile(
                 code: ast::Block(code),
                 keyword: sp!(()),
             }))
-        }).collect::<Result<_, SimpleError>>()?
+        }).collect_with_recovery()?
     };
     crate::passes::postprocess_decompiled(&mut script, ctx, decompile_kind)?;
     Ok(script)

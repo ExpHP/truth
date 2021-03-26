@@ -8,7 +8,7 @@ use indexmap::{IndexSet, IndexMap};
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{UnspannedEmitter, unspanned};
-use crate::error::{GatherErrorIteratorExt, SimpleError, ErrorReported};
+use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
@@ -217,7 +217,7 @@ fn decompile(
     format: &FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
-) -> Result<ast::Script, SimpleError> {
+) -> Result<ast::Script, ErrorReported> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -229,8 +229,10 @@ fn decompile(
             fields: sp!(entry.make_meta()),
         }));
 
-        for (name, &Script { id, ref instrs }) in &entry.scripts {
-            let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
+        entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
+            let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
+                raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)
+            })?;
 
             items.push(sp!(ast::Item::AnmScript {
                 number: Some(sp!(id)),
@@ -238,7 +240,8 @@ fn decompile(
                 code: ast::Block(code),
                 keyword: sp!(()),
             }));
-        }
+            Ok(())
+        }).collect_with_recovery()?;
     }
     let mut out = ast::Script {
         items,
@@ -580,12 +583,12 @@ fn read_entry(
     // eprintln!("{:?}", script_ids_and_offsets);
 
     reader.seek_to(entry_pos + header_data.name_offset)?;
-    let path = reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(error!("{}", e)))?;
+    let path = reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
     let path_2 = match header_data.secondary_name_offset {
         None => None,
         Some(n) => {
             reader.seek_to(entry_pos + n.get())?;
-            Some(reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(error!("{}", e)))?)
+            Some(reader.read_cstring_blockwise(16)?.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?)
         },
     };
 

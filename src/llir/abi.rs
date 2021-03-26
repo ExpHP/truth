@@ -1,4 +1,4 @@
-use crate::error::SimpleError;
+use crate::diagnostic::Diagnostic;
 use crate::context::{CompilerContext, defs};
 use crate::value::{self, ScalarType};
 
@@ -61,7 +61,7 @@ pub enum ArgEncoding {
 }
 
 impl InstrAbi {
-    pub fn from_encodings(encodings: Vec<ArgEncoding>) -> Result<Self, SimpleError> {
+    pub fn from_encodings(encodings: Vec<ArgEncoding>) -> Result<Self, Diagnostic> {
         validate(&encodings)?;
         Ok(InstrAbi { encodings })
     }
@@ -98,34 +98,34 @@ impl ArgEncoding {
 }
 
 
-fn validate(encodings: &[ArgEncoding]) -> Result<(), SimpleError> {
+fn validate(encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
     let o_count = encodings.iter().filter(|&&c| c == Enc::JumpOffset).count();
     let t_count = encodings.iter().filter(|&&c| c == Enc::JumpTime).count();
 
     for &(char, count) in &[('o', o_count), ('t', t_count)][..] {
         if count > 1 {
-            anyhow::bail!("signature has multiple '{}' args", char);
+            return Err(error!("signature has multiple '{}' args", char));
         }
     }
     if t_count == 1 && o_count == 0 {
-        anyhow::bail!("signature has a 't' arg without an 'o' arg");
+        return Err(error!("signature has a 't' arg without an 'o' arg"));
     }
 
     if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { .. })) {
-        anyhow::bail!("'z' or 'm' arguments can only appear at the very end");
+        return Err(error!("'z' or 'm' arguments can only appear at the very end"));
     }
 
     let trailing_pad_count = encodings.iter().rev().take_while(|c| matches!(c, Enc::Padding)).count();
     let total_pad_count = encodings.iter().filter(|c| matches!(c, Enc::Padding)).count();
     if total_pad_count != trailing_pad_count {
         // this restriction is required because Padding produces signatures with optional args.
-        anyhow::bail!("non-'_' arguments cannot come after '_' arguments");
+        return Err(error!("non-'_' arguments cannot come after '_' arguments"));
     }
     Ok(())
 }
 
 impl std::str::FromStr for InstrAbi {
-    type Err = SimpleError;
+    type Err = Diagnostic;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut iter = s.bytes().peekable();
@@ -144,8 +144,8 @@ impl std::str::FromStr for InstrAbi {
                 b'N' => ArgEncoding::Script,
                 b'z' => ArgEncoding::String { block_size: 4, mask: 0 },
                 b'm' => ArgEncoding::String { block_size: 4, mask: 0x77 },
-                0x80..=0xff => anyhow::bail!("non-ascii byte in signature: {:#04x}", b),
-                _ => anyhow::bail!("bad signature character: {:?}", b as char)
+                0x80..=0xff => return Err(error!("non-ascii byte in signature: {:#04x}", b)),
+                _ => return Err(error!("bad signature character: {:?}", b as char))
             };
             encodings.push(enc);
         }

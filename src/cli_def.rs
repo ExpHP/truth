@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use crate::api::Truth;
 use crate::game::Game;
-use crate::error::{SimpleError, ErrorReported};
+use crate::error::ErrorReported;
 
 pub fn main(version: &str) -> ! {
     let mut args = std::env::args();
@@ -440,7 +440,6 @@ use cli::{CmdSpec, Subcommands, SubcommandSpec};
 
 mod cli {
     use super::*;
-    use anyhow::anyhow;
     use getopts::{Options, Matches};
 
     pub fn mapfile() -> impl CliArg<Value=Option<PathBuf>> {
@@ -461,14 +460,14 @@ mod cli {
         opts::ReqOpt(opts::Opt {
             short: "g", long: "game", metavar: "GAME",
             help: "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.",
-        }).and_then(|s| s.parse().map_err(Into::into))
+        }).and_then(|s| s.parse())
     }
 
     pub fn max_columns() -> impl CliArg<Value=usize> {
         opts::Opt {
             short: "", long: "max-columns", metavar: "NUM",
             help: "where possible, will attempt to break lines for < NUM columns",
-        }.and_then(|s| s.unwrap_or_else(|| "100".to_string()).parse().map_err(Into::into))
+        }.and_then(|s| s.unwrap_or_else(|| "100".to_string()).parse().map_err(|e| error!("{}", e)))
     }
 
     pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> {
@@ -521,8 +520,9 @@ mod cli {
                 print_usage(&program, usage_args);
                 eprintln!();
 
-                let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
-                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(error!("{:#}", e)).ignore();
+                // the error can't possibly have any spans if it occurred during argument parsing,
+                // so any instance of DiagnosticEmitter should be able to format it.
+                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(e).ignore();
                 std::process::exit(1);
             },
         }
@@ -565,8 +565,9 @@ mod cli {
                 subcommands.show_usage();
                 eprintln!();
 
-                let _: &anyhow::Error = &e;  // just showing that 'e' is a type with no spans
-                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(error!("{:#}", e)).ignore();
+                // the error can't possibly have any spans if it occurred during argument parsing,
+                // so any instance of DiagnosticEmitter should be able to format it.
+                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(e).ignore();
                 std::process::exit(1);
             },
         }
@@ -582,7 +583,7 @@ mod cli {
         eprintln!("truth {}", version);
     }
 
-    pub type ArgError = SimpleError;
+    pub type ArgError = crate::diagnostic::Diagnostic;
     pub trait CliArg {
         type Value;
         fn add_to_options(&self, opts: &mut getopts::Options);
@@ -646,7 +647,7 @@ mod cli {
         opts.optflag("", "version", "print version info");
         arg_parsers.add_to_options(&mut opts);
 
-        let mut matches = opts.parse(args).map_err(|e| ParseError::Error(anyhow!("{}", e)))?;
+        let mut matches = opts.parse(args).map_err(|e| ParseError::Error(error!("{}", e)))?;
         if matches.opt_present("h") {
             return Err(ParseError::PrintHelp(opts));
         }
@@ -659,7 +660,7 @@ mod cli {
         let out = arg_parsers.extract_value(&mut matches).map_err(ParseError::Error)?;
 
         if let Some(unexpected_pos) = matches.free.pop() {
-            return Err(ParseError::Error(anyhow!("unexpected positional: {:?}", unexpected_pos)));
+            return Err(ParseError::Error(error!("unexpected positional: {:?}", unexpected_pos)));
         }
 
         Ok(out)
@@ -698,7 +699,7 @@ mod cli {
         }
 
         fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-            let selection = matches.free.pop().ok_or_else(|| anyhow!("please choose a subcommand"))?;
+            let selection = matches.free.pop().ok_or_else(|| error!("please choose a subcommand"))?;
             matches.free.reverse();  // back into forwards order
             let remaining_args = matches.free.drain(..).collect();
 
@@ -709,9 +710,9 @@ mod cli {
 
             let choices = self.choices.iter().filter(|choice| is_applicable(choice.name)).collect::<Vec<_>>();
             match choices.len() {
-                0 => anyhow::bail!("invalid subcommand '{}'", selection),
+                0 => return Err(error!("invalid subcommand '{}'", selection)),
                 1 => {},
-                _ => anyhow::bail!("ambiguous subcommand '{}'", selection),
+                _ => return Err(error!("ambiguous subcommand '{}'", selection)),
             };
 
             let entry_point = choices.into_iter().next().unwrap().entry;
@@ -746,7 +747,7 @@ mod cli {
                 opts.optopt(self.short, self.long, self.help, self.metavar);
             }
             fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                matches.opt_get(self.long).map_err(|e| anyhow!("{}", e))
+                matches.opt_get(self.long).map_err(|e| error!("{}", e))
             }
         }
 
@@ -759,7 +760,7 @@ mod cli {
                 opts.optopt(self.0.short, self.0.long, self.0.help, self.0.metavar);
             }
             fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                self.0.extract_value(matches).and_then(|opt| opt.ok_or_else(|| anyhow!("missing required option '--{}'", self.0.long)))
+                self.0.extract_value(matches).and_then(|opt| opt.ok_or_else(|| error!("missing required option '--{}'", self.0.long)))
             }
         }
 
@@ -781,7 +782,7 @@ mod cli {
             type Value = String;
             fn add_to_options(&self, _: &mut getopts::Options) {}
             fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                matches.free.pop().ok_or_else(|| anyhow!("missing required positional arg {}", self.metavar))
+                matches.free.pop().ok_or_else(|| error!("missing required positional arg {}", self.metavar))
             }
         }
     }

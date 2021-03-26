@@ -2,11 +2,13 @@
 use std::fmt;
 use std::cell::RefCell;
 use std::any::Any;
+use std::path::Path;
 
 use codespan_reporting as cs;
 use cs::term::termcolor as tc;
 
 use crate::error::ErrorReported;
+use crate::io::nice_display_path;
 use crate::pos::{Files, FileId, HasSpan};
 
 type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
@@ -231,29 +233,27 @@ pub mod unspanned {
         fn _emitter(&self) -> &DiagnosticEmitter { self.parent._emitter() }
     }
 
-    pub type WhileReading<'a> = Node<Root<'a>, String>;
-    pub fn while_reading<'a>(filename: &str, diagnostics: &'a DiagnosticEmitter) -> WhileReading<'a> {
-        Node {
-            parent: Root(diagnostics),
-            label: format!("{}", filename),
-        }
+    pub type WhileReading<'a> = Rooted<'a, String>;
+    pub fn while_reading(filename: impl AsRef<Path>, diagnostics: &DiagnosticEmitter) -> WhileReading<'_> {
+        make_root(format!("{}", nice_display_path(filename)), diagnostics)
     }
-    pub type WhileWriting<'a> = Node<Root<'a>, String>;
-    pub fn while_writing<'a>(filename: &str, diagnostics: &'a DiagnosticEmitter) -> WhileWriting<'a> {
-        Node {
-            parent: Root(diagnostics),
-            label: format!("while writing {}", filename),
-        }
+
+    pub type WhileWriting<'a> = Rooted<'a, String>;
+    pub fn while_writing(filename: impl AsRef<Path>, diagnostics: &DiagnosticEmitter) -> WhileWriting<'_> {
+        make_root(format!("while writing {}", nice_display_path(filename)), diagnostics)
     }
-    pub type WhileDecompiling<'a> = Node<Root<'a>, String>;
+
+    pub type WhileDecompiling<'a> = Rooted<'a, String>;
     pub fn while_decompiling<'a>(filename: Option<&str>, diagnostics: &'a DiagnosticEmitter) -> WhileDecompiling<'a> {
-        Node {
-            parent: Root(diagnostics),
-            label: match filename {
-                Some(filename) => format!("{}", filename),
-                None => format!("while decompiling"),
-            }
-        }
+        make_root(match filename {
+            Some(filename) => format!("{}", nice_display_path(filename)),
+            None => format!("while decompiling"),
+        }, diagnostics)
+    }
+
+    pub type Rooted<'a, T> = Node<Root<'a>, T>;
+    pub fn make_root<T: fmt::Display>(label: T, diagnostics: &DiagnosticEmitter) -> Rooted<'_, T> {
+        Node { parent: Root(diagnostics), label }
     }
 
     impl<T: UnspannedEmitter + ?Sized> UnspannedEmitter for &'_ T {
