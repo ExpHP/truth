@@ -215,8 +215,8 @@ const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
 /// that it knows should not have been used for scratch.
 #[track_caller]
 fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
-    let scope = truth::Scope::new();
-    let mut truth = truth::Builder::new().build(&scope);
+    let mut scope = truth::Builder::new().build();
+    let mut truth = scope.truth();
     _run_randomized_test(&mut truth, vars, text)
 }
 
@@ -240,10 +240,11 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> (AstVm, 
         block
     };
 
+    let emitter = truth.emitter();
     let ctx = truth.ctx();
     let old_stmts = parsed_block.0;
     let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, ctx).unwrap();
-    let mut new_block = ast::Block(llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(&instr_format, &instrs, &ctx.defs).unwrap());
+    let mut new_block = ast::Block(llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(&emitter, &instr_format, &instrs, &ctx.defs).unwrap());
     truth::passes::resolve_names::aliases_to_raw(&mut new_block, ctx).unwrap();
 
     let mut old_vm = base_vm.clone();
@@ -263,8 +264,8 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> (AstVm, 
 fn expect_not_enough_vars(vars: &[Var], text: &str) {
     truth::setup_for_test_harness();
 
-    let scope = truth::Scope::new();
-    let mut truth = truth::Builder::new().capture_diagnostics(true).build(&scope);
+    let mut scope = truth::Builder::new().capture_diagnostics(true).build();
+    let mut truth = scope.truth();
     load_eclmap(&mut truth, vars);
 
     let instr_format = make_instr_format(vars);

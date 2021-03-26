@@ -1,9 +1,7 @@
 use crate::ast;
 use crate::meta;
-use crate::diagnostic::DiagnosticEmitter;
 use crate::parse::Parse;
 use crate::error::ErrorReported;
-use crate::context::CompilerContext;
 
 // This is for quick-and-dirty use only; the spans in the output will have incomplete information
 // as it is not connected to any Files object.

@@ -310,12 +310,12 @@ fn raise_decoded_instr(
 
     macro_rules! ensure {
         ($emitter:ident, $cond:expr, $($arg:tt)+) => {
-            if !$cond { return Err(emitter.emit(error!($($arg)+))); }
+            if !$cond { return Err($emitter.emit(error!($($arg)+))); }
         };
     }
     macro_rules! warn_unless {
         ($emitter:ident, $cond:expr, $($arg:tt)+) => {
-            if !$cond { emitter.emit(warning!($($arg)+)).ignore(); }
+            if !$cond { $emitter.emit(warning!($($arg)+)).ignore(); }
         };
     }
 
@@ -410,7 +410,7 @@ fn raise_args(emitter: &impl UnspannedEmitter, args: &[SimpleArg], abi: &InstrAb
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
-        error!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len());
+        return Err(emitter.emit(error!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len())));
     }
 
     let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
@@ -588,19 +588,19 @@ fn decode_args_with_abi(
             | ArgEncoding::Sprite
             | ArgEncoding::Script
             => {
-                decrease_len(emitter, &mut remaining_len, 4);
+                decrease_len(emitter, &mut remaining_len, 4)?;
                 Ok(ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32))
             },
 
             | ArgEncoding::Float
             => {
-                decrease_len(emitter, &mut remaining_len, 4);
+                decrease_len(emitter, &mut remaining_len, 4)?;
                 Ok(ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len"))))
             },
 
             | ArgEncoding::Word
             => {
-                decrease_len(emitter, &mut remaining_len, 2);
+                decrease_len(emitter, &mut remaining_len, 2)?;
                 Ok(ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32))
             },
 
@@ -608,7 +608,7 @@ fn decode_args_with_abi(
             => {
                 // read to end
                 let read_len = remaining_len;
-                decrease_len(emitter, &mut remaining_len, read_len);
+                decrease_len(emitter, &mut remaining_len, read_len)?;
 
                 let encoded = args_blob.read_cstring_masked_exact(read_len, mask).map_err(|e| emitter.emit(error!("{}", e)))?;
                 let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(error!("{}", e)))?;

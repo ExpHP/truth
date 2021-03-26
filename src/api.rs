@@ -211,4 +211,9 @@ impl Truth<'_> {
 impl<'ctx> Truth<'ctx> {
     #[doc(hidden)]
     pub fn ctx(&mut self) -> &mut CompilerContext<'ctx> { &mut self.ctx }
+
+    #[doc(hidden)]
+    pub fn emitter(&self) -> impl crate::diagnostic::UnspannedEmitter + 'ctx {
+        crate::diagnostic::unspanned::Root(self.ctx.diagnostics)
+    }
 }
