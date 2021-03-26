@@ -83,11 +83,11 @@ macro_rules! sp_pat {
 /// in diagnostic error messages.
 #[derive(Debug, Clone)]
 pub struct Files {
-    inner: RefCell<simple_files::SimpleFiles<String, Rc<str>>>,
+    inner: RefCell<cs_files::SimpleFiles<String, Rc<str>>>,
 }
 
 impl Files {
-    pub fn new() -> Self { Files { inner: RefCell::new(simple_files::SimpleFiles::new()) } }
+    pub fn new() -> Self { Files { inner: RefCell::new(cs_files::SimpleFiles::new()) } }
 
     /// Add a piece of source text to the database, and give it a name (usually a filepath)
     /// which will appear in error messages.  Also validate the source as UTF-8.
@@ -138,7 +138,7 @@ impl<'a> cs_files::Files<'a> for Files {
     }
 
     fn source(&self, file_id: FileId) -> Result<Rc<str>, cs_files::Error> {
-        self.inner.borrow().source(Self::unshift_file_id(file_id)?).map(Clone::clone)
+        Ok(self.inner.borrow().get(Self::unshift_file_id(file_id)?)?.source().clone())
     }
 
     fn line_index(&self, file_id: FileId, byte_index: usize) -> Result<usize, cs_files::Error> {
@@ -476,145 +476,6 @@ impl<T: ?Sized> std::borrow::Borrow<T> for Sp<T> {
 impl<T: ?Sized + fmt::Display> fmt::Display for Sp<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.value)
-    }
-}
-
-
-mod simple_files {
-    use codespan_reporting::files::{line_starts, Files, Error};
-    use std::ops::Range;
-
-    /// Identical to [`codespan_reporting::files::SimpleFile`] but the associated
-    /// `Source` type is `&'a Source`.
-    #[derive(Debug, Clone)]
-    pub struct SimpleFile<Name, Source> {
-        name: Name,
-        source: Source,
-        line_starts: Vec<usize>,
-    }
-
-    impl<Name, Source> SimpleFile<Name, Source>
-        where
-            Name: std::fmt::Display,
-            Source: AsRef<str>,
-    {
-        pub fn new(name: Name, source: Source) -> SimpleFile<Name, Source> {
-            SimpleFile {
-                name,
-                line_starts: line_starts(source.as_ref()).collect(),
-                source,
-            }
-        }
-
-        pub fn name(&self) -> &Name {
-            &self.name
-        }
-
-        pub fn source(&self) -> &Source {
-            &self.source
-        }
-
-        fn line_start(&self, line_index: usize) -> Result<usize, Error> {
-            use std::cmp::Ordering;
-
-            match line_index.cmp(&self.line_starts.len()) {
-                Ordering::Less => Ok(self
-                    .line_starts
-                    .get(line_index)
-                    .cloned()
-                    .expect("failed despite previous check")),
-                Ordering::Equal => Ok(self.source.as_ref().len()),
-                Ordering::Greater => Err(Error::LineTooLarge {
-                    given: line_index,
-                    max: self.line_starts.len() - 1,
-                }),
-            }
-        }
-    }
-
-    impl<'a, Name, Source> Files<'a> for SimpleFile<Name, Source>
-    where
-        Name: 'a + std::fmt::Display + Clone,
-        Source: 'a + AsRef<str>,
-    {
-        type FileId = ();
-        type Name = Name;
-        type Source = &'a Source;
-
-        fn name(&self, (): ()) -> Result<Name, Error> {
-            Ok(self.name.clone())
-        }
-
-        fn source(&self, (): ()) -> Result<&Source, Error> {
-            Ok(&self.source)
-        }
-
-        fn line_index(&self, (): (), byte_index: usize) -> Result<usize, Error> {
-            Ok(self
-                .line_starts
-                .binary_search(&byte_index)
-                .unwrap_or_else(|next_line| next_line - 1))
-        }
-
-        fn line_range(&self, (): (), line_index: usize) -> Result<Range<usize>, Error> {
-            let line_start = self.line_start(line_index)?;
-            let next_line_start = self.line_start(line_index + 1)?;
-
-            Ok(line_start..next_line_start)
-        }
-    }
-
-    /// Identical to [`codespan_reporting::files::SimpleFiles`] but the associated
-    /// `Source` type is `&'a Source`.
-    #[derive(Debug, Clone)]
-    pub struct SimpleFiles<Name, Source> {
-        files: Vec<SimpleFile<Name, Source>>,
-    }
-
-    impl<Name, Source> SimpleFiles<Name, Source>
-    where
-        Name: std::fmt::Display,
-        Source: AsRef<str>,
-    {
-        pub fn new() -> SimpleFiles<Name, Source> {
-            SimpleFiles { files: Vec::new() }
-        }
-
-        pub fn add(&mut self, name: Name, source: Source) -> usize {
-            let file_id = self.files.len();
-            self.files.push(SimpleFile::new(name, source));
-            file_id
-        }
-
-        pub fn get(&self, file_id: usize) -> Result<&SimpleFile<Name, Source>, Error> {
-            self.files.get(file_id).ok_or(Error::FileMissing)
-        }
-    }
-
-    impl<'a, Name, Source> Files<'a> for SimpleFiles<Name, Source>
-    where
-        Name: 'a + std::fmt::Display + Clone,
-        Source: 'a + AsRef<str>,
-    {
-        type FileId = usize;
-        type Name = Name;
-        type Source = &'a Source;
-
-        fn name(&self, file_id: usize) -> Result<Name, Error> {
-            Ok(self.get(file_id)?.name().clone())
-        }
-
-        fn source(&self, file_id: usize) -> Result<&Source, Error> {
-            Ok(self.get(file_id)?.source())
-        }
-
-        fn line_index(&self, file_id: usize, byte_index: usize) -> Result<usize, Error> {
-            self.get(file_id)?.line_index((), byte_index)
-        }
-
-        fn line_range(&self, file_id: usize, line_index: usize) -> Result<Range<usize>, Error> {
-            self.get(file_id)?.line_range((), line_index)
-        }
     }
 }
 
