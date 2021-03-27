@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::fs;
 use std::io;
 use crate::api::Truth;
 use crate::game::Game;
@@ -229,13 +228,13 @@ pub mod anm_benchmark {
     ) -> Result<(), ErrorReported> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
-            use anyhow::Context; // FIXME remove
-
             let fmt_config = crate::fmt::Config::new().max_columns(100);
-            let script_out = fs::File::create(script_path).with_context(|| format!("creating file '{}'", script_path.display())).map_err(|e| truth.emit(error!("{:#}", e)))?;
-            let mut f = crate::Formatter::with_config(io::BufWriter::new(script_out), fmt_config);
+            let mut script_out_utf8 = vec![];
+            let mut f = crate::Formatter::with_config(&mut script_out_utf8, fmt_config);
             super::anm_decompile::run(truth, &mut f, game, anm_path, map_path.clone())?;
             drop(f);
+
+            crate::io::fs_write(script_path, &script_out_utf8)?;
 
             super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, map_path.clone(), None)?;
         }

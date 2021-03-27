@@ -150,29 +150,3 @@ impl<'a> codespan_reporting::files::Files<'a> for PanicFiles {
     fn line_index(&'a self, _: FileId, _: usize) -> CsResult<usize> { unreachable!("span in emit_nospans!") }
     fn line_range(&'a self, _: FileId, _: usize) -> CsResult<std::ops::Range<usize>> { unreachable!("span in emit_nospans!") }
 }
-
-// =============================================================================
-
-/// Utility that makes it easier to apply `anyhow::Context` to all errors in a region of code.
-///
-/// Basically, the most straightforward way to have many error paths apply the same context is to
-/// put them in an IIFE.  However, (a) IIFEs can be confusing to read, and (b) you'd typically be
-/// forced to explicitly annotate the return type due to the nested usage of `?`.
-///
-/// Basically,
-/// ```text
-/// group_anyhow(|| {
-///     ...
-/// }).with_context(|| { ... })
-/// ```
-/// is nicer than
-/// ```text
-/// (|| -> Result<_, anyhow::Error> {
-///     ...
-/// })().with_context(|| { ... })
-/// ```
-pub(crate) fn group_anyhow<T>(
-    func: impl FnOnce() -> Result<T, anyhow::Error>,
-) -> Result<T, anyhow::Error> {
-    func()
-}

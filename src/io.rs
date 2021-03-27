@@ -4,9 +4,6 @@ use std::fs;
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 
-#[deprecated]
-pub use anyhow::bail;
-
 use crate::pos::Sp;
 use crate::diagnostic::{Diagnostic, DiagnosticEmitter, unspanned::{self, UnspannedEmitter}};
 use crate::error::{ErrorReported};
@@ -180,6 +177,12 @@ impl<'a> BinWriter<'a, fs::File> {
 pub fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, Diagnostic> {
     let path = path.as_ref();
     fs::read(path).map_err(|e| error!("while reading file '{}': {}", path.display(), e))
+}
+
+/// Wraps [`std::fs::write`].
+pub fn fs_write(path: impl AsRef<Path>, data: impl AsRef<[u8]>) -> Result<(), Diagnostic> {
+    let path = path.as_ref();
+    fs::write(path, data).map_err(|e| error!("while writing file '{}': {}", path.display(), e))
 }
 
 /// Make a path "nice" for display, *if possible*.

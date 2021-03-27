@@ -105,14 +105,8 @@ impl Truth<'_> {
         for path_literal in &script.mapfiles {
             let path: &Path = path_literal.string.as_ref();
 
-            crate::error::group_anyhow(|| {
-                let eclmap = crate::Eclmap::load(&path, Some(game), &self.ctx.diagnostics)?;
-                self.ctx.extend_from_eclmap(Some(path), &eclmap)?;
-                Ok(())
-            }).map_err(|e| self.ctx.diagnostics.emit(error!(
-                message("{:#}", e),
-                primary(path_literal, "error loading mapfile"),
-            )))?
+            let eclmap = crate::Eclmap::load(&path, Some(game), &self.ctx.diagnostics)?;
+            self.ctx.extend_from_eclmap(Some(path), &eclmap)?;
         }
         Ok(())
     }
