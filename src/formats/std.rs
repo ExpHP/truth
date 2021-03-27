@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::{Diagnostic, unspanned, UnspannedEmitter};
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::game::Game;
 use crate::ident::{Ident};
@@ -63,9 +63,9 @@ impl ToMeta for Std06Bgm {
 
 impl StdFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
+        let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile_std(self, &emitter, &*game_format(game), ctx, decompile_kind)
-            .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
+            .map_err(|e| ctx.emitter.emit(error!("{:#}", e)))
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -235,7 +235,7 @@ impl ToMeta for Instance {
 
 fn decompile_std(
     std: &StdFile,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &dyn FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
@@ -243,7 +243,7 @@ fn decompile_std(
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = llir::Raiser::new(&ctx.diagnostics).raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?;
+    let code = llir::Raiser::new(&ctx.emitter).raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?;
 
     let mut script = ast::Script {
         mapfiles: ctx.mapfiles_to_ast(),
@@ -290,7 +290,7 @@ fn compile_std(
         script
     };
 
-    let emit = |e| ctx.diagnostics.emit(e);
+    let emit = |e| ctx.emitter.emit(e);
     let (meta, main_sub) = {
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
@@ -342,14 +342,14 @@ fn compile_std(
         }
     };
 
-    let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.diagnostics.emit(e))?;
+    let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.emitter.emit(e))?;
     out.script = crate::llir::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ctx)?;
     Ok(out)
 }
 
 // =============================================================================
 
-fn read_std(reader: &mut BinReader, emitter: &impl UnspannedEmitter, format: &dyn FileFormat) -> ReadResult<StdFile> {
+fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFormat) -> ReadResult<StdFile> {
     let start_pos = reader.pos()?;
 
     let num_objects = reader.read_u16()? as usize;
@@ -392,7 +392,7 @@ fn read_std(reader: &mut BinReader, emitter: &impl UnspannedEmitter, format: &dy
 
 fn write_std(
     f: &mut BinWriter,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &dyn FileFormat,
     std: &StdFile,
 ) -> WriteResult {
@@ -445,15 +445,15 @@ fn write_std(
     Ok(())
 }
 
-fn read_string_128(r: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<Sp<String>> {
+fn read_string_128(r: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<Sp<String>> {
     r.read_cstring_masked_exact(128, 0x00)?
         .decode(DEFAULT_ENCODING).map(|x| sp!(x))
-        .map_err(|e| emitter.emit_one(e))
+        .map_err(|e| emitter.as_sized().emit(e))
 }
-fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, s: &Sp<S>) -> WriteResult {
-    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| emitter.emit_one(e))?;
+fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn Emitter, s: &Sp<S>) -> WriteResult {
+    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| emitter.as_sized().emit(e))?;
     if encoded.len() >= 128 {
-        return Err(emitter.emit_one(error!(
+        return Err(emitter.as_sized().emit(error!(
             message("string too long for STD header"),
             primary(s, "{} bytes (max allowed: 127)", encoded.len()),
         )));
@@ -462,7 +462,7 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn UnspannedEmi
     Ok(())
 }
 
-fn read_object(f: &mut BinReader, emitter: &impl UnspannedEmitter, expected_id: usize) -> ReadResult<Object> {
+fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) -> ReadResult<Object> {
     let id = f.read_u16()?;
     if id as usize != expected_id {
         emitter.emit(warning!("object has non-sequential id (expected {}, got {})", expected_id, id)).ignore();
@@ -478,7 +478,7 @@ fn read_object(f: &mut BinReader, emitter: &impl UnspannedEmitter, expected_id: 
     Ok(Object { unknown, pos, size, quads })
 }
 
-fn write_object(f: &mut BinWriter, emitter: &impl UnspannedEmitter, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
+fn write_object(f: &mut BinWriter, emitter: &impl Emitter, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
     f.write_u16(id as u16)?;
     f.write_u16(x.unknown)?;
     f.write_f32s(&x.pos)?;
@@ -489,7 +489,7 @@ fn write_object(f: &mut BinWriter, emitter: &impl UnspannedEmitter, format: &dyn
     write_terminal_quad(f)
 }
 
-fn read_quad(f: &mut BinReader, emitter: &impl UnspannedEmitter) -> ReadResult<Option<Quad>> {
+fn read_quad(f: &mut BinReader, emitter: &impl Emitter) -> ReadResult<Option<Quad>> {
     let kind = f.read_i16()?;
     let size = f.read_u16()?;
     match (kind, size) {
@@ -525,7 +525,7 @@ fn read_quad(f: &mut BinReader, emitter: &impl UnspannedEmitter) -> ReadResult<O
     }))
 }
 
-fn write_quad(f: &mut BinWriter, emitter: &impl UnspannedEmitter, format: &dyn FileFormat, quad: &Quad) -> WriteResult {
+fn write_quad(f: &mut BinWriter, emitter: &impl Emitter, format: &dyn FileFormat, quad: &Quad) -> WriteResult {
     let (kind, size) = match quad.extra {
         QuadExtra::Rect { .. } => (0, 0x1c),
         QuadExtra::Strip { .. } => (1, 0x24),
@@ -558,7 +558,7 @@ fn write_terminal_quad(f: &mut BinWriter) -> WriteResult {
 }
 
 
-fn read_instance(f: &mut BinReader, emitter: &impl UnspannedEmitter, objects: &IndexMap<Sp<Ident>, Object>) -> ReadResult<Option<Instance>> {
+fn read_instance(f: &mut BinReader, emitter: &impl Emitter, objects: &IndexMap<Sp<Ident>, Object>) -> ReadResult<Option<Instance>> {
     let object_id = f.read_u16()?;
     let unknown = f.read_u16()?;
     if object_id == 0xffff {
@@ -572,10 +572,10 @@ fn read_instance(f: &mut BinReader, emitter: &impl UnspannedEmitter, objects: &I
     Ok(Some(Instance { object, unknown, pos }))
 }
 
-fn write_instance(f: &mut BinWriter, emitter: &dyn UnspannedEmitter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
+fn write_instance(f: &mut BinWriter, emitter: &dyn Emitter, inst: &Instance, objects: &IndexMap<Sp<Ident>, Object>) -> WriteResult {
     match objects.get_index_of(&inst.object) {
         Some(object_index) => f.write_u16(object_index as u16)?,
-        None => return Err(emitter.emit_one(error!(
+        None => return Err(emitter.as_sized().emit(error!(
             message("No object named {}", inst.object),
             primary(&inst.object, "not an object"),
         ))),
@@ -640,8 +640,8 @@ struct FileFormat10 {
 trait FileFormat {
     fn extra_from_meta<'m>(&self, meta: &mut meta::ParseObject<'m>) -> Result<StdExtra, FromMetaError<'m>>;
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
-    fn read_extra(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<StdExtra>;
-    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, x: &StdExtra) -> WriteResult;
+    fn read_extra(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<StdExtra>;
+    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn Emitter, x: &StdExtra) -> WriteResult;
     fn instr_format(&self) -> &dyn InstrFormat;
     fn has_strips(&self) -> bool;
 }
@@ -664,7 +664,7 @@ impl FileFormat for FileFormat06 {
         }
     }
 
-    fn read_extra(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<StdExtra> {
+    fn read_extra(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<StdExtra> {
         let stage_name = read_string_128(f, emitter)?;
         let bgm_names = (0..4).map(|_| read_string_128(f, emitter)).collect::<Result<Vec<_>, _>>()?;
         let bgm_paths = (0..4).map(|_| read_string_128(f, emitter)).collect::<Result<Vec<_>, _>>()?;
@@ -675,7 +675,7 @@ impl FileFormat for FileFormat06 {
         })
     }
 
-    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, x: &StdExtra) -> WriteResult {
+    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn Emitter, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th06 { stage_name, bgm } => {
                 write_string_128(f, emitter, stage_name)?;
@@ -708,11 +708,11 @@ impl FileFormat for FileFormat10 {
         }
     }
 
-    fn read_extra(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<StdExtra> {
+    fn read_extra(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<StdExtra> {
         Ok(StdExtra::Th10 { anm_path: read_string_128(f, emitter)? })
     }
 
-    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, x: &StdExtra) -> WriteResult {
+    fn write_extra(&self, f: &mut BinWriter, emitter: &dyn Emitter, x: &StdExtra) -> WriteResult {
         match x {
             StdExtra::Th10 { anm_path } => write_string_128(f, emitter, anm_path)?,
             StdExtra::Th06 { .. } => unreachable!(),
@@ -741,7 +741,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let argsize = f.read_u16()?;
@@ -754,7 +754,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(12)?;  // this version writes argsize rather than instr size
@@ -763,7 +763,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         for _ in 0..5 {
             f.write_i32(-1)?;
         }
@@ -792,7 +792,7 @@ impl InstrFormat for InstrFormat10 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
@@ -804,7 +804,7 @@ impl InstrFormat for InstrFormat10 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
@@ -812,7 +812,7 @@ impl InstrFormat for InstrFormat10 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         for _ in 0..5 {
             f.write_i32(-1)?;
         }

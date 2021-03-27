@@ -12,7 +12,7 @@ pub mod defs;
 pub use consts::Consts;
 pub mod consts;
 
-pub use crate::diagnostic::DiagnosticEmitter;
+pub use crate::diagnostic::RootEmitter;
 
 /// Context object for the majority of compilation.
 ///
@@ -31,7 +31,7 @@ pub use crate::diagnostic::DiagnosticEmitter;
 //
 /// While there is no doubt a great deal of code which depends on this type (or at least on one or more of
 /// its fields), there are a number of phases of compilation that are **forbidden** to depend on this type
-/// or any of its fields (except [`DiagnosticEmitter`]), just as a matter of principle.  These are:
+/// or any of its fields (except [`RootEmitter`]), just as a matter of principle.  These are:
 ///
 /// * Parsing of text to AST
 /// * Formatting of AST to text
@@ -45,7 +45,7 @@ pub use crate::diagnostic::DiagnosticEmitter;
 /// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
 #[derive(Debug)]
 pub struct CompilerContext<'ctx> {
-    pub diagnostics: &'ctx DiagnosticEmitter,
+    pub emitter: &'ctx RootEmitter,
 
     /// Catalogues all loaded mapfiles for generating imports.
     mapfiles: Vec<PathBuf>,
@@ -71,7 +71,7 @@ pub struct CompilerContext<'ctx> {
 impl<'ctx> CompilerContext<'ctx> {
     pub fn new(scope: &'ctx Scope) -> Self {
         CompilerContext {
-            diagnostics: &scope.diagnostics,
+            emitter: &scope.emitter,
             mapfiles: Default::default(),
             resolutions: Default::default(),
             defs: Default::default(),
@@ -88,17 +88,17 @@ impl<'ctx> CompilerContext<'ctx> {
 /// May be used to store the following things:
 ///
 /// * Arenas, as these must outlive [`Truth`].
-/// * Things like [`DiagnosticEmitter`], where a piece of code may want to be able to use
-///   both a `&DiagnosticEmitter` and a `&mut CompilerContext` at the same time.
+/// * Things like [`RootEmitter`], where a piece of code may want to be able to use
+///   both a `&RootEmitter` and a `&mut CompilerContext` at the same time.
 ///
 /// [`Truth`]: [`crate::api::Truth`]
 #[derive(Debug)]
 pub struct Scope {
-    diagnostics: DiagnosticEmitter,
+    emitter: RootEmitter,
 }
 
 impl Scope {
-    pub fn new(diagnostics: DiagnosticEmitter) -> Self {
-        Scope { diagnostics }
+    pub fn new(emitter: RootEmitter) -> Self {
+        Scope { emitter }
     }
 }

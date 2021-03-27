@@ -202,6 +202,9 @@ impl IntoDiagnostics for Vec<Diagnostic> {
 /// This trait largely exists to accommodate errors that may not include spans (e.g. during the reading
 /// or decompilation of a binary file).  By calling a method like [`Self::chain`], you can allow these
 /// span-less diagnostics to have a series of prefixes added to them, like `"'files/abc.ecl': in script 3: "`.
+///
+/// If you have a `&dyn Emitter`, `Sized` bounds will prevent you from calling most methods,
+/// but you can resolve this by calling [`<dyn Emitter>::as_sized`].
 pub trait Emitter {
     fn _root_emitter(&self) -> &RootEmitter;
 
@@ -251,6 +254,15 @@ pub trait Emitter {
     }
 }
 
+impl<'b> dyn Emitter + 'b {
+    /// Allows one to call methods on `&dyn Emitter` that require `Self: Sized`.
+    /// (e.g. `emitter.as_sized().emit(...)`)
+    ///
+    /// (all this does is just borrow the sucker through auto-ref, but it beats writing
+    /// `(&emitter).emit(...)`)
+    pub fn as_sized<'a>(self: &'a &'b Self) -> &'a &'b Self { self }
+}
+
 impl Emitter for RootEmitter {
     fn _root_emitter(&self) -> &RootEmitter { self }
     fn _unspanned_prefix(&self) -> String { String::new() }
@@ -267,7 +279,7 @@ where
         use std::fmt::Write;
 
         let mut prefix = self.parent._unspanned_prefix();
-        write!(prefix, "{}", self.label).unwrap();
+        write!(prefix, "{}: ", self.label).unwrap();
         prefix
     }
 }
@@ -332,6 +344,6 @@ fn test_unspanned() {
     func(&emitter);
 
     let stderr = root_emitter.get_captured_diagnostics().unwrap();
-    assert!(stderr.contains("a.txt: thing 3: while eating a sub: blah 20"));
+    assert!(stderr.contains("a.txt: thing 3: while eating a sub: blah 20"), "{}", stderr);
     assert_snapshot!(stderr);
 }

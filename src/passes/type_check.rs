@@ -309,7 +309,7 @@ impl Visitor<'_, '_> {
 
 impl ExprTypeChecker<'_, '_> {
     fn emit(&self, err: impl crate::diagnostic::IntoDiagnostics) -> ErrorReported {
-        self.ctx.diagnostics.emit(err)
+        self.ctx.emitter.emit(err)
     }
 
     /// Fully check an expression and all subexpressions, and return the type.

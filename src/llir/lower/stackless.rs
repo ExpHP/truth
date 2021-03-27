@@ -33,7 +33,7 @@ impl Lowerer<'_, '_> {
         let mut th06_anm_end_span = None;
         code.iter().map(|stmt| {
             if let Some(end) = th06_anm_end_span {
-                if !matches!(&stmt.body, ast::StmtBody::NoInstruction) { return Err(self.ctx.diagnostics.emit(error!(
+                if !matches!(&stmt.body, ast::StmtBody::NoInstruction) { return Err(self.ctx.emitter.emit(error!(
                     message("statement after end of script"),
                     primary(&stmt, "forbidden statement"),
                     secondary(&end, "marks the end of the script"),
@@ -122,7 +122,7 @@ impl Lowerer<'_, '_> {
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
             pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask,
-        } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.diagnostics.emit(e))?;
+        } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.emitter.emit(e))?;
 
         if let Some(pop) = pseudo_pop {
             if pop.value != 0 {
@@ -655,7 +655,7 @@ impl Lowerer<'_, '_> {
         self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
 
         let mut read_var = var.clone();
-        let read_ty_sigil = get_temporary_read_ty(data.read_ty, var.span).map_err(|e| self.ctx.diagnostics.emit(e))?;
+        let read_ty_sigil = get_temporary_read_ty(data.read_ty, var.span).map_err(|e| self.ctx.emitter.emit(e))?;
         read_var.ty_sigil = Some(read_ty_sigil);
         Ok(sp!(var.span => ast::Expr::Var(read_var)))
     }
@@ -679,7 +679,7 @@ impl Lowerer<'_, '_> {
         let ident = self.ctx.gensym.gensym("temp");
         let ident = sp!(span => self.ctx.resolutions.attach_fresh_res(ident));
         let def_id = self.ctx.define_local(ident.clone(), tmp_ty.into());
-        let sigil = get_temporary_read_ty(tmp_ty, span).map_err(|e| self.ctx.diagnostics.emit(e))?;
+        let sigil = get_temporary_read_ty(tmp_ty, span).map_err(|e| self.ctx.emitter.emit(e))?;
 
         let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
         self.out.push(LowerStmt::RegAlloc { def_id, cause: span });
@@ -688,11 +688,11 @@ impl Lowerer<'_, '_> {
     }
 
     fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, ErrorReported> {
-        self.intrinsic_instrs.get_opcode(kind, span, descr).map_err(|e| self.ctx.diagnostics.emit(e))
+        self.intrinsic_instrs.get_opcode(kind, span, descr).map_err(|e| self.ctx.emitter.emit(e))
     }
 
     fn unsupported(&self, span: &crate::pos::Span, what: &str) -> ErrorReported {
-        self.ctx.diagnostics.emit(super::unsupported(span, what))
+        self.ctx.emitter.emit(super::unsupported(span, what))
     }
 }
 
@@ -867,7 +867,7 @@ pub (in crate::llir::lower) fn assign_registers(
                         ));
                     }
 
-                    ctx.diagnostics.emit(error)
+                    ctx.emitter.emit(error)
                 })?;
 
                 assert!(local_regs.insert(*def_id, (reg, required_ty, *cause)).is_none());
@@ -896,7 +896,7 @@ pub (in crate::llir::lower) fn assign_registers(
 
     if has_anti_scratch_ins {
         if let Some(span) = has_used_scratch {
-            return Err(ctx.diagnostics.emit(error!(
+            return Err(ctx.emitter.emit(error!(
                 message("scratch registers are disabled in this script"),
                 primary(span, "this requires a scratch register"),
             )))

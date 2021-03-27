@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, btree_map};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::{Diagnostic, unspanned, UnspannedEmitter};
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, RawInstr, InstrFormat};
@@ -25,7 +25,7 @@ pub struct MsgFile {
 
 impl MsgFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
+        let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &*game_format(game), ctx, decompile_kind)
     }
 
@@ -48,12 +48,12 @@ impl MsgFile {
 
 fn decompile(
     msg: &MsgFile,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, ErrorReported> {
-    let mut raiser = llir::Raiser::new(&ctx.diagnostics);
+    let mut raiser = llir::Raiser::new(&ctx.emitter);
     let mut script = ast::Script {
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
@@ -108,14 +108,14 @@ fn compile(
 
                 if id < 0 {
                     let span = number.expect("since it's the first negative it must be explicit!").span;
-                    return Err(ctx.diagnostics.emit(error!(
+                    return Err(ctx.emitter.emit(error!(
                         message("unexpected negative script id in MSG file"),
                         primary(span, "negative id in MSG file")
                     )));
                 }
 
                 match scripts_by_id.entry(id as u32) {
-                    btree_map::Entry::Occupied(e) => return Err(ctx.diagnostics.emit(error!(
+                    btree_map::Entry::Occupied(e) => return Err(ctx.emitter.emit(error!(
                         message("multiple scripts with same ID number"),
                         primary(ident, "script with duplicate id"),
                         secondary(e.get().0, "original script here"),
@@ -123,13 +123,13 @@ fn compile(
                     btree_map::Entry::Vacant(e) => e.insert((ident.span, code)),
                 };
             },
-            ast::Item::Meta { keyword, .. } => return Err(ctx.diagnostics.emit(error!(
+            ast::Item::Meta { keyword, .. } => return Err(ctx.emitter.emit(error!(
                 message("unexpected '{}' in MSG file", keyword),
                 primary(keyword, "not valid in MSG files"),
             ))),
             ast::Item::ConstVar { .. } => {},
 
-            ast::Item::Func { .. } => return Err(ctx.diagnostics.emit(unsupported(&item.span))),
+            ast::Item::Func { .. } => return Err(ctx.emitter.emit(unsupported(&item.span))),
         }
     }
 
@@ -148,7 +148,7 @@ fn compile(
 
 fn read_msg(
     reader: &mut BinReader,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
 ) -> ReadResult<MsgFile> {
     let start_pos = reader.pos()?;
@@ -205,7 +205,7 @@ fn read_msg(
 
 fn write_msg(
     w: &mut BinWriter,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
     msg: &MsgFile,
 ) -> WriteResult {
@@ -282,7 +282,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()?;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
@@ -308,14 +308,14 @@ impl InstrFormat for InstrFormat06 {
         }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
 
         if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            emitter.emit_one(warning!("\
+            emitter.as_sized().emit(warning!("\
                 wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
                 correctly due to a known limitation of the current implementation.\
             ")).ignore();
@@ -323,7 +323,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         f.write_u32(0)
     }
 }

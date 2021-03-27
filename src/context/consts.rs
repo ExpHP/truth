@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast;
 use crate::error::{ErrorReported};
-use crate::diagnostic::{Diagnostic, DiagnosticEmitter};
+use crate::diagnostic::{Diagnostic, RootEmitter};
 use crate::pos::{Sp, Span};
 use crate::resolve::{DefId, Resolutions};
 use crate::context::Defs;
@@ -51,9 +51,9 @@ impl Consts {
     /// Evaluates and caches the expressions assigned to all `const` variables, and performs
     /// all deferred equality checks.
     #[doc(hidden)]
-    pub fn evaluate_all_deferred(&mut self, defs: &Defs, resolutions: &Resolutions, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
-        self.do_deferred_evaluations(defs, resolutions, diagnostics)?;
-        self.do_deferred_equality(defs, diagnostics)
+    pub fn evaluate_all_deferred(&mut self, defs: &Defs, resolutions: &Resolutions, emitter: &RootEmitter) -> Result<(), ErrorReported> {
+        self.do_deferred_evaluations(defs, resolutions, emitter)?;
+        self.do_deferred_equality(defs, emitter)
     }
 
     /// Get the value of a const.  In order for this to return `Some`, calls must have been made at
@@ -62,15 +62,15 @@ impl Consts {
         self.values.get(&def_id)
     }
 
-    fn do_deferred_evaluations(&mut self, defs: &Defs, resolutions: &Resolutions, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
+    fn do_deferred_evaluations(&mut self, defs: &Defs, resolutions: &Resolutions, emitter: &RootEmitter) -> Result<(), ErrorReported> {
         let deferred_def_ids = std::mem::replace(&mut self.deferred_def_ids, vec![]);
         for def_id in deferred_def_ids {
-            Evaluator::run_rooted(self, def_id, defs, resolutions, diagnostics)?;
+            Evaluator::run_rooted(self, def_id, defs, resolutions, emitter)?;
         }
         Ok(())
     }
 
-    fn do_deferred_equality(&mut self, defs: &Defs, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
+    fn do_deferred_equality(&mut self, defs: &Defs, emitter: &RootEmitter) -> Result<(), ErrorReported> {
         let deferred_equality_checks = std::mem::replace(&mut self.deferred_equality_checks, vec![]);
 
         for EqualityCheck { noun, def_1, def_2 } in deferred_equality_checks {
@@ -80,7 +80,7 @@ impl Consts {
                 let ident = defs.var_name(def_2);
                 let span_1 = defs.var_decl_span(def_1).expect("missing span for def_1");
                 let span_2 = defs.var_decl_span(def_2).expect("missing span for def_2");
-                return Err(diagnostics.emit(error!(
+                return Err(emitter.emit(error!(
                     message("ambiguous value for {} '{}'", noun, ident),
                     primary(span_2, "definition with value {}", value_2),
                     secondary(span_1, "definition with value {}", value_1),
@@ -100,14 +100,14 @@ struct Evaluator<'a> {
     eval_stack: Vec<DefId>,
     defs: &'a Defs,
     resolutions: &'a Resolutions,
-    diagnostics: &'a DiagnosticEmitter,
+    emitter: &'a RootEmitter,
 }
 
 impl<'a> Evaluator<'a> {
     // Ensure that the given DefId (and anything else it depends on) is cached.
-    fn run_rooted(consts: &mut Consts, def_id: DefId, defs: &Defs, resolutions: &Resolutions, diagnostics: &DiagnosticEmitter) -> Result<(), ErrorReported> {
+    fn run_rooted(consts: &mut Consts, def_id: DefId, defs: &Defs, resolutions: &Resolutions, emitter: &RootEmitter) -> Result<(), ErrorReported> {
         Evaluator {
-            consts, defs, resolutions, diagnostics,
+            consts, defs, resolutions, emitter,
             eval_stack: vec![]
         }._get_or_compute(None, def_id).map(|_| ())
     }
@@ -123,7 +123,7 @@ impl<'a> Evaluator<'a> {
         assert_eq!(self.eval_stack.len() > 0, use_span.is_some());
         if self.eval_stack.contains(&def_id) {
             let root_def_span = self.defs.var_decl_span(self.eval_stack[0]).expect("consts always have name spans");
-            return Err(self.diagnostics.emit(error!(
+            return Err(self.emitter.emit(error!(
                 message("cycle in const definition"),
                 primary(root_def_span, "cyclic const"),
                 secondary(use_span.expect("len > 0"), "depends on its own value here"),
@@ -203,7 +203,7 @@ impl<'a> Evaluator<'a> {
             let cur_def_span = self.defs.var_decl_span(def_id).expect("consts always have name spans");
             diag.secondary(cur_def_span, format!("while evaluating this const"));
         }
-        self.diagnostics.emit(diag)
+        self.emitter.emit(diag)
     }
 }
 

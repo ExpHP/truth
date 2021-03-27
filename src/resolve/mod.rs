@@ -407,7 +407,7 @@ mod resolve_vars {
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
             if let ast::VarName::Normal { ref ident, .. } = var.name {
                 match self.rib_stacks.resolve(Namespace::Vars, var.span, ident) {
-                    Err(e) => self.errors.append(self.ctx.diagnostics.emit(e)),
+                    Err(e) => self.errors.append(self.ctx.emitter.emit(e)),
                     Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 }
             }
@@ -417,7 +417,7 @@ mod resolve_vars {
             if let ast::Expr::Call { name, .. } = &expr.value {
                 if let ast::CallableName::Normal { ident, .. } = &name.value {
                     match self.rib_stacks.resolve(Namespace::Funcs, name.span, ident) {
-                        Err(e) => self.errors.append(self.ctx.diagnostics.emit(e)),
+                        Err(e) => self.errors.append(self.ctx.emitter.emit(e)),
                         Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }
                 }
@@ -452,7 +452,7 @@ mod resolve_vars {
 
             if let Err(old_def) = rib.insert(ident.clone(), def_id) {
                 let noun = rib.noun();
-                self.errors.append(self.ctx.diagnostics.emit(error!(
+                self.errors.append(self.ctx.emitter.emit(error!(
                     message("redefinition of {} '{}'", noun, ident),
                     primary(ident.span, "redefinition of {}", noun),
                     secondary(old_def.def_ident_span, "originally defined here"),

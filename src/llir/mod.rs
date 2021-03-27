@@ -4,7 +4,7 @@ use enum_map::EnumMap;
 
 use crate::ast;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::{Diagnostic, UnspannedEmitter};
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
@@ -134,7 +134,7 @@ fn unsupported(span: &crate::pos::Span, what: &str) -> Diagnostic {
 #[inline(never)]
 pub fn read_instrs(
     r: &mut BinReader,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &dyn InstrFormat,
     starting_offset: u64,
     end_offset: Option<u64>,
@@ -172,7 +172,7 @@ pub fn read_instrs(
 #[inline(never)]
 pub fn write_instrs(
     f: &mut BinWriter,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &dyn InstrFormat,
     instrs: &[RawInstr],
 ) -> WriteResult {
@@ -305,13 +305,13 @@ pub trait InstrFormat {
     ///
     /// Should return `None` when it reaches the marker that indicates the end of the script.
     /// When this occurs, it may leave the `Cursor` in an indeterminate state.
-    fn read_instr(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>>;
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<Option<RawInstr>>;
 
     /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult;
+    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
-    fn write_terminal_instr(&self, f: &mut BinWriter, emitter: &dyn UnspannedEmitter) -> WriteResult;
+    fn write_terminal_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter) -> WriteResult;
 
     // ---------------------------------------------------
     // Special purpose functions only overridden by a few formats
@@ -363,9 +363,9 @@ impl InstrFormat for TestFormat {
     }
 
     fn instr_header_size(&self) -> usize { 4 }
-    fn read_instr(&self, _: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_instr(&self, _: &mut BinWriter, _: &dyn UnspannedEmitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
+    fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
     fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
         self.anti_scratch_opcode == Some(opcode)

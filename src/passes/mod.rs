@@ -20,7 +20,7 @@ pub mod evaluate_const_vars {
     /// This evaluates and caches the value of all `const` vars that have been defined on the global context.
     /// It is required for const simplification, which only looks at the cache.
     pub fn run(ctx: &mut CompilerContext) -> Result<(), ErrorReported> {
-        ctx.consts.evaluate_all_deferred(&ctx.defs, &ctx.resolutions, &ctx.diagnostics)
+        ctx.consts.evaluate_all_deferred(&ctx.defs, &ctx.resolutions, &ctx.emitter)
     }
 }
 

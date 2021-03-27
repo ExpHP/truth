@@ -520,8 +520,8 @@ mod cli {
                 eprintln!();
 
                 // the error can't possibly have any spans if it occurred during argument parsing,
-                // so any instance of DiagnosticEmitter should be able to format it.
-                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(e).ignore();
+                // so any instance of RootEmitter should be able to format it.
+                crate::diagnostic::RootEmitter::new_stderr().emit(e).ignore();
                 std::process::exit(1);
             },
         }
@@ -565,8 +565,8 @@ mod cli {
                 eprintln!();
 
                 // the error can't possibly have any spans if it occurred during argument parsing,
-                // so any instance of DiagnosticEmitter should be able to format it.
-                crate::diagnostic::DiagnosticEmitter::new_stderr().emit(e).ignore();
+                // so any instance of RootEmitter should be able to format it.
+                crate::diagnostic::RootEmitter::new_stderr().emit(e).ignore();
                 std::process::exit(1);
             },
         }

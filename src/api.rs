@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::ast;
 use crate::game::Game;
-use crate::diagnostic::{DiagnosticEmitter, IntoDiagnostics};
+use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, Scope};
 use crate::io::{BinReader, BinWriter};
@@ -39,11 +39,11 @@ impl Builder {
     ///
     /// To finish constructing it, store the result in a local variable and call [`Scope::truth`].
     pub fn build(&self) -> Scope {
-        let diagnostics = match self.capture_diagnostics {
-            true => DiagnosticEmitter::new_captured(),
-            false => DiagnosticEmitter::new_stderr(),
+        let emitter = match self.capture_diagnostics {
+            true => RootEmitter::new_captured(),
+            false => RootEmitter::new_stderr(),
         };
-        Scope::new(diagnostics)
+        Scope::new(emitter)
     }
 
     pub fn capture_diagnostics(&mut self, capture: bool) -> &mut Self {
@@ -64,19 +64,19 @@ impl Scope {
 impl Truth<'_> {
     /// **Note:** Requires having called [`Builder::capture_diagnostics`].
     pub fn get_captured_diagnostics(&self) -> Option<String> {
-        self.ctx.diagnostics.get_captured_diagnostics()
+        self.ctx.emitter.get_captured_diagnostics()
     }
 }
 
 /// # Reading text files
 impl Truth<'_> {
     pub fn load_mapfile(&mut self, text: &str) -> Result<(), ErrorReported> {
-        let eclmap = crate::Eclmap::parse(text, &self.ctx.diagnostics)?;
+        let eclmap = crate::Eclmap::parse(text, &self.ctx.emitter)?;
         self.ctx.extend_from_eclmap(None, &eclmap)
     }
 
     pub fn read_mapfile_and_record(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
-        let eclmap = crate::Eclmap::load(filepath, game, &self.ctx.diagnostics)?;
+        let eclmap = crate::Eclmap::load(filepath, game, &self.ctx.emitter)?;
         self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
     }
 
@@ -90,7 +90,7 @@ impl Truth<'_> {
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
     pub fn parse<A: crate::parse::Parse>(&mut self, display_name: &str, text: &[u8]) -> Result<crate::pos::Sp<A>, ErrorReported> {
-        let (file_id, source_str) = self.ctx.diagnostics.files.add(display_name, text).map_err(|e| self.emit(e))?;
+        let (file_id, source_str) = self.ctx.emitter.files.add(display_name, text).map_err(|e| self.emit(e))?;
         let mut state = crate::parse::State::new();
 
         A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
@@ -105,7 +105,7 @@ impl Truth<'_> {
         for path_literal in &script.mapfiles {
             let path: &Path = path_literal.string.as_ref();
 
-            let eclmap = crate::Eclmap::load(&path, Some(game), &self.ctx.diagnostics)?;
+            let eclmap = crate::Eclmap::load(&path, Some(game), &self.ctx.emitter)?;
             self.ctx.extend_from_eclmap(Some(path), &eclmap)?;
         }
         Ok(())
@@ -149,7 +149,7 @@ impl Truth<'_> {
     pub fn read_anm(&mut self, game: Game, path: &Path, with_images: bool) -> Result<crate::AnmFile, ErrorReported> {
         match with_images {
             true => {
-                let mut reader = BinReader::read(&self.ctx.diagnostics, path)?;
+                let mut reader = BinReader::read(&self.ctx.emitter, path)?;
                 crate::AnmFile::read_from_stream(&mut reader, game, with_images)
             },
             false => {
@@ -157,26 +157,26 @@ impl Truth<'_> {
                 //
                 // Seeking drops the buffer though, so use a tiny buffer.
                 let buffer_size = 64;
-                let mut reader = BinReader::open(&self.ctx.diagnostics, path)?.map_reader(|r| std::io::BufReader::with_capacity(buffer_size, r));
+                let mut reader = BinReader::open(&self.ctx.emitter, path)?.map_reader(|r| std::io::BufReader::with_capacity(buffer_size, r));
                 crate::AnmFile::read_from_stream(&mut reader, game, with_images)
             },
         }
     }
     pub fn read_msg(&mut self, game: Game, path: &Path) -> Result<crate::MsgFile, ErrorReported> {
-        crate::MsgFile::read_from_stream(&mut BinReader::read(&self.ctx.diagnostics, path)?, game)
+        crate::MsgFile::read_from_stream(&mut BinReader::read(&self.ctx.emitter, path)?, game)
     }
     pub fn read_std(&mut self, game: Game, path: &Path) -> Result<crate::StdFile, ErrorReported> {
-        crate::StdFile::read_from_stream(&mut BinReader::read(&self.ctx.diagnostics, path)?, game)
+        crate::StdFile::read_from_stream(&mut BinReader::read(&self.ctx.emitter, path)?, game)
     }
 
     pub fn write_anm(&mut self, game: Game, outpath: &Path, middle: &crate::AnmFile) -> Result<(), ErrorReported> {
-        crate::AnmFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.diagnostics, outpath)?, game)
+        crate::AnmFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.emitter, outpath)?, game)
     }
     pub fn write_msg(&mut self, game: Game, outpath: &Path, middle: &crate::MsgFile) -> Result<(), ErrorReported> {
-        crate::MsgFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.diagnostics, outpath)?, game)
+        crate::MsgFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.emitter, outpath)?, game)
     }
     pub fn write_std(&mut self, game: Game, outpath: &Path, middle: &crate::StdFile) -> Result<(), ErrorReported> {
-        crate::StdFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.diagnostics, outpath)?, game)
+        crate::StdFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.emitter, outpath)?, game)
     }
 
     /// Like [`std::fs::write`] with error handling.
@@ -188,7 +188,7 @@ impl Truth<'_> {
 /// # Diagnostics
 impl Truth<'_> {
     pub fn emit(&self, e: impl IntoDiagnostics) -> ErrorReported {
-        self.ctx.diagnostics.emit(e)
+        self.ctx.emitter.emit(e)
     }
 }
 
@@ -200,7 +200,5 @@ impl<'ctx> Truth<'ctx> {
     pub fn ctx(&mut self) -> &mut CompilerContext<'ctx> { &mut self.ctx }
 
     #[doc(hidden)]
-    pub fn emitter(&self) -> impl crate::diagnostic::UnspannedEmitter + 'ctx {
-        crate::diagnostic::unspanned::Root(self.ctx.diagnostics)
-    }
+    pub fn emitter(&self) -> impl crate::diagnostic::Emitter + 'ctx { self.ctx.emitter }
 }

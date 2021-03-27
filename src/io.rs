@@ -5,7 +5,7 @@ use std::fs;
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
 
 use crate::pos::Sp;
-use crate::diagnostic::{Diagnostic, DiagnosticEmitter, unspanned::{self, UnspannedEmitter}};
+use crate::diagnostic::{self, Diagnostic, Emitter, RootEmitter};
 use crate::error::{ErrorReported};
 
 // Binary file IO uses anyhow instead of codespan_reporting because most span info is lost
@@ -66,7 +66,7 @@ impl<W: Write + Seek> DynWriteSeek for W {}
 /// Implements [`BinRead`] with automatic handling of diagnostics.
 pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
     /// Emitter with no additional context beyond the filename.
-    root_emitter: unspanned::WhileReading<'a>,
+    fname_emitter: diagnostic::WhileReading<'a>,
     display_filename: String,
     reader: R,
 }
@@ -76,7 +76,7 @@ pub struct BinReader<'a, R: Read + Seek + ?Sized = dyn DynReadSeek + 'a> {
 /// Implements [`BinWrite`] with automatic handling of diagnostics.
 pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
     /// Emitter with no additional context beyond the filename.
-    root_emitter: unspanned::WhileWriting<'a>,
+    fname_emitter: diagnostic::WhileWriting<'a>,
     writer: W,
 }
 
@@ -84,39 +84,39 @@ pub struct BinWriter<'a, W: Write + Seek + ?Sized = dyn DynWriteSeek + 'a> {
 // from/to inner
 
 impl<'a, R: Read + Seek + 'a> BinReader<'a, R> {
-    pub fn from_reader(diagnostics: &'a DiagnosticEmitter, filename: &str, reader: R) -> Self {
-        let emitter = unspanned::while_reading(filename, diagnostics);
-        BinReader { root_emitter: emitter, reader, display_filename: filename.to_owned() }
+    pub fn from_reader(root_emitter: &'a RootEmitter, filename: &str, reader: R) -> Self {
+        let fname_emitter = root_emitter.while_reading(filename);
+        BinReader { fname_emitter, reader, display_filename: filename.to_owned() }
     }
 
     pub fn map_reader<R2: Read + Seek + 'a>(self, func: impl FnOnce(R) -> R2) -> BinReader<'a, R2> {
-        let BinReader { root_emitter: emitter, reader, display_filename } = self;
-        BinReader { root_emitter: emitter, reader: func(reader), display_filename }
+        let BinReader { fname_emitter: emitter, reader, display_filename } = self;
+        BinReader { fname_emitter: emitter, reader: func(reader), display_filename }
     }
     pub fn into_inner(self) -> R { self.reader }
 }
 
 impl<'a, W: Write + Seek + 'a> BinWriter<'a, W> {
-    pub fn from_writer(diagnostics: &'a DiagnosticEmitter, filename: &str, writer: W) -> Self {
-        let emitter = unspanned::while_writing(filename, diagnostics);
-        BinWriter { root_emitter: emitter, writer }
+    pub fn from_writer(root_emitter: &'a RootEmitter, filename: &str, writer: W) -> Self {
+        let fname_emitter = root_emitter.while_writing(filename);
+        BinWriter { fname_emitter, writer }
     }
 
     pub fn map_writer<W2: Write + Seek + 'a>(self, func: impl FnOnce(W) -> W2) -> BinWriter<'a, W2> {
-        let BinWriter { root_emitter: emitter, writer } = self;
-        BinWriter { root_emitter: emitter, writer: func(writer) }
+        let BinWriter { fname_emitter: emitter, writer } = self;
+        BinWriter { fname_emitter: emitter, writer: func(writer) }
     }
     pub fn into_inner(self) -> W { self.writer }
 }
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn emitter(&self) -> impl UnspannedEmitter + 'a { self.root_emitter.clone() }
+    pub fn emitter(&self) -> impl Emitter + 'a { self.fname_emitter.clone() }
     pub fn inner_mut(&mut self) -> &mut R { &mut self.reader }
     pub fn display_filename(&self) -> &str { &self.display_filename }
 }
 
 impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
-    pub fn emitter(&self) -> impl UnspannedEmitter + 'a { self.root_emitter.clone() }
+    pub fn emitter(&self) -> impl Emitter + 'a { self.fname_emitter.clone() }
     pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
 }
 
@@ -128,24 +128,24 @@ impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
     ///
     /// This is generally the preferred way to work with [`BinReader`], as the size of these files is already constrained
     /// by limitations of the games, and reading the whole thing up front makes seeking effectively free.
-    pub fn read(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
+    pub fn read(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
         let path = path.as_ref();
-        let bytes = fs_read(path).map_err(|e| diagnostics.emit(e))?;
+        let bytes = fs_read(path).map_err(|e| emitter.emit(e))?;
         let path_string = path.display().to_string();
 
-        Ok(Self::from_reader(diagnostics, &path_string, io::Cursor::new(bytes)))
+        Ok(Self::from_reader(emitter, &path_string, io::Cursor::new(bytes)))
     }
 }
 
 impl<'a> BinReader<'a, fs::File> {
     /// Open a file handle for reading and wrap it in a [`BinReader`].
-    pub fn open(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
+    pub fn open(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
         let file = fs::File::open(path)
-            .map_err(|e| diagnostics.emit(error!("while opening file '{}': {}", path_string, e)))?;
+            .map_err(|e| emitter.emit(error!("while opening file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_reader(diagnostics, &path_string, file))
+        Ok(Self::from_reader(emitter, &path_string, file))
     }
 }
 
@@ -153,20 +153,20 @@ impl<'a> BinWriter<'a, io::BufWriter<fs::File>> {
     /// Create a file and wrap a buffered write handle in a [`BinWriter`].
     ///
     /// This is the preferred way to open files for writing.
-    pub fn create_buffered(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
-        Ok(BinWriter::create(diagnostics, path)?.map_writer(io::BufWriter::new))
+    pub fn create_buffered(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
+        Ok(BinWriter::create(emitter, path)?.map_writer(io::BufWriter::new))
     }
 }
 
 impl<'a> BinWriter<'a, fs::File> {
     /// Create a file and wrap a write handle in a [`BinWriter`].
-    pub fn create(diagnostics: &'a DiagnosticEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
+    pub fn create(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
         let path = path.as_ref();
         let path_string = path.display().to_string();
         let file = fs::File::create(path)
-            .map_err(|e| diagnostics.emit(error!("while creating file '{}': {}", path_string, e)))?;
+            .map_err(|e| emitter.emit(error!("while creating file '{}': {}", path_string, e)))?;
 
-        Ok(Self::from_writer(diagnostics, &path_string, file))
+        Ok(Self::from_writer(emitter, &path_string, file))
     }
 }
 
@@ -292,7 +292,7 @@ pub trait BinRead {
 }
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn expect_magic(&mut self, emitter: &impl UnspannedEmitter, magic: &str) -> ReadResult<()> {
+    pub fn expect_magic(&mut self, emitter: &impl Emitter, magic: &str) -> ReadResult<()> {
         let mut read_bytes = vec![0; magic.len()];
         self.read_exact(&mut read_bytes)?;
 
@@ -380,9 +380,9 @@ impl<'a, R: Read + Seek + ?Sized + 'a> BinRead for BinReader<'a, R> {
     type Reader = R;
 
     fn _bin_read_io_error(&mut self, err: io::Error) -> Self::Err {
-        // This deliberately uses the root emitter to print just the filename (without any more context) since
+        // This deliberately uses the base emitter to print just the filename (without any more context) since
         // it's for things like access errors and EoF errors.
-        self.root_emitter.emit(error!("{}{}", self.root_emitter, err))
+        self.fname_emitter.emit(error!("{}", err))
     }
     fn _bin_read_reader(&mut self) -> &mut Self::Reader { &mut self.reader }
 }
@@ -392,9 +392,9 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWrite for BinWriter<'a, W> {
     type Writer = W;
 
     fn _bin_write_io_error(&mut self, err: io::Error) -> Self::Err {
-        // This deliberately uses the root emitter to print just the filename (without any more context) since
+        // This deliberately uses the base emitter to print just the filename (without any more context) since
         // it's for things like access errors and EoF errors.
-        self.root_emitter.emit(error!("{}{}", self.root_emitter, err))
+        self.fname_emitter.emit(error!("{}", err))
     }
     fn _bin_write_writer(&mut self) -> &mut Self::Writer { &mut self.writer }
 }
@@ -424,8 +424,8 @@ fn test_cstring_io() {
         assert_eq!(cstring_num_bytes(bytes.len(), block_size), encoded.len());
 
         // check writing
-        let diagnostics = DiagnosticEmitter::new_stderr();
-        let mut w = BinWriter::from_writer(&diagnostics, "test".into(), std::io::Cursor::new(vec![]));
+        let emitter = RootEmitter::new_stderr();
+        let mut w = BinWriter::from_writer(&emitter, "test".into(), std::io::Cursor::new(vec![]));
         w.write_cstring(&Encoded(bytes.to_vec()), block_size).unwrap();
         assert_eq!(encoded, w.into_inner().into_inner());
 

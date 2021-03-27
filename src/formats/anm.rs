@@ -7,7 +7,7 @@ use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::{UnspannedEmitter, unspanned};
+use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
@@ -31,9 +31,9 @@ pub struct AnmFile {
 
 impl AnmFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
-        let emitter = unspanned::while_decompiling(self.binary_filename.as_deref(), ctx.diagnostics);
+        let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
-            .map_err(|e| ctx.diagnostics.emit(error!("{:#}", e)))
+            .map_err(|e| ctx.emitter.emit(error!("{:#}", e)))
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -213,7 +213,7 @@ impl FromMeta<'_> for Sprite {
 
 fn decompile(
     anm_file: &AnmFile,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
@@ -221,7 +221,7 @@ fn decompile(
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&ctx.diagnostics);
+    let mut raiser = llir::Raiser::new(&ctx.emitter);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -354,11 +354,11 @@ fn compile(
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
-                cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.diagnostics.emit(e))?);
+                cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.emitter.emit(e))?);
                 cur_group = vec![];
             },
             &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
-                if cur_entry.is_none() { return Err(ctx.diagnostics.emit(error!(
+                if cur_entry.is_none() { return Err(ctx.emitter.emit(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),
                     note("at least one `entry` must come before scripts in an ANM file"),
@@ -367,7 +367,7 @@ fn compile(
                 script_names.push(ident);
             },
             ast::Item::ConstVar { .. } => {},
-            _ => return Err(ctx.diagnostics.emit(error!(
+            _ => return Err(ctx.emitter.emit(error!(
                 message("feature not supported by format"),
                 primary(item, "not supported by ANM files"),
             ))),
@@ -375,7 +375,7 @@ fn compile(
     }
 
     match cur_entry {
-        None => return Err(ctx.diagnostics.emit(error!("empty ANM script"))),
+        None => return Err(ctx.emitter.emit(error!("empty ANM script"))),
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
     }
 
@@ -424,7 +424,7 @@ fn gather_sprite_id_exprs(
         type ProtoSprites<'a> = IndexMap<Sp<Ident>, ProtoSprite<'a>>;
 
         let sprites = meta::ParseObject::new(entry_fields).expect_field::<ProtoSprites>("sprites");
-        let sprites = sprites.map_err(|e| ctx.diagnostics.emit(e))?;
+        let sprites = sprites.map_err(|e| ctx.emitter.emit(e))?;
         for (ident, sprite) in sprites {
             if let Some(id_expr) = sprite.id_expr.cloned() {
                 // currently nothing else can really type-check this before const evaluation, so add a deferred check
@@ -492,7 +492,7 @@ fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Ind
                     },
                     indexmap::map::Entry::Occupied(e) => {
                         let (prev_ident, _) = e.get();
-                        return Err(ctx.diagnostics.emit(error!(
+                        return Err(ctx.emitter.emit(error!(
                             message("duplicate script '{}'", ident),
                             primary(ident, "redefined here"),
                             secondary(prev_ident, "originally defined here"),
@@ -530,7 +530,7 @@ struct EntryHeaderData {
 
 fn read_anm(
     reader: &mut BinReader,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &FileFormat,
     with_images: bool,
 ) -> ReadResult<AnmFile> {
@@ -553,7 +553,7 @@ fn read_anm(
 
 fn read_entry(
     reader: &mut BinReader,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &FileFormat,
     with_images: bool,
     next_script_index: &mut u32,
@@ -689,7 +689,7 @@ pub fn auto_script_name(i: u32) -> Ident {
 
 fn write_anm(
     w: &mut BinWriter,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     format: &FileFormat,
     file: &AnmFile,
 ) -> WriteResult {
@@ -714,7 +714,7 @@ fn write_anm(
 
 fn write_entry(
     w: &mut BinWriter,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     file_format: &FileFormat,
     entry: &Entry,
     // automatic numbering state that needs to persist from one entry to the next
@@ -729,7 +729,7 @@ fn write_entry(
         has_data, low_res_scale,
     } = entry.specs;
 
-    fn missing(emitter: &impl UnspannedEmitter, problem: &str) -> ErrorReported {
+    fn missing(emitter: &impl Emitter, problem: &str) -> ErrorReported {
         const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
 
         emitter.emit(error!(message("{}", problem), note("{}", SUGGESTION)))
@@ -860,7 +860,7 @@ fn write_sprite(
 }
 
 #[inline(never)]
-fn read_texture(f: &mut BinReader, emitter: &impl UnspannedEmitter, with_images: bool) -> ReadResult<Texture> {
+fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<Texture> {
     f.expect_magic(emitter, "THTX")?;
 
     let zero = f.read_u16()?;
@@ -944,12 +944,14 @@ struct InstrFormat06;
 struct InstrFormat07 { version: Version, game: Game }
 
 impl FileFormat {
-    fn read_header(&self, f: &mut BinReader, emitter: &dyn UnspannedEmitter) -> ReadResult<EntryHeaderData> {
+    fn read_header(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<EntryHeaderData> {
+        let emitter = emitter.as_sized();
+
         macro_rules! warn_if_nonzero {
             ($name:literal, $expr:expr) => {
                 match $expr {
                     0 => {},
-                    x => emitter.emit_one(warning!("nonzero {} will be lost (value: {})", $name, x)).ignore(),
+                    x => emitter.emit(warning!("nonzero {} will be lost (value: {})", $name, x)).ignore(),
                 }
             };
         }
@@ -1090,7 +1092,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
         let time = f.read_i16()? as i32;
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
@@ -1102,7 +1104,7 @@ impl InstrFormat for InstrFormat06 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;
@@ -1118,7 +1120,7 @@ impl InstrFormat for InstrFormat06 {
         opcode == 0 || opcode == 15
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         f.write_u32(0)
     }
 }
@@ -1195,7 +1197,7 @@ impl InstrFormat for InstrFormat07 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn UnspannedEmitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
         if opcode == -1 {
@@ -1209,7 +1211,7 @@ impl InstrFormat for InstrFormat07 {
         Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as u16)?;
         f.write_i16(instr.time as i16)?;
@@ -1218,7 +1220,7 @@ impl InstrFormat for InstrFormat07 {
         Ok(())
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn UnspannedEmitter) -> WriteResult {
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         f.write_i16(-1)?;
         f.write_u16(0)?;
         f.write_u16(0)?;

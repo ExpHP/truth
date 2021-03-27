@@ -3,7 +3,7 @@ use regex::Regex;
 use lazy_static::lazy_static;
 
 use crate::Game;
-use crate::diagnostic::{DiagnosticEmitter, unspanned, UnspannedEmitter};
+use crate::diagnostic::{RootEmitter, Emitter};
 use crate::ident::Ident;
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 
@@ -19,10 +19,10 @@ pub struct Eclmap {
 }
 
 impl Eclmap {
-    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>, diagnostics: &DiagnosticEmitter) -> Result<Self, ErrorReported> {
+    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>, root_emitter: &RootEmitter) -> Result<Self, ErrorReported> {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
         let path = path.as_ref();
-        let emitter = unspanned::while_reading(path, diagnostics);
+        let emitter = root_emitter.while_reading(path);
 
         let path = path.canonicalize().map_err(|e| emitter.emit(error!("{}", e)))?;
         let text = std::fs::read_to_string(&path).map_err(|e| emitter.emit(error!("{}", e)))?;
@@ -34,15 +34,15 @@ impl Eclmap {
                 None => return Err(emitter.emit(error!("can't use gamemap because no game was supplied!")))
             };
             let base_dir = path.parent().expect("filename must have parent");
-            seqmap = Self::resolve_gamemap(base_dir, &emitter, seqmap, game, diagnostics)?;
+            seqmap = Self::resolve_gamemap(base_dir, seqmap, game, &emitter, root_emitter)?;
             // FIXME: following Self::from_seqmap should use emitter for resolved path but we
             //        don't have it in this function
         }
         Self::from_seqmap(seqmap, &emitter)
     }
 
-    pub fn parse(text: &str, diagnostics: &DiagnosticEmitter) -> Result<Self, ErrorReported> {
-        let emitter = unspanned::make_root("in mapfile", diagnostics);
+    pub fn parse(text: &str, root_emitter: &RootEmitter) -> Result<Self, ErrorReported> {
+        let emitter = root_emitter.get_chained("in mapfile");
         Self::from_seqmap(parse_seqmap(text, &emitter)?, &emitter)
     }
 
@@ -63,10 +63,10 @@ impl Eclmap {
 
     fn resolve_gamemap(
         base_dir: &std::path::Path,
-        gamemap_emitter: &impl UnspannedEmitter,
         mut seqmap: SeqMap,
         game: Game,
-        diagnostics: &DiagnosticEmitter,
+        gamemap_emitter: &impl Emitter,
+        root_emitter: &RootEmitter,
     ) -> Result<SeqMap, ErrorReported> {
         let game_files = match seqmap.maps.remove("game_files") {
             Some(game_files) => game_files,
@@ -81,13 +81,13 @@ impl Eclmap {
         };
 
         let final_path = base_dir.join(rel_path);
-        let mapfile_emitter = unspanned::while_reading(&final_path, diagnostics);
+        let mapfile_emitter = root_emitter.while_reading(&final_path);
 
         let text = std::fs::read_to_string(&final_path).map_err(|e| mapfile_emitter.emit(error!("{}", e)))?;
         parse_seqmap(&text, &mapfile_emitter)
     }
 
-    fn from_seqmap(seqmap: SeqMap, emitter: &impl UnspannedEmitter) -> Result<Eclmap, ErrorReported> {
+    fn from_seqmap(seqmap: SeqMap, emitter: &impl Emitter) -> Result<Eclmap, ErrorReported> {
         let SeqMap { magic, mut maps } = seqmap;
         let magic = match &magic[..] {
             "!eclmap" => Magic::Eclmap,
@@ -144,7 +144,7 @@ struct SeqMap {
     maps: BTreeMap<String, BTreeMap<i32, String>>,
 }
 
-fn parse_seqmap(text: &str, emitter: &impl UnspannedEmitter) -> Result<SeqMap, ErrorReported> {
+fn parse_seqmap(text: &str, emitter: &impl Emitter) -> Result<SeqMap, ErrorReported> {
     let mut maps = BTreeMap::new();
     let mut cur_section = None;
     let mut cur_map = None;

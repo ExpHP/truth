@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::ast::{self, Expr};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
-use crate::diagnostic::{UnspannedEmitter};
+use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::resolve::{RegId};
@@ -37,7 +37,7 @@ struct UnknownArgsData {
 /// can be given at the end of decompilation.
 pub struct Raiser<'a> {
     opcodes_without_abis: BTreeSet<u16>,
-    _diagnostics: &'a context::DiagnosticEmitter,
+    _emitter: &'a context::RootEmitter,
 }
 
 impl Drop for Raiser<'_> {
@@ -47,16 +47,16 @@ impl Drop for Raiser<'_> {
 }
 
 impl<'a> Raiser<'a> {
-    pub fn new(diagnostics: &'a context::DiagnosticEmitter) -> Self {
+    pub fn new(emitter: &'a context::RootEmitter) -> Self {
         Raiser {
             opcodes_without_abis: Default::default(),
-            _diagnostics: diagnostics,
+            _emitter: emitter,
         }
     }
 
     pub fn raise_instrs_to_sub_ast(
         &mut self,
-        emitter: &dyn UnspannedEmitter,
+        emitter: &dyn Emitter,
         instr_format: &dyn InstrFormat,
         raw_script: &[RawInstr],
         defs: &Defs,
@@ -66,7 +66,7 @@ impl<'a> Raiser<'a> {
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
-            self._diagnostics.emit(warning!(
+            self._emitter.emit(warning!(
                 message("instructions with unknown signatures were decompiled to byte blobs."),
                 note(
                     "The following opcodes were affected: {}",
@@ -82,7 +82,7 @@ impl<'a> Raiser<'a> {
 
 fn raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
     defs: &Defs,
@@ -165,7 +165,7 @@ fn gather_jump_time_args(
 }
 
 fn generate_offset_labels(
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     script: &[RaiseInstr],
     instr_offsets: &[u64],
     jump_data: &JumpData,
@@ -256,7 +256,7 @@ fn extract_jump_args_by_signature(
 
 
 fn raise_instr(
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
     defs: &Defs,
@@ -296,7 +296,7 @@ fn raise_unknown_instr(
 }
 
 fn raise_decoded_instr(
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
     args: &[SimpleArg],
@@ -406,7 +406,7 @@ fn raise_decoded_instr(
 }
 
 
-fn raise_args(emitter: &impl UnspannedEmitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, ErrorReported> {
+fn raise_args(emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, ErrorReported> {
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
@@ -429,7 +429,7 @@ fn raise_args(emitter: &impl UnspannedEmitter, args: &[SimpleArg], abi: &InstrAb
     Ok(out)
 }
 
-fn raise_arg(emitter: &impl UnspannedEmitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
+fn raise_arg(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
     if raw.is_reg {
         let ty = match enc {
             | ArgEncoding::Padding
@@ -453,7 +453,7 @@ fn raise_arg(emitter: &impl UnspannedEmitter, raw: &SimpleArg, enc: ArgEncoding)
     }
 }
 
-fn raise_arg_to_literal(emitter: &impl UnspannedEmitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
+fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
     if raw.is_reg {
         return Err(emitter.emit(error!("expected an immediate, got a register")));
     }
@@ -498,7 +498,7 @@ fn raise_arg_to_literal(emitter: &impl UnspannedEmitter, raw: &SimpleArg, enc: A
     }
 }
 
-fn raise_arg_to_reg(emitter: &impl UnspannedEmitter, raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
+fn raise_arg_to_reg(emitter: &impl Emitter, raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
     if !raw.is_reg {
         return Err(emitter.emit(error!("expected a variable, got an immediate")));
     }
@@ -533,7 +533,7 @@ fn raise_jump_args(
 // =============================================================================
 
 impl Raiser<'_> {
-    fn decode_args(&mut self, emitter: &impl UnspannedEmitter, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
+    fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         match defs.ins_abi(instr.opcode) {
             Some(abi) => decode_args_with_abi(emitter, instr, abi),
 
@@ -555,7 +555,7 @@ impl Raiser<'_> {
 }
 
 fn decode_args_with_abi(
-    emitter: &impl UnspannedEmitter,
+    emitter: &impl Emitter,
     instr: &RawInstr,
     siggy: &InstrAbi,
 ) -> Result<RaiseInstr, ErrorReported> {
@@ -566,7 +566,7 @@ fn decode_args_with_abi(
     let mut args = vec![];
     let mut remaining_len = instr.args_blob.len();
 
-    fn decrease_len(emitter: &impl UnspannedEmitter, remaining_len: &mut usize, amount: usize) -> Result<(), ErrorReported> {
+    fn decrease_len(emitter: &impl Emitter, remaining_len: &mut usize, amount: usize) -> Result<(), ErrorReported> {
         if *remaining_len < amount {
             return Err(emitter.emit(error!("not enough bytes in instruction")));
         }

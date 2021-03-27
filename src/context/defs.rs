@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast;
 use crate::context::CompilerContext;
-use crate::diagnostic::{unspanned, UnspannedEmitter};
+use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ident::{Ident, ResIdent};
@@ -90,7 +90,7 @@ impl CompilerContext<'_> {
         if let Err(old) = self.defs.reg_alias_rib.insert(sp!(ident.clone()), def_id) {
             let old_reg = self.defs.var_reg(old.def_id).unwrap();
             if old_reg != reg {
-                self.diagnostics.emit(warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg)).ignore();
+                self.emitter.emit(warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg)).ignore();
             }
         }
 
@@ -370,13 +370,10 @@ impl CompilerContext<'_> {
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
     pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) -> Result<(), ErrorReported> {
-        let emitter = {
-            let error_label = match path {
-                Some(path) => path.to_string_lossy().into_owned(),
-                None => format!("in mapfile"),
-            };
-            unspanned::make_root(error_label, self.diagnostics)
-        };
+        let emitter = self.emitter.get_chained(match path {
+            Some(path) => path.to_string_lossy().into_owned(),
+            None => format!("in mapfile"),
+        });
 
         if let Some(path) = path {
             self.mapfiles.push(path.to_owned());
@@ -636,7 +633,7 @@ impl Signature {
             } else if let Some(optional) = first_optional {
                 let opt_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(optional)).expect("func params must have spans");
                 let non_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
-                return Err(ctx.diagnostics.emit(error!(
+                return Err(ctx.emitter.emit(error!(
                     message("invalid function signature"),
                     primary(non_span, "non-optional parameter after optional"),
                     secondary(opt_span, "optional parameter"),

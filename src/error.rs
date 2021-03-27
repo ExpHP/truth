@@ -2,7 +2,7 @@ use crate::pos::{FileId};
 
 /// A dummy error type with no payload.
 ///
-/// This type is returned by [`DiagnosticEmitter::emit`] for potential use as an error type.
+/// This type is returned by [`RootEmitter::emit`] for potential use as an error type.
 /// More generally, this could be used by any function that "emits" its errors through some form of side effect.
 /// E.g. a function could call a callback, or a private method may push an item onto a `Vec` field.
 ///
