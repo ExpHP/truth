@@ -1,5 +1,5 @@
 use std::io::{self, Write, Seek, Read, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs;
 
 use byteorder::{LittleEndian as Le, ReadBytesExt, WriteBytesExt};
@@ -120,73 +120,88 @@ impl<'a, W: Write + Seek + ?Sized + 'a> BinWriter<'a, W> {
     pub fn inner_mut(&mut self) -> &mut W { &mut self.writer }
 }
 
-// ------------
-// file opening
-
-impl<'a> BinReader<'a, io::Cursor<Vec<u8>>> {
-    /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
-    ///
-    /// This is generally the preferred way to work with [`BinReader`], as the size of these files is already constrained
-    /// by limitations of the games, and reading the whole thing up front makes seeking effectively free.
-    pub fn read(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
-        let path = path.as_ref();
-        let bytes = fs_read(path).map_err(|e| emitter.emit(e))?;
-        let path_string = path.display().to_string();
-
-        Ok(Self::from_reader(emitter, &path_string, io::Cursor::new(bytes)))
-    }
-}
-
-impl<'a> BinReader<'a, fs::File> {
-    /// Open a file handle for reading and wrap it in a [`BinReader`].
-    pub fn open(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> ReadResult<Self> {
-        let path = path.as_ref();
-        let path_string = path.display().to_string();
-        let file = fs::File::open(path)
-            .map_err(|e| emitter.emit(error!("while opening file '{}': {}", path_string, e)))?;
-
-        Ok(Self::from_reader(emitter, &path_string, file))
-    }
-}
-
-impl<'a> BinWriter<'a, io::BufWriter<fs::File>> {
-    /// Create a file and wrap a buffered write handle in a [`BinWriter`].
-    ///
-    /// This is the preferred way to open files for writing.
-    pub fn create_buffered(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
-        Ok(BinWriter::create(emitter, path)?.map_writer(io::BufWriter::new))
-    }
-}
-
-impl<'a> BinWriter<'a, fs::File> {
-    /// Create a file and wrap a write handle in a [`BinWriter`].
-    pub fn create(emitter: &'a RootEmitter, path: impl AsRef<Path>) -> WriteResult<Self> {
-        let path = path.as_ref();
-        let path_string = path.display().to_string();
-        let file = fs::File::create(path)
-            .map_err(|e| emitter.emit(error!("while creating file '{}': {}", path_string, e)))?;
-
-        Ok(Self::from_writer(emitter, &path_string, file))
-    }
-}
-
 // =============================================================================
 // Other IO wrappers.
 
-/// Wraps [`std::fs::read`].
-pub fn fs_read(path: impl AsRef<Path>) -> Result<Vec<u8>, Diagnostic> {
-    let path = path.as_ref();
-    fs::read(path).map_err(|e| error!("while reading file '{}': {}", path.display(), e))
+/// Helper that wraps some functions and methods from [`std::fs`].
+#[derive(Debug, Copy, Clone)]
+pub struct Fs<'ctx> {
+    pub emitter: &'ctx RootEmitter,
 }
 
-/// Wraps [`std::fs::write`].
-pub fn fs_write(path: impl AsRef<Path>, data: impl AsRef<[u8]>) -> Result<(), Diagnostic> {
-    let path = path.as_ref();
-    fs::write(path, data).map_err(|e| error!("while writing file '{}': {}", path.display(), e))
+impl<'ctx> Fs<'ctx> {
+    pub fn new(emitter: &'ctx RootEmitter) -> Self { Fs { emitter } }
+
+    /// Wraps [`std::fs::write`].
+    pub fn write(&self, path: &Path, data: impl AsRef<[u8]>) -> WriteResult {
+        std::fs::write(path, data)
+            .map_err(|e| self.emitter.emit(error!("while writing file '{}': {}", path.display(), e)))
+    }
+
+    /// Wraps [`std::fs::read`].
+    pub fn read(&self, path: &Path) -> ReadResult<Vec<u8>> {
+        std::fs::read(path)
+            .map_err(|e| self.emitter.emit(error!("while reading file '{}': {}", path.display(), e)))
+    }
+
+    /// Wraps [`std::fs::read_to_string`].
+    pub fn read_to_string(&self, path: &Path) -> ReadResult<String> {
+        std::fs::read_to_string(path)
+            .map_err(|e| self.emitter.emit(error!("while reading file '{}': {}", path.display(), e)))
+    }
+
+    /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
+    ///
+    /// This is generally the preferred way to work with [`BinReader`], as reading the game's binary files requires
+    /// a lot of seeking, and the size of these files is already constrained by limitations of the games.
+    pub fn open_read(&self, path: impl AsRef<Path>) -> ReadResult<BinReader<'ctx, io::Cursor<Vec<u8>>>> {
+        let path = path.as_ref();
+        let bytes = self.read(path)?;
+        let path_string = path.display().to_string();
+
+        Ok(BinReader::from_reader(self.emitter, &path_string, io::Cursor::new(bytes)))
+    }
+
+    /// Open a file handle for reading and wrap it in a [`BinReader`].
+    pub fn open(&self, path: impl AsRef<Path>) -> ReadResult<BinReader<'ctx, fs::File>> {
+        let path = path.as_ref();
+        let path_string = path.display().to_string();
+        let file = std::fs::File::open(path)
+            .map_err(|e| self.emitter.emit(error!("while opening file '{}': {}", path_string, e)))?;
+
+        Ok(BinReader::from_reader(self.emitter, &path_string, file))
+    }
+
+    /// Create a file and wrap a buffered write handle in a [`BinWriter`].
+    ///
+    /// This is the preferred way to open files for writing.
+    pub fn create_buffered(&self, path: impl AsRef<Path>) -> WriteResult<BinWriter<'ctx, io::BufWriter<fs::File>>> {
+        Ok(self.create(path)?.map_writer(io::BufWriter::new))
+    }
+
+    /// Create a file and wrap a write handle in a [`BinWriter`].
+    pub fn create(&self, path: impl AsRef<Path>) -> WriteResult<BinWriter<'ctx, fs::File>> {
+        let path = path.as_ref();
+        let path_string = path.display().to_string();
+        let file = fs::File::create(path)
+            .map_err(|e| self.emitter.emit(error!("while creating file '{}': {}", path_string, e)))?;
+
+        Ok(BinWriter::from_writer(self.emitter, &path_string, file))
+    }
+
+    pub fn canonicalize(&self, path: &Path) -> Result<PathBuf, Diagnostic> {
+        path.canonicalize().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
+    }
+
+    /// Make a path user-friendly (e.g. automatically change to relative or absolute
+    /// based on location).  Conversion may be lossy.
+    pub fn display_path(&self, path: &Path) -> String {
+        nice_display_path(path)
+    }
 }
 
 /// Make a path "nice" for display, *if possible*.
-pub fn nice_display_path(path: impl AsRef<Path>) -> String {
+pub(crate) fn nice_display_path(path: impl AsRef<Path>) -> String {
     let path = path.as_ref();
     nice_or_bust(path).unwrap_or_else(|| path.to_string_lossy().into_owned())
 }

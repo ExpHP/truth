@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use crate::Game;
 use crate::diagnostic::{RootEmitter, Emitter};
 use crate::ident::Ident;
+use crate::io::Fs;
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 
 pub struct Eclmap {
@@ -23,9 +24,10 @@ impl Eclmap {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
         let path = path.as_ref();
         let emitter = root_emitter.while_reading(path);
+        let fs = Fs::new(root_emitter);
 
-        let path = path.canonicalize().map_err(|e| emitter.emit(error!("{}", e)))?;
-        let text = std::fs::read_to_string(&path).map_err(|e| emitter.emit(error!("{}", e)))?;
+        let path = fs.canonicalize(path).map_err(|e| root_emitter.emit(e))?;
+        let text = fs.read_to_string(&path)?;
 
         let mut seqmap = parse_seqmap(&text, &emitter)?;
         if seqmap.magic == "!gamemap" {
@@ -34,7 +36,7 @@ impl Eclmap {
                 None => return Err(emitter.emit(error!("can't use gamemap because no game was supplied!")))
             };
             let base_dir = path.parent().expect("filename must have parent");
-            seqmap = Self::resolve_gamemap(base_dir, seqmap, game, &emitter, root_emitter)?;
+            seqmap = Self::resolve_gamemap(base_dir, seqmap, game, &emitter, root_emitter, &fs)?;
             // FIXME: following Self::from_seqmap should use emitter for resolved path but we
             //        don't have it in this function
         }
@@ -67,6 +69,7 @@ impl Eclmap {
         game: Game,
         gamemap_emitter: &impl Emitter,
         root_emitter: &RootEmitter,
+        fs: &Fs,
     ) -> Result<SeqMap, ErrorReported> {
         let game_files = match seqmap.maps.remove("game_files") {
             Some(game_files) => game_files,
@@ -82,8 +85,7 @@ impl Eclmap {
 
         let final_path = base_dir.join(rel_path);
         let mapfile_emitter = root_emitter.while_reading(&final_path);
-
-        let text = std::fs::read_to_string(&final_path).map_err(|e| mapfile_emitter.emit(error!("{}", e)))?;
+        let text = fs.read_to_string(&final_path)?;
         parse_seqmap(&text, &mapfile_emitter)
     }
 

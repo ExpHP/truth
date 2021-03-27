@@ -5,7 +5,6 @@ use crate::game::Game;
 use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, Scope};
-use crate::io::{BinReader, BinWriter};
 use crate::passes::DecompileKind;
 
 /// Front-end API of `truth`, for direct use by `truth`'s various entry point functions, as well
@@ -81,7 +80,7 @@ impl Truth<'_> {
     }
 
     pub fn read_script(&mut self, path: &Path) -> Result<ast::Script, ErrorReported> {
-        let bytes = crate::io::fs_read(path).map_err(|e| self.emit(e))?;
+        let bytes = self.fs().read(path)?;
         self.parse(&path.to_string_lossy(), &bytes).map(|x| x.value)
     }
 
@@ -145,11 +144,11 @@ impl Truth<'_> {
 }
 
 /// # Binary file IO
-impl Truth<'_> {
+impl<'ctx> Truth<'ctx> {
     pub fn read_anm(&mut self, game: Game, path: &Path, with_images: bool) -> Result<crate::AnmFile, ErrorReported> {
         match with_images {
             true => {
-                let mut reader = BinReader::read(&self.ctx.emitter, path)?;
+                let mut reader = self.fs().open_read(path)?;
                 crate::AnmFile::read_from_stream(&mut reader, game, with_images)
             },
             false => {
@@ -157,32 +156,31 @@ impl Truth<'_> {
                 //
                 // Seeking drops the buffer though, so use a tiny buffer.
                 let buffer_size = 64;
-                let mut reader = BinReader::open(&self.ctx.emitter, path)?.map_reader(|r| std::io::BufReader::with_capacity(buffer_size, r));
+                let mut reader = self.fs().open(path)?
+                    .map_reader(|r| std::io::BufReader::with_capacity(buffer_size, r));
                 crate::AnmFile::read_from_stream(&mut reader, game, with_images)
             },
         }
     }
     pub fn read_msg(&mut self, game: Game, path: &Path) -> Result<crate::MsgFile, ErrorReported> {
-        crate::MsgFile::read_from_stream(&mut BinReader::read(&self.ctx.emitter, path)?, game)
+        crate::MsgFile::read_from_stream(&mut self.fs().open_read(path)?, game)
     }
     pub fn read_std(&mut self, game: Game, path: &Path) -> Result<crate::StdFile, ErrorReported> {
-        crate::StdFile::read_from_stream(&mut BinReader::read(&self.ctx.emitter, path)?, game)
+        crate::StdFile::read_from_stream(&mut self.fs().open_read(path)?, game)
     }
 
     pub fn write_anm(&mut self, game: Game, outpath: &Path, middle: &crate::AnmFile) -> Result<(), ErrorReported> {
-        crate::AnmFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.emitter, outpath)?, game)
+        crate::AnmFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
     pub fn write_msg(&mut self, game: Game, outpath: &Path, middle: &crate::MsgFile) -> Result<(), ErrorReported> {
-        crate::MsgFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.emitter, outpath)?, game)
+        crate::MsgFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
     pub fn write_std(&mut self, game: Game, outpath: &Path, middle: &crate::StdFile) -> Result<(), ErrorReported> {
-        crate::StdFile::write_to_stream(middle, &mut BinWriter::create_buffered(&self.ctx.emitter, outpath)?, game)
+        crate::StdFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
 
-    /// Like [`std::fs::write`] with error handling.
-    pub fn write_file(&mut self, path: &Path, data: impl AsRef<[u8]>) -> Result<(), ErrorReported> {
-        unimplemented!()
-    }
+    /// Returns an object with filesystem-related helper methods.
+    pub fn fs(&self) -> crate::Fs<'ctx> { crate::Fs::new(self.ctx.emitter) }
 }
 
 /// # Diagnostics

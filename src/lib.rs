@@ -48,6 +48,7 @@ pub mod cli_def;
 pub use resolve::{RegId, DefId};
 mod resolve;
 
+pub use io::Fs;
 pub mod io;
 
 pub mod llir;
