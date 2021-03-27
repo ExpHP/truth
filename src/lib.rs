@@ -1,6 +1,7 @@
 #[macro_use]
 mod util_macros;
 
+pub use error::ErrorReported;
 pub mod error;
 pub mod diagnostic;
 
@@ -76,6 +77,12 @@ impl<Xs: ExactSizeIterator + DoubleEndedIterator> VeclikeIterator for Xs { }
 pub fn setup_for_test_harness() {
     ::std::env::set_var("_TRUTH_DEBUG__TEST", "1");
     ::std::env::remove_var("TRUTH_MAP_PATH");
+}
+
+mod env {
+    pub fn is_test_mode() -> bool {
+        ::std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1")
+    }
 }
 
 /// To let tests iterate over all main subcommands.

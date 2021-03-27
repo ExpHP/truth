@@ -92,7 +92,7 @@ impl DiagnosticEmitter {
 
     /// Create a [`DiagnosticEmitter`] that writes diagnostics to the standard error stream.
     pub fn new_stderr() -> Self {
-        if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
+        if crate::env::is_test_mode() {
             Self::from_writer(EprintErrorWriter)
         } else {
             // contrary to what you might expect, ColorChoice::Auto does not check isatty
