@@ -2,10 +2,6 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: in signature for opcode 1000: 'z' or 'm' arguments can only appear at the very end
-   ┌─ <input>:25:25
-   │
-25 │         #pragma mapfile "tests/mapfile-with-bad-signature.anmm"
-   │                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ error loading mapfile
+error: tests/mapfile-with-bad-signature.anmm: in signature for opcode 1000: 'z' or 'm' arguments can only appear at the very end
 
 

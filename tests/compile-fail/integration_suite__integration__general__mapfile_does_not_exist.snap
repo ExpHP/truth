@@ -3,9 +3,5 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: while resolving 'this/is/a/bad/path': No such file or directory (os error 2)
-   ┌─ <input>:25:25
-   │
-25 │         #pragma mapfile "this/is/a/bad/path"
-   │                         ^^^^^^^^^^^^^^^^^^^^ error loading mapfile
 
 

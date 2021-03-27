@@ -1,0 +1,7 @@
+---
+source: src/diagnostic.rs
+expression: stderr
+---
+warning: a.txt: thing 3: while eating a sub: blah 20
+
+

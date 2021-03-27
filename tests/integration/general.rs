@@ -6,7 +6,7 @@ source_test!(
     items: r#"
         #pragma mapfile "this/is/a/bad/path"
     "#,
-    expect_fail: "loading mapfile",
+    expect_fail: "while resolving",
 );
 
 source_test!(
