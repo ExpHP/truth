@@ -22,6 +22,7 @@ impl ErrorReported {
 
 // =============================================================================
 
+// FIXME: If this looks overengineered, it's because it's the
 /// An accumulator for errors that provides a straightforward way of converting to
 /// a `Result<T, CompileError>` based on whether any errors have occurred.
 #[derive(Debug, Clone)]
@@ -87,16 +88,23 @@ where
 }
 
 #[test]
-#[cfg(nope)]
 fn test_collect_with_recovery() {
-    let scope = crate::Scope::new();
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let truth = scope.truth();
+
     // straightforward usage
     let result = (0..10).map(|x| match x % 2 {
         0 => Ok(x),
-        1 => Err(error!(message("odd number: {}", x))),
+        1 => Err(truth.emit(error!(message("odd number: {}", x)))),
         _ => unreachable!(),
     }).collect_with_recovery::<Vec<_>>();
-    assert_eq!(result.unwrap_err().diagnostics.len(), 5);
+    assert!(result.is_err());
+    assert_eq!(truth.get_captured_diagnostics().unwrap().matches("odd number").count(), 5);
+
+    // -------------------------------------
+
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let truth = scope.truth();
 
     // collecting into () for side-effects
     let mut vec = vec![];
@@ -105,11 +113,12 @@ fn test_collect_with_recovery() {
             vec.push(x);
             Ok(())
         },
-        1 => Err(error!(message("odd number: {}", x))),
+        1 => Err(truth.emit(error!(message("odd number: {}", x)))),
         _ => unreachable!(),
     }).collect_with_recovery::<()>();
+    assert!(result.is_err());
     assert_eq!(vec, vec![0, 2, 4, 6, 8]);
-    assert_eq!(result.unwrap_err().diagnostics.len(), 5);
+    assert_eq!(truth.get_captured_diagnostics().unwrap().matches("odd number").count(), 5);
 }
 
 // =============================================================================
