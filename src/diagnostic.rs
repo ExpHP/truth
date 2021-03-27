@@ -1,7 +1,6 @@
 
 use std::fmt;
 use std::cell::RefCell;
-use std::any::Any;
 use std::path::Path;
 
 use codespan_reporting as cs;
@@ -20,13 +19,6 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 pub struct Diagnostic {
     imp: CsDiagnostic,
 }
-
-// FIXME: Should be #[must_use] but then we'd need to create our own newtype.
-/// Type alias indicating diagnostics that are non-fatal.
-///
-/// Sometimes a function might return this if it doesn't have access to a [`DiagnosticEmitter`].
-/// Please be sure to emit them!
-pub type Warnings = Vec<Diagnostic>;
 
 impl Diagnostic {
     pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error() } }
@@ -90,7 +82,7 @@ impl fmt::Debug for DiagnosticEmitter {
 }
 
 impl DiagnosticEmitter {
-    fn from_writer<W: WriteError>(writer: W) -> Self {
+    fn from_writer<W: WriteError + 'static>(writer: W) -> Self {
         DiagnosticEmitter {
             files: Files::new(),
             config: default_term_config(),
@@ -100,29 +92,28 @@ impl DiagnosticEmitter {
 
     /// Create a [`DiagnosticEmitter`] that writes diagnostics to the standard error stream.
     pub fn new_stderr() -> Self {
-        // contrary to what you might expect, ColorChoice::Auto does not check isatty
-        let color = match atty::is(atty::Stream::Stderr) {
-            true => tc::ColorChoice::Auto,
-            false => tc::ColorChoice::Never,
-        };
-        Self::from_writer(tc::StandardStream::stderr(color))
+        if std::env::var("_TRUTH_DEBUG__TEST").ok().as_deref() == Some("1") {
+            Self::from_writer(EprintErrorWriter)
+        } else {
+            // contrary to what you might expect, ColorChoice::Auto does not check isatty
+            let color = match atty::is(atty::Stream::Stderr) {
+                true => tc::ColorChoice::Auto,
+                false => tc::ColorChoice::Never,
+            };
+            Self::from_writer(tc::StandardStream::stderr(color))
+        }
     }
 
     /// Create a [`DiagnosticEmitter`] that captures diagnostic output which can be recovered
     /// by calling [`Self::get_captured_diagnostics`].
     pub fn new_captured() -> Self {
-        let writer: CapturedWriter = tc::NoColor::new(vec![]);
-        Self::from_writer(writer)
+        Self::from_writer(CapturingErrorWriter::new())
     }
 
     pub fn emit(&self, errors: impl IntoDiagnostics) -> ErrorReported {
         // NOTE: we don't take an iterator because the iterator could call `.emit()` and lead to a runtime borrow conflict.
         for diag in errors.into_diagnostics() {
-            let mut writer = self.writer.borrow_mut();
-            cs::term::emit(writer.as_write_color(), &self.config, &self.files, &diag.imp)
-                .unwrap_or_else(|fmt_err| {
-                    panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", diag.imp, fmt_err)
-                });
+            self.writer.borrow_mut().write_error(&diag, &self.config, &self.files);
         }
         ErrorReported
     }
@@ -130,21 +121,53 @@ impl DiagnosticEmitter {
     /// Obtain captured diagnostics written to stderr, provided that this [`CompilerContext`]
     /// was constructed using [`Self::new_captured`]. (otherwise, returns `None`)
     pub fn get_captured_diagnostics(&self) -> Option<String> {
-        let writer = self.writer.borrow();
-        let writer = writer.as_any().downcast_ref::<CapturedWriter>()?;
-
-        Some(String::from_utf8_lossy(&writer.get_ref()).into_owned())
+        self.writer.borrow().get_captured_output()
     }
 }
 
-pub trait WriteError: tc::WriteColor + Any {
-    fn as_any(&self) -> &dyn Any;
-    fn as_write_color(&mut self) -> &mut dyn tc::WriteColor;
+pub trait WriteError {
+    fn write_error(&mut self, diagnostic: &Diagnostic, config: &cs::term::Config, files: &Files);
+    /// If this is a capturing writer, gives a string of all diagnostics written thus far.
+    fn get_captured_output(&self) -> Option<String> { None }
 }
 
-impl<T: tc::WriteColor + Any> WriteError for T {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_write_color(&mut self) -> &mut dyn tc::WriteColor { self }
+impl<T: tc::WriteColor> WriteError for T {
+    fn write_error(&mut self, diagnostic: &Diagnostic, config: &cs::term::Config, files: &Files) {
+        cs::term::emit(self, config, files, &diagnostic.imp)
+            .unwrap_or_else(|fmt_err| {
+                panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", diagnostic.imp, fmt_err)
+            });
+    }
+}
+
+/// [`WriteError`] impl used when diagnostic capturing is enabled during the construction of [`crate::Truth`].
+///
+/// This is used by unit tests when they want to inspect the diagnostic output.
+struct CapturingErrorWriter { writer: tc::NoColor<Vec<u8>> }
+impl CapturingErrorWriter {
+    fn new() -> Self { CapturingErrorWriter { writer: tc::NoColor::new(vec![]) } }
+}
+impl WriteError for CapturingErrorWriter {
+    fn write_error(&mut self, diagnostic: &Diagnostic, config: &cs::term::Config, files: &Files) {
+        self.writer.write_error(diagnostic, config, files);
+    }
+    fn get_captured_output(&self) -> Option<String> { Some(String::from_utf8_lossy(&self.writer.get_ref()).into_owned()) }
+}
+
+/// [`WriteError`] impl that uses `eprint!` in order to behave as a test-harness-aware form of STDERR.
+///
+/// This serves a different purpose from [`CapturingErrorWriter`], and neither makes the other obsolete.
+/// This one mostly helps with tests where `truth` is expected to succeed; these typically do NOT enable
+/// diagnostic capturing, as it would be impossible to print these diagnostics at every possible place
+/// where the test could panic.
+struct EprintErrorWriter;
+impl WriteError for EprintErrorWriter {
+    fn write_error(&mut self, diagnostic: &Diagnostic, config: &cs::term::Config, files: &Files) {
+        let mut writer = CapturingErrorWriter::new();
+        writer.write_error(diagnostic, config, files);
+        // the rust test harness only captures eprint!, not general writes to std::io::stderr
+        eprint!("{}", writer.get_captured_output().expect("is CapturingErrorWriter"));
+    }
 }
 
 fn default_term_config() -> cs::term::Config {
@@ -156,8 +179,6 @@ fn default_term_config() -> cs::term::Config {
     config.styles.source_border.set_intense(true);
     config
 }
-
-type CapturedWriter = tc::NoColor<Vec<u8>>;
 
 pub trait IntoDiagnostics {
     fn into_diagnostics(self) -> Vec<Diagnostic>;

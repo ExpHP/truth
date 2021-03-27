@@ -234,7 +234,7 @@ pub mod anm_benchmark {
             super::anm_decompile::run(truth, &mut f, game, anm_path, map_path.clone())?;
             drop(f);
 
-            crate::io::fs_write(script_path, &script_out_utf8)?;
+            crate::io::fs_write(script_path, &script_out_utf8).map_err(|e| truth.emit(e))?;
 
             super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, map_path.clone(), None)?;
         }

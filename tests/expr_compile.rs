@@ -215,6 +215,8 @@ const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
 /// that it knows should not have been used for scratch.
 #[track_caller]
 fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
+    truth::setup_for_test_harness();
+
     let mut scope = truth::Builder::new().build();
     let mut truth = scope.truth();
     _run_randomized_test(&mut truth, vars, text)
@@ -222,8 +224,6 @@ fn run_randomized_test(vars: &[Var], text: &str) -> (AstVm, AstVm) {
 
 #[track_caller]
 fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> (AstVm, AstVm) {
-    truth::setup_for_test_harness();
-
     load_eclmap(truth, vars);
 
     let instr_format = make_instr_format(vars);
