@@ -16,16 +16,15 @@
 //! # Example
 //! ```
 //! use truth::{ast, pos::{Files, Sp}};
-//! use truth::context::CompilerContext;
 //! use truth::passes;
 //!
-//! let mut scope = crate::Builder::new().build();
+//! let mut scope = truth::Builder::new().build();
 //! let mut truth = scope.truth();
 //!
 //! let text = b"(3 == 3) ? (3.0 + 0.5) * %REG[100] : 4.0";
 //! let mut expr: Sp<ast::Expr> = truth.parse("<input>", text).unwrap();
 //!
-//! passes::const_simplify::run(&mut expr, &ctx).expect("failed to simplify");
+//! passes::const_simplify::run(&mut expr, truth.ctx()).expect("failed to simplify");
 //!
 //! let text_simplified = b"3.5 * %REG[100]";
 //! let expected: Sp<ast::Expr> = truth.parse("<input>", text_simplified).unwrap();
