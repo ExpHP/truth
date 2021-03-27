@@ -69,6 +69,7 @@ pub struct RootEmitter {
     pub files: Files,
     config: cs::term::Config,
     writer: Box<RefCell<dyn WriteError>>,
+    error_reported: Result<(), ErrorReported>,
 }
 
 impl fmt::Debug for RootEmitter {
@@ -87,6 +88,7 @@ impl RootEmitter {
             files: Files::new(),
             config: default_term_config(),
             writer: Box::new(RefCell::new(writer)),
+            error_reported: Ok(()),
         }
     }
 
@@ -122,6 +124,11 @@ impl RootEmitter {
     /// was constructed using [`Self::new_captured`]. (otherwise, returns `None`)
     pub fn get_captured_diagnostics(&self) -> Option<String> {
         self.writer.borrow().get_captured_output()
+    }
+
+    /// Returns `Err` if at least one Error-level diagnostic has been written.
+    pub fn stop_if_error(&self) -> Result<(), ErrorReported> {
+        self.error_reported
     }
 }
 
@@ -210,6 +217,9 @@ pub trait Emitter {
 
     /// A prefix added by this emitter to the `message` field of any diagnostics that do not contain spans.
     fn _unspanned_prefix(&self) -> String;
+
+    /// Returns `Err` if at least one Error-level diagnostic has been reported.
+    fn stop_if_error(&self) -> Result<(), ErrorReported> { self._root_emitter().stop_if_error() }
 
     /// Append an additional prefix for diagnostics that lack spans.
     ///

@@ -9,9 +9,6 @@ use crate::pos::{FileId};
 /// This type very deliberately does not implement [`std::error::Error`] or [`std::fmt::Display`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use = "When reporting an error, you usually also want to return Err.  Call `.ignore()` to explicitly ignore."]
-// FIXME: temporary because something in formats/ was relying on this
-#[derive(thiserror::Error)]
-#[error("ErrorReported converted to a type-with-payload. This is a bug!")]
 pub struct ErrorReported;
 
 impl ErrorReported {

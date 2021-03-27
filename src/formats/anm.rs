@@ -33,7 +33,6 @@ impl AnmFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
-            .map_err(|e| ctx.emitter.emit(error!("{:#}", e)))
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
