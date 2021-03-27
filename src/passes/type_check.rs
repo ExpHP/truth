@@ -8,7 +8,7 @@
 //! when bad types are encountered in other passes like lowering.
 
 use crate::ast;
-use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorStore};
+use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
@@ -21,7 +21,7 @@ use crate::ast::TypeKeyword;
 /// See the [the module-level documentation][self] for more details.
 pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), ErrorReported> {
     let checker = ExprTypeChecker { ctx };
-    let mut v = Visitor { checker, errors: ErrorStore::new(), cur_func_stack: vec![] };
+    let mut v = Visitor { checker, errors: ErrorFlag::new(), cur_func_stack: vec![] };
     ast.visit_with(&mut v);
     v.errors.into_result(())
 }
@@ -51,7 +51,7 @@ struct ExprTypeChecker<'a, 'ctx> {
 
 struct Visitor<'a, 'ctx> {
     checker: ExprTypeChecker<'a, 'ctx>,
-    errors: ErrorStore<ErrorReported>,
+    errors: ErrorFlag,
     /// Stack of nested functions whose bodies we are currently inside.
     cur_func_stack: Vec<FuncState>,
 }
@@ -87,7 +87,7 @@ impl ast::Visit for Visitor<'_, '_> {
     //       for things that CONTAIN expressions.
     fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
         if let Err(e) = self.check_expr(expr) {
-            self.errors.append(e);
+            self.errors.set(e);
         }
     }
 
@@ -132,32 +132,32 @@ impl ast::Visit for Visitor<'_, '_> {
 
             &ast::StmtBody::Return { ref value, keyword } => {
                 if let Err(e) = self.check_stmt_return(keyword, value) {
-                    self.errors.append(e);
+                    self.errors.set(e);
                 }
             },
 
             ast::StmtBody::Assignment { var, op, value } => {
                 if let Err(e) = self.check_stmt_assignment(var, *op, value) {
-                    self.errors.append(e);
+                    self.errors.set(e);
                 }
             },
 
             ast::StmtBody::Expr(expr) => {
                 if let Err(e) = self.check_stmt_expr(expr) {
-                    self.errors.append(e);
+                    self.errors.set(e);
                 }
             },
 
             ast::StmtBody::Times { clobber, count, block, keyword: _ } => {
                 if let Err(e) = self.check_stmt_times(clobber, count) {
-                    self.errors.append(e);
+                    self.errors.set(e);
                 }
                 ast::walk_block(self, block);
             },
 
             ast::StmtBody::Declaration { ty_keyword, vars } => {
                 if let Err(e) = self.check_stmt_declaration(*ty_keyword, vars) {
-                    self.errors.append(e);
+                    self.errors.set(e);
                 }
             },
 
@@ -188,7 +188,7 @@ impl ast::Visit for Visitor<'_, '_> {
 
     fn visit_cond(&mut self, cond: &Sp<ast::Cond>) {
         if let Err(e) = self.check_cond(cond) {
-            self.errors.append(e);
+            self.errors.set(e);
         }
     }
 }

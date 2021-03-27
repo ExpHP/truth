@@ -25,40 +25,27 @@ impl ErrorReported {
 /// An accumulator for errors that provides a straightforward way of converting to
 /// a `Result<T, CompileError>` based on whether any errors have occurred.
 #[derive(Debug, Clone)]
-pub struct ErrorStore<E = ErrorReported> {
-    errors: Option<E>,
+pub struct ErrorFlag {
+    errors: Option<ErrorReported>,
 }
 
-// FIXME temporary trait while we get rid of CompileError
-pub trait ErrorMerge {
-    fn err_merge_append(&mut self, new_error: Self);
-}
+impl ErrorFlag {
+    /// Create an [`ErrorFlag`] in the default, 'success' state.
+    pub fn new() -> Self { ErrorFlag { errors: None } }
 
-impl ErrorMerge for ErrorReported { fn err_merge_append(&mut self, _: ErrorReported) {} }
-
-impl<E: ErrorMerge> ErrorStore<E> {
-    /// Create an [`ErrorStore`] in the default, 'success' state.
-    pub fn new() -> Self { ErrorStore { errors: None } }
-
-    /// Force this [`ErrorStore`] into the error state and add data from a new error.
-    pub fn append(&mut self, new_error: E) {
-        self.errors = match self.errors.take() {
-            Some(mut errors) => {
-                errors.err_merge_append(new_error);
-                Some(errors)
-            },
-            None => Some(new_error),
-        };
+    /// Force this [`ErrorFlag`] into the error state.
+    pub fn set(&mut self, e: ErrorReported) {
+        self.errors = Some(e);
     }
 
     /// Become an `Ok` if empty, and an `Err` otherwise.
-    pub fn into_result<T>(self, value: T) -> Result<T, E> {
+    pub fn into_result<T>(self, value: T) -> Result<T, ErrorReported> {
         match self.errors {
             None => Ok(value),
             Some(error) => Err(error),
         }
     }
-    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, E> {
+    pub fn into_result_with<T>(self, value: impl FnOnce() -> T) -> Result<T, ErrorReported> {
         match self.errors {
             None => Ok(value()),
             Some(error) => Err(error),
@@ -71,29 +58,26 @@ impl<E: ErrorMerge> ErrorStore<E> {
 /// Trait for running an iterator and continuing after an `Err` to collect more errors.
 pub trait GatherErrorIteratorExt {
     type OkItem;
-    type Err;
 
     /// Collect an iterator, continuing after failure in order to gather more errors.
     ///
-    /// If at least one of the items is `Err(_)`, it returns an `Err(_)` that concatenates all
-    /// of the errors in the stream.  Otherwise, it returns `Ok(_)`.
-    fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, Self::Err>;
+    /// If at least one of the items is `Err(_)`, it returns an `Err(_)`.
+    /// Otherwise, it returns `Ok(_)`.
+    fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, ErrorReported>;
 }
 
-impl<Ts, T, E> GatherErrorIteratorExt for Ts
+impl<Ts, T> GatherErrorIteratorExt for Ts
 where
-    Ts: Iterator<Item=Result<T, E>>,
-    E: ErrorMerge,
+    Ts: Iterator<Item=Result<T, ErrorReported>>,
 {
     type OkItem = T;
-    type Err = E;
 
-    fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, E> {
-        let mut errors = ErrorStore::new();
+    fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, ErrorReported> {
+        let mut errors = ErrorFlag::new();
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),
             Err(e) => {
-                errors.append(e);
+                errors.set(e);
                 None
             },
         }).collect();

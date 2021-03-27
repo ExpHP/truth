@@ -272,7 +272,7 @@ mod resolve_vars {
     use super::*;
     use crate::ast::{self, Visit};
     use crate::pos::Sp;
-    use crate::error::{ErrorReported, ErrorStore};
+    use crate::error::{ErrorReported, ErrorFlag};
     use super::rib::{RibKind, RibStacks};
 
     /// Visitor that performs name resolution. Please don't use this directly,
@@ -282,7 +282,7 @@ mod resolve_vars {
     /// be in scope at any given point in the graph.
     pub struct Visitor<'a, 'ctx> {
         rib_stacks: RibStacks,
-        errors: ErrorStore<ErrorReported>,
+        errors: ErrorFlag,
         ctx: &'a mut CompilerContext<'ctx>,
     }
 
@@ -290,7 +290,7 @@ mod resolve_vars {
         pub fn new(ctx: &'a mut CompilerContext<'ctx>) -> Self {
             Visitor {
                 rib_stacks: ctx.defs.initial_ribs().into_iter().collect(),
-                errors: ErrorStore::new(),
+                errors: ErrorFlag::new(),
                 ctx,
             }
         }
@@ -407,7 +407,7 @@ mod resolve_vars {
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
             if let ast::VarName::Normal { ref ident, .. } = var.name {
                 match self.rib_stacks.resolve(Namespace::Vars, var.span, ident) {
-                    Err(e) => self.errors.append(self.ctx.emitter.emit(e)),
+                    Err(e) => self.errors.set(self.ctx.emitter.emit(e)),
                     Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 }
             }
@@ -417,7 +417,7 @@ mod resolve_vars {
             if let ast::Expr::Call { name, .. } = &expr.value {
                 if let ast::CallableName::Normal { ident, .. } = &name.value {
                     match self.rib_stacks.resolve(Namespace::Funcs, name.span, ident) {
-                        Err(e) => self.errors.append(self.ctx.emitter.emit(e)),
+                        Err(e) => self.errors.set(self.ctx.emitter.emit(e)),
                         Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }
                 }
@@ -452,7 +452,7 @@ mod resolve_vars {
 
             if let Err(old_def) = rib.insert(ident.clone(), def_id) {
                 let noun = rib.noun();
-                self.errors.append(self.ctx.emitter.emit(error!(
+                self.errors.set(self.ctx.emitter.emit(error!(
                     message("redefinition of {} '{}'", noun, ident),
                     primary(ident.span, "redefinition of {}", noun),
                     secondary(old_def.def_ident_span, "originally defined here"),
