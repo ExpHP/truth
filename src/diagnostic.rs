@@ -13,7 +13,7 @@ use crate::pos::{Files, FileId, HasSpan};
 type CsDiagnostic = cs::diagnostic::Diagnostic<FileId>;
 type CsLabel = cs::diagnostic::Label<FileId>;
 
-/// Builder pattern for a single diagnostic message (warning or error).
+/// A single diagnostic message (warning or error).
 #[derive(Debug, Clone)]
 #[must_use = "A Diagnostic must be emitted or it will not be seen!"]
 pub struct Diagnostic {
@@ -64,16 +64,16 @@ impl Diagnostic {
 
 // =============================================================================
 
-/// Type responsible for emitting diagnostics and storing the metadata necessary to render them.
-pub struct DiagnosticEmitter {
+/// Type that decides where diagnostic messages get written, and that stores the metadata necessary to render them.
+pub struct RootEmitter {
     pub files: Files,
     config: cs::term::Config,
     writer: Box<RefCell<dyn WriteError>>,
 }
 
-impl fmt::Debug for DiagnosticEmitter {
+impl fmt::Debug for RootEmitter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("DiagnosticEmitter")
+        f.debug_struct("RootEmitter")
             .field("files", &self.files)
             .field("config", &self.config)
             .field("writer", &(..))
@@ -81,16 +81,16 @@ impl fmt::Debug for DiagnosticEmitter {
     }
 }
 
-impl DiagnosticEmitter {
+impl RootEmitter {
     fn from_writer<W: WriteError + 'static>(writer: W) -> Self {
-        DiagnosticEmitter {
+        RootEmitter {
             files: Files::new(),
             config: default_term_config(),
             writer: Box::new(RefCell::new(writer)),
         }
     }
 
-    /// Create a [`DiagnosticEmitter`] that writes diagnostics to the standard error stream.
+    /// Create a [`RootEmitter`] that writes diagnostics to the standard error stream.
     pub fn new_stderr() -> Self {
         if crate::env::is_test_mode() {
             Self::from_writer(EprintErrorWriter)
@@ -104,7 +104,7 @@ impl DiagnosticEmitter {
         }
     }
 
-    /// Create a [`DiagnosticEmitter`] that captures diagnostic output which can be recovered
+    /// Create a [`RootEmitter`] that captures diagnostic output which can be recovered
     /// by calling [`Self::get_captured_diagnostics`].
     pub fn new_captured() -> Self {
         Self::from_writer(CapturingErrorWriter::new())
@@ -118,7 +118,7 @@ impl DiagnosticEmitter {
         ErrorReported
     }
 
-    /// Obtain captured diagnostics written to stderr, provided that this [`CompilerContext`]
+    /// Obtain captured diagnostics written to stderr, provided that this [`RootEmitter`]
     /// was constructed using [`Self::new_captured`]. (otherwise, returns `None`)
     pub fn get_captured_diagnostics(&self) -> Option<String> {
         self.writer.borrow().get_captured_output()
@@ -194,148 +194,144 @@ impl IntoDiagnostics for Vec<Diagnostic> {
 
 // =============================================================================
 
-pub use unspanned::UnspannedEmitter;
-pub mod unspanned {
-    use super::*;
-    use std::fmt;
+/// Trait for emitting diagnostics.
+///
+/// The primary implementor of this is [`RootEmitter`], and in many cases (especially during compilation
+/// of data parsed from text), using that type will suffice.
+///
+/// This trait largely exists to accommodate errors that may not include spans (e.g. during the reading
+/// or decompilation of a binary file).  By calling a method like [`Self::chain`], you can allow these
+/// span-less diagnostics to have a series of prefixes added to them, like `"'files/abc.ecl': in script 3: "`.
+pub trait Emitter {
+    fn _root_emitter(&self) -> &RootEmitter;
 
-    pub trait UnspannedEmitter: fmt::Display {
-        fn _emitter(&self) -> &DiagnosticEmitter;
+    /// A prefix added by this emitter to the `message` field of any diagnostics that do not contain spans.
+    fn _unspanned_prefix(&self) -> String;
 
-        fn chain_with<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
-        where
-            Self: Sized,
-            Label: Fn(&mut fmt::Formatter) -> fmt::Result + 'a,
-            Callback: FnOnce(&'_ NodeWith<&'a Self, Label>) -> T,
-        { cb(&NodeWith { parent: self, label }) }
-
-        fn chain<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
-        where
-            Self: Sized,
-            Label: fmt::Display + 'a,
-            Callback: FnOnce(&'_ Node<&'a Self, Label>) -> T,
-        { cb(&Node { parent: self, label }) }
-
-        fn emit(&self, diagnostics: impl IntoDiagnostics) -> ErrorReported
-        where
-            Self: Sized,
-        {
-            diagnostics.into_diagnostics().into_iter().for_each(|d| self.emit_one(d).ignore());
-            ErrorReported
-        }
-
-        fn emit_one(&self, mut diagnostic: Diagnostic) -> ErrorReported {
-            diagnostic.prefix_existing_message(self);
-            self._emitter().emit(diagnostic)
-        }
-    }
-
-    impl UnspannedEmitter for Root<'_> {
-        fn _emitter(&self) -> &DiagnosticEmitter { &self.0 }
-    }
-
-    impl fmt::Display for Root<'_> {
-        fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result { Ok(()) }
-    }
-
-    impl<Parent, Label> UnspannedEmitter for Node<Parent, Label>
+    /// Append an additional prefix for diagnostics that lack spans.
+    ///
+    /// Rather than returning the new emitter, it is passed into a callback.  This lets you shadow the original
+    /// emitter, and then easily return back to using the old one once you leave the callback.
+    fn chain<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
     where
-        Parent: UnspannedEmitter,
-        Label: fmt::Display,
-    {
-        fn _emitter(&self) -> &DiagnosticEmitter { self.parent._emitter() }
-    }
+        Self: Sized,
+        Label: fmt::Display + 'a,
+        Callback: FnOnce(&'_ Node<&'a Self, Label>) -> T,
+    { cb(&self.get_chained(label)) }
 
-    impl<Parent, LabelFn> UnspannedEmitter for NodeWith<Parent, LabelFn>
+    /// Like [`Emitter::chain`], but takes a format function.
+    ///
+    /// This should be far closer to zero cost than using [`Emitter::chain`] with `format!` or `format_args!`
+    /// (and thus more suitable for tight loops), but these haven't been benchmarked.
+    fn chain_with<'a, T, Label, Callback>(&'a self, label: Label, cb: Callback) -> T
     where
-        Parent: UnspannedEmitter,
-        LabelFn: Fn(&mut fmt::Formatter) -> fmt::Result,
+        Self: Sized,
+        Label: Fn(&mut fmt::Formatter) -> fmt::Result + 'a,
+        Callback: FnOnce(&'_ Node<&'a Self, DisplayFn<Label>>) -> T,
+    { cb(&Node { parent: self, label: DisplayFn { func: label } }) }
+
+    /// Form of [`Self::chain`] that returns the new emitter instead of taking a callback.
+    /// Less idiomatic, but sometimes necessary.
+    fn get_chained<'a, Label>(&'a self, label: Label) -> Node<&'a Self, Label>
+    where
+        Self: Sized,
+        Label: fmt::Display + 'a,
+    { Node { parent: self, label } }
+
+    /// Emit any number of diagnostic messages.
+    fn emit(&self, diagnostics: impl IntoDiagnostics) -> ErrorReported
+    where
+        Self: Sized,
     {
-        fn _emitter(&self) -> &DiagnosticEmitter { self.parent._emitter() }
+        diagnostics.into_diagnostics().into_iter().for_each(|mut d| {
+            d.prefix_existing_message(self._unspanned_prefix());
+            self._root_emitter().emit(d).ignore();
+        });
+        ErrorReported
+    }
+}
+
+impl Emitter for RootEmitter {
+    fn _root_emitter(&self) -> &RootEmitter { self }
+    fn _unspanned_prefix(&self) -> String { String::new() }
+}
+
+impl<Parent, Label> Emitter for Node<Parent, Label>
+where
+    Parent: Emitter,
+    Label: fmt::Display,
+{
+    fn _root_emitter(&self) -> &RootEmitter { self.parent._root_emitter() }
+
+    fn _unspanned_prefix(&self) -> String {
+        use std::fmt::Write;
+
+        let mut prefix = self.parent._unspanned_prefix();
+        write!(prefix, "{}", self.label).unwrap();
+        prefix
+    }
+}
+
+/// Adapts a [`fmt::Formatter`] function into an implementation of [`fmt::Display`].
+pub struct DisplayFn<F> where F: Fn(&mut fmt::Formatter) -> fmt::Result { func: F }
+impl<F> fmt::Display for DisplayFn<F> where F: Fn(&mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { (self.func)(f) }
+}
+
+pub type WhileReading<'a> = Rooted<'a, String>;
+pub type WhileWriting<'a> = Rooted<'a, String>;
+pub type WhileDecompiling<'a> = Rooted<'a, String>;
+impl RootEmitter {
+    /// Get an [`Emitter`] with a standardized label for errors that come from files being read.
+    pub fn while_reading(&self, filename: impl AsRef<Path>) -> WhileReading<'_> {
+        self.get_chained(format!("{}", nice_display_path(filename)))
     }
 
-    pub type WhileReading<'a> = Rooted<'a, String>;
-    pub fn while_reading(filename: impl AsRef<Path>, diagnostics: &DiagnosticEmitter) -> WhileReading<'_> {
-        make_root(format!("{}", nice_display_path(filename)), diagnostics)
+    /// Get an [`Emitter`] with a standardized label for errors that occur during write operations.
+    pub fn while_writing(&self, filename: impl AsRef<Path>) -> WhileWriting<'_> {
+        self.get_chained(format!("while writing {}", nice_display_path(filename)))
     }
 
-    pub type WhileWriting<'a> = Rooted<'a, String>;
-    pub fn while_writing(filename: impl AsRef<Path>, diagnostics: &DiagnosticEmitter) -> WhileWriting<'_> {
-        make_root(format!("while writing {}", nice_display_path(filename)), diagnostics)
-    }
-
-    pub type WhileDecompiling<'a> = Rooted<'a, String>;
-    pub fn while_decompiling<'a>(filename: Option<&str>, diagnostics: &'a DiagnosticEmitter) -> WhileDecompiling<'a> {
-        make_root(match filename {
-            Some(filename) => format!("{}", nice_display_path(filename)),
+    /// Get an [`Emitter`] with a standardized label for errors that come from something being decompiled
+    /// (which may or may not originate from a binary file).
+    pub fn while_decompiling(&self, binary_filename: Option<&str>) -> WhileDecompiling<'_> {
+        self.get_chained(match binary_filename {
+            Some(binary_filename) => format!("{}", nice_display_path(binary_filename)),
             None => format!("while decompiling"),
-        }, diagnostics)
+        })
     }
+}
 
-    pub type Rooted<'a, T> = Node<Root<'a>, T>;
-    pub fn make_root<T: fmt::Display>(label: T, diagnostics: &DiagnosticEmitter) -> Rooted<'_, T> {
-        Node { parent: Root(diagnostics), label }
-    }
+pub type Rooted<'a, T> = Node<&'a RootEmitter, T>;
 
-    impl<T: UnspannedEmitter + ?Sized> UnspannedEmitter for &'_ T {
-        fn _emitter(&self) -> &DiagnosticEmitter { (**self)._emitter() }
-    }
+impl<T: Emitter + ?Sized> Emitter for &'_ T {
+    fn _root_emitter(&self) -> &RootEmitter { (**self)._root_emitter() }
+    fn _unspanned_prefix(&self) -> String { (**self)._unspanned_prefix() }
+}
 
-    #[derive(Clone)] pub struct Root<'a>(pub &'a DiagnosticEmitter);
-    #[derive(Clone)] pub struct Node<Parent, Label> {
-        parent: Parent,
-        label: Label,
-    }
-    #[derive(Clone)] pub struct NodeWith<Parent, LabelFn> {
-        parent: Parent,
-        label: LabelFn,
-    }
+#[derive(Clone)] pub struct Node<Parent, Label> {
+    parent: Parent,
+    label: Label,
+}
 
-    impl<Parent, Label> fmt::Display for Node<Parent, Label>
-    where
-        Parent: fmt::Display,
-        Label: fmt::Display,
-    {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            fmt::Display::fmt(&self.parent, f)?;
-            fmt::Display::fmt(&self.label, f)?;
-            fmt::Display::fmt(": ", f)?;
-            Ok(())
-        }
-    }
+#[test]
+fn test_unspanned() {
+    let root_emitter = RootEmitter::new_captured();
 
-    impl<Parent, Label> fmt::Display for NodeWith<Parent, Label>
-    where
-        Parent: fmt::Display,
-        Label: Fn(&mut fmt::Formatter) -> fmt::Result,
-    {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            fmt::Display::fmt(&self.parent, f)?;
-            (self.label)(f)?;
-            fmt::Display::fmt(": ", f)?;
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn test() {
-        let diagnostics = DiagnosticEmitter::new_captured();
-
-        // here's how we'd typically write a function signature
-        fn func(emitter: &impl UnspannedEmitter) {
-            let x = 3;
-            emitter.chain_with(|f| write!(f, "thing {}", x), |emitter| {
-                emitter.chain("while eating a sub", |emitter| {
-                    emitter.emit(warning!("blah {}", 20)).ignore();
-                })
+    // here's how we'd typically write a function signature
+    fn func(emitter: &impl Emitter) {
+        let x = 3;
+        emitter.chain_with(|f| write!(f, "thing {}", x), |emitter| {
+            emitter.chain("while eating a sub", |emitter| {
+                emitter.emit(warning!("blah {}", 20)).ignore();
             })
-        }
-
-        let emitter = unspanned::while_reading("a.txt", &diagnostics);
-        func(&emitter);
-
-        let stderr = diagnostics.get_captured_diagnostics().unwrap();
-        assert!(stderr.contains("a.txt: thing 3: while eating a sub: blah 20"));
-        assert_snapshot!(stderr);
+        })
     }
+
+    let emitter = root_emitter.while_reading("a.txt");
+    func(&emitter);
+
+    let stderr = root_emitter.get_captured_diagnostics().unwrap();
+    assert!(stderr.contains("a.txt: thing 3: while eating a sub: blah 20"));
+    assert_snapshot!(stderr);
 }
