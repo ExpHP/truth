@@ -575,7 +575,7 @@ fn write_instance(f: &mut BinWriter, emitter: &dyn Emitter, inst: &Instance, obj
     match objects.get_index_of(&inst.object) {
         Some(object_index) => f.write_u16(object_index as u16)?,
         None => return Err(emitter.as_sized().emit(error!(
-            message("No object named {}", inst.object),
+            message("no object named {}", inst.object),
             primary(&inst.object, "not an object"),
         ))),
     }

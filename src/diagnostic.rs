@@ -18,13 +18,14 @@ type CsLabel = cs::diagnostic::Label<FileId>;
 #[must_use = "A Diagnostic must be emitted or it will not be seen!"]
 pub struct Diagnostic {
     imp: CsDiagnostic,
+    unspanned_prefix: String,
 }
 
 impl Diagnostic {
     /// Construct with error severity.  Generally you use the [`error!`] macro instead.
-    pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error() } }
+    pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error(), unspanned_prefix: String::new() } }
     /// Construct with warning severity.  Generally you use the [`warning!`] macro instead.
-    pub fn warning() -> Self { Diagnostic { imp: CsDiagnostic::warning() } }
+    pub fn warning() -> Self { Diagnostic { imp: CsDiagnostic::warning(), unspanned_prefix: String::new() } }
 
     pub fn code(&mut self, code: &'static str) -> &mut Self {
         self.imp.code = Some(code.into());
@@ -33,14 +34,6 @@ impl Diagnostic {
 
     pub fn message(&mut self, message: String) -> &mut Self {
         self.imp.message = message;
-        self
-    }
-
-    /// Prepend a string to the message.  This is used to provide location info on diagnostic messages
-    /// that do not have spans.  (e.g. they come from decompiled binary data)
-    fn prefix_existing_message(&mut self, prefix: impl fmt::Display) -> &mut Self {
-        let message = std::mem::replace(&mut self.imp.message, String::new());
-        self.imp.message = format!("{}{}", prefix, message);
         self
     }
 
@@ -71,7 +64,6 @@ pub struct RootEmitter {
     pub files: Files,
     config: cs::term::Config,
     writer: Box<RefCell<dyn WriteError>>,
-    error_reported: Result<(), ErrorReported>,
 }
 
 impl fmt::Debug for RootEmitter {
@@ -90,7 +82,6 @@ impl RootEmitter {
             files: Files::new(),
             config: default_term_config(),
             writer: Box::new(RefCell::new(writer)),
-            error_reported: Ok(()),
         }
     }
 
@@ -127,11 +118,6 @@ impl RootEmitter {
     pub fn get_captured_diagnostics(&self) -> Option<String> {
         self.writer.borrow().get_captured_output()
     }
-
-    /// Returns `Err` if at least one Error-level diagnostic has been written.
-    pub fn stop_if_error(&self) -> Result<(), ErrorReported> {
-        self.error_reported
-    }
 }
 
 pub trait WriteError {
@@ -142,7 +128,17 @@ pub trait WriteError {
 
 impl<T: tc::WriteColor> WriteError for T {
     fn write_error(&mut self, diagnostic: &Diagnostic, config: &cs::term::Config, files: &Files) {
-        cs::term::emit(self, config, files, &diagnostic.imp)
+        let mut imp = diagnostic.imp.clone();
+
+        let spans_visible = match config.display_style {
+            cs::term::DisplayStyle::Rich => true,
+            cs::term::DisplayStyle::Medium | cs::term::DisplayStyle::Short => false,
+        };
+        if imp.labels.is_empty() || !spans_visible {
+            imp.message = format!("{}{}", diagnostic.unspanned_prefix, imp.message);
+        }
+
+        cs::term::emit(self, config, files, &imp)
             .unwrap_or_else(|fmt_err| {
                 panic!("Internal compiler error while formatting error:\n{:#?}\ncould not format error because: {}", diagnostic.imp, fmt_err)
             });
@@ -220,9 +216,6 @@ pub trait Emitter {
     /// A prefix added by this emitter to the `message` field of any diagnostics that do not contain spans.
     fn _unspanned_prefix(&self) -> String;
 
-    /// Returns `Err` if at least one Error-level diagnostic has been reported.
-    fn stop_if_error(&self) -> Result<(), ErrorReported> { self._root_emitter().stop_if_error() }
-
     /// Append an additional prefix for diagnostics that lack spans.
     ///
     /// Rather than returning the new emitter, it is passed into a callback.  This lets you shadow the original
@@ -259,7 +252,7 @@ pub trait Emitter {
         Self: Sized,
     {
         diagnostics.into_diagnostics().into_iter().for_each(|mut d| {
-            d.prefix_existing_message(self._unspanned_prefix());
+            d.unspanned_prefix = self._unspanned_prefix();
             self._root_emitter().emit(d).ignore();
         });
         ErrorReported
