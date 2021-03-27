@@ -48,22 +48,6 @@ macro_rules! zip {
 
 #[macro_export]
 macro_rules! _diagnostic {
-    (
-        @ $severity:ident,
-        $(code=$code:literal,)? message($($message:tt)+)
-        $(, primary( $primary_span:expr, $($primary_msg:tt)+ ) )*
-        $(, secondary( $secondary_span:expr, $($secondary_msg:tt)+ ) )*
-        $(, note( $($note_msg:tt)+ ) )*
-        $(,)?
-    ) => {{
-        let mut d = $crate::diagnostic::Diagnostic::$severity();
-        d.message(format!( $($message)+ ));
-        $( d.code($code); )?
-        $( d.primary(&$primary_span, format!( $($primary_msg)+ )); )*
-        $( d.secondary(&$secondary_span, format!( $($secondary_msg)+ )); )*
-        $( d.note(format!( $($note_msg)+ )); )*
-        d
-    }};
     ( // shorthand for message only
         @ $severity:ident,
         $message_fmt:literal $(, $message_arg:expr)* $(,)?
@@ -71,9 +55,38 @@ macro_rules! _diagnostic {
         @ $severity,
         message($message_fmt $(, $message_arg)*),
     }};
+
+    ( @ $severity:ident, $($rest:tt)+ ) => {{
+        let mut d = $crate::diagnostic::Diagnostic::$severity();
+        $crate::_diagnostic_muncher!( [&mut d], $($rest)+ );
+        d
+    }};
+}
+
+#[macro_export]
+macro_rules! _diagnostic_muncher {
+    ( [$d:expr] ) => { $d };
+    ( [$d:expr], ) => { $d };
+    ( [$d:expr], code=$code:literal $($rest:tt)* ) => { $crate::_diagnostic_muncher!{
+        [$d.code($code)] $($rest)*
+    }};
+    ( [$d:expr], message( $($msg:tt)+ ) $($rest:tt)* ) => { $crate::_diagnostic_muncher!{
+        [$d.message(format!($($msg)+))] $($rest)*
+    }};
+    ( [$d:expr], primary( $span:expr, $($msg:tt)+ ) $($rest:tt)* ) => { $crate::_diagnostic_muncher!{
+        [$d.primary(&$span, format!($($msg)+))] $($rest)*
+    }};
+    ( [$d:expr], secondary( $span:expr, $($msg:tt)+ ) $($rest:tt)* ) => { $crate::_diagnostic_muncher!{
+        [$d.secondary(&$span, format!($($msg)+))] $($rest)*
+    }};
+    ( [$d:expr], note( $($msg:tt)+ ) $($rest:tt)* ) => { $crate::_diagnostic_muncher!{
+        [$d.note(format!($($msg)+))] $($rest)*
+    }};
 }
 
 /// Generates a [`crate::diagnostic::Diagnostic`] of severity `error`.
+///
+/// See `error_macro_examples` near its definition for an example of usage.
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)+) => { $crate::_diagnostic!(@error, $($arg)+) };
@@ -83,4 +96,27 @@ macro_rules! error {
 #[macro_export]
 macro_rules! warning {
     ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
+}
+
+#[test]
+fn error_macro_examples() {
+    use crate::ast;
+
+    let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+    let mut truth = scope.truth();
+    let some_ast_node = truth.parse::<ast::Expr>("<input>", "1 + x".as_ref()).unwrap();
+    let some_span = some_ast_node.span;
+
+    // Shorthand form: Just the message
+    truth.emit(error!("lmao {}", 20 + 3)).ignore();
+
+    // Long form: any parts can be mixed and matched in any order
+    truth.emit(error!(
+        code="E0201",
+        message("lmao {}", 20 + 3),
+        // labels.  First arg is a span, rest is format args.
+        primary(some_span, "1 is silly"),
+        secondary(some_ast_node, "{} is silly", "x"),  // <- they can also take Sp<T>
+        primary(some_ast_node, "yeah, you can have multiple, what about it"),
+    )).ignore();
 }

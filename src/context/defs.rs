@@ -635,8 +635,8 @@ impl Signature {
                 let non_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
                 return Err(ctx.emitter.emit(error!(
                     message("invalid function signature"),
-                    primary(non_span, "non-optional parameter after optional"),
                     secondary(opt_span, "optional parameter"),
+                    primary(non_span, "non-optional parameter after optional"),
                 )));
             }
         }

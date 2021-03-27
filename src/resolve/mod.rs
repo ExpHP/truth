@@ -454,8 +454,8 @@ mod resolve_vars {
                 let noun = rib.noun();
                 self.errors.set(self.ctx.emitter.emit(error!(
                     message("redefinition of {} '{}'", noun, ident),
-                    primary(ident.span, "redefinition of {}", noun),
                     secondary(old_def.def_ident_span, "originally defined here"),
+                    primary(ident.span, "redefinition of {}", noun),
                 )));
             }
         }

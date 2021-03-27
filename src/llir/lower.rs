@@ -170,8 +170,8 @@ fn gather_label_info(
                     Entry::Occupied(e) => {
                         return Err(emitter.emit(error!{
                             message("duplicate label '{}'", label),
-                            primary(label, "redefined here"),
                             secondary(e.key(), "originally defined here"),
+                            primary(label, "redefined here"),
                         }));
                     },
                 }

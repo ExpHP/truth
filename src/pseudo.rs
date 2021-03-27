@@ -26,8 +26,8 @@ impl PseudoArgData {
                     if let Some(prev) = $option.take() {
                         return Err(error!(
                             message("duplicate pseudo-arg"),
-                            primary(value, "duplicate pseudo-arg"),
                             secondary(prev, "previously supplied here"),
+                            primary(value, "duplicate pseudo-arg"),
                         ));
                     }
 

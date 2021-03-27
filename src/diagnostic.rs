@@ -21,11 +21,13 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// Construct with error severity.  Generally you use the [`error!`] macro instead.
     pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error() } }
+    /// Construct with warning severity.  Generally you use the [`warning!`] macro instead.
     pub fn warning() -> Self { Diagnostic { imp: CsDiagnostic::warning() } }
 
-    pub fn code(&mut self, code: String) -> &mut Self {
-        self.imp.code = Some(code);
+    pub fn code(&mut self, code: &'static str) -> &mut Self {
+        self.imp.code = Some(code.into());
         self
     }
 

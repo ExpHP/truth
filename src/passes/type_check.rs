@@ -13,7 +13,6 @@ use crate::pos::{Sp, Span};
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::context::CompilerContext;
 use crate::resolve::DefId;
-use crate::diagnostic::{Diagnostic};
 use crate::ast::TypeKeyword;
 
 /// Performs type-checking.
@@ -399,9 +398,10 @@ impl ExprTypeChecker<'_, '_> {
         self.check_var_weak(var)?;
 
         self.ctx.var_read_ty_from_ast(var).as_known_ty().ok_or_else(|| {
-            let mut err = Diagnostic::error();
-            err.message(format!("variable requires a type prefix"));
-            err.primary(var, format!("needs a '$' or '%' prefix"));
+            let mut err = error!(
+                message("variable requires a type prefix"),
+                primary(var, "needs a '$' or '%' prefix"),
+            );
             match self.ctx.var_reg_from_ast(&var.name) {
                 Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
                 Ok(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
@@ -642,8 +642,8 @@ impl ExprTypeChecker<'_, '_> {
         } else {
             let mut error = error!(
                 message("type error"),
-                primary(spans.1, "{}", types.1.descr()),
                 secondary(spans.0, "{}", types.0.descr()),
+                primary(spans.1, "{}", types.1.descr()),
             );
 
             // NOTE: In various places in this module you'll see checks on span equality.

@@ -298,8 +298,8 @@ fn compile_std(
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(emit(error!(
                             message("'meta' supplied multiple times"),
-                            primary(kw_span, "duplicate 'meta'"),
                             secondary(prev_kw_span, "previously supplied here"),
+                            primary(kw_span, "duplicate 'meta'"),
                         )));
                     }
                 },

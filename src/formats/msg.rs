@@ -117,8 +117,8 @@ fn compile(
                 match scripts_by_id.entry(id as u32) {
                     btree_map::Entry::Occupied(e) => return Err(ctx.emitter.emit(error!(
                         message("multiple scripts with same ID number"),
-                        primary(ident, "script with duplicate id"),
                         secondary(e.get().0, "original script here"),
+                        primary(ident, "script with duplicate id"),
                     ))),
                     btree_map::Entry::Vacant(e) => e.insert((ident.span, code)),
                 };

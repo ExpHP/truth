@@ -847,9 +847,10 @@ pub (in crate::llir::lower) fn assign_registers(
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
                     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(reg));
 
-                    let mut error = Diagnostic::error();
-                    error.message(format!("script too complex to compile"));
-                    error.primary(cause, format!("no more registers of this type!"));
+                    let mut error = error!(
+                        message("script too complex to compile"),
+                        primary(cause, "no more registers of this type!"),
+                    );
                     for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
                         if scratch_ty == required_ty {
                             error.secondary(scratch_span, format!("{} holds this", stringify_reg(scratch_reg)));
