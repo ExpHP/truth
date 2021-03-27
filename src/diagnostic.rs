@@ -306,7 +306,7 @@ impl RootEmitter {
 
     /// Get an [`Emitter`] with a standardized label for errors that occur during write operations.
     pub fn while_writing(&self, filename: impl AsRef<Path>) -> WhileWriting<'_> {
-        self.get_chained(format!("while writing {}", nice_display_path(filename)))
+        self.get_chained(format!("while writing '{}'", nice_display_path(filename)))
     }
 
     /// Get an [`Emitter`] with a standardized label for errors that come from something being decompiled

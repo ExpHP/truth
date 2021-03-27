@@ -1,0 +1,7 @@
+---
+source: tests/integration/std_features.rs
+expression: stderr
+---
+warning: while writing '<output>':'strip' quads can only be used in TH08 and TH09!
+
+

@@ -2,7 +2,7 @@
 source: tests/integration/anm_features.rs
 expression: stderr
 ---
-error: while writing /dev/null: in entry 0 (for 'subdir/file.png'): 'has_data' is true, but there's no bitmap data available!
+error: while writing '<output>':in entry 0 (for 'subdir/file.png'): 'has_data' is true, but there's no bitmap data available!
  = (if this data is available in an existing anm file, try using `-i ANM_FILE`)
 
 

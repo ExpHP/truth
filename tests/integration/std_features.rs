@@ -75,5 +75,5 @@ meta {
 
 script main {}
 "#,
-    expect_fail: "TH08 and TH09",
+    expect_warning: "TH08 and TH09",
 );

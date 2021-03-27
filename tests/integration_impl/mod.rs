@@ -99,7 +99,15 @@ impl Format {
         self.compile_with_args(src, &[])
     }
 
+    pub fn compile_and_capture(&self, src: &TestFile) -> (TestFile, std::process::Output) {
+        self._compile_with_args(src, &[])
+    }
+
     pub fn compile_with_args(&self, src: &TestFile, args: &[&OsStr]) -> TestFile {
+        self._compile_with_args(src, args).0
+    }
+
+    fn _compile_with_args(&self, src: &TestFile, args: &[&OsStr]) -> (TestFile, std::process::Output) {
         let outfile = TestFile::new_temp("compilation output");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
@@ -119,7 +127,7 @@ impl Format {
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));
         }
         assert!(output.status.success());
-        outfile
+        (outfile, output)
     }
 
     pub fn decompile(&self, src: &TestFile) -> TestFile {
@@ -201,9 +209,15 @@ impl TestFile {
 // =============================================================================
 
 lazy_static::lazy_static! {
-    static ref TEMP_FILE_REGEX: regex::Regex = regex::Regex::new(r#"┌─ .+[/\\]original\.spec"#).unwrap();
+    static ref TEMP_FILE_SUBSTS: Vec<(regex::Regex, &'static str)> = {
+        vec![
+            (r#"┌─ .+[/\\]original\.spec"#, "┌─ <input>"),
+            (r#"while writing '[^']+': "#, "while writing '<output>':"),
+        ].into_iter().map(|(pat, subst)| {
+            (regex::Regex::new(pat).unwrap(), subst)
+        }).collect()
+    };
 }
-const TEMP_FILE_REPLACEMENT: &'static str = "┌─ <input>";
 
 impl Format {
     pub fn compile_fail_stderr(&self, source: &TestFile) -> String {
@@ -217,12 +231,15 @@ impl Format {
         };
         assert!(!output.status.success());
 
-        self.make_output_deterministic(std::str::from_utf8(&output.stderr).unwrap())
+        String::from_utf8(output.stderr).unwrap()
     }
+}
 
-    fn make_output_deterministic(&self, stderr: &str) -> String {
-        TEMP_FILE_REGEX.replace_all(stderr, TEMP_FILE_REPLACEMENT).into_owned()
-    }
+fn make_output_deterministic(stderr: &str) -> String {
+    TEMP_FILE_SUBSTS.iter().fold(
+        stderr.to_string(),
+        |stderr, &(ref re, replacement)| re.replace_all(&stderr[..], replacement).into_owned(),
+    )
 }
 
 macro_rules! snapshot_path {
@@ -275,6 +292,9 @@ macro_rules! source_test {
         // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
         $(, expect_fail: $expect_fail_msg:expr)?
 
+        // Compile the code and expect success, but snapshot stderr and check for a substring.
+        $(, expect_warning: $expect_warning_msg:expr)?
+
         $(,)?
     ) => {
         #[test]
@@ -296,6 +316,13 @@ macro_rules! source_test {
                 // annotate closure so that method lookup works
                 let check_fn: fn(&crate::integration_impl::TestFile, &crate::integration_impl::Format) = $check_fn;
                 check_fn(&outfile, &$format);
+                return;
+            )?
+
+            $(
+                let (_, output) = $format.compile_and_capture(&source);
+                // annotate closure so that method lookup works
+                _check_compile_fail_output!(String::from_utf8_lossy(&output.stderr), expected: $expect_warning_msg);
                 return;
             )?
 
@@ -355,28 +382,32 @@ macro_rules! make_source {
     };
 }
 
+#[track_caller]
+pub fn _check_compile_fail_output(stderr: &str, expected: &str, snapshot: impl FnOnce(&str)) {
+    let stderr = make_output_deterministic(&stderr);
+
+    // we don't want internal compiler errors.
+    let is_ice = false
+        || stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1")
+        || stderr.contains("bug!") || stderr.contains("BUG!")
+        ;
+    let allow_ice = expected == expected::UNIMPLEMENTED && stderr.contains(expected);
+
+    // hitting `unimplemented!` macro is okay if that's the expected error
+    let is_bad_ice = is_ice && !allow_ice;
+    assert!(!is_bad_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
+
+    assert!(stderr.contains(expected), "Error did not contain expected! error: {}", stderr);
+    snapshot(&stderr);
+}
+
 macro_rules! _check_compile_fail_output {
-    ($stderr:expr $(, expected: $expected:expr)?) => {{
-        #![allow(unused_mut)]
-
-        let stderr = $stderr;
-
-        // we don't want internal compiler errors.
-        let is_ice = (
-            stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1")
-            || stderr.contains("bug!") || stderr.contains("BUG!")
-        );
-        // hitting `unimplemented!` macro is okay if that's the expected error
-        let is_accepted_ice = false $(
-            || ($expected == crate::integration_impl::expected::UNIMPLEMENTED && stderr.contains($expected))
-        )?;
-        let is_bad_ice = is_ice && !is_accepted_ice;
-        assert!(!is_bad_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
-
-        $( assert!(stderr.contains($expected), "Error did not contain expected! error: {}", stderr); )?
-        insta::with_settings!{{snapshot_path => snapshot_path!()}, {
-            insta::assert_snapshot!{stderr};
-        }}
+    ($stderr:expr, expected: $expected:expr) => {{
+        crate::integration_impl::_check_compile_fail_output(&$stderr, $expected, |stderr| {
+            insta::with_settings!{{snapshot_path => snapshot_path!()}, {
+                insta::assert_snapshot!{stderr};
+            }}
+        });
     }}
 }
 
