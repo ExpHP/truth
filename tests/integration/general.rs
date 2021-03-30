@@ -175,6 +175,17 @@ source_test!(
 );
 
 source_test!(
+    STD_08, recursive_const,
+    items: r#"
+        const int NO_ERROR_HERE = UH_OH;  // <-- this one should not be part of the error
+        const int UH_OH = UMMMM;
+        const int UMMMM = HALP;
+        const int HALP = UH_OH;
+    "#,
+    expect_fail: "depends on its own value",
+);
+
+source_test!(
     ANM_06, eosd_anm_early_end,
     main_body: r#"
         ins_0();

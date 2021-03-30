@@ -122,7 +122,7 @@ impl<'a> Evaluator<'a> {
         // of the variable where it appeared inside another const's definition)
         assert_eq!(self.eval_stack.len() > 0, use_span.is_some());
         if self.eval_stack.contains(&def_id) {
-            let root_def_span = self.defs.var_decl_span(self.eval_stack[0]).expect("consts always have name spans");
+            let root_def_span = self.defs.var_decl_span(def_id).expect("consts always have name spans");
             return Err(self.emitter.emit(error!(
                 message("cycle in const definition"),
                 primary(root_def_span, "cyclic const"),
