@@ -608,8 +608,6 @@ string_enum! {
 
 impl TypeKeyword {
     /// Get the type, when used on a keyword that comes from a [`Var`].
-    ///
-    /// `None` means untyped. (FIXME: please stop using Option for this)
     pub fn var_ty(self) -> value::VarType {
         match self {
             TypeKeyword::Int => value::ScalarType::Int.into(),
@@ -621,8 +619,6 @@ impl TypeKeyword {
     }
 
     /// Get the type, when used on a keyword for a return type.
-    ///
-    /// `None` means `void`. (FIXME: please stop using Option for this)
     pub fn expr_ty(self) -> value::ExprType {
         match self {
             TypeKeyword::Int => value::ScalarType::Int.into(),
