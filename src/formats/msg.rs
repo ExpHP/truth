@@ -5,7 +5,7 @@ use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
-use crate::llir::{self, RawInstr, InstrFormat};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
 use crate::pos::{Span};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
@@ -282,30 +282,24 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
-        let time = f.read_i16()?;
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
+        let time = match f.read_i16_or_eof() {
+            Ok(Some(time)) => time,
+            Ok(None) => return Ok(ReadInstr::EndOfFile),
+            Err(e) => return Err(e),
+        };
+
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
-
-        // detect terminal instruction
-        //
-        // NOTE: *technically* this could be a valid instruction too.
-        //       The *true* terminal instruction can only be identified by always reading up to the next script's offset.
-        //       However, then this creates the problem that, for that last script (which ends at EoF) there is no "next offset"!
-        //       So for now we're stuck treating (0, 0, 0) as a "hard" terminal instruction.
-        if (time, opcode, argsize) == (0, 0, 0) {
-            // eprintln!("pos: {:#06x} - time: {:#06x} opcode: {:#04x} argsize: {:#04x} args: []", pos, time as u16, opcode as u8, argsize);
-            return Ok(None)
-        }
-
         let args_blob = f.read_byte_vec(argsize as usize)?;
+        let instr = RawInstr { time: time as i32, opcode: opcode as u16, param_mask: 0, args_blob };
+
         // eprintln!("pos: {:#06x} - time: {:#06x} opcode: {:#04x} argsize: {:#04x} args: {:02x?}", pos, time as u16, opcode as u8, argsize, args_blob);
-        Ok(Some(RawInstr {
-            time: time as i32,
-            opcode: opcode as u16,
-            param_mask: 0,
-            args_blob,
-        }))
+        if (time, opcode, argsize) == (0, 0, 0) {
+            Ok(ReadInstr::MaybeTerminal(instr))
+        } else {
+            Ok(ReadInstr::Instr(instr))
+        }
     }
 
     fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult {
