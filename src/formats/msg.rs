@@ -1,24 +1,25 @@
-use std::collections::{BTreeMap, btree_map};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
+use std::convert::TryFrom;
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
+use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
-use crate::pos::{Span};
+use crate::pos::{Sp, Span};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
+use crate::meta::{self, Meta, ToMeta};
 
 // =============================================================================
 
 /// Game-independent representation of a MSG file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MsgFile {
-    /// The script table is sparsely filled and could potentially have empty entries after the
-    /// last full one, so we must store its true length.
-    pub script_table_len: u32,
-    pub scripts: BTreeMap<u32, Vec<RawInstr>>,
+    pub script_table: Vec<ScriptTableEntry>,
+    pub scripts: BTreeMap<Ident, Vec<RawInstr>>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
 }
@@ -30,17 +31,72 @@ impl MsgFile {
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
-        compile(&*game_format(game), script, ctx)
+        // compile(&*game_format(game), script, ctx)
+        unimplemented!()
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        let emitter = w.emitter();
-        write_msg(w, &emitter, &*game_format(game), self)
+        unimplemented!()
+        // let emitter = w.emitter();
+        // write_msg(w, &emitter, &*game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
         let emitter = r.emitter();
         read_msg(r, &emitter, &*game_format(game))
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct ScriptTableEntry {
+    /// Offset of script, from beginning of file.
+    pub script: Ident,
+    /// Unknown.  First appears in PoFV.
+    pub flags: u32,
+}
+
+// =============================================================================
+
+/// An alternative structure closer to the Meta representation.
+#[derive(Debug, Clone, PartialEq)]
+struct SparseScriptTable {
+    /// The script table is sparsely filled and could potentially have empty entries after the
+    /// last full one, so we must store its true length.
+    table_len: u32,
+    table: BTreeMap<u32, ScriptTableEntry>,
+    default: Option<ScriptTableEntry>,
+}
+
+impl SparseScriptTable {
+    fn make_meta(&self) -> meta::Fields {
+        let mut builder = Meta::make_object();
+
+        // (if this overflows, the table is so large that we should have had trouble reading it)
+        let auto_len = self.table.keys().last().map(|&max| max + 1).unwrap_or(0);
+        assert!(self.table_len >= auto_len);
+        if self.table_len > auto_len {
+            builder.field("table_len", &self.table_len);
+        };
+
+        builder.field("table", &{
+            let mut inner = Meta::make_object();
+            for (&id, entry) in &self.table {
+                inner.field(format!("{}", id), entry);
+            }
+            inner.opt_field("default", self.default.as_ref());
+            inner.build()
+        });
+
+        builder.build_fields()
+    }
+}
+
+impl ToMeta for ScriptTableEntry {
+    fn to_meta(&self) -> Meta {
+        Meta::make_object()
+            .field("script", &self.script)
+            .field_default("flags", &self.flags, &0)
+            .build()
     }
 }
 
@@ -53,32 +109,95 @@ fn decompile(
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, ErrorReported> {
+    let sparse_script_table = sparsify_script_table(&msg.script_table);
+
     let mut raiser = llir::Raiser::new(&ctx.emitter);
+    let mut items = vec![sp!(ast::Item::Meta {
+        keyword: sp!(token![meta]),
+        ident: None,
+        fields: sp!(sparse_script_table.make_meta()),
+    })];
+    items.extend(msg.scripts.iter().map(|(ident, instrs)| {
+        let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
+
+        Ok(sp!(ast::Item::AnmScript {
+            number: None,
+            ident: sp!(ident.clone()),
+            code: ast::Block(code),
+            keyword: sp!(()),
+        }))
+    }).collect_with_recovery::<Vec<_>>()?);
+
     let mut script = ast::Script {
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
-        items: msg.scripts.iter().map(|(&id, instrs)| {
-            let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
-
-            Ok(sp!(ast::Item::AnmScript {
-                number: Some(sp!(id as _)),
-                ident: sp!("main".parse().unwrap()),
-                code: ast::Block(code),
-                keyword: sp!(()),
-            }))
-        }).collect_with_recovery()?
+        items,
     };
     crate::passes::postprocess_decompiled(&mut script, ctx, decompile_kind)?;
     Ok(script)
 }
 
-fn unsupported(span: &crate::pos::Span) -> Diagnostic {
-    error!(
-        message("feature not supported by format"),
-        primary(span, "not supported by MSG files"),
-    )
+fn sparsify_script_table(script_table: &[ScriptTableEntry]) -> SparseScriptTable {
+    let table_len = u32::try_from(script_table.len()).expect("table len was initially read as u32 but...!?");
+    let default = None;
+    let table = script_table.iter().enumerate().map(|(id, entry)| {
+        (id as u32, entry.clone())
+    }).collect();
+    SparseScriptTable { table_len, table, default }
 }
 
+//
+// #[cfg(nope)]
+// fn process_raw_script_table(raw_entries: &[RawScriptTableEntry]) -> ProcessScriptTableOutput {
+//     let counts = get_counts(raw_entries.iter());
+//
+//     let convert_entry = {
+//         let offset_labels = label_offsets.iter()
+//             .map(|(ident, &offset)| (offset, ident.clone()))
+//             .collect::<BTreeMap<_, _>>();
+//
+//         move |&ScriptTableEntry { offset, flags }| {
+//             let label = offset_labels[&offset].clone();
+//             LabeledScriptTableEntry { label, flags }
+//         }
+//     };
+//
+//     // if there's a single obvious default, use it.
+//     let use_default = counts.values().filter(|&&x| x > 1).count() == 1;
+//     let default = if use_default {
+//         let entry = counts.iter().filter(|&(_, &count)| count > 1).next().unwrap().0;
+//         Some(convert_entry(entry))
+//     } else {
+//         None
+//     };
+//
+//     // erase defaults
+//     let table = {
+//         raw_entries.iter().map(convert_entry).enumerate()
+//             .filter(|(i, entry)| match default {
+//                 Some(default) => entry != default || i == offset_first_indices[&default.offset],
+//                 None => true,
+//             })
+//             .map(|(i, entry)| (i as u32, entry))
+//             .collect()
+//     };
+//
+//     let table_len = raw_entries.len() as u32;
+//     let table = LabeledScriptTable { table_len, table, default };
+//     ProcessScriptTableOutput { table, label_offsets }
+// }
+//
+// fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32> {
+//     let mut out = BTreeMap::new();
+//     for x in items {
+//         *out.entry(x).or_insert(0) += 1;
+//     }
+//     out
+// }
+
+// =============================================================================
+
+#[cfg(nope)]
 fn compile(
     instr_format: &dyn InstrFormat,
     ast: &ast::Script,
@@ -144,6 +263,14 @@ fn compile(
     })
 }
 
+
+fn unsupported(span: &crate::pos::Span) -> Diagnostic {
+    error!(
+        message("feature not supported by format"),
+        primary(span, "not supported by MSG files"),
+    )
+}
+
 // =============================================================================
 
 fn read_msg(
@@ -154,55 +281,77 @@ fn read_msg(
     let start_pos = reader.pos()?;
 
     let script_table_len = reader.read_u32()?;
-    let script_offsets = {
-        (0..script_table_len).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?
+    let script_table = {
+        (0..script_table_len).map(|_| Ok(RawScriptTableEntry {
+            offset: reader.read_u32()? as u64,
+            flags: 0,
+        })).collect::<ReadResult<Vec<_>>>()?
     };
+    eprintln!("{:?}", script_table);
 
     // The script offset table tends to look like
     //
-    //    [52, 1364, 52, 52, 52, 52, 52, 52, 52, 52, 1516, 2376]
+    //    [52, 1364, 52, 52, 52, 52, 52, 52, 52, 52, 2376, 1516]
     //
-    // i.e. a script may be reused for multiple IDs, and the first script in particular is used as a filler
-    let mut scripts = BTreeMap::new();
-    let mut first_id_for_offsets = BTreeMap::new();  // maps offsets to first id they're associated with
-    let mut default_offset = None;
+    // i.e. a script may be reused for multiple IDs, their offsets may not be in order,
+    // and one script tends to be used as a filler.
+    //
+    // Get the sorted
+    let sorted_script_offsets = script_table.iter().map(|entry| entry.offset).collect::<BTreeSet<_>>();
+    let script_names = generate_script_names(&script_table);
 
-    for (id, offset) in script_offsets.into_iter().enumerate() {
-        // leave filler scripts out of the output object
-        if default_offset == Some(offset) {
-            continue;
-        }
+    let mut end_offsets = sorted_script_offsets.iter().copied().skip(1);
+    let scripts = sorted_script_offsets.iter().map(|&script_offset| {
+        // note: for the last script end_pos is None and we read to EOF.
+        let script_pos = start_pos + script_offset;
+        let end_pos = end_offsets.next().map(|offset| start_pos + offset);
+        reader.seek_to(script_pos)?;
 
-        emitter.chain_with(|f| write!(f, "script id {}", id), |emitter| {
-            default_offset.get_or_insert(offset);
-
-            // Currently, when compiling we assume that the only script that ever gets reused is the first script.
-            // (and we have no way to represent other methods of script reuse)
-            //
-            // Generate a warning if we're wrong, as we will fail to round trip this file.
-            if let Some(old_id) = first_id_for_offsets.get(&offset) {
-                emitter.emit(warning!(
-                    "reuses script id {}, but due to language limitations, when recompiled it will reuse script {} instead",
-                    old_id, default_offset.unwrap(),
-                )).ignore();
-            } else {
-                first_id_for_offsets.insert(offset, id);
-            }
-
-            let script_pos = start_pos + offset as u64;
-            reader.seek_to(script_pos)?;
-
-            let script = llir::read_instrs(reader, emitter, instr_format, script_pos, None)?;
-            scripts.insert(id as u32, script);
-
-            Ok::<_, ErrorReported>(())
+        let ident = script_names[&script_offset].clone();
+        let script = emitter.chain_with(|f| write!(f, "{}", ident), |emitter| {
+            llir::read_instrs(reader, emitter, instr_format, script_pos, end_pos)
         })?;
-    }
+        Ok((ident, script))
+    }).collect_with_recovery()?;
+
+    let script_table = script_table.into_iter().map(|RawScriptTableEntry { offset, flags }| {
+        ScriptTableEntry { script: script_names[&offset].clone(), flags }
+    }).collect();
 
     let binary_filename = Some(reader.display_filename().to_owned());
-    Ok(MsgFile { script_table_len, scripts, binary_filename })
+    Ok(MsgFile { script_table, scripts, binary_filename })
 }
 
+#[derive(Debug)]
+struct RawScriptTableEntry {
+    offset: u64,
+    flags: u32,
+}
+
+fn generate_script_names(raw_entries: &[RawScriptTableEntry]) -> BTreeMap<u64, Ident> {
+    // name each offset after the first script to use it
+    let offset_first_indices = get_first_indices(raw_entries.iter().map(|entry| entry.offset));
+    offset_first_indices.iter().map(|&(offset, index)| {
+        let ident = format!("script{}", index).parse::<Ident>().unwrap();
+        (offset, ident)
+    }).collect::<BTreeMap<_, _>>()
+}
+
+/// Get the first index that each value appears at, in order of first appearance.
+fn get_first_indices<T: Eq + Ord + Clone>(items: impl IntoIterator<Item=T>) -> Vec<(T, usize)> {
+    let mut seen = BTreeSet::new();
+    let mut out = vec![];
+    for (i, x) in items.into_iter().enumerate() {
+        if seen.insert(x.clone()) {
+            out.push((x, i));
+        }
+    }
+    out
+}
+
+// =============================================================================
+
+#[cfg(nope)]
 fn write_msg(
     w: &mut BinWriter,
     emitter: &impl Emitter,
@@ -248,6 +397,8 @@ fn write_msg(
     w.seek_to(end_pos)?;
     Ok(())
 }
+
+// =============================================================================
 
 fn game_format(game: Game) -> Box<dyn InstrFormat> {
     match game {
@@ -307,13 +458,6 @@ impl InstrFormat for InstrFormat06 {
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
         f.write_all(&instr.args_blob)?;
-
-        if (instr.time, instr.opcode, instr.args_blob.len()) == (0, 0, 0) {
-            emitter.as_sized().emit(warning!("\
-                wrote an instruction with time 0, opcode 0.  In TH06 MSG, truth will not read the resulting file back \
-                correctly due to a known limitation of the current implementation.\
-            ")).ignore();
-        }
         Ok(())
     }
 
