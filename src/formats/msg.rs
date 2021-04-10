@@ -13,13 +13,15 @@ use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::meta::{self, Meta, ToMeta};
 
+use indexmap::IndexMap;
+
 // =============================================================================
 
 /// Game-independent representation of a MSG file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MsgFile {
     pub script_table: Vec<ScriptTableEntry>,
-    pub scripts: BTreeMap<Ident, Vec<RawInstr>>,
+    pub scripts: IndexMap<Ident, Vec<RawInstr>>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
 }
