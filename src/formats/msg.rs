@@ -137,63 +137,45 @@ fn decompile(
     Ok(script)
 }
 
-fn sparsify_script_table(script_table: &[ScriptTableEntry]) -> SparseScriptTable {
-    let table_len = u32::try_from(script_table.len()).expect("table len was initially read as u32 but...!?");
-    let default = None;
-    let table = script_table.iter().enumerate().map(|(id, entry)| {
-        (id as u32, entry.clone())
-    }).collect();
+fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable {
+    let counts = get_counts(dense_table.iter());
+
+    let ident_first_indices = {
+        get_first_indices(dense_table.iter().map(|entry| &entry.script))
+            .into_iter().collect::<BTreeMap<_, _>>()
+    };
+
+    // if there's a single obvious default, use it.
+    let use_default = counts.values().filter(|&&x| x > 1).count() == 1;
+    let default = if use_default {
+        let &entry = counts.iter().filter(|&(_, &count)| count > 1).next().unwrap().0;
+        Some(entry.clone())
+    } else {
+        None
+    };
+
+    // erase defaults
+    let table = {
+        dense_table.iter().cloned().enumerate()
+            .filter(|&(i, ref entry)| match &default {
+                Some(default) => entry != default || i == ident_first_indices[&default.script],
+                None => true,
+            })
+            .map(|(i, entry)| (i as u32, entry))
+            .collect()
+    };
+
+    let table_len = dense_table.len() as u32;
     SparseScriptTable { table_len, table, default }
 }
 
-//
-// #[cfg(nope)]
-// fn process_raw_script_table(raw_entries: &[RawScriptTableEntry]) -> ProcessScriptTableOutput {
-//     let counts = get_counts(raw_entries.iter());
-//
-//     let convert_entry = {
-//         let offset_labels = label_offsets.iter()
-//             .map(|(ident, &offset)| (offset, ident.clone()))
-//             .collect::<BTreeMap<_, _>>();
-//
-//         move |&ScriptTableEntry { offset, flags }| {
-//             let label = offset_labels[&offset].clone();
-//             LabeledScriptTableEntry { label, flags }
-//         }
-//     };
-//
-//     // if there's a single obvious default, use it.
-//     let use_default = counts.values().filter(|&&x| x > 1).count() == 1;
-//     let default = if use_default {
-//         let entry = counts.iter().filter(|&(_, &count)| count > 1).next().unwrap().0;
-//         Some(convert_entry(entry))
-//     } else {
-//         None
-//     };
-//
-//     // erase defaults
-//     let table = {
-//         raw_entries.iter().map(convert_entry).enumerate()
-//             .filter(|(i, entry)| match default {
-//                 Some(default) => entry != default || i == offset_first_indices[&default.offset],
-//                 None => true,
-//             })
-//             .map(|(i, entry)| (i as u32, entry))
-//             .collect()
-//     };
-//
-//     let table_len = raw_entries.len() as u32;
-//     let table = LabeledScriptTable { table_len, table, default };
-//     ProcessScriptTableOutput { table, label_offsets }
-// }
-//
-// fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32> {
-//     let mut out = BTreeMap::new();
-//     for x in items {
-//         *out.entry(x).or_insert(0) += 1;
-//     }
-//     out
-// }
+fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32> {
+    let mut out = BTreeMap::new();
+    for x in items {
+        *out.entry(x).or_insert(0) += 1;
+    }
+    out
+}
 
 // =============================================================================
 
@@ -295,8 +277,6 @@ fn read_msg(
     //
     // i.e. a script may be reused for multiple IDs, their offsets may not be in order,
     // and one script tends to be used as a filler.
-    //
-    // Get the sorted
     let sorted_script_offsets = script_table.iter().map(|entry| entry.offset).collect::<BTreeSet<_>>();
     let script_names = generate_script_names(&script_table);
 
