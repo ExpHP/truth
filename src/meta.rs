@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use indexmap::IndexMap as Map;
-use thiserror::Error;
 
 use crate::ast;
 use crate::pos::Sp;
@@ -39,12 +38,13 @@ impl std::fmt::Display for Meta {
 }
 
 impl Meta {
+    /// Begin builder-pattern construction of a [`Meta::Object`] or [`Fields`].
     pub fn make_object() -> BuildObject { BuildObject {
         variant: None,
         map: Some(Map::new()),
     }}
 
-    /// Add a field to a meta.
+    /// Begin builder-pattern construction of a [`Meta::Variant`].
     pub fn make_variant(variant: impl AsRef<str>) -> BuildObject {
         let variant = variant.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
         BuildObject {
@@ -65,28 +65,22 @@ pub trait ToMeta {
     fn to_meta(&self) -> Meta;
 }
 
-// FIXME: why does this derive(Error)?  We should just be converting to crate::error::CompileError really...
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum FromMetaError<'a> {
-    #[error("expected {}, got {}", .expected, .got)]
     TypeError {
         expected: &'static str,
         got: &'a Sp<Meta>,
     },
-    #[error("non-const expr in meta: {:?}", .expr)]
     NonConstExpr {
         expr: Sp<&'a ast::Expr>,
     },
-    #[error("object is missing field {:?}", .missing)]
     MissingField {
         fields: &'a Sp<Fields>,
         missing: &'static str,
     },
-    #[error("unrecognized field '{}'", .invalid)]
     UnrecognizedField {
         invalid: &'a Sp<Ident>,
     },
-    #[error("unrecognized variant '{}'. Valid choices: [{}]", .invalid, .valid_variants)]
     UnrecognizedVariant {
         invalid: &'a Sp<Ident>,
         valid_variants: String,
@@ -383,7 +377,8 @@ impl BuildObject {
         self
     }
 
-    /// Build either a `Meta::Object` or a `Meta::Variant`.
+    /// Finish constructing a [`Meta::Object`]. (or a [`Meta::Variant`], depending on how
+    /// this [`BuildObject`] was created).
     ///
     /// This will poison the builder.  Please clone it if you want to call more methods.
     pub fn build(&mut self) -> Meta {
@@ -394,7 +389,7 @@ impl BuildObject {
         }
     }
 
-    /// Build a `Fields`.
+    /// Build a [`Fields`].
     ///
     /// This will poison the builder.  Please clone it if you want to call more methods.
     pub fn build_fields(&mut self) -> Fields {
@@ -553,12 +548,21 @@ impl<T: ToMeta> ToMeta for [T; 2] { fn to_meta(&self) -> Meta { self[..].to_meta
 impl<T: ToMeta> ToMeta for [T; 3] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
 impl<T: ToMeta> ToMeta for [T; 4] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
 
+impl ToMeta for Ident {
+    // write a string literal for now.  (FIXME: this isn't what we want!)
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(format!("{}", self)).into()) }
+}
+
 impl<T: ToMeta> ToMeta for indexmap::IndexMap<Sp<Ident>, T> {
     fn to_meta(&self) -> Meta {
         Meta::Object(sp!({
             self.iter().map(|(k, v)| (k.clone(), sp!(v.to_meta()))).collect()
         }))
     }
+}
+
+impl ToMeta for Meta {
+    fn to_meta(&self) -> Meta { self.clone() }
 }
 
 // =============================================================================
