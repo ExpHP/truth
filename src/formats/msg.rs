@@ -167,7 +167,6 @@ fn decompile(
     let mut raiser = llir::Raiser::new(&ctx.emitter);
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
-        ident: None,
         fields: sp!(sparse_script_table.make_meta()),
     })];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {

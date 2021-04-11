@@ -188,8 +188,8 @@ ItemAnmScript: ast::Item = {
 };
 
 ItemMeta: ast::Item = {
-    <keyword:Sp<MetaKeyword>> <ident:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
-        => ast::Item::Meta { keyword, ident, fields },
+    <keyword:Sp<MetaKeyword>> <fields:Sp<MetaBracedFields>>
+        => ast::Item::Meta { keyword, fields },
 };
 
 ItemConstVar: ast::Item = {
