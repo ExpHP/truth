@@ -290,6 +290,7 @@ fn compile_std(
 
     let emit = |e| ctx.emitter.emit(e);
     let (meta, main_sub) = {
+        // FIXME: copypasta with msg.rs  (both languages appear to want very similar things)
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
@@ -317,11 +318,11 @@ fn compile_std(
                             primary(ident, "invalid name for STD script"),
                         )));
                     }
-                    if let Some((prev_item, _)) = found_main_sub.replace((item, code)) {
+                    if let Some((prev_ident, _)) = found_main_sub.replace((ident, code)) {
                         return Err(emit(error!(
-                            message("redefinition of 'main' script"),
-                            primary(item, "this defines a script called 'main'..."),
-                            secondary(prev_item, "...but 'main' was already defined here"),
+                            message("redefinition of script 'main'"),
+                            primary(ident, "this defines a script called 'main'..."),
+                            secondary(prev_ident, "...but 'main' was already defined here"),
                         )));
                     }
                 },
