@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ffi::OsStr;
 
-use truth::{Game, AnmFile};
+use truth::Game;
 
 use assert_cmd::prelude::*;
 
@@ -199,10 +199,16 @@ impl TestFile {
             .unwrap_or_else(|e| panic!("while reading text from {}: {}", self.descr, e))
     }
 
-    pub fn read_anm(&self, format: &Format) -> AnmFile {
+    pub fn read_anm(&self, format: &Format) -> truth::AnmFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
         truth.read_anm(format.game, self.as_path(), false).unwrap()
+    }
+
+    pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
+        let mut scope = truth::Builder::new().build();
+        let mut truth = scope.truth();
+        truth.read_msg(format.game, self.as_path()).unwrap()
     }
 }
 
@@ -273,7 +279,12 @@ macro_rules! source_test {
         // You must supply one of the following things:
 
         // Compile the code and run the given closure on the compiled TestFile.
-        $(, check_compiled:$check_fn:expr)?
+        $(
+            // Modifier that checks for empty stderr.  (write as: 'check_no_warning: ()')
+            $(, expect_no_warning: $check_no_warning_unit:expr)?
+
+            , check_compiled: $check_fn:expr
+        )?
 
         // Does an "SBSB" test to test decompilation of a file compiled from simple source.
         //
@@ -312,7 +323,14 @@ macro_rules! source_test {
             );
 
             $(
-                let outfile = $format.compile(&source);
+                let (outfile, output) = $format.compile_and_capture(&source);
+                $(
+                    let () = $check_no_warning_unit;
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    assert_eq!(stderr, "");
+                )?
+                drop(output);
+
                 // annotate closure so that method lookup works
                 let check_fn: fn(&crate::integration_impl::TestFile, &crate::integration_impl::Format) = $check_fn;
                 check_fn(&outfile, &$format);
@@ -321,7 +339,6 @@ macro_rules! source_test {
 
             $(
                 let (_, output) = $format.compile_and_capture(&source);
-                // annotate closure so that method lookup works
                 _check_compile_fail_output!(String::from_utf8_lossy(&output.stderr), expected: $expect_warning_msg);
                 return;
             )?

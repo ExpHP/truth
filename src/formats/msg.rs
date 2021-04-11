@@ -61,8 +61,8 @@ pub struct ScriptTableEntry {
 struct SparseScriptTable {
     /// The script table is sparsely filled and could potentially have empty entries after the
     /// last full one, so we must store its true length.
-    table_len: u32,
-    table: IndexMap<u32, ScriptTableEntry>,
+    table_len: Sp<u32>,
+    table: IndexMap<Sp<u32>, ScriptTableEntry>,
     default: Option<ScriptTableEntry>,
 }
 
@@ -70,11 +70,11 @@ impl SparseScriptTable {
     fn make_meta(&self) -> meta::Fields {
         let mut builder = Meta::make_object();
 
-        // (if this overflows, the table is so large that we should have had trouble reading it)
-        let auto_len = self.table.keys().last().map(|&max| max + 1).unwrap_or(0);
+        // suppress table_len if it isn't necessary
+        let auto_len = sparse_table_implicit_len(&self.table);
         assert!(self.table_len >= auto_len);
         if self.table_len > auto_len {
-            builder.field("table_len", &self.table_len);
+            builder.field("table_len", &self.table_len.value);
         };
 
         builder.field("table", &{
@@ -99,7 +99,7 @@ impl SparseScriptTable {
                 if &key == "default" {
                     default = Some(value);
                 } else if let Ok(num) = key.as_str().parse() {
-                    let old_value = int_map.insert(num, value);
+                    let old_value = int_map.insert(sp!(key.span => num), value);
                     assert!(old_value.is_none(), "duplicate integer key; was one non-canonical?!");
                 } else {
                     return Err(FromMetaError::BadKey {
@@ -110,7 +110,7 @@ impl SparseScriptTable {
             }
 
             let table_len = m.get_field("table_len")?.unwrap_or_else(|| {
-                int_map.keys().cloned().max().map_or(0, |max| max + 1)
+                sp!(fields.span => sparse_table_implicit_len(&int_map))
             });
             Ok(SparseScriptTable { table_len, table: int_map, default })
         })
@@ -118,7 +118,7 @@ impl SparseScriptTable {
 
     fn densify(&self) -> Result<Vec<ScriptTableEntry>, MissingKeyError> {
         let mut out = vec![];
-        for index in 0..self.table_len {
+        for index in 0..self.table_len.value {
             out.push({
                 self.table.get(&index).cloned()
                     .or_else(|| self.default.clone())
@@ -211,11 +211,11 @@ fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable 
                 Some(default) => entry != default || i == ident_first_indices[&default.script],
                 None => true,
             })
-            .map(|(i, entry)| (i as u32, entry))
+            .map(|(i, entry)| (sp!(i as u32), entry))
             .collect()
     };
 
-    let table_len = dense_table.len() as u32;
+    let table_len = sp!(dense_table.len() as u32);
     SparseScriptTable { table_len, table, default }
 }
 
@@ -270,7 +270,7 @@ fn compile(
                     primary(number, "unexpected number"),
                 ))),
                 ast::Item::AnmScript { number: None, ident, code, .. } => {
-                    match script_code.entry(ident) {
+                    match script_code.entry(ident.clone()) {
                         indexmap::map::Entry::Vacant(e) => { e.insert(code); },
                         indexmap::map::Entry::Occupied(prev) => return Err(emit(error!(
                             message("redefinition of script '{}'", ident),
@@ -289,21 +289,53 @@ fn compile(
             None => return Err(emit(error!("missing 'meta' section"))),
         }
     };
-    let sparse_script_table: SparseScriptTable = {
+    let sparse_table: SparseScriptTable = {
         SparseScriptTable::from_fields(meta).map_err(|e| ctx.emitter.emit(e))?
     };
 
+    let scripts = script_code.iter().map(|(name, code)| {
+        let instrs = crate::llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
+        Ok((name.value.clone(), instrs))
+    }).collect_with_recovery()?;
+
+    let unused_table_keys = {
+        sparse_table.table.keys().copied()
+            .filter(|&key| key >= sparse_table.table_len).collect::<Vec<_>>()
+    };
+    if !unused_table_keys.is_empty() {
+        let mut diag = warning!(
+            message("unused script table entry"),
+            secondary(sparse_table.table_len, "unused due to this length"),
+        );
+        for key in unused_table_keys {
+            diag.primary(key.span, format!("unused table entry"));
+        };
+        ctx.emitter.emit(diag).ignore();
+    }
+
+    let used_scripts = {
+        sparse_table.default.clone().into_iter()
+            .chain(sparse_table.table.values().cloned())
+            .map(|entry| entry.script.clone())
+            .collect::<BTreeSet<_>>()
+    };
+    for name in script_code.keys() {
+        if !used_scripts.contains(name) {
+            ctx.emitter.emit(warning!(
+                message("unused script '{}'", name),
+                primary(name, "unused script"),
+            )).ignore();
+        }
+    }
+
     Ok(MsgFile {
-        dense_table: sparse_script_table.densify().map_err(|MissingKeyError { index }| {
+        dense_table: sparse_table.densify().map_err(|MissingKeyError { index }| {
             ctx.emitter.emit(error!(
                 message("script table is missing entry for id {}", index),
                 primary(meta, "no entry for id {}", index)
             ))
         })?,
-        scripts: script_code.into_iter().map(|(name, code)| {
-            let instrs = crate::llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
-            Ok((name.value.clone(), instrs))
-        }).collect_with_recovery()?,
+        scripts,
         /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
     })
@@ -314,6 +346,10 @@ fn unsupported(span: &crate::pos::Span) -> Diagnostic {
         message("feature not supported by format"),
         primary(span, "not supported by MSG files"),
     )
+}
+
+fn sparse_table_implicit_len(table: &IndexMap<Sp<u32>, ScriptTableEntry>) -> u32 {
+    table.keys().copied().max().map_or(0, |max| max.value + 1)
 }
 
 // =============================================================================

@@ -98,6 +98,12 @@ pub const MSG_06: Format = Format {
     game: Game::Th06,
     script_head: r#"
 #pragma mapfile "map/any.msgm"
+
+meta {
+    table: {
+        0: {script: "script0"},
+    }
+}
 "#,
     make_main: |body| format!(r#"
 script main {{
