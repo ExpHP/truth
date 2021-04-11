@@ -224,7 +224,6 @@ fn decompile(
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
-            ident: None,
             fields: sp!(entry.make_meta()),
         }));
 

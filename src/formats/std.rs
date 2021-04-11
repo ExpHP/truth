@@ -250,7 +250,6 @@ fn decompile_std(
         items: vec! [
             sp!(ast::Item::Meta {
                 keyword: sp!(ast::MetaKeyword::Meta),
-                ident: None,
                 fields: sp!(std.make_meta(format)),
             }),
             sp!(ast::Item::AnmScript {
@@ -294,7 +293,7 @@ fn compile_std(
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
-                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], ident: None, fields: meta } => {
+                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(emit(error!(
                             message("'meta' supplied multiple times"),
@@ -303,10 +302,6 @@ fn compile_std(
                         )));
                     }
                 },
-                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(emit(error!(
-                    message("unexpected named meta '{}' in STD file", ident),
-                    primary(ident, "unexpected name"),
-                ))),
                 ast::Item::Meta { keyword, .. } => return Err(emit(error!(
                     message("unexpected '{}' in STD file", keyword),
                     primary(keyword, "not valid in STD files"),

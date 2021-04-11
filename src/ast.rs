@@ -72,10 +72,8 @@ pub enum Item {
         ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
         code: Block,
     },
-    // FIXME: break into Meta and Entry
     Meta {
         keyword: Sp<MetaKeyword>,
-        ident: Option<Sp<Ident>>,
         fields: Sp<meta::Fields>,
     },
     ConstVar {
@@ -764,7 +762,7 @@ macro_rules! generate_visitor_stuff {
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
-                Item::Meta { keyword: _, ident: _, fields } => {
+                Item::Meta { keyword: _, fields } => {
                     walk_meta_fields(v, fields);
                 },
                 Item::ConstVar { ty_keyword: _, vars } => {
