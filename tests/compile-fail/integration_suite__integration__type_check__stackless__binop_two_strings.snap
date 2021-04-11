@@ -3,11 +3,11 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-  ┌─ <input>:7:21
-  │
-7 │       textSet(0, 0, "F1" - "2.0");  
-  │                     ^^^^ - requires a numeric type
-  │                     │     
-  │                     a string
+   ┌─ <input>:13:21
+   │
+13 │       textSet(0, 0, "F1" - "2.0");  
+   │                     ^^^^ - requires a numeric type
+   │                     │     
+   │                     a string
 
 

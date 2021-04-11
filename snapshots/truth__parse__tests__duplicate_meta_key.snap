@@ -5,5 +5,8 @@ expression: "expect_parse_error::<meta::Meta>(\"duplicate\",\n                  
 error: duplicate metadata field 'thing'
   ┌─ <input>:6:5
   │
+3 │     thing: 100,
+  │     ----- previously supplied here
+  ·
 6 │     thing: 103,
   │     ^^^^^ duplicate key
