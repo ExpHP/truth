@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 /// Game-independent representation of a MSG file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MsgFile {
-    pub script_table: Vec<ScriptTableEntry>,
+    pub dense_table: Vec<ScriptTableEntry>,
     pub scripts: IndexMap<Ident, Vec<RawInstr>>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
@@ -162,7 +162,7 @@ fn decompile(
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, ErrorReported> {
-    let sparse_script_table = sparsify_script_table(&msg.script_table);
+    let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
     let mut raiser = llir::Raiser::new(&ctx.emitter);
     let mut items = vec![sp!(ast::Item::Meta {
@@ -254,7 +254,7 @@ fn compile(
     let scripts = unimplemented!();
 
     Ok(MsgFile {
-        script_table: sparse_script_table.densify().map_err(|MissingKeyError { index }| {
+        dense_table: sparse_script_table.densify().map_err(|MissingKeyError { index }| {
             ctx.emitter.emit(error!(
                 message("script table is missing entry for id {}", index),
                 primary(table_span, "no entry for id {}", index)
@@ -319,7 +319,7 @@ fn read_msg(
     }).collect();
 
     let binary_filename = Some(reader.display_filename().to_owned());
-    Ok(MsgFile { script_table, scripts, binary_filename })
+    Ok(MsgFile { dense_table: script_table, scripts, binary_filename })
 }
 
 #[derive(Debug)]
@@ -351,7 +351,6 @@ fn get_first_indices<T: Eq + Ord + Clone>(items: impl IntoIterator<Item=T>) -> V
 
 // =============================================================================
 
-#[cfg(nope)]
 fn write_msg(
     w: &mut BinWriter,
     emitter: &impl Emitter,
@@ -360,39 +359,35 @@ fn write_msg(
 ) -> WriteResult {
     let start_pos = w.pos()?;
 
-    w.write_u32(msg.script_table_len as _)?;
+    w.write_u32(msg.dense_table.len() as _)?;
 
     let script_offsets_pos = w.pos()?;
-    for _ in 0..msg.script_table_len {
+    for _ in 0..msg.dense_table.len() {
         w.write_u32(0)?;
     }
 
-    // The script offset table tends to look like
-    //    [52, 1364, 52, 52, 52, 52, 52, 52, 52, 52, 1516, 2376]
-    // i.e. the first script is used as a filler for all of the others
-    let mut default_script_offset = None;
-    let mut script_offsets = vec![None; msg.script_table_len as usize];
-    for (&id, script) in &msg.scripts {
+    let mut script_offsets = BTreeMap::new();
+    for (ident, script) in &msg.scripts {
         let script_offset = w.pos()? - start_pos;
-        default_script_offset = default_script_offset.or(Some(script_offset));
 
-        script_offsets[id as usize] = Some(script_offset);
-        emitter.chain_with(|f| write!(f, "script id {}", id), |emitter| {
+        script_offsets.insert(ident.clone(), script_offset);
+        emitter.chain_with(|f| write!(f, "script {}", ident), |emitter| {
             llir::write_instrs(w, emitter, instr_format, script)
         })?;
     }
-
-    if default_script_offset.is_none() && msg.script_table_len > 0 {
-        emitter.emit(warning!("script table has no entries to use as a default!")).ignore();
-    }
-    let default_script_offset = default_script_offset.unwrap_or(0);
+    assert_eq!(script_offsets.len(), msg.scripts.len());
 
     let end_pos = w.pos()?;
 
     w.seek_to(script_offsets_pos)?;
-    assert_eq!(script_offsets.len(), msg.script_table_len as usize);
-    for offset in script_offsets {
-        w.write_u32(offset.unwrap_or(default_script_offset) as u32)?;
+    for entry in &msg.dense_table {
+        let &script_offset = script_offsets.get(&entry.script.value).ok_or_else(|| {
+            emitter.emit(error!(
+                message("invalid script '{}'", entry.script),
+                primary(entry.script, "no such script"),
+            ))
+        })?;
+        w.write_u32(script_offset as u32)?;
     }
     w.seek_to(end_pos)?;
     Ok(())
