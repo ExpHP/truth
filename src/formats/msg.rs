@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, btree_map};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
@@ -7,7 +7,7 @@ use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
-use crate::pos::{Sp, Span};
+use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
@@ -32,14 +32,12 @@ impl MsgFile {
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
-        unimplemented!()
-        // compile(&*game_format(game), script, ctx)
+        compile(&*game_format(game), script, ctx)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        unimplemented!()
-        // let emitter = w.emitter();
-        // write_msg(w, &emitter, &*game_format(game), self)
+        let emitter = w.emitter();
+        write_msg(w, &emitter, &*game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
@@ -231,7 +229,6 @@ fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32>
 
 // =============================================================================
 
-#[cfg(nope)]
 fn compile(
     instr_format: &dyn InstrFormat,
     ast: &ast::Script,
@@ -249,22 +246,68 @@ fn compile(
         ast
     };
 
-    let (sparse_script_table, table_span) = unimplemented!("extract meta from ast.items");
-    let scripts = unimplemented!();
+    let emit = |e| ctx.emitter.emit(e);
+    let (meta, script_code) = {
+        // FIXME: copypasta with std.rs  (both languages appear to want very similar things)
+        let (mut found_meta, mut script_code) = (None, IndexMap::new());
+        for item in ast.items.iter() {
+            match &item.value {
+                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], fields: meta } => {
+                    if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
+                        return Err(emit(error!(
+                            message("'meta' supplied multiple times"),
+                            secondary(prev_kw_span, "previously supplied here"),
+                            primary(kw_span, "duplicate 'meta'"),
+                        )));
+                    }
+                },
+                ast::Item::Meta { keyword, .. } => return Err(emit(error!(
+                    message("unexpected '{}' in MSG file", keyword),
+                    primary(keyword, "not valid in MSG files"),
+                ))),
+                ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
+                    message("unexpected numbered script in MSG file"),
+                    primary(number, "unexpected number"),
+                ))),
+                ast::Item::AnmScript { number: None, ident, code, .. } => {
+                    match script_code.entry(ident) {
+                        indexmap::map::Entry::Vacant(e) => { e.insert(code); },
+                        indexmap::map::Entry::Occupied(prev) => return Err(emit(error!(
+                            message("redefinition of script '{}'", ident),
+                            primary(ident, "this defines a script called '{}'...", ident),
+                            secondary(prev.key(), "...but '{}' was already defined here", ident),
+                        ))),
+                    }
+                },
+                ast::Item::ConstVar { .. } => {},
+                ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
+            }
+        }
+
+        match found_meta {
+            Some((_, meta)) => (meta, script_code),
+            None => return Err(emit(error!("missing 'meta' section"))),
+        }
+    };
+    let sparse_script_table: SparseScriptTable = {
+        SparseScriptTable::from_fields(meta).map_err(|e| ctx.emitter.emit(e))?
+    };
 
     Ok(MsgFile {
         dense_table: sparse_script_table.densify().map_err(|MissingKeyError { index }| {
             ctx.emitter.emit(error!(
                 message("script table is missing entry for id {}", index),
-                primary(table_span, "no entry for id {}", index)
+                primary(meta, "no entry for id {}", index)
             ))
         })?,
-        scripts,
+        scripts: script_code.into_iter().map(|(name, code)| {
+            let instrs = crate::llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
+            Ok((name.value.clone(), instrs))
+        }).collect_with_recovery()?,
         /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
     })
 }
-
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
     error!(
@@ -447,7 +490,7 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
-    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
         f.write_u8(instr.opcode as _)?;
         f.write_u8(instr.args_blob.len() as _)?;  // this version writes argsize rather than instr size
