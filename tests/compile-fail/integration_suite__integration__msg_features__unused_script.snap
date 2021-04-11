@@ -1,0 +1,11 @@
+---
+source: tests/integration/msg_features.rs
+expression: stderr
+---
+warning: unused script 'foo'
+   ┌─ <input>:10:8
+   │
+10 │ script foo {}
+   │        ^^^ unused script
+
+

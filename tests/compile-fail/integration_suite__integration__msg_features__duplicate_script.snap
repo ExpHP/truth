@@ -1,0 +1,13 @@
+---
+source: tests/integration/msg_features.rs
+expression: stderr
+---
+error: redefinition of script 'script0'
+  ┌─ <input>:9:8
+  │
+8 │ script script0 {}
+  │        ------- ...but 'script0' was already defined here
+9 │ script script0 {}
+  │        ^^^^^^^ this defines a script called 'script0'...
+
+
