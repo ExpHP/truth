@@ -65,6 +65,8 @@ impl ResIdent {
             None => panic!("(bug!) assign_res_ids has not been run yet for '{}'!", self.ident),
         }
     }
+
+    pub fn as_str(&self) -> &str { self.ident.as_str() }
 }
 
 
@@ -87,6 +89,10 @@ impl ResIdent {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident {
     ident: Rc<str>,
+}
+
+impl Ident {
+    pub fn as_str(&self) -> &str { &self.ident }
 }
 
 #[derive(Debug, Error)]

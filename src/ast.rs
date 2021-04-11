@@ -72,6 +72,7 @@ pub enum Item {
         ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
         code: Block,
     },
+    // FIXME: break into Meta and Entry
     Meta {
         keyword: Sp<MetaKeyword>,
         ident: Option<Sp<Ident>>,

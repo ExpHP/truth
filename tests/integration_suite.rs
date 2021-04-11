@@ -8,6 +8,7 @@ mod integration {
     mod general;
     mod anm_features;
     mod std_features;
+    mod msg_features;
     mod bits_2_bits;
     mod type_check;
     mod decompile_loop;

@@ -268,7 +268,7 @@ Meta: Meta = {
 };
 
 MetaBracedFields: meta::Fields = {
-    "{" <kvs:SeparatedTrailing<(<Sp<Ident>> ":" <Sp<Meta>>), ",">> "}" =>? {
+    "{" <kvs:SeparatedTrailing<(<Sp<PossiblyNumericIdent>> ":" <Sp<Meta>>), ",">> "}" =>? {
         let mut map = indexmap::IndexMap::with_capacity(kvs.len());
         for (key, value) in kvs {
             let new_key_span = key.span;
@@ -284,6 +284,12 @@ MetaBracedFields: meta::Fields = {
         }
         Ok(map)
     },
+};
+
+#[inline]
+PossiblyNumericIdent: Ident = {
+    <x:LitIntUnsigned> => x.to_string().parse().expect("cannot fail"),
+    <x:Ident> => x,
 };
 
 // ==================================================
@@ -794,6 +800,8 @@ IdentStr: &'input str = {
     <s: "ecli"> => s.as_str(),
     <s: "timeline"> => s.as_str(),
     <s: "script"> => s.as_str(),
+    <s: "default"> => s.as_str(),
+    <s: "case"> => s.as_str(),
 };
 
 RawInsIdent: u16 = {

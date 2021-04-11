@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map};
-use std::convert::TryFrom;
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
@@ -11,7 +10,7 @@ use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
 use crate::pos::{Sp, Span};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
-use crate::meta::{self, Meta, ToMeta};
+use crate::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 
 use indexmap::IndexMap;
 
@@ -33,8 +32,8 @@ impl MsgFile {
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
-        // compile(&*game_format(game), script, ctx)
         unimplemented!()
+        // compile(&*game_format(game), script, ctx)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
@@ -52,7 +51,7 @@ impl MsgFile {
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ScriptTableEntry {
     /// Offset of script, from beginning of file.
-    pub script: Ident,
+    pub script: Sp<Ident>,
     /// Unknown.  First appears in PoFV.
     pub flags: u32,
 }
@@ -65,7 +64,7 @@ struct SparseScriptTable {
     /// The script table is sparsely filled and could potentially have empty entries after the
     /// last full one, so we must store its true length.
     table_len: u32,
-    table: BTreeMap<u32, ScriptTableEntry>,
+    table: IndexMap<u32, ScriptTableEntry>,
     default: Option<ScriptTableEntry>,
 }
 
@@ -91,14 +90,66 @@ impl SparseScriptTable {
 
         builder.build_fields()
     }
+
+    fn from_fields(fields: &Sp<meta::Fields>) -> Result<Self, FromMetaError<'_>> {
+        meta::ParseObject::scope(fields, |m| {
+            let ident_map: IndexMap<Sp<Ident>, ScriptTableEntry> = m.expect_field("table")?;
+
+            let mut default = None;
+            let mut int_map = IndexMap::new();
+            for (key, value) in ident_map {
+                if &key == "default" {
+                    default = Some(value);
+                } else if let Ok(num) = key.as_str().parse() {
+                    let old_value = int_map.insert(num, value);
+                    assert!(old_value.is_none(), "duplicate integer key; was one non-canonical?!");
+                } else {
+                    return Err(FromMetaError::BadKey {
+                        expected: "an integer or 'default'",
+                        got: key,
+                    });
+                }
+            }
+
+            let table_len = m.get_field("table_len")?.unwrap_or_else(|| {
+                int_map.keys().cloned().max().map_or(0, |max| max + 1)
+            });
+            Ok(SparseScriptTable { table_len, table: int_map, default })
+        })
+    }
+
+    fn densify(&self) -> Result<Vec<ScriptTableEntry>, MissingKeyError> {
+        let mut out = vec![];
+        for index in 0..self.table_len {
+            out.push({
+                self.table.get(&index).cloned()
+                    .or_else(|| self.default.clone())
+                    .ok_or(MissingKeyError { index })?
+            });
+        }
+        Ok(out)
+    }
 }
+
+struct MissingKeyError { index: u32 }
 
 impl ToMeta for ScriptTableEntry {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field("script", &self.script)
+            .field("script", &self.script.value)
             .field_default("flags", &self.flags, &0)
             .build()
+    }
+}
+
+impl FromMeta<'_> for ScriptTableEntry {
+    fn from_meta(meta: &'_ Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        meta.parse_object(|m| {
+            Ok(ScriptTableEntry {
+                script: m.expect_field("script")?,
+                flags: m.get_field("flags")?.unwrap_or(0),
+            })
+        })
     }
 }
 
@@ -199,50 +250,18 @@ fn compile(
         ast
     };
 
-    let mut scripts_by_id = BTreeMap::<u32, (Span, &ast::Block)>::new();
+    let (sparse_script_table, table_span) = unimplemented!("extract meta from ast.items");
+    let scripts = unimplemented!();
 
-    let mut next_auto_id = 0_i32;
-    for item in ast.items.iter() {
-        match &item.value {
-            ast::Item::AnmScript { number, ident, code, .. } => {
-                // scripts with no number automatically use the next integer
-                let id = number.map(|sp| sp.value).unwrap_or(next_auto_id);
-                next_auto_id = id + 1;
-
-                if id < 0 {
-                    let span = number.expect("since it's the first negative it must be explicit!").span;
-                    return Err(ctx.emitter.emit(error!(
-                        message("unexpected negative script id in MSG file"),
-                        primary(span, "negative id in MSG file")
-                    )));
-                }
-
-                match scripts_by_id.entry(id as u32) {
-                    btree_map::Entry::Occupied(e) => return Err(ctx.emitter.emit(error!(
-                        message("multiple scripts with same ID number"),
-                        secondary(e.get().0, "original script here"),
-                        primary(ident, "script with duplicate id"),
-                    ))),
-                    btree_map::Entry::Vacant(e) => e.insert((ident.span, code)),
-                };
-            },
-            ast::Item::Meta { keyword, .. } => return Err(ctx.emitter.emit(error!(
-                message("unexpected '{}' in MSG file", keyword),
-                primary(keyword, "not valid in MSG files"),
-            ))),
-            ast::Item::ConstVar { .. } => {},
-
-            ast::Item::Func { .. } => return Err(ctx.emitter.emit(unsupported(&item.span))),
-        }
-    }
-
-    let script_table_len = scripts_by_id.keys().max().map_or(0, |max| max + 1);
     Ok(MsgFile {
-        script_table_len,
-        scripts: scripts_by_id.into_iter().map(|(id, (_, script_ast))| {
-            llir::lower_sub_ast_to_instrs(instr_format, &script_ast.0, ctx)
-                .map(|compiled| (id, compiled))
-        }).collect_with_recovery()?,
+        script_table: sparse_script_table.densify().map_err(|MissingKeyError { index }| {
+            ctx.emitter.emit(error!(
+                message("script table is missing entry for id {}", index),
+                primary(table_span, "no entry for id {}", index)
+            ))
+        })?,
+        scripts,
+        /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
     })
 }
@@ -271,7 +290,6 @@ fn read_msg(
             flags: 0,
         })).collect::<ReadResult<Vec<_>>>()?
     };
-    eprintln!("{:?}", script_table);
 
     // The script offset table tends to look like
     //
@@ -297,7 +315,7 @@ fn read_msg(
     }).collect_with_recovery()?;
 
     let script_table = script_table.into_iter().map(|RawScriptTableEntry { offset, flags }| {
-        ScriptTableEntry { script: script_names[&offset].clone(), flags }
+        ScriptTableEntry { script: sp!(script_names[&offset].clone()), flags }
     }).collect();
 
     let binary_filename = Some(reader.display_filename().to_owned());
