@@ -263,6 +263,16 @@ mod formatter {
                 return Ok(())
             }
 
+            if !self.pending_data {
+                self.line_buffer.truncate(0);  // don't emit trailing spaces on a blank line
+            }
+
+            // FIXME: this is naughty, Formatter wasn't intended to modify .state, it should
+            //        only expose general purpose methods for use by impls
+            //        (but until we find another type of thing we'd like to "group" besides interrupts,
+            //         any attempt to do that here would feel over-engineered)
+            self.state.prev_line_was_interrupt = false;
+
             self.is_label = false;
             self.pending_data = false;
             self.line_buffer.push(b'\n');
@@ -460,11 +470,15 @@ struct State {
     /// index 0 gets used exclusively when writing `Stmt`s, and a level at index 1 gets used when
     /// writing `Item`s.
     time_stack: Vec<i32>,
+
+    /// Used to control grouping of `interrupt[n]:` lines.
+    prev_line_was_interrupt: bool,
 }
 
 impl State {
     fn new() -> Self { State {
         time_stack: vec![0],
+        prev_line_was_interrupt: false,
     }}
 }
 
@@ -712,9 +726,14 @@ impl Format for ast::StmtBody {
             },
 
             ast::StmtBody::InterruptLabel(id) => {
-                out.next_line()?;
+                // blank lines are created before interrupts to make them stand out,
+                // but multiple consecutive interrupt lines are grouped.
+                if !out.state.prev_line_was_interrupt {
+                    out.next_line()?;
+                }
                 out.fmt_label(("interrupt[", id, "]:"))?;
                 out.suppress_blank_line();
+                out.state.prev_line_was_interrupt = true;
                 Ok(())
             },
 
