@@ -439,6 +439,24 @@ impl<T: ?Sized + PartialEq> PartialEq<T> for Sp<T> {
     }
 }
 
+impl<T: ?Sized + PartialOrd> PartialOrd<T> for Sp<T> {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        self.value.partial_cmp(other)
+    }
+}
+
+impl<T: ?Sized + PartialOrd> PartialOrd for Sp<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.value.partial_cmp(&other.value)
+    }
+}
+
+impl<T: ?Sized + Ord> Ord for Sp<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.value.cmp(&other.value)
+    }
+}
+
 impl<T: ?Sized + std::hash::Hash> std::hash::Hash for Sp<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.value.hash(state);

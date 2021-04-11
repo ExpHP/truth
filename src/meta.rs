@@ -23,6 +23,9 @@ pub enum Meta {
     },
 }
 
+/// Type alias for the key-value pair storage in things in meta that use braces.
+///
+/// Note that these idents can also be (canonically-formatted) integers.
 pub type Fields = Map<Sp<Ident>, Sp<Meta>>;
 
 // For error messages
@@ -71,6 +74,10 @@ pub enum FromMetaError<'a> {
         expected: &'static str,
         got: &'a Sp<Meta>,
     },
+    BadKey {
+        expected: &'static str,
+        got: Sp<Ident>,
+    },
     NonConstExpr {
         expr: Sp<&'a ast::Expr>,
     },
@@ -97,6 +104,10 @@ impl crate::diagnostic::IntoDiagnostics for FromMetaError<'_> {
     fn into_diagnostics(self) -> Vec<crate::diagnostic::Diagnostic> { match self {
         FromMetaError::TypeError { expected, got } => vec![error!(
             message("type error"),
+            primary(got, "expected {}", expected),
+        )],
+        FromMetaError::BadKey { expected, got } => vec![error!(
+            message("bad key"),
             primary(got, "expected {}", expected),
         )],
         FromMetaError::NonConstExpr { expr } => vec![error!(
@@ -481,6 +492,16 @@ impl<'m, T: FromMeta<'m>> FromMeta<'m> for Vec<T> {
         match &meta.value {
             Meta::Array(xs) => xs.into_iter().map(|x| x.parse()).collect(),
             _ => Err(FromMetaError::expected("an array", meta)),
+        }
+    }
+}
+
+impl FromMeta<'_> for Ident {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        let string = String::from_meta(meta)?;
+        match string.parse() {
+            Ok(x) => Ok(x),
+            Err(_) => Err(FromMetaError::expected("a string holding a valid identifier", meta)),
         }
     }
 }
