@@ -446,6 +446,7 @@ impl InstrFormat for TestFormat {
 mod test_reader {
     #![allow(non_snake_case)]
     use super::*;
+    use crate::error::ErrorReported;
 
     struct SimpleInstrReader {
         iter: std::cell::RefCell<std::vec::IntoIter<ReadInstr>>

@@ -802,7 +802,7 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
     struct Visitor<'a> {
         var: &'a ast::Var,
         found: bool,
-    };
+    }
 
     impl Visit for Visitor<'_> {
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
