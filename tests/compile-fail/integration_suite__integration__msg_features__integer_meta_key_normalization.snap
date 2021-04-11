@@ -1,0 +1,14 @@
+---
+source: tests/integration/msg_features.rs
+expression: stderr
+---
+error: duplicate metadata field '0'
+  ┌─ <input>:7:9
+  │
+5 │         0: {script: "script0"},
+  │         - previously supplied here
+6 │         1: {script: "script0"},
+7 │         0x0: {script: "script0"},
+  │         ^^^ duplicate key
+
+
