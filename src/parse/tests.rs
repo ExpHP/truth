@@ -37,7 +37,7 @@ fn expr_parse() {
                 ast::Expr::from($value),
             ); )?
         }
-    };
+    }
     check_exprs_same!("1 + 1 * 2", "1 + (1 * 2)", 3);
     check_exprs_same!("2 * 2 + 1", "(2 * 2) + 1", 5);
     check_exprs_same!("-3 + 5 * 7", "(-3) + (5 * 7)", 32);

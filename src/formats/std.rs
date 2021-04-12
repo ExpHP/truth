@@ -6,7 +6,7 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::game::Game;
 use crate::ident::{Ident};
-use crate::llir::{self, RawInstr, InstrFormat};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
@@ -250,7 +250,6 @@ fn decompile_std(
         items: vec! [
             sp!(ast::Item::Meta {
                 keyword: sp!(ast::MetaKeyword::Meta),
-                ident: None,
                 fields: sp!(std.make_meta(format)),
             }),
             sp!(ast::Item::AnmScript {
@@ -291,10 +290,11 @@ fn compile_std(
 
     let emit = |e| ctx.emitter.emit(e);
     let (meta, main_sub) = {
+        // FIXME: copypasta with msg.rs  (both languages appear to want very similar things)
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
-                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], ident: None, fields: meta } => {
+                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], fields: meta } => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(emit(error!(
                             message("'meta' supplied multiple times"),
@@ -303,10 +303,6 @@ fn compile_std(
                         )));
                     }
                 },
-                ast::Item::Meta { keyword: sp_pat![token![meta]], ident: Some(ident), .. } => return Err(emit(error!(
-                    message("unexpected named meta '{}' in STD file", ident),
-                    primary(ident, "unexpected name"),
-                ))),
                 ast::Item::Meta { keyword, .. } => return Err(emit(error!(
                     message("unexpected '{}' in STD file", keyword),
                     primary(keyword, "not valid in STD files"),
@@ -322,11 +318,11 @@ fn compile_std(
                             primary(ident, "invalid name for STD script"),
                         )));
                     }
-                    if let Some((prev_item, _)) = found_main_sub.replace((item, code)) {
+                    if let Some((prev_ident, _)) = found_main_sub.replace((ident, code)) {
                         return Err(emit(error!(
-                            message("redefinition of 'main' script"),
-                            primary(item, "this defines a script called 'main'..."),
-                            secondary(prev_item, "...but 'main' was already defined here"),
+                            message("redefinition of script 'main'"),
+                            primary(ident, "this defines a script called 'main'..."),
+                            secondary(prev_ident, "...but 'main' was already defined here"),
                         )));
                     }
                 },
@@ -740,17 +736,17 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let argsize = f.read_u16()?;
         if opcode == -1 {
-            return Ok(None)
+            return Ok(ReadInstr::Terminal)
         }
-        assert_eq!(argsize, 12);
+        assert_eq!(argsize, 12);  // FIXME make error if < 12, warning if > 12
 
         let args_blob = f.read_byte_vec(12)?;
-        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
@@ -791,16 +787,16 @@ impl InstrFormat for InstrFormat10 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i32()?;
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
         if opcode == -1 {
-            return Ok(None)
+            return Ok(ReadInstr::Terminal)
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
-        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {

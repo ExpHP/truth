@@ -236,6 +236,21 @@ pub trait BinRead {
     fn read_u32(&mut self) -> Result<u32, Self::Err> { ReadBytesExt::read_u32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
     fn read_f32(&mut self) -> Result<f32, Self::Err> { ReadBytesExt::read_f32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
 
+    fn read_i16_or_eof(&mut self) -> Result<Option<i16>, Self::Err> {
+        use std::convert::TryInto;
+
+        type Out = i16;
+        const N: usize = std::mem::size_of::<Out>();
+
+        let mut buf = vec![];
+        match self._bin_read_reader().take(N as u64).read_to_end(&mut buf) {
+            Ok(0) => Ok(None),
+            Ok(N) => Ok(Some(Out::from_le_bytes(buf.try_into().unwrap()))),
+            Ok(_) => Err(self._bin_read_io_error(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete word"))),
+            Err(e) => Err(self._bin_read_io_error(e))
+        }
+    }
+
     fn read_f32s_2(&mut self) -> Result<[f32; 2], Self::Err> {
         Ok([self.read_f32()?, self.read_f32()?])
     }

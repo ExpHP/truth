@@ -188,8 +188,8 @@ ItemAnmScript: ast::Item = {
 };
 
 ItemMeta: ast::Item = {
-    <keyword:Sp<MetaKeyword>> <ident:Sp<Ident>?> <fields:Sp<MetaBracedFields>>
-        => ast::Item::Meta { keyword, ident, fields },
+    <keyword:Sp<MetaKeyword>> <fields:Sp<MetaBracedFields>>
+        => ast::Item::Meta { keyword, fields },
 };
 
 ItemConstVar: ast::Item = {
@@ -268,7 +268,7 @@ Meta: Meta = {
 };
 
 MetaBracedFields: meta::Fields = {
-    "{" <kvs:SeparatedTrailing<(<Sp<Ident>> ":" <Sp<Meta>>), ",">> "}" =>? {
+    "{" <kvs:SeparatedTrailing<(<Sp<PossiblyNumericIdent>> ":" <Sp<Meta>>), ",">> "}" =>? {
         let mut map = indexmap::IndexMap::with_capacity(kvs.len());
         for (key, value) in kvs {
             let new_key_span = key.span;
@@ -277,13 +277,18 @@ MetaBracedFields: meta::Fields = {
                 indexmap::map::Entry::Occupied(entry) => return Err(error!(
                     message("duplicate metadata field '{}'", entry.key()),
                     primary(new_key_span, "duplicate key"),
-                    // FIXME: OccupiedEntry::key currently gives the new key so we can't do this
-                    // secondary(entry.key().span, "previously supplied here"),
+                    secondary(entry.key().span, "previously supplied here"),
                 ).into()),
             }
         }
         Ok(map)
     },
+};
+
+#[inline]
+PossiblyNumericIdent: Ident = {
+    <x:LitIntUnsigned> => x.to_string().parse().expect("cannot fail"),
+    <x:Ident> => x,
 };
 
 // ==================================================
@@ -794,6 +799,8 @@ IdentStr: &'input str = {
     <s: "ecli"> => s.as_str(),
     <s: "timeline"> => s.as_str(),
     <s: "script"> => s.as_str(),
+    <s: "default"> => s.as_str(),
+    <s: "case"> => s.as_str(),
 };
 
 RawInsIdent: u16 = {

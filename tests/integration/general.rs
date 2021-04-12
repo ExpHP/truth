@@ -195,6 +195,22 @@ source_test!(
 );
 
 source_test!(
+    STD_08, interrupt_new_lines,
+    // This tests that a user provided @mask overrides the one that gets automatically computed.
+    main_body: r#"
+        interrupt[1]:
+        posKeyframe(0.0, 0.0, 0.0);
+        interrupt[2]:
+        interrupt[3]:
+        posKeyframe(0.0, 0.0, 0.0);
+    "#,
+    sbsb: |decompiled| {
+        // test for blank line before interrupt[2] but NOT before interrupt[3]
+        assert!(decompiled.contains("\n\ninterrupt[2]:\ninterrupt[3]:\n"), "{:?}", decompiled);
+    },
+);
+
+source_test!(
     STD_08, arg_count_range,
     main_body: r#"
         ins_2();

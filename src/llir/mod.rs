@@ -127,10 +127,15 @@ fn unsupported(span: &crate::pos::Span, what: &str) -> Diagnostic {
 
 /// Reads the instructions of a complete script, attaching useful information on errors.
 ///
-/// Though it primarily uses the `None` output of [`InstrFormat::read_instr`] to determine when to stop reading
-/// instructions, it also may be given an end offset. This will cause it to stop with a warning if it lands on this
-/// offset without receiving a `None` result, or to fail outright if it goes past this offset.  This enables the
-/// reading of TH095's `front.anm`, which contains the only ANM scripts in existence to have no end marker.  *Sigh.*
+/// The tricky part here is determining the end of the script.  All scripting languages
+/// have a dummy "terminal instruction" that is inserted after the end of each script,
+/// but sometimes this instruction is indistinguishable from legitimate code.
+/// In this case, the function must be given an "end offset" or may be read to EoF.
+///
+/// (there's also the evil case of TH095's `front.anm`, which contains the only ANM scripts
+/// in existence to have no terminal instruction.)
+///
+/// More details can be found in the documentation of [`ReadInstr`].
 #[inline(never)]
 pub fn read_instrs(
     r: &mut BinReader,
@@ -139,33 +144,67 @@ pub fn read_instrs(
     starting_offset: u64,
     end_offset: Option<u64>,
 ) -> ReadResult<Vec<RawInstr>> {
-    let mut script = vec![];
-    let mut offset = starting_offset;
+    let mut possible_terminal = None;
+    let mut cur_offset = starting_offset;
+    let mut instrs = vec![];
+
+    // this has to be checked in two places (because detecting EoF requires us to make a read attempt,
+    // but we don't want to read if we're at end_offset)
+    let warn_missing_end_of_script = || {
+        emitter.emit(warning!("missing end-of-script marker will be added on recompilation")).ignore()
+    };
+
     for index in 0.. {
-        let instr = emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
+        if let Some(end_offset) = end_offset {
+            match cur_offset.cmp(&end_offset) {
+                std::cmp::Ordering::Less => {},
+                std::cmp::Ordering::Equal => {
+                    if possible_terminal.is_none() {
+                        warn_missing_end_of_script();
+                    }
+                    break;
+                },
+                std::cmp::Ordering::Greater => {
+                    return Err(emitter.emit(error!(
+                        "script read past expected end at offset {:#x} (we're now at offset {:#x}!)",
+                        end_offset, cur_offset,
+                    )));
+                },
+            }
+        }
+
+        let instr_kind = emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
             format.read_instr(r, emitter)
         })?;
-        if let Some(instr) = instr {
-            offset += format.instr_size(&instr) as u64;
-            script.push(instr);
 
-            if let Some(end_offset) = end_offset {
-                match offset.cmp(&end_offset) {
-                    std::cmp::Ordering::Less => {},
-                    std::cmp::Ordering::Equal => {
-                        emitter.emit(warning!("missing end-of-script marker will be added on recompilation")).ignore();
-                        break;
-                    },
-                    std::cmp::Ordering::Greater => {
-                        return Err(emitter.emit(error!("script read past expected end at offset {:#x} (we're now at offset {:#x}!)", end_offset, offset)));
-                    },
+        let is_maybe_terminal = matches!(instr_kind, ReadInstr::MaybeTerminal(_));
+        match instr_kind {
+            ReadInstr::EndOfFile => {
+                if possible_terminal.is_none() {
+                    warn_missing_end_of_script();
                 }
-            }
-        } else {
-            break;  // no more instructions
+                break;
+            },
+
+            ReadInstr::MaybeTerminal(instr) |
+            ReadInstr::Instr(instr) => {
+                if let Some(prev_instr) = possible_terminal.take() {
+                    // since we read another instr, this previous one wasn't the terminal
+                    instrs.push(prev_instr);
+                }
+                cur_offset += format.instr_size(&instr) as u64;
+
+                if is_maybe_terminal {
+                    possible_terminal = Some(instr);
+                } else {
+                    instrs.push(instr);
+                }
+            },
+
+            ReadInstr::Terminal => break,
         }
     }
-    Ok(script)
+    Ok(instrs)
 }
 
 /// Writes the instructions of a complete script, attaching useful information on errors.
@@ -291,6 +330,32 @@ pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u1
     }
 }
 
+#[derive(Debug)]
+pub enum ReadInstr {
+    /// A regular instruction was read that belongs in the script.
+    Instr(RawInstr),
+    /// A terminal instruction was read.  This is a dummy instruction at the end of every script
+    /// that can be easily distinguished from real instructions, due to e.g. an opcode of -1
+    /// or similar.
+    ///
+    /// When this is returned, the read cursor may be left in an indeterminate state.
+    Terminal,
+    /// In some formats, the terminal instruction is indistinguishable from a real instruction.
+    /// (e.g. it is all zeros).  In that case, this variant is returned instead of [`Self::Terminal`].
+    ///
+    /// The script reader will only consider this to be the terminal instruction if it ends at
+    /// the expected "script end offset" (or if it is followed by [`Self::EoF`]).
+    MaybeTerminal(RawInstr),
+    /// No instruction was read because we are at EOF.
+    ///
+    /// (This is only for EOF at the *beginning* of an instruction; EOF in the middle of an
+    /// instruction should report `Err` instead.)
+    ///
+    /// Implementations of [`InstrFormat::read_instr`] are only required to report this if they
+    /// use [`Self::MaybeTerminal`].  Otherwise, it is preferred to return `Err`.
+    EndOfFile,
+}
+
 pub trait InstrFormat {
     fn intrinsic_instrs(&self) -> IntrinsicInstrs {
         IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
@@ -301,11 +366,8 @@ pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).
     fn instr_header_size(&self) -> usize;
 
-    /// Read a single script instruction from an input stream.
-    ///
-    /// Should return `None` when it reaches the marker that indicates the end of the script.
-    /// When this occurs, it may leave the `Cursor` in an indeterminate state.
-    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<Option<RawInstr>>;
+    /// Read a single script instruction from an input stream, which may be a terminal instruction.
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr>;
 
     /// Write a single script instruction into an output stream.
     fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult;
@@ -363,7 +425,7 @@ impl InstrFormat for TestFormat {
     }
 
     fn instr_header_size(&self) -> usize { 4 }
-    fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
@@ -377,5 +439,161 @@ impl InstrFormat for TestFormat {
             ScalarType::Float => self.general_use_float_regs.clone(),
             ScalarType::String => vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod test_reader {
+    #![allow(non_snake_case)]
+    use super::*;
+    use crate::error::ErrorReported;
+
+    struct SimpleInstrReader {
+        iter: std::cell::RefCell<std::vec::IntoIter<ReadInstr>>
+    }
+
+    impl SimpleInstrReader {
+        fn new(vec: Vec<ReadInstr>) -> Self {
+            SimpleInstrReader { iter: std::cell::RefCell::new(vec.into_iter()) }
+        }
+    }
+
+    impl InstrFormat for SimpleInstrReader {
+        fn instr_header_size(&self) -> usize { 0x10 }
+        fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
+            Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))
+        }
+        fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> { vec![] }
+        fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("SimpleInstrReader does not implement reading or writing") }
+        fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("SimpleInstrReader does not implement reading or writing")  }
+    }
+
+    fn simple_instr(opcode: u16) -> RawInstr {
+        RawInstr { opcode, time: 0, param_mask: 0, args_blob: vec![] }
+    }
+
+    struct TestInput {
+        instrs: Vec<ReadInstr>,
+        end_offset: Option<u64>,
+    }
+
+    #[derive(Debug)]
+    struct SuccessfulOutput {
+        output: Vec<RawInstr>,
+        warnings: String,
+    }
+
+    impl TestInput {
+        fn run(self) -> Result<SuccessfulOutput, String> {
+            let mut scope = crate::Builder::new().capture_diagnostics(true).build();
+            let mut truth = scope.truth();
+            let ctx = truth.ctx();
+            let result = read_instrs(
+                &mut BinReader::from_reader(ctx.emitter, "unused", std::io::empty()),
+                ctx.emitter,
+                &SimpleInstrReader::new(self.instrs),
+                0x100, // starting_offset
+                self.end_offset, // end_offset
+            );
+            let diagnostic_str = truth.get_captured_diagnostics().unwrap();
+            match result {
+                Err(ErrorReported) => Err(diagnostic_str),
+                Ok(output) => Ok(SuccessfulOutput { output, warnings: diagnostic_str }),
+            }
+        }
+    }
+
+    #[test]
+    fn terminal() {
+        let results = TestInput {
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::Instr(simple_instr(1)),
+                ReadInstr::Terminal,
+            ],
+            end_offset: None,
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=1).map(simple_instr).collect::<Vec<_>>());
+        assert_eq!(results.warnings, String::new());
+    }
+
+    #[test]
+    fn maybe_terminal__eof() {
+        let results = TestInput {
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::MaybeTerminal(simple_instr(1)),
+                ReadInstr::Instr(simple_instr(2)),
+                ReadInstr::MaybeTerminal(simple_instr(3)),
+                ReadInstr::MaybeTerminal(simple_instr(4)),  // not included in output
+                ReadInstr::EndOfFile,
+            ],
+            end_offset: None,
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=3).map(simple_instr).collect::<Vec<_>>());
+        assert_eq!(results.warnings, String::new());
+    }
+
+    #[test]
+    fn maybe_terminal__end_offset() {
+        let results = TestInput {
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::MaybeTerminal(simple_instr(1)),
+                ReadInstr::Instr(simple_instr(2)),
+                ReadInstr::MaybeTerminal(simple_instr(3)),
+                ReadInstr::MaybeTerminal(simple_instr(4)),  // not included in output
+                // vec ends here to deliberately panic if an extra read attempt is made
+            ],
+            end_offset: Some(0x150),
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=3).map(simple_instr).collect::<Vec<_>>());
+        assert_eq!(results.warnings, String::new());
+    }
+
+    #[test]
+    fn missing_end_of_script__end_offset() {
+        let results = TestInput {
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::MaybeTerminal(simple_instr(1)),
+                ReadInstr::Instr(simple_instr(2)),
+                // vec ends here to deliberately panic if an extra read attempt is made
+            ],
+            end_offset: Some(0x130),
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=2).map(simple_instr).collect::<Vec<_>>());
+        assert!(results.warnings.contains("missing end-of-script"), "{}", results.warnings);
+    }
+
+    #[test]
+    fn missing_end_of_script__eof() {
+        let results = TestInput {
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::MaybeTerminal(simple_instr(1)),
+                ReadInstr::Instr(simple_instr(2)),
+                ReadInstr::EndOfFile,
+            ],
+            end_offset: None,
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=2).map(simple_instr).collect::<Vec<_>>());
+        assert!(results.warnings.contains("missing end-of-script"), "{}", results.warnings);
+    }
+
+    #[test]
+    fn invalid_end_of_script() {
+        let stderr = TestInput {
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::MaybeTerminal(simple_instr(1)),
+                ReadInstr::Instr(simple_instr(2)),
+                ReadInstr::MaybeTerminal(simple_instr(3)),
+                ReadInstr::MaybeTerminal(simple_instr(4)),
+                ReadInstr::EndOfFile,
+            ],
+            end_offset: Some(0x134),
+        }.run().unwrap_err();
+        assert!(stderr.contains("read past"));
     }
 }

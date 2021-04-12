@@ -47,6 +47,7 @@ macro_rules! string_enum {
 /// because the latter would have an impact on equality tests.
 pub type TokenSpan = Sp<()>;
 
+// FIXME: rename to File or ScriptFile. Script leads to confusion with `script`.
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Script {
@@ -73,7 +74,6 @@ pub enum Item {
     },
     Meta {
         keyword: Sp<MetaKeyword>,
-        ident: Option<Sp<Ident>>,
         fields: Sp<meta::Fields>,
     },
     ConstVar {
@@ -762,7 +762,7 @@ macro_rules! generate_visitor_stuff {
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
-                Item::Meta { keyword: _, ident: _, fields } => {
+                Item::Meta { keyword: _, fields } => {
                     walk_meta_fields(v, fields);
                 },
                 Item::ConstVar { ty_keyword: _, vars } => {

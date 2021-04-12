@@ -4,7 +4,18 @@ expression: s
 ---
 #pragma mapfile "map/any.msgm"
 
-script 0 main {
+meta {
+    table: {
+        0: {script: "script0"},
+        1: {script: "script1"},
+        10: {script: "script10"},
+        11: {script: "script11"},
+        default: {script: "script0"},
+    },
+}
+
+
+script script0 {
     enter(0, 0);
     face(0, 0);
     anmInterrupt(0, 1);
@@ -13,20 +24,20 @@ script 0 main {
 }
 
 
-script 1 main {
+script script1 {
     enter(0, 0);
     stop();
 }
 
 
-script 10 main {
+script script10 {
     enter(0, 0);
     face(0, 0);
     anmInterrupt(0, 1);
 }
 
 
-script 11 main {
+script script11 {
     enter(0, 0);
     anmInterrupt(0, 1);
 }

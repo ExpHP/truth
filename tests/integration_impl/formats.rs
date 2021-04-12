@@ -89,7 +89,7 @@ pub const STD_08: Format = Format {
 pub const STD_12: Format = Format {
     cmd: "trustd",
     game: Game::Th12,
-    script_head: STD_06.script_head,
+    script_head: STD_06.script_head,  // FIXME: this is wrong, it should have anm_path
     make_main: STD_06.make_main,
 };
 
@@ -98,6 +98,12 @@ pub const MSG_06: Format = Format {
     game: Game::Th06,
     script_head: r#"
 #pragma mapfile "map/any.msgm"
+
+meta {
+    table: {
+        0: {script: "script0"},
+    }
+}
 "#,
     make_main: |body| format!(r#"
 script main {{

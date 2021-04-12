@@ -11,7 +11,7 @@ use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
-use crate::llir::{self, RawInstr, InstrFormat, IntrinsicInstrKind};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType};
@@ -224,7 +224,6 @@ fn decompile(
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
-            ident: None,
             fields: sp!(entry.make_meta()),
         }));
 
@@ -1091,16 +1090,23 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 4 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
-        let time = f.read_i16()? as i32;
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
+        let time = match f.read_i16_or_eof() {
+            Ok(Some(time)) => time as i32,
+            Ok(None) => return Ok(ReadInstr::EndOfFile),
+            Err(e) => return Err(e),
+        };
+
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
-        if (time, opcode, argsize) == (0, 0, 0) {
-            return Ok(None);
-        }
-
         let args_blob = f.read_byte_vec(argsize)?;
-        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        let instr = RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob };
+
+        if (time, opcode, argsize) == (0, 0, 0) {
+            Ok(ReadInstr::MaybeTerminal(instr))
+        } else {
+            Ok(ReadInstr::Instr(instr))
+        }
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
@@ -1196,18 +1202,18 @@ impl InstrFormat for InstrFormat07 {
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<Option<RawInstr>> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
         if opcode == -1 {
-            return Ok(None);
+            return Ok(ReadInstr::Terminal);
         }
 
         let time = f.read_i16()? as i32;
         let param_mask = f.read_u16()?;
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
-        Ok(Some(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
