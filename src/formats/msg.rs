@@ -28,21 +28,21 @@ pub struct MsgFile {
 impl MsgFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &*game_format(game), ctx, decompile_kind)
+        decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
-        compile(&*game_format(game), script, ctx)
+        compile(&game_format(game), script, ctx)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
         let emitter = w.emitter();
-        write_msg(w, &emitter, &*game_format(game), self)
+        write_msg(w, &emitter, &game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
         let emitter = r.emitter();
-        read_msg(r, &emitter, &*game_format(game))
+        read_msg(r, &emitter, &game_format(game))
     }
 }
 
@@ -51,7 +51,7 @@ pub struct ScriptTableEntry {
     /// Offset of script, from beginning of file.
     pub script: Sp<Ident>,
     /// Unknown.  First appears in PoFV.
-    pub flags: u32,
+    pub flags: Sp<u32>,
 }
 
 // =============================================================================
@@ -135,7 +135,7 @@ impl ToMeta for ScriptTableEntry {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
             .field("script", &self.script.value)
-            .field_default("flags", &self.flags, &0)
+            .field_default("flags", &self.flags.value, &0)
             .build()
     }
 }
@@ -145,7 +145,7 @@ impl FromMeta<'_> for ScriptTableEntry {
         meta.parse_object(|m| {
             Ok(ScriptTableEntry {
                 script: m.expect_field("script")?,
-                flags: m.get_field("flags")?.unwrap_or(0),
+                flags: m.get_field("flags")?.unwrap_or(sp!(meta.span => 0)),
             })
         })
     }
@@ -156,10 +156,12 @@ impl FromMeta<'_> for ScriptTableEntry {
 fn decompile(
     msg: &MsgFile,
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
+    format: &FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
 ) -> Result<ast::Script, ErrorReported> {
+    let instr_format = &*format.instr_format();
+
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
     let mut raiser = llir::Raiser::new(&ctx.emitter);
@@ -230,10 +232,11 @@ fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32>
 // =============================================================================
 
 fn compile(
-    instr_format: &dyn InstrFormat,
+    format: &FileFormat,
     ast: &ast::Script,
     ctx: &mut CompilerContext,
 ) -> Result<MsgFile, ErrorReported> {
+    let instr_format = &*format.instr_format();
     let ast = {
         let mut ast = ast.clone();
 
@@ -357,16 +360,24 @@ fn sparse_table_implicit_len(table: &IndexMap<Sp<u32>, ScriptTableEntry>) -> u32
 fn read_msg(
     reader: &mut BinReader,
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
+    format: &FileFormat,
 ) -> ReadResult<MsgFile> {
+    let instr_format = &*format.instr_format();
+
     let start_pos = reader.pos()?;
 
     let script_table_len = reader.read_u32()?;
     let script_table = {
-        (0..script_table_len).map(|_| Ok(RawScriptTableEntry {
-            offset: reader.read_u32()? as u64,
-            flags: 0,
-        })).collect::<ReadResult<Vec<_>>>()?
+        (0..script_table_len).map(|_| {
+            Ok(RawScriptTableEntry {
+                offset: reader.read_u32()? as u64,
+                flags: if format.table_has_flags() {
+                    reader.read_u32()?
+                } else {
+                    0
+                },
+            })
+        }).collect::<ReadResult<Vec<_>>>()?
     };
 
     // The script offset table tends to look like
@@ -393,7 +404,7 @@ fn read_msg(
     }).collect_with_recovery()?;
 
     let script_table = script_table.into_iter().map(|RawScriptTableEntry { offset, flags }| {
-        ScriptTableEntry { script: sp!(script_names[&offset].clone()), flags }
+        ScriptTableEntry { script: sp!(script_names[&offset].clone()), flags: sp!(flags) }
     }).collect();
 
     let binary_filename = Some(reader.display_filename().to_owned());
@@ -432,9 +443,11 @@ fn get_first_indices<T: Eq + Ord + Clone>(items: impl IntoIterator<Item=T>) -> V
 fn write_msg(
     w: &mut BinWriter,
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
+    format: &FileFormat,
     msg: &MsgFile,
 ) -> WriteResult {
+    let instr_format = &*format.instr_format();
+
     let start_pos = w.pos()?;
 
     w.write_u32(msg.dense_table.len() as _)?;
@@ -442,6 +455,9 @@ fn write_msg(
     let script_offsets_pos = w.pos()?;
     for _ in 0..msg.dense_table.len() {
         w.write_u32(0)?;
+        if format.table_has_flags() {
+            w.write_u32(0)?;
+        }
     }
 
     let mut script_offsets = BTreeMap::new();
@@ -465,7 +481,18 @@ fn write_msg(
                 primary(entry.script, "no such script"),
             ))
         })?;
+
         w.write_u32(script_offset as u32)?;
+        if format.table_has_flags() {
+            w.write_u32(entry.flags.value)?;
+        } else {
+            if entry.flags != 0 {
+                emitter.emit(warning!(
+                    message("script flags are not supported in this game"),
+                    primary(entry.flags, "has no effect in games before TH09"),
+                )).ignore();
+            }
+        }
     }
     w.seek_to(end_pos)?;
     Ok(())
@@ -473,13 +500,8 @@ fn write_msg(
 
 // =============================================================================
 
-fn game_format(game: Game) -> Box<dyn InstrFormat> {
-    match game {
-        | Game::Th06 | Game::Th07 | Game::Th08
-        => Box::new(InstrFormat06),
-
-        _ => unimplemented!("msg InstrFormat"),
-    }
+fn game_format(game: Game) -> FileFormat {
+    FileFormat { game }
 }
 
 pub fn game_core_mapfile(game: Game) -> &'static str {
@@ -490,11 +512,42 @@ pub fn game_core_mapfile(game: Game) -> &'static str {
         | Game::Th08
         => include_str!("../../map/core/th08.msgm"),
 
-        _ => unimplemented!("msg mapfiles"),
+        | Game::Th09 | Game::Th10 | Game::Alcostg
+        | Game::Th11 | Game::Th12 | Game::Th128 | Game::Th13
+        | Game::Th14 | Game::Th143 | Game::Th15
+        | Game::Th16 | Game::Th165 | Game::Th17
+        => include_str!("../../map/core/empty.msgm"),
+
+        | Game::Th095 | Game::Th125
+        => include_str!("../../map/core/empty.msgm"),
     }
 }
 
 // =============================================================================
+
+struct FileFormat {
+    game: Game,
+}
+
+impl FileFormat {
+    fn table_has_flags(&self) -> bool {
+        self.game >= Game::Th09
+    }
+
+    fn instr_format(&self) -> Box<dyn InstrFormat> {
+        match self.game {
+            | Game::Th06 | Game::Th07 | Game::Th08
+            | Game::Th09 | Game::Th10 | Game::Alcostg | Game::Th11
+            | Game::Th12 | Game::Th128 | Game::Th13
+            | Game::Th14 | Game::Th143 | Game::Th15
+            | Game::Th16 | Game::Th165 | Game::Th17
+            => Box::new(InstrFormat06),
+
+            | Game::Th095 | Game::Th125
+            => unimplemented!("game does not have instructions!"),
+        }
+    }
+}
 
 /// MSG format, EoSD.
 struct InstrFormat06;
