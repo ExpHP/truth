@@ -602,22 +602,8 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
     }
 }
 
-pub fn game_core_mapfile(game: Game) -> &'static str {
-    match game {
-        Game::Th06
-            => include_str!("../../map/core/th06.stdm"),
-
-        Game::Th07 | Game::Th08 | Game::Th09
-            => include_str!("../../map/core/th07.stdm"),
-
-        Game::Th095 | Game::Th10 | Game::Alcostg | Game::Th11 |
-        Game::Th12 | Game::Th125 | Game::Th128 | Game::Th13
-            => include_str!("../../map/core/th095.stdm"),
-
-        Game::Th14 | Game::Th143 | Game::Th15 | Game::Th16 |
-        Game::Th165 | Game::Th17
-            => include_str!("../../map/core/th14.stdm"),
-    }
+pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
+    super::core_mapfiles::std::core_signatures(game).to_mapfile(game)
 }
 
 // =============================================================================

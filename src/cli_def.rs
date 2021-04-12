@@ -411,9 +411,9 @@ fn load_mapfiles(
     truth: &mut Truth,
     game: Game,
     mapfile_arg: Option<PathBuf>,
-    core_mapfile_source: &str,
+    core_mapfile: crate::Eclmap,
 ) -> Result<(), ErrorReported> {
-    truth.load_mapfile(core_mapfile_source).expect("failed to parse core mapfile!?");
+    truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
         truth.read_mapfile_and_record(&mapfile_arg, Some(game))?;

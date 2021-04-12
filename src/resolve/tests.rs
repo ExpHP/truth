@@ -55,7 +55,7 @@ macro_rules! test {
 }
 
 fn resolve<A: ast::Visitable + Parse>(truth: &mut Truth, text: &str) -> Result<A, String> {
-    truth.load_mapfile(ECLMAP).unwrap();
+    truth.apply_mapfile_str(ECLMAP).unwrap();
 
     let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
 
@@ -532,7 +532,7 @@ test!(
 fn panics_on_cloned_res() {
     let mut scope = crate::Builder::new().build();
     let mut truth = scope.truth();
-    truth.load_mapfile(ECLMAP).unwrap();
+    truth.apply_mapfile_str(ECLMAP).unwrap();
 
     let mut def = truth.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
     let mut cloned = truth.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();

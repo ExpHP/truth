@@ -151,7 +151,7 @@ source_test!(
 // =============================================================================
 
 source_test!(
-    ANM_10, if_elseif_else,
+    ANM_12, if_elseif_else,
     main_body: r#"
         $I0 = RAND % 3;
         if (I0 != 0) goto not0;
@@ -178,7 +178,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_else_refcount_gt_1,
+    ANM_12, if_else_refcount_gt_1,
     // this one can't be fully decompiled to an if-else chain because one of the labels that would have
     // to be deleted is referenced somewhere else
     main_body: r#"
@@ -200,7 +200,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_decrement,
+    ANM_12, if_elseif_decrement,
     main_body: r#"
         I0 = RAND % 3;
         I0 = I0 + 1;
@@ -221,7 +221,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_time_1,
+    ANM_12, if_elseif_time_1,
     // This mismatched jump time should prevent if-else chain decompilation
     // (on an if jump)
     main_body: r#"
@@ -243,7 +243,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_time_2,
+    ANM_12, if_elseif_time_2,
     // This mismatched jump time should prevent if-else chain decompilation
     // (on an unconditional jump-to-end)
     main_body: r#"
@@ -265,7 +265,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_time_impossible_1,
+    ANM_12, if_elseif_time_impossible_1,
     // This has a time label change in a place where it is impossible to put
     // one in the decompiled 'if-else if' structure.
     main_body: r#"
@@ -288,7 +288,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_time_sorta_possible,
+    ANM_12, if_elseif_time_sorta_possible,
     // this one can technically be compiled into
     //
     //     if (I0 == 0) {
@@ -320,7 +320,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_time_impossible_2,
+    ANM_12, if_elseif_time_impossible_2,
     // another impossible spot for the time label change;
     // this one's basically inside the "else" keyword
     main_body: r#"
@@ -343,7 +343,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_time_unimpossible,
+    ANM_12, if_elseif_time_unimpossible,
     // despite the pattern of the last three, this one's actually possible.
     // (the time label change is inside the else block)
     main_body: r#"
@@ -366,7 +366,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_wrong_order,
+    ANM_12, if_elseif_wrong_order,
     // the cases here are not in source order (there's a backwards jump),
     // so they should be at least partially prevented from decompiling.
     main_body: r#"
@@ -392,7 +392,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, if_elseif_end_before,
+    ANM_12, if_elseif_end_before,
     // end before the rest.  This should prevent decompilation.
     main_body: r#"
     end:
@@ -414,7 +414,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, goto_different_ends,
+    ANM_12, goto_different_ends,
     main_body: r#"
         $I0 = RAND % 3;
         if (I0 != 0) goto not0;
@@ -436,7 +436,7 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, cond_jump_to_end,
+    ANM_12, cond_jump_to_end,
     // this has a conditional jump to the end.  shenanigans!
     main_body: r#"
         $I0 = RAND % 3;

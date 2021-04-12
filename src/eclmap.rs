@@ -8,8 +8,8 @@ use crate::ident::Ident;
 use crate::io::Fs;
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 
+#[derive(Debug, Default)]
 pub struct Eclmap {
-    pub magic: Magic,
     pub ins_names: BTreeMap<i32, Ident>,
     pub ins_signatures: BTreeMap<i32, String>,
     pub ins_rets: BTreeMap<i32, String>,
@@ -20,6 +20,10 @@ pub struct Eclmap {
 }
 
 impl Eclmap {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>, root_emitter: &RootEmitter) -> Result<Self, ErrorReported> {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
         let path = path.as_ref();
@@ -91,13 +95,13 @@ impl Eclmap {
 
     fn from_seqmap(seqmap: SeqMap, emitter: &impl Emitter) -> Result<Eclmap, ErrorReported> {
         let SeqMap { magic, mut maps } = seqmap;
-        let magic = match &magic[..] {
-            "!eclmap" => Magic::Eclmap,
-            "!anmmap" => Magic::Anmmap,
-            "!stdmap" => Magic::Stdmap,
-            "!msgmap" => Magic::Stdmap,
+        match &magic[..] {
+            "!eclmap" => {},
+            "!anmmap" => {},
+            "!stdmap" => {},
+            "!msgmap" => {},
             _ => return Err(emitter.emit(error!("bad magic: {:?}", magic))),
-        };
+        }
 
         let mut pop_map = |section: &str| maps.remove(section).unwrap_or_else(BTreeMap::new);
         let parse_idents = |section: &str, m: BTreeMap<i32, String>| -> Result<BTreeMap<i32, Ident>, ErrorReported> {
@@ -113,7 +117,6 @@ impl Eclmap {
         }
 
         let out = Eclmap {
-            magic,
             ins_names: pop_ident_map!("ins_names")?,
             ins_signatures: pop_map("ins_signatures"),
             ins_rets: pop_map("ins_rets"),
@@ -133,12 +136,6 @@ impl Eclmap {
 lazy_static! {
     static ref SEQMAP_START_RE: Regex = Regex::new(r"^!([_a-zA-Z][_a-zA-Z0-9]*)$").unwrap();
     static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s*(\S*)$").unwrap();
-}
-
-pub enum Magic {
-    Anmmap,
-    Eclmap,
-    Stdmap,
 }
 
 struct SeqMap {

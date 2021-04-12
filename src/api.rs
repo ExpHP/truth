@@ -69,9 +69,12 @@ impl Truth<'_> {
 
 /// # Reading text files
 impl Truth<'_> {
-    pub fn load_mapfile(&mut self, text: &str) -> Result<(), ErrorReported> {
-        let eclmap = crate::Eclmap::parse(text, &self.ctx.emitter)?;
-        self.ctx.extend_from_eclmap(None, &eclmap)
+    pub fn apply_mapfile_str(&mut self, text: &str) -> Result<(), ErrorReported> {
+        self.apply_mapfile(&crate::Eclmap::parse(text, &self.ctx.emitter)?)
+    }
+
+    pub fn apply_mapfile(&mut self, mapfile: &crate::Eclmap) -> Result<(), ErrorReported> {
+        self.ctx.extend_from_eclmap(None, &mapfile)
     }
 
     pub fn read_mapfile_and_record(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {

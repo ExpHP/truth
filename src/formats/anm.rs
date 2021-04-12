@@ -925,15 +925,8 @@ fn game_format(game: Game) -> FileFormat {
     FileFormat { version, instr_format }
 }
 
-pub fn game_core_mapfile(game: Game) -> &'static str {
-    match Version::from_game(game) {
-        Version::V0 => include_str!("../../map/core/v0.anmm"),
-        Version::V2 => include_str!("../../map/core/v2.anmm"),
-        Version::V3 => include_str!("../../map/core/v3.anmm"),
-        Version::V4 |
-        Version::V7 => include_str!("../../map/core/v4.anmm"),
-        Version::V8 => include_str!("../../map/core/v8.anmm"),
-    }
+pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
+    super::core_mapfiles::anm::core_signatures(game).to_mapfile(game)
 }
 
 /// Type responsible for dealing with version differences in the format.
