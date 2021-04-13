@@ -5,9 +5,20 @@ use crate::ast;
 use crate::meta;
 use crate::pos::{Sp, Span};
 
-lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
-lalrpop_mod!(pub abi, "/parse/abi.rs");
 mod lalrparser_util;
+
+lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
+
+pub mod abi {
+    use super::*;
+    lalrpop_mod!(generated, "/parse/abi.rs");
+
+    // AbiParser uses lalrpop's default lexer, which apparently takes an ABSURD amount
+    // of time to construct.  Cache it.
+    lazy_static::lazy_static! {
+        pub(crate) static ref PARSER: generated::AbiParser = generated::AbiParser::new();
+    }
+}
 
 use lexer::{Lexer, Token};
 pub mod lexer;

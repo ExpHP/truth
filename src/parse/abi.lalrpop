@@ -8,9 +8,9 @@ extern {
     type Error = std::num::ParseIntError;
 }
 
-pub Abi = <Token*>;
+pub(crate) Abi = <ArgEncoding*>;
 
-Token: ArgEncoding = {
+ArgEncoding: ArgEncoding = {
     "S" => ArgEncoding::Dword,
     "s" => ArgEncoding::Word,
     "C" => ArgEncoding::Color,

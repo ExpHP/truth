@@ -98,7 +98,7 @@ impl InstrAbi {
 
     pub fn parse(s: &str, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
         InstrAbi::from_encodings({
-            crate::parse::abi::AbiParser::new().parse(emitter, s)
+            crate::parse::abi::PARSER.parse(emitter, s)
                 .map_err(|e| emitter.as_sized().emit(error!("{}", e)))?
         }).map_err(|e| emitter.as_sized().emit(e))
     }
