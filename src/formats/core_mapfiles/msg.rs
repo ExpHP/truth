@@ -25,12 +25,12 @@ static MSG: &CoreSignatures = &CoreSignatures {
         (Th06, 0, ""),
         (Th06, 1, "ss"),
         (Th06, 2, "ss"),  // note: 2nd word is technically an anm sprite
-        (Th06, 3, "ssz"),
+        (Th06, 3, "ssz(bs=4)"),
         (Th06, 4, "S"),
         (Th06, 5, "ss"),
         (Th06, 6, ""),
         (Th06, 7, "S"),
-        (Th06, 8, "ssz"),
+        (Th06, 8, "ssz(bs=4)"),
         (Th06, 9, "S"),  // arg looks unused
         (Th06, 10, ""),
         (Th06, 11, ""),
@@ -39,14 +39,14 @@ static MSG: &CoreSignatures = &CoreSignatures {
 
         (Th07, 14, ""),
 
-        (Th08, 3, "ssm"),
-        (Th08, 8, "ssm"),
+        (Th08, 3, "ssm(bs=4;mask=0x77,0,0)"),
+        (Th08, 8, "ssm(bs=4;mask=0x77,0,0)"),
         (Th08, 15, "SSSSS"),  // SnSSS
-        (Th08, 16, "m"),
+        (Th08, 16, "m(bs=4;mask=0x77,0,0)"),
         (Th08, 17, "SS"),  // Sn
         (Th08, 18, "S"),
-        (Th08, 19, "m"),
-        (Th08, 20, "m"),
+        (Th08, 19, "m(bs=4;mask=0x77,0,0)"),
+        (Th08, 20, "m(bs=4;mask=0x77,0,0)"),
         (Th08, 21, "S"),
         (Th08, 22, ""),
 
@@ -57,8 +57,12 @@ static MSG: &CoreSignatures = &CoreSignatures {
         //
         //        I'll reverse MSG in these games at some point...  - ExpHP
 
+        (Th09, 3, "ssm(bs=4;mask=0x77,7,16)"),
         (Th09, 8, ""),
         (Th09, 15, "SSS"),
+        (Th09, 16, "m(bs=4;mask=0x77,7,16)"),
+        (Th09, 18, "m(bs=4;mask=0x77,7,16)"),
+        (Th09, 19, "m(bs=4;mask=0x77,7,16)"),
         (Th09, 23, "S"),
         (Th09, 24, ""),
         (Th09, 25, ""),
@@ -76,7 +80,7 @@ static MSG: &CoreSignatures = &CoreSignatures {
         (Th10, 10, "S"),
         (Th10, 12, "S"),
         (Th10, 14, "S"),
-        (Th10, 17, "m"),
+        (Th10, 17, "m(bs=4;mask=0x77,7,16)"),
         (Th10, 18, ""),
         (Th10, 19, ""),
         (Th10, 20, ""),

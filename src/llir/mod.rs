@@ -9,7 +9,7 @@ use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
 
-pub use abi::{InstrAbi, ArgEncoding};
+pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask};
 mod abi;
 
 pub use lower::lower_sub_ast_to_instrs;

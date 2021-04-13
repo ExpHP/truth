@@ -1,4 +1,5 @@
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, Emitter};
+use crate::error::ErrorReported;
 use crate::context::{CompilerContext, defs};
 use crate::value::{self, ScalarType};
 
@@ -46,18 +47,39 @@ pub enum ArgEncoding {
     Script,
     /// `n` in mapfile. Dword index of an anm sprite.  When decompiled, prefers to use the name of that sprite.
     Sprite,
-    /// `z` or `m` in mapfile.
+    /// `z(bs=<int>)` or `m(bs=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
     /// A null-terminated string argument which must be the last argument in the signature and
-    /// consists of all remaining bytes. When written, it is padded to a multiple of `block_size`
+    /// consists of all remaining bytes. When written, it is padded to a multiple of `bs`
     /// bytes.
     ///
-    /// Using `m` results `mask: 0x77`.  This masks the string in the binary file by xor-ing
-    /// every byte (including the null terminator and padding) with the mask.
+    /// The string can be encoded with an accelerating XOR mask. The three integers supplied to
+    /// `mask` are the initial mask value, the initial velocity, and acceleration.
     String {
         block_size: usize,
-        mask: u8,
+        mask: AcceleratingByteMask,
     },
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AcceleratingByteMask { pub mask: u8, pub vel: u8, pub accel: u8 }
+
+impl AcceleratingByteMask {
+    /// Returns a bit mask where every byte has the same mask.
+    pub fn constant(mask: u8) -> Self {
+        AcceleratingByteMask { mask, vel: 0, accel: 0 }
+    }
+}
+
+impl Iterator for AcceleratingByteMask {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.mask;
+        self.mask = u8::wrapping_add(self.mask, self.vel);
+        self.vel = u8::wrapping_add(self.vel, self.accel);
+        Some(value)
+    }
 }
 
 impl InstrAbi {
@@ -72,6 +94,13 @@ impl InstrAbi {
 
     pub fn create_signature(&self, ctx: &mut CompilerContext) -> defs::Signature {
         abi_to_signature(self, ctx)
+    }
+
+    pub fn parse(s: &str, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
+        InstrAbi::from_encodings({
+            crate::parse::abi::AbiParser::new().parse(emitter, s)
+                .map_err(|e| emitter.as_sized().emit(error!("{}", e)))?
+        }).map_err(|e| emitter.as_sized().emit(e))
     }
 }
 
@@ -124,35 +153,6 @@ fn validate(encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-impl std::str::FromStr for InstrAbi {
-    type Err = Diagnostic;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut iter = s.bytes().peekable();
-
-        let mut encodings = vec![];
-        while let Some(b) = iter.next() {
-            let enc = match b {
-                b'S' => ArgEncoding::Dword,
-                b's' => ArgEncoding::Word,
-                b'C' => ArgEncoding::Color,
-                b'o' => ArgEncoding::JumpOffset,
-                b't' => ArgEncoding::JumpTime,
-                b'f' => ArgEncoding::Float,
-                b'_' => ArgEncoding::Padding,
-                b'n' => ArgEncoding::Sprite,
-                b'N' => ArgEncoding::Script,
-                b'z' => ArgEncoding::String { block_size: 4, mask: 0 },
-                b'm' => ArgEncoding::String { block_size: 4, mask: 0x77 },
-                0x80..=0xff => return Err(error!("non-ascii byte in signature: {:#04x}", b)),
-                _ => return Err(error!("bad signature character: {:?}", b as char))
-            };
-            encodings.push(enc);
-        }
-        InstrAbi::from_encodings(encodings)
-    }
-}
-
 fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Signature {
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
@@ -185,32 +185,36 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
     }
 }
 
-#[test]
-fn test_parse() {
-    let parse = <str>::parse::<InstrAbi>;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(vec![Enc::Dword, Enc::Dword, Enc::Float]).unwrap());
-}
+    fn parse(s: &str) -> Result<InstrAbi, ErrorReported> {
+        let emitter = crate::diagnostic::RootEmitter::new_captured();
+        InstrAbi::parse(s, &emitter)
+    }
 
-#[test]
-fn offset_time_restrictions() {
-    let parse = <str>::parse::<InstrAbi>;
+    #[test]
+    fn test_parse() {
+        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(vec![Enc::Dword, Enc::Dword, Enc::Float]).unwrap());
+    }
 
-    assert!(parse("SSot").is_ok());
-    assert!(parse("SSt").is_err());
-    assert!(parse("SSo").is_ok());
-    assert!(parse("SSoto").is_err());
-    assert!(parse("SSott").is_err());
-}
+    #[test]
+    fn offset_time_restrictions() {
+        assert!(parse("SSot").is_ok());
+        assert!(parse("SSt").is_err());
+        assert!(parse("SSo").is_ok());
+        assert!(parse("SSoto").is_err());
+        assert!(parse("SSott").is_err());
+    }
 
-#[test]
-fn string_must_be_at_end() {
-    let parse = <str>::parse::<InstrAbi>;
-
-    assert!(parse("z").is_ok());
-    assert!(parse("m").is_ok());
-    assert!(parse("SSz").is_ok());
-    assert!(parse("SSm").is_ok());
-    assert!(parse("SzS").is_err());
-    assert!(parse("SmS").is_err());
+    #[test]
+    fn string_must_be_at_end() {
+        assert!(parse("z(bs=4)").is_ok());
+        assert!(parse("m(bs=4;mask=0,0,0)").is_ok());
+        assert!(parse("SSz(bs=4)").is_ok());
+        assert!(parse("SSm(bs=4;mask=0,0,0)").is_ok());
+        assert!(parse("Sz(bs=4)S").is_err());
+        assert!(parse("Sm(bs=4;mask=0,0,0)S").is_err());
+    }
 }

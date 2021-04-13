@@ -390,7 +390,7 @@ impl CompilerContext<'_> {
 
         eclmap.ins_signatures.iter().map(|(&opcode, abi_str)| {
             emitter.chain_with(|f| write!(f, "in signature for opcode {}", opcode), |emitter| {
-                let abi = abi_str.parse().map_err(|e| emitter.emit(e))?;
+                let abi = InstrAbi::parse(abi_str, emitter)?;
                 self.set_ins_abi(opcode as u16, abi);
                 Ok::<_, ErrorReported>(())
             })

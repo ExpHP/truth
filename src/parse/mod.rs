@@ -6,6 +6,7 @@ use crate::meta;
 use crate::pos::{Sp, Span};
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
+lalrpop_mod!(pub abi, "/parse/abi.rs");
 mod lalrparser_util;
 
 use lexer::{Lexer, Token};

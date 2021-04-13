@@ -1,0 +1,4 @@
+!anmmap
+
+!ins_signatures
+1000 z(bs=4)S  # invalid because z can only appear at the end

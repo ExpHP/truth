@@ -351,7 +351,7 @@ fn test_precomputed_string_len() {
     let mut truth = scope.truth();
     let ctx = truth.ctx();
 
-    ctx.set_ins_abi(1, "m".parse().unwrap());
+    ctx.set_ins_abi(1, crate::llir::InstrAbi::parse("m(bs=4;mask=0x77,0,0)", ctx.emitter).unwrap());
 
     let actual = precompute_instr_args_size(&instr, &ctx.defs, &ctx.emitter).unwrap();
     let expected = encode_args(&instr, &ctx.defs, &ctx.emitter).unwrap().args_blob.len();

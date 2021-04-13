@@ -26,6 +26,7 @@ pub struct Encoded(Vec<u8>);
 pub type Encoding = &'static encoding_rs::Encoding;
 
 pub use encoding_rs::SHIFT_JIS as DEFAULT_ENCODING;
+use crate::llir::AcceleratingByteMask;
 
 impl Encoded {
     pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, Diagnostic> {
@@ -301,10 +302,12 @@ pub trait BinRead {
     /// and finally trims trailing nulls.  The returned value may contain interior nulls.
     ///
     /// The returned string will be less than `num_bytes` long due to the trimming of nulls.
-    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: u8) -> Result<Encoded, Self::Err> {
+    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: AcceleratingByteMask) -> Result<Encoded, Self::Err> {
+        // FIXME: I feel like 'mask' should be 'IntoIterator<Item=u8>', but... object safety.
+        //        (maybe we could kill the associated types and move methods onto `dyn BinRead`?)
         let mut out = self.read_byte_vec(num_bytes)?;
-        for byte in &mut out {
-            *byte ^= mask;
+        for (byte, mask_byte) in out.iter_mut().zip(mask) {
+            *byte ^= mask_byte;
         }
         while out.last() == Some(&0) {
             out.pop();
@@ -370,18 +373,18 @@ pub trait BinWrite {
 
     /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`.
     fn write_cstring(&mut self, s: &Encoded, block_size: usize) -> Result<(), Self::Err> {
-        self.write_cstring_masked(s, block_size, 0)
+        self.write_cstring_masked(s, block_size, AcceleratingByteMask::constant(0x00))
     }
 
     /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`,
     /// then xor-ing every byte (including the nulls) with a mask.
-    fn write_cstring_masked(&mut self, s: &Encoded, block_size: usize, mask: u8) -> Result<(), Self::Err> {
+    fn write_cstring_masked(&mut self, s: &Encoded, block_size: usize, mask: AcceleratingByteMask) -> Result<(), Self::Err> {
         let mut to_write = s.0.to_vec();
         let final_len = cstring_num_bytes(to_write.len(), block_size);
         to_write.resize(final_len, 0);
 
-        for byte in &mut to_write {
-            *byte ^= mask;
+        for (byte, mask_byte) in to_write.iter_mut().zip(mask) {
+            *byte ^= mask_byte;
         }
         BinWrite::write_all(self, &to_write)?;
         Ok(())
@@ -479,15 +482,15 @@ fn test_cstring_io() {
 
 #[test]
 fn test_masked_cstring() {
-    fn check(mask: u8, block_size: usize, bytes: &[u8], encoded: Vec<u8>) {
+    fn check(mask: AcceleratingByteMask, block_size: usize, bytes: &[u8], encoded: Vec<u8>) {
         // check writing
         let mut w = std::io::Cursor::new(vec![]);
-        w.write_cstring_masked(&Encoded(bytes.to_vec()), block_size, mask).unwrap();
+        w.write_cstring_masked(&Encoded(bytes.to_vec()), block_size, mask.clone()).unwrap();
         assert_eq!(encoded, w.into_inner());
 
         // check reading
         let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
-        longer_padded.extend(vec![mask; 10]);
+        longer_padded.extend(mask.clone().take(10));
 
         let mut r = std::io::Cursor::new(longer_padded);
         let read_back = r.read_cstring_masked_exact(encoded.len(), mask).unwrap();
@@ -495,6 +498,7 @@ fn test_masked_cstring() {
         assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
     }
 
-    check(0x77, 4, &[1, 2, 3], vec![0x76, 0x75, 0x74, 0x77]);
-    check(0x77, 4, &[1, 2, 3, 4], vec![0x76, 0x75, 0x74, 0x73, 0x77, 0x77, 0x77, 0x77]);
+    let mask = AcceleratingByteMask::constant(0x77);
+    check(mask.clone(), 4, &[1, 2, 3], vec![0x76, 0x75, 0x74, 0x77]);
+    check(mask.clone(), 4, &[1, 2, 3, 4], vec![0x76, 0x75, 0x74, 0x73, 0x77, 0x77, 0x77, 0x77]);
 }

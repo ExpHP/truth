@@ -48,7 +48,7 @@ source_test!(
 source_test!(
     ANM_10, bad_signature_in_mapfile,
     items: r#"
-        #pragma mapfile "tests/mapfile-with-bad-signature.anmm"
+        #pragma mapfile "tests/integration/resources/mapfile-with-bad-signature.anmm"
     "#,
     expect_fail: "opcode 1000",
 );

@@ -100,7 +100,8 @@ fn load_eclmap(truth: &mut Truth, vars: &[Var]) {
     lines.extend(ins_names_lines);
     lines.push(format!("!ins_signatures"));
     lines.extend(ins_signatures_lines);
-    truth.apply_mapfile_str(&lines.join("\n")).unwrap();
+    truth.apply_mapfile_str(&lines.join("\n"))
+        .unwrap_or_else(|_| panic!("{}", truth.get_captured_diagnostics().unwrap()));
 }
 
 fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec<T>> {
