@@ -358,6 +358,7 @@ impl BuildObject {
         self
     }
 
+    // FIXME: inconsistent naming
     /// Add a field if it's not equal to a default.
     pub fn field_default<T>(&mut self, key: impl AsRef<str>, value: &T, default: &T) -> &mut Self
     where T: ToMeta + PartialEq,

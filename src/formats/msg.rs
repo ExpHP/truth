@@ -11,6 +11,7 @@ use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
+use crate::value::ScalarValue;
 
 use indexmap::IndexMap;
 
@@ -49,9 +50,15 @@ impl MsgFile {
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ScriptTableEntry {
     /// Offset of script, from beginning of file.
-    pub script: Sp<Ident>,
+    pub script: Sp<ScriptTableOffset>,
     /// Unknown.  First appears in PoFV.
     pub flags: Sp<u32>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum ScriptTableOffset {
+    Name(Ident),
+    Zero,
 }
 
 // =============================================================================
@@ -116,20 +123,18 @@ impl SparseScriptTable {
         })
     }
 
-    fn densify(&self) -> Result<Vec<ScriptTableEntry>, MissingKeyError> {
-        let mut out = vec![];
-        for index in 0..self.table_len.value {
-            out.push({
+    fn densify(&self) -> Vec<ScriptTableEntry> {
+        (0..self.table_len.value)
+            .map(|index| {
                 self.table.get(&index).cloned()
                     .or_else(|| self.default.clone())
-                    .ok_or(MissingKeyError { index })?
-            });
-        }
-        Ok(out)
+                    .unwrap_or_else(|| ScriptTableEntry {
+                        script: sp!(ScriptTableOffset::Zero),
+                        flags: sp!(0),
+                    })
+            }).collect()
     }
 }
-
-struct MissingKeyError { index: u32 }
 
 impl ToMeta for ScriptTableEntry {
     fn to_meta(&self) -> Meta {
@@ -148,6 +153,25 @@ impl FromMeta<'_> for ScriptTableEntry {
                 flags: m.get_field("flags")?.unwrap_or(sp!(meta.span => 0)),
             })
         })
+    }
+}
+
+impl ToMeta for ScriptTableOffset {
+    fn to_meta(&self) -> Meta {
+        match self {
+            ScriptTableOffset::Name(ident) => ident.to_meta(),
+            ScriptTableOffset::Zero => 0.to_meta(),
+        }
+    }
+}
+
+impl FromMeta<'_> for ScriptTableOffset {
+    fn from_meta(meta: &'_ Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        match meta.parse()? {
+            ScalarValue::String(_) => Ok(ScriptTableOffset::Name(meta.parse()?)),
+            ScalarValue::Int(0) => Ok(ScriptTableOffset::Zero),
+            _ => Err(FromMetaError::expected("a string holding a valid identifier, or a literal 0", meta)),
+        }
     }
 }
 
@@ -192,6 +216,7 @@ fn decompile(
 fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable {
     let counts = get_counts(dense_table.iter());
 
+    // get first index of all nonzero entries
     let ident_first_indices = {
         get_first_indices(dense_table.iter().map(|entry| &entry.script))
             .into_iter().collect::<BTreeMap<_, _>>()
@@ -203,6 +228,7 @@ fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable 
         let &entry = counts.iter().filter(|&(_, &count)| count > 1).next().unwrap().0;
         Some(entry.clone())
     } else {
+        // default is irrelevant because we won't make use of it.
         None
     };
 
@@ -319,11 +345,13 @@ fn compile(
     let used_scripts = {
         sparse_table.default.clone().into_iter()
             .chain(sparse_table.table.values().cloned())
-            .map(|entry| entry.script.clone())
-            .collect::<BTreeSet<_>>()
+            .filter_map(|entry| match entry.script.value {
+                ScriptTableOffset::Zero => None,
+                ScriptTableOffset::Name(ref ident) => Some(ident.clone()),
+            }).collect::<BTreeSet<_>>()
     };
     for name in script_code.keys() {
-        if !used_scripts.contains(name) {
+        if !used_scripts.contains(&name.value) {
             ctx.emitter.emit(warning!(
                 message("unused script '{}'", name),
                 primary(name, "unused script"),
@@ -332,12 +360,7 @@ fn compile(
     }
 
     Ok(MsgFile {
-        dense_table: sparse_table.densify().map_err(|MissingKeyError { index }| {
-            ctx.emitter.emit(error!(
-                message("script table is missing entry for id {}", index),
-                primary(meta, "no entry for id {}", index)
-            ))
-        })?,
+        dense_table: sparse_table.densify(),
         scripts,
         /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
@@ -386,7 +409,10 @@ fn read_msg(
     //
     // i.e. a script may be reused for multiple IDs, their offsets may not be in order,
     // and one script tends to be used as a filler.
-    let sorted_script_offsets = script_table.iter().map(|entry| entry.offset).collect::<BTreeSet<_>>();
+    let sorted_script_offsets = {
+        script_table.iter().map(|entry| entry.offset)
+            .filter(|&x| x > 0).collect::<BTreeSet<_>>()
+    };
     let script_names = generate_script_names(&script_table);
 
     let mut end_offsets = sorted_script_offsets.iter().copied().skip(1);
@@ -403,12 +429,18 @@ fn read_msg(
         Ok((ident, script))
     }).collect_with_recovery()?;
 
-    let script_table = script_table.into_iter().map(|RawScriptTableEntry { offset, flags }| {
-        ScriptTableEntry { script: sp!(script_names[&offset].clone()), flags: sp!(flags) }
+    let dense_table = script_table.into_iter().map(|RawScriptTableEntry { offset, flags }| {
+        ScriptTableEntry {
+            script: match offset {
+                0 => sp!(ScriptTableOffset::Zero),
+                _ => sp!(ScriptTableOffset::Name(script_names[&offset].clone())),
+            },
+            flags: sp!(flags),
+        }
     }).collect();
 
     let binary_filename = Some(reader.display_filename().to_owned());
-    Ok(MsgFile { dense_table: script_table, scripts, binary_filename })
+    Ok(MsgFile { dense_table, scripts, binary_filename })
 }
 
 #[derive(Debug)]
@@ -419,7 +451,10 @@ struct RawScriptTableEntry {
 
 fn generate_script_names(raw_entries: &[RawScriptTableEntry]) -> BTreeMap<u64, Ident> {
     // name each offset after the first script to use it
-    let offset_first_indices = get_first_indices(raw_entries.iter().map(|entry| entry.offset));
+    let offset_first_indices = get_first_indices({
+        raw_entries.iter().map(|entry| entry.offset)
+            .filter(|&offset| offset != 0)  // but don't assign a name to offset 0!
+    });
     offset_first_indices.iter().map(|&(offset, index)| {
         let ident = format!("script{}", index).parse::<Ident>().unwrap();
         (offset, ident)
@@ -475,18 +510,21 @@ fn write_msg(
 
     w.seek_to(script_offsets_pos)?;
     for entry in &msg.dense_table {
-        let &script_offset = script_offsets.get(&entry.script.value).ok_or_else(|| {
-            emitter.emit(error!(
-                message("invalid script '{}'", entry.script),
-                primary(entry.script, "no such script"),
-            ))
-        })?;
+        let script_offset = match entry.script.value {
+            ScriptTableOffset::Zero => 0,
+            ScriptTableOffset::Name(ref ident) => *script_offsets.get(ident).ok_or_else(|| {
+                emitter.emit(error!(
+                    message("invalid script '{}'", ident),
+                    primary(entry.script, "no such script"),
+                ))
+            })?,
+        };
 
         w.write_u32(script_offset as u32)?;
         if format.table_has_flags() {
             w.write_u32(entry.flags.value)?;
         } else {
-            if entry.flags != 0 {
+            if entry.flags.value != 0 {
                 emitter.emit(warning!(
                     message("script flags are not supported in this game"),
                     primary(entry.flags, "has no effect in games before TH09"),
