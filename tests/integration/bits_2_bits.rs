@@ -109,3 +109,9 @@ b2b_test!(MSG_06, "map/any.msgm", msg06_multiple_scripts, "th06-multiple-scripts
 // Decoding of string arguments.
 b2b_test!(MSG_06, "map/any.msgm", msg06_z_string, "th06-z-string.msg");
 b2b_test!(MSG_08, "map/any.msgm", msg08_m_string, "th08-m-string.msg");
+b2b_test!(MSG_09, "map/any.msgm", msg09_default_mismatched_flags, "th09-default-mismatched-flags.msg");
+b2b_test!(MSG_09, "map/any.msgm", msg09_default_zero_with_flags, "th09-default-zero-with-flags.msg");
+b2b_test!(MSG_09, "map/any.msgm", msg09_default_zero, "th09-default-zero.msg");
+// FIXME: add these when head is not pounding:
+//        - th09 m string
+//        -

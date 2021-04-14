@@ -118,3 +118,10 @@ pub const MSG_08: Format = Format {
     script_head: MSG_06.script_head,
     make_main: MSG_06.make_main,
 };
+
+pub const MSG_09: Format = Format {
+    cmd: "trumsg",
+    game: Game::Th09,
+    script_head: MSG_06.script_head,
+    make_main: MSG_06.make_main,
+};
