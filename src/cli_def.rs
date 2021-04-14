@@ -466,7 +466,7 @@ mod cli {
         opts::Opt {
             short: "", long: "max-columns", metavar: "NUM",
             help: "where possible, will attempt to break lines for < NUM columns",
-        }.and_then(|s| s.unwrap_or_else(|| "100".to_string()).parse().map_err(|e| error!("{}", e)))
+        }.and_then(|s| s.unwrap_or_else(|| "80".to_string()).parse().map_err(|e| error!("{}", e)))
     }
 
     pub fn path_arg(s: &'static str) -> impl CliArg<Value=PathBuf> {

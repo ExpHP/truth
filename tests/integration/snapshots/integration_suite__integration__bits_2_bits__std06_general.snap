@@ -8,7 +8,10 @@ meta {
     unknown: 0,
     stage_name: "   Scarlet is a nice color",
     bgm: [
-        {path: "bgm/th06_06.mid", name: "   BGM: Cool Beans ~ Coffee and Steakhouse"},
+        {
+            path: "bgm/th06_06.mid",
+            name: "   BGM: Cool Beans ~ Coffee and Steakhouse",
+        },
         {
             path: "bgm/th06_07.mid",
             name: "                  BGM: Okay but why are you wearing my pants?",
@@ -22,7 +25,11 @@ meta {
             pos: [-64.0, -32.0, 0.0],
             size: [480.0, 288.0, 0.0],
             quads: [
-                rect {anm_script: 0, pos: [-32.0, 0.0, 0.0], size: [64.0, 64.0]},
+                rect {
+                    anm_script: 0,
+                    pos: [-32.0, 0.0, 0.0],
+                    size: [64.0, 64.0],
+                },
                 rect {anm_script: 0, pos: [32.0, 0.0, 0.0], size: [64.0, 64.0]},
                 rect {anm_script: 0, pos: [96.0, 0.0, 0.0], size: [64.0, 64.0]},
             ],
@@ -31,13 +38,25 @@ meta {
             unknown: 2,
             pos: [-64.0, -32.0, 0.0],
             size: [480.0, 288.0, 0.0],
-            quads: [rect {anm_script: 1, pos: [-32.0, 0.0, 0.0], size: [64.0, 64.0]}],
+            quads: [
+                rect {
+                    anm_script: 1,
+                    pos: [-32.0, 0.0, 0.0],
+                    size: [64.0, 64.0],
+                },
+            ],
         },
         object2: {
             unknown: 2,
             pos: [-64.0, -32.0, 0.0],
             size: [480.0, 288.0, 0.0],
-            quads: [rect {anm_script: 2, pos: [-32.0, 0.0, 0.0], size: [64.0, 64.0]}],
+            quads: [
+                rect {
+                    anm_script: 2,
+                    pos: [-32.0, 0.0, 0.0],
+                    size: [64.0, 64.0],
+                },
+            ],
         },
     },
     instances: [

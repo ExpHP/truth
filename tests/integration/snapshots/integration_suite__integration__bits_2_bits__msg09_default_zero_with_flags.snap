@@ -4,7 +4,13 @@ expression: s
 ---
 #pragma mapfile "map/any.msgm"
 
-meta {table_len: 3, table: {1: {script: "script0", flags: 256}, default: {script: 0, flags: 256}}}
+meta {
+    table_len: 3,
+    table: {
+        1: {script: "script0", flags: 256},
+        default: {script: 0, flags: 256},
+    },
+}
 
 
 script script0 {
