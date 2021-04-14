@@ -1,4 +1,5 @@
 use crate::integration_impl::formats::*;
+use truth::meta::ToMeta;
 
 // =============================================================================
 // Image sources
@@ -58,10 +59,10 @@ script script10 {}
     check_compiled: |output, format| {
         let msg = output.read_msg(format);
         assert_eq!(msg.dense_table.len(), 15);
-        assert_eq!(&msg.dense_table[3].script.value, "script0");
-        assert_eq!(&msg.dense_table[10].script.value, "script10");
-        assert_eq!(&msg.dense_table[11].script.value, "script10");
-        assert_eq!(&msg.dense_table[13].script.value, "script0");
+        assert_eq!(msg.dense_table[3].script.value.to_meta(), "script0".to_meta());
+        assert_eq!(msg.dense_table[10].script.value.to_meta(), "script10".to_meta());
+        assert_eq!(msg.dense_table[11].script.value.to_meta(), "script10".to_meta());
+        assert_eq!(msg.dense_table[13].script.value.to_meta(), "script0".to_meta());
     },
 );
 
@@ -102,8 +103,8 @@ script script1 {}
         let msg = output.read_msg(format);
         assert_eq!(msg.scripts.len(), 4);
         assert_eq!(msg.dense_table.len(), 4);
-        assert_eq!(&msg.dense_table[2].script.value, "script2");
-        assert_eq!(&msg.dense_table[3].script.value, "script3");
+        assert_eq!(msg.dense_table[2].script.value.to_meta(), "script2".to_meta());
+        assert_eq!(msg.dense_table[3].script.value.to_meta(), "script3".to_meta());
     },
 );
 
