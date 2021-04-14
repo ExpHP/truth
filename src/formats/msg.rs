@@ -61,6 +61,12 @@ pub enum ScriptTableOffset {
     Zero,
 }
 
+impl Default for ScriptTableEntry {
+    fn default() -> Self {
+        ScriptTableEntry { script: sp!(ScriptTableOffset::Zero), flags: sp!(0) }
+    }
+}
+
 // =============================================================================
 
 /// An alternative structure closer to the Meta representation.
@@ -70,7 +76,7 @@ struct SparseScriptTable {
     /// last full one, so we must store its true length.
     table_len: Sp<u32>,
     table: IndexMap<Sp<u32>, ScriptTableEntry>,
-    default: Option<ScriptTableEntry>,
+    default: ScriptTableEntry,
 }
 
 impl SparseScriptTable {
@@ -89,7 +95,7 @@ impl SparseScriptTable {
             for (&id, entry) in &self.table {
                 inner.field(format!("{}", id), entry);
             }
-            inner.opt_field("default", self.default.as_ref());
+            inner.field_default("default", &self.default, &Default::default());
             inner.build()
         });
 
@@ -115,6 +121,7 @@ impl SparseScriptTable {
                     });
                 }
             }
+            let default = default.unwrap_or_default();
 
             let table_len = m.get_field("table_len")?.unwrap_or_else(|| {
                 sp!(fields.span => sparse_table_implicit_len(&int_map))
@@ -126,12 +133,7 @@ impl SparseScriptTable {
     fn densify(&self) -> Vec<ScriptTableEntry> {
         (0..self.table_len.value)
             .map(|index| {
-                self.table.get(&index).cloned()
-                    .or_else(|| self.default.clone())
-                    .unwrap_or_else(|| ScriptTableEntry {
-                        script: sp!(ScriptTableOffset::Zero),
-                        flags: sp!(0),
-                    })
+                self.table.get(&index).unwrap_or_else(|| &self.default).clone()
             }).collect()
     }
 }
@@ -226,18 +228,20 @@ fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable 
     let use_default = counts.values().filter(|&&x| x > 1).count() == 1;
     let default = if use_default {
         let &entry = counts.iter().filter(|&(_, &count)| count > 1).next().unwrap().0;
-        Some(entry.clone())
+        entry.clone()
     } else {
-        // default is irrelevant because we won't make use of it.
-        None
+        Default::default()
     };
 
     // erase defaults
     let table = {
         dense_table.iter().cloned().enumerate()
-            .filter(|&(i, ref entry)| match &default {
-                Some(default) => entry != default || i == ident_first_indices[&default.script],
-                None => true,
+            .filter(|&(i, ref entry)| {
+                // suppress matches of the default unless they name it
+                entry != &default || {
+                    i == ident_first_indices[&default.script]
+                    && matches!(default.script.value, ScriptTableOffset::Name(_))
+                }
             })
             .map(|(i, entry)| (sp!(i as u32), entry))
             .collect()
@@ -343,7 +347,7 @@ fn compile(
     }
 
     let used_scripts = {
-        sparse_table.default.clone().into_iter()
+        std::iter::once(sparse_table.default.clone())
             .chain(sparse_table.table.values().cloned())
             .filter_map(|entry| match entry.script.value {
                 ScriptTableOffset::Zero => None,
