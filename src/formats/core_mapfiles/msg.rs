@@ -22,33 +22,33 @@ static EMPTY: &CoreSignatures = &CoreSignatures {
 static MSG: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
-        (Th06, 0, ""),
-        (Th06, 1, "ss"),
-        (Th06, 2, "ss"),  // note: 2nd word is technically an anm sprite
-        (Th06, 3, "ssz(bs=4)"),
-        (Th06, 4, "S"),
-        (Th06, 5, "ss"),
-        (Th06, 6, ""),
-        (Th06, 7, "S"),
-        (Th06, 8, "ssz(bs=4)"),
-        (Th06, 9, "S"),  // arg looks unused
-        (Th06, 10, ""),
-        (Th06, 11, ""),
-        (Th06, 12, ""),
-        (Th06, 13, "S"),
+        (Th06, 0, Some("")),
+        (Th06, 1, Some("ss")),
+        (Th06, 2, Some("ss")),  // note: 2nd word is technically an anm sprite
+        (Th06, 3, Some("ssz(bs=4)")),
+        (Th06, 4, Some("S")),
+        (Th06, 5, Some("ss")),
+        (Th06, 6, Some("")),
+        (Th06, 7, Some("S")),
+        (Th06, 8, Some("ssz(bs=4)")),
+        (Th06, 9, Some("S")),  // arg looks unused
+        (Th06, 10, Some("")),
+        (Th06, 11, Some("")),
+        (Th06, 12, Some("")),
+        (Th06, 13, Some("S")),
 
-        (Th07, 14, ""),
+        (Th07, 14, Some("")),
 
-        (Th08, 3, "ssm(bs=4;mask=0x77,0,0)"),
-        (Th08, 8, "ssm(bs=4;mask=0x77,0,0)"),
-        (Th08, 15, "SSSSS"),  // SnSSS
-        (Th08, 16, "m(bs=4;mask=0x77,0,0)"),
-        (Th08, 17, "SS"),  // Sn
-        (Th08, 18, "S"),
-        (Th08, 19, "m(bs=4;mask=0x77,0,0)"),
-        (Th08, 20, "m(bs=4;mask=0x77,0,0)"),
-        (Th08, 21, "S"),
-        (Th08, 22, ""),
+        (Th08, 3, Some("ssm(bs=4;mask=0x77,0,0)")),
+        (Th08, 8, Some("ssm(bs=4;mask=0x77,0,0)")),
+        (Th08, 15, Some("SSSSS")),  // SnSSS
+        (Th08, 16, Some("m(bs=4;mask=0x77,0,0)")),
+        (Th08, 17, Some("SS")),  // Sn
+        (Th08, 18, Some("S")),
+        (Th08, 19, Some("m(bs=4;mask=0x77,0,0)")),
+        (Th08, 20, Some("m(bs=4;mask=0x77,0,0)")),
+        (Th08, 21, Some("S")),
+        (Th08, 22, Some("")),
 
         // =========================================
         // FIXME: Everything beyond this point is copied from thtk,
@@ -57,61 +57,65 @@ static MSG: &CoreSignatures = &CoreSignatures {
         //
         //        I'll reverse MSG in these games at some point...  - ExpHP
 
-        (Th09, 3, "ssm(bs=4;mask=0x77,7,16)"),
-        (Th09, 8, ""),
-        (Th09, 15, "SSS"),
-        (Th09, 16, "m(bs=4;mask=0x77,7,16)"),
-        (Th09, 18, "m(bs=4;mask=0x77,7,16)"),
-        (Th09, 19, "m(bs=4;mask=0x77,7,16)"),
-        (Th09, 23, "S"),
-        (Th09, 24, ""),
-        (Th09, 25, ""),
-        (Th09, 28, "S"),
+        (Th09, 3, Some("ssm(bs=4;mask=0x77,7,16)")),
+        (Th09, 8, Some("")),
+        (Th09, 15, Some("SSS")),
+        (Th09, 16, Some("m(bs=4;mask=0x77,7,16)")),
+        (Th09, 19, None),  // removed from jumptable
+        (Th09, 20, None),
+        (Th09, 21, None),
+        (Th09, 22, None),
+        (Th09, 23, Some("S")),
+        (Th09, 24, Some("")),
+        (Th09, 25, Some("")),
+        (Th09, 26, Some("S")),
+        // 27 is not in the jumptable; could be a nop, but it's never used
+        (Th09, 28, Some("S")),
 
         // (FIXME: this many changed signatures looks suspicious, don't it?
         //         This is probably a rewrite of the format, and should be broken
         //         into a new CoreSignatures if that's the case)
-        (Th10, 1, "S"),
-        (Th10, 2, "S"),
-        (Th10, 3, ""),
-        (Th10, 4, ""),
-        (Th10, 5, ""),
-        (Th10, 7, ""),
-        (Th10, 10, "S"),
-        (Th10, 12, "S"),
-        (Th10, 14, "S"),
-        (Th10, 17, "m(bs=4;mask=0x77,7,16)"),
-        (Th10, 18, ""),
-        (Th10, 19, ""),
-        (Th10, 20, ""),
-        (Th10, 21, ""),
-        (Th10, 22, ""),
-        (Th10, 23, ""),
-        (Th10, 25, "S"),
+        (Th10, 1, Some("S")),
+        (Th10, 2, Some("S")),
+        (Th10, 3, Some("")),
+        (Th10, 4, Some("")),
+        (Th10, 5, Some("")),
+        (Th10, 7, Some("")),
+        (Th10, 10, Some("S")),
+        (Th10, 12, Some("S")),
+        (Th10, 14, Some("S")),
+        (Th10, 17, Some("m(bs=4;mask=0x77,7,16)")),
+        (Th10, 18, Some("")),
+        (Th10, 19, Some("")),
+        (Th10, 20, Some("")),
+        (Th10, 21, Some("")),
+        (Th10, 22, Some("")),
+        (Th10, 23, Some("")),
+        (Th10, 25, Some("S")),
 
-        (Th11, 9, ""),
-        (Th11, 10, "S"),
-        (Th11, 11, "S"),
-        (Th11, 12, ""),
+        (Th11, 9, Some("")),
+        (Th11, 10, Some("S")),
+        (Th11, 11, Some("S")),
+        (Th11, 12, Some("")),
 
-        (Th12, 27, "f"),
+        (Th12, 27, Some("f")),
 
-        (Th128, 28, "ff"),
-        (Th128, 29, "S"),
-        (Th128, 30, ""),
+        (Th128, 28, Some("ff")),
+        (Th128, 29, Some("S")),
+        (Th128, 30, Some("")),
 
-        (Th13, 31, "S"),
+        (Th13, 31, Some("S")),
 
-        (Th14, 5, "S"),
-        (Th14, 8, "S"),
-        (Th14, 14, "SS"),
-        (Th14, 20, "S"),
-        (Th14, 32, "S"),
+        (Th14, 5, Some("S")),
+        (Th14, 8, Some("S")),
+        (Th14, 14, Some("SS")),
+        (Th14, 20, Some("S")),
+        (Th14, 32, Some("S")),
 
-        (Th143, 33, "S"),
+        (Th143, 33, Some("S")),
 
-        (Th16, 34, "SS"),
-        (Th16, 35, ""),
+        (Th16, 34, Some("SS")),
+        (Th16, 35, Some("")),
         // =========================================
     ],
     var: &[],

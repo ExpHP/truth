@@ -1,3 +1,5 @@
+use ::std::collections::BTreeMap;
+
 use crate::game::Game;
 use crate::eclmap::Eclmap;
 
@@ -28,17 +30,18 @@ pub struct CoreSignatures {
     inherit: &'static [&'static CoreSignatures],
 
     /// A set of tuples, each the addition of a new instruction or the change of an existing
-    /// instruction's signature in some game.
+    /// instruction's signature in some game.  (a `None` indicates removal; i.e. the jumptable
+    /// entry now points to the default branch)
     ///
     /// The strings are mapfile string signatures.
     ///
     /// When converted to a mapfile, the program will run down this list and apply each item
     /// from the current game or earlier.  The presence of these "minimum game" fields allows
     /// a single [`CoreSignatures`] to be easily applied to an entire range of games.
-    ins: &'static [(Game, u16, &'static str)],
+    ins: &'static [(Game, u16, Option<&'static str>)],
 
     /// Like [`Self::ins`] but for registers.
-    var: &'static [(Game, i32, &'static str)],
+    var: &'static [(Game, i32, Option<&'static str>)],
 }
 
 impl CoreSignatures {
@@ -55,14 +58,26 @@ impl CoreSignatures {
 
         for &(min_game, opcode, siggy_str) in self.ins {
             if min_game <= game {
-                mapfile.ins_signatures.insert(opcode as _, siggy_str.to_owned());
+                insert_or_remove(&mut mapfile.ins_signatures, opcode as _, siggy_str);
             }
         }
 
         for &(min_game, reg_id, type_str) in self.var {
             if min_game <= game {
-                mapfile.gvar_types.insert(reg_id, type_str.to_owned());
+                insert_or_remove(&mut mapfile.gvar_types, reg_id as _, type_str);
             }
         }
+    }
+}
+
+fn insert_or_remove<K, V>(map: &mut BTreeMap<K, V::Owned>, key: K, value: Option<&V>)
+where
+    K: Ord + Eq,
+    V: ToOwned + ?Sized,
+{
+    if let Some(value) = value {
+        map.insert(key, value.to_owned());
+    } else {
+        map.remove(&key);
     }
 }
