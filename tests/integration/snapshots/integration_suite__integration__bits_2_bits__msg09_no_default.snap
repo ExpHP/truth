@@ -1,0 +1,26 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.msgm"
+
+meta {
+    table: {
+        0: {script: "script0", flags: 32},
+        1: {script: "script1", flags: 32},
+        2: {script: "script2", flags: 256},
+    },
+}
+
+
+script script0 {
+}
+
+
+script script1 {
+}
+
+
+script script2 {
+}
+

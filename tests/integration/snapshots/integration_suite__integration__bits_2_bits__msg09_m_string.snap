@@ -1,0 +1,18 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.msgm"
+
+meta {table: {0: {script: "script0"}}}
+
+
+script script0 {
+    anmInterrupt(0, 1);
++60: // 60
+    textSet(0, 0, "でも...");
+    anmInterrupt(0, 0);
+    textSet(0, 0, "also here's an ascii string so it's not all mojibake");
+    textPause(300);
+}
+
