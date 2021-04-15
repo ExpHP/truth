@@ -123,7 +123,7 @@ test!(
 
 test!(
     [all_names_unique]
-    func_basic = <ast::Script> r#"
+    func_basic = <ast::ScriptFile> r#"
 int foo(int x) {
     return x;
 }
@@ -135,7 +135,7 @@ script script0 {
 
 test!(
     [all_names_unique]
-    const_basic = <ast::Script> r#"
+    const_basic = <ast::ScriptFile> r#"
 const int A = 2;
 
 script script0 {
@@ -144,7 +144,7 @@ script script0 {
 
 test!(
     [all_names_unique]
-    param_basic = <ast::Script> r#"
+    param_basic = <ast::ScriptFile> r#"
 void foo(int x) {
     return x;
 }"#);
@@ -163,7 +163,7 @@ test!(
 
 test!(
     [all_names_unique]
-    func_out_of_order = <ast::Script> r#"
+    func_out_of_order = <ast::ScriptFile> r#"
 script script0 {
     int x = 3;
     foo(x);
@@ -175,7 +175,7 @@ int foo(int y) {
 
 test!(
     [all_names_unique]
-    const_out_of_order = <ast::Script> r#"
+    const_out_of_order = <ast::ScriptFile> r#"
 script script0 {
     int x = A;
 }
@@ -431,7 +431,7 @@ test!(
 
 test!(
     [expect_fail("redefinition")]
-    func_redefinition = <ast::Script> r#"
+    func_redefinition = <ast::ScriptFile> r#"
 int foo(int x) {
     return x;
 }
@@ -443,7 +443,7 @@ int foo(float y) {
 
 test!(
     [expect_fail("redefinition")]
-    const_redefinition = <ast::Script> r#"
+    const_redefinition = <ast::ScriptFile> r#"
 const int BLUE = 1;
 const int RED = 3;
 const int BLUE = RED;
@@ -504,7 +504,7 @@ test!(
 
 test!(
     [all_names_unique]
-    const_shadows_reg_alias = <ast::Script> r#"
+    const_shadows_reg_alias = <ast::ScriptFile> r#"
 const int A = ALIAS;
 const int ALIAS = 3;
 const int B = ALIAS;
@@ -512,7 +512,7 @@ const int B = ALIAS;
 
 test!(
     [all_names_unique]
-    func_shadows_ins_alias = <ast::Script> r#"
+    func_shadows_ins_alias = <ast::ScriptFile> r#"
 void a() { alias(); }
 void alias() {}
 void b() { alias(); }
@@ -520,7 +520,7 @@ void b() { alias(); }
 
 test!(
     [snapshot]
-    separate_namespaces = <ast::Script> r#"
+    separate_namespaces = <ast::ScriptFile> r#"
     const int a = a();           // should be a_0 then a_1
     const int a() { return a; }  // should be a_1 then a_0
 "#);

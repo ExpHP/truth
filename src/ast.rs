@@ -47,10 +47,9 @@ macro_rules! string_enum {
 /// because the latter would have an impact on equality tests.
 pub type TokenSpan = Sp<()>;
 
-// FIXME: rename to File or ScriptFile. Script leads to confusion with `script`.
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Script {
+pub struct ScriptFile {
     pub mapfiles: Vec<Sp<LitString>>,
     pub image_sources: Vec<Sp<LitString>>,
     pub items: Vec<Sp<Item>>,
@@ -711,7 +710,7 @@ macro_rules! generate_visitor_stuff {
     ($Visit:ident, Visitable::$visit:ident $(,$mut:tt)?) => {
         /// Recursive AST traversal trait.
         pub trait $Visit {
-            fn visit_script(&mut self, e: & $($mut)? Script) { walk_script(self, e) }
+            fn visit_file(&mut self, e: & $($mut)? ScriptFile) { walk_file(self, e) }
             fn visit_item(&mut self, e: & $($mut)? Sp<Item>) { walk_item(self, e) }
             /// This is called only on the outermost blocks of each function.
             ///
@@ -735,7 +734,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
         }
 
-        pub fn walk_script<V>(v: &mut V, x: & $($mut)? Script)
+        pub fn walk_file<V>(v: &mut V, x: & $($mut)? ScriptFile)
         where V: ?Sized + $Visit,
         {
             for item in & $($mut)? x.items {
@@ -954,7 +953,7 @@ macro_rules! impl_visitable {
         }
     }
 }
-impl_visitable!(Script, visit_script);
+impl_visitable!(ScriptFile, visit_file);
 impl_visitable!(Sp<Item>, visit_item);
 impl_visitable!(Block, visit_root_block);
 impl_visitable!(Sp<Cond>, visit_cond);
@@ -969,7 +968,7 @@ mod mut_ {
 }
 pub use self::mut_::{
     VisitMut,
-    walk_script as walk_script_mut,
+    walk_file as walk_file_mut,
     walk_item as walk_item_mut,
     walk_meta as walk_meta_mut,
     walk_block as walk_block_mut,
@@ -983,5 +982,5 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_script, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
+    Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
 };

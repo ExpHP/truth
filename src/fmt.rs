@@ -513,9 +513,9 @@ impl_tuple_format!(a:A, b:B, c:C, d:D, e:E, f:F, g:G, h:H);
 //==============================================================================
 // Items
 
-impl Format for ast::Script {
+impl Format for ast::ScriptFile {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Script { items, mapfiles, image_sources } = self;
+        let ast::ScriptFile { items, mapfiles, image_sources } = self;
 
         for file in mapfiles {
             out.fmt(("#pragma mapfile ", file))?;
@@ -1044,10 +1044,10 @@ mod tests {
 
     #[test]
     fn trailing_newline() {
-        assert!(reformat::<ast::Script>(9999, r#"void fooo();"#).ends_with("\n"));
-        assert!(reformat::<ast::Script>(9999, r#"void foo() { nop(); }"#).ends_with("\n"));
-        assert!(reformat::<ast::Script>(9999, r#"meta { x: 25 }"#).ends_with("\n"));
-        assert!(reformat::<ast::Script>(3, r#"meta { x: 25 }"#).ends_with("\n"));
-        assert!(reformat::<ast::Script>(9999, r#"  script  lol { nop(); }"#).ends_with("\n"));
+        assert!(reformat::<ast::ScriptFile>(9999, r#"void fooo();"#).ends_with("\n"));
+        assert!(reformat::<ast::ScriptFile>(9999, r#"void foo() { nop(); }"#).ends_with("\n"));
+        assert!(reformat::<ast::ScriptFile>(9999, r#"meta { x: 25 }"#).ends_with("\n"));
+        assert!(reformat::<ast::ScriptFile>(3, r#"meta { x: 25 }"#).ends_with("\n"));
+        assert!(reformat::<ast::ScriptFile>(9999, r#"  script  lol { nop(); }"#).ends_with("\n"));
     }
 }

@@ -62,12 +62,12 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile_std(self, &emitter, &*game_format(game), ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
+    pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile_std(&*game_format(game), script, ctx)
     }
 
@@ -238,13 +238,13 @@ fn decompile_std(
     format: &dyn FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
-) -> Result<ast::Script, ErrorReported> {
+) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
     let code = llir::Raiser::new(&ctx.emitter).raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?;
 
-    let mut script = ast::Script {
+    let mut script = ast::ScriptFile {
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items: vec! [
@@ -273,7 +273,7 @@ fn unsupported(span: &crate::pos::Span) -> Diagnostic {
 
 fn compile_std(
     format: &dyn FileFormat,
-    script: &ast::Script,
+    script: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<StdFile, ErrorReported> {
     let script = {

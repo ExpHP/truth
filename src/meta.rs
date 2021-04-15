@@ -351,14 +351,13 @@ impl BuildObject {
     }
 
     /// Add a field if the option is `Some(_)`.
-    pub fn opt_field(&mut self, key: impl AsRef<str>, value: Option<impl ToMeta>) -> &mut Self {
+    pub fn field_opt(&mut self, key: impl AsRef<str>, value: Option<impl ToMeta>) -> &mut Self {
         if let Some(value) = value {
             self.field(key, &value);
         }
         self
     }
 
-    // FIXME: inconsistent naming
     /// Add a field if it's not equal to a default.
     pub fn field_default<T>(&mut self, key: impl AsRef<str>, value: &T, default: &T) -> &mut Self
     where T: ToMeta + PartialEq,

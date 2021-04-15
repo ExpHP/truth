@@ -30,12 +30,12 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, ast: &ast::Script, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
+    pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile(&game_format(game), ast, ctx)
     }
 
@@ -108,16 +108,16 @@ impl Entry {
 
         Meta::make_object()
             .field("path", &self.path.value)
-            .opt_field("path_2", self.path_2.as_ref().map(|x| &x.value))
-            .opt_field("has_data", has_data.as_ref())
-            .opt_field("width", width.as_ref())
-            .opt_field("height", height.as_ref())
-            .opt_field("offset_x", offset_x.as_ref())
-            .opt_field("offset_y", offset_y.as_ref())
-            .opt_field("format", format.as_ref())
-            .opt_field("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
-            .opt_field("memory_priority", memory_priority.as_ref())
-            .opt_field("low_res_scale", low_res_scale.as_ref())
+            .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
+            .field_opt("has_data", has_data.as_ref())
+            .field_opt("width", width.as_ref())
+            .field_opt("height", height.as_ref())
+            .field_opt("offset_x", offset_x.as_ref())
+            .field_opt("offset_y", offset_y.as_ref())
+            .field_opt("format", format.as_ref())
+            .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
+            .field_opt("memory_priority", memory_priority.as_ref())
+            .field_opt("low_res_scale", low_res_scale.as_ref())
             .with_mut(|b| if let Some(texture) = &self.texture {
                 b.field("thtx_format", &texture.thtx.format);
                 b.field("thtx_width", &texture.thtx.width);
@@ -193,7 +193,7 @@ impl ToMeta for Sprite {
             .field("y", &offset[1])
             .field("w", &size[0])
             .field("h", &size[1])
-            .opt_field("id", id.as_ref())
+            .field_opt("id", id.as_ref())
             .build()
     }
 }
@@ -216,7 +216,7 @@ fn decompile(
     format: &FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
-) -> Result<ast::Script, ErrorReported> {
+) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
@@ -241,7 +241,7 @@ fn decompile(
             Ok(())
         }).collect_with_recovery()?;
     }
-    let mut out = ast::Script {
+    let mut out = ast::ScriptFile {
         items,
         mapfiles: ctx.mapfiles_to_ast(),
         // NOTE: here, we *could* choose to populate this, causing a `#pragma image_source` line
@@ -308,7 +308,7 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
 
 fn compile(
     format: &FileFormat,
-    ast: &ast::Script,
+    ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<AnmFile, ErrorReported> {
     let instr_format = format.instr_format();
@@ -407,7 +407,7 @@ fn write_thecl_defs(
 
 // (this returns a Vec instead of a Map because there may be multiple sprites with the same Ident)
 fn gather_sprite_id_exprs(
-    ast: &ast::Script,
+    ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
     extra_type_checks: &mut Vec<crate::passes::type_check::ShallowTypeCheck>,
 ) -> Result<Vec<(Sp<ResIdent>, Sp<ast::Expr>)>, ErrorReported> {
@@ -473,7 +473,7 @@ impl<'m> FromMeta<'m> for ProtoSprite<'m> {
     }
 }
 
-fn gather_script_ids(ast: &ast::Script, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<i32>)>, ErrorReported> {
+fn gather_script_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, (Sp<ResIdent>, Sp<i32>)>, ErrorReported> {
     let mut next_auto_script = 0;
     let mut script_ids = IndexMap::new();
     for item in &ast.items {

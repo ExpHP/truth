@@ -82,7 +82,7 @@ impl Truth<'_> {
         self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
     }
 
-    pub fn read_script(&mut self, path: &Path) -> Result<ast::Script, ErrorReported> {
+    pub fn read_script(&mut self, path: &Path) -> Result<ast::ScriptFile, ErrorReported> {
         let bytes = self.fs().read(path)?;
         self.parse(&path.to_string_lossy(), &bytes).map(|x| x.value)
     }
@@ -103,7 +103,7 @@ impl Truth<'_> {
 /// # Common behavior of pragmas
 impl Truth<'_> {
     /// Loads mapfiles from a parsed script.
-    pub fn load_mapfiles_from_pragmas(&mut self, game: Game, script: &ast::Script) -> Result<(), ErrorReported> {
+    pub fn load_mapfiles_from_pragmas(&mut self, game: Game, script: &ast::ScriptFile) -> Result<(), ErrorReported> {
         for path_literal in &script.mapfiles {
             let path: &Path = path_literal.string.as_ref();
 
@@ -113,7 +113,7 @@ impl Truth<'_> {
         Ok(())
     }
 
-    pub fn expect_no_image_sources(&self, ast: &ast::Script) -> Result<(), ErrorReported> {
+    pub fn expect_no_image_sources(&self, ast: &ast::ScriptFile) -> Result<(), ErrorReported> {
         if let Some(path) = ast.image_sources.get(0) {
             Err(self.emit(error!(
                 message("unexpected image_source"),
@@ -125,23 +125,23 @@ impl Truth<'_> {
 
 /// # Compilation and decompilation
 impl Truth<'_> {
-    pub fn compile_anm(&mut self, game: Game, ast: &ast::Script) -> Result<crate::AnmFile, ErrorReported> {
+    pub fn compile_anm(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::AnmFile, ErrorReported> {
         crate::AnmFile::compile_from_ast(game, ast, &mut self.ctx)
     }
-    pub fn compile_msg(&mut self, game: Game, ast: &ast::Script) -> Result<crate::MsgFile, ErrorReported> {
+    pub fn compile_msg(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::MsgFile, ErrorReported> {
         crate::MsgFile::compile_from_ast(game, ast, &mut self.ctx)
     }
-    pub fn compile_std(&mut self, game: Game, ast: &ast::Script) -> Result<crate::StdFile, ErrorReported> {
+    pub fn compile_std(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::StdFile, ErrorReported> {
         crate::StdFile::compile_from_ast(game, ast, &mut self.ctx)
     }
 
-    pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+    pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
         crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
     }
-    pub fn decompile_msg(&mut self, game: Game, middle: &crate::MsgFile, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+    pub fn decompile_msg(&mut self, game: Game, middle: &crate::MsgFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
         crate::MsgFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
     }
-    pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+    pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
         crate::StdFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
     }
 }

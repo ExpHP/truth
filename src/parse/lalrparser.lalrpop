@@ -108,7 +108,7 @@ extern {
         "_f" => Token::CastF,
         "REG" => Token::Reg,
         // Virtual tokens for parsable nonterminals
-        Dispatch_Script => Token::VirtualDispatch(crate::parse::AnythingTag::Script),
+        Dispatch_ScriptFile => Token::VirtualDispatch(crate::parse::AnythingTag::ScriptFile),
         Dispatch_Item => Token::VirtualDispatch(crate::parse::AnythingTag::Item),
         Dispatch_Block => Token::VirtualDispatch(crate::parse::AnythingTag::Block),
         Dispatch_Stmt => Token::VirtualDispatch(crate::parse::AnythingTag::Stmt),
@@ -135,7 +135,7 @@ extern {
 pub(crate) Anything: Sp<crate::parse::AnythingValue> = Sp<AnythingInner>;
 
 AnythingInner: crate::parse::AnythingValue = {
-    Dispatch_Script <x:Script> => crate::parse::AnythingValue::Script(x),
+    Dispatch_ScriptFile <x:ScriptFile> => crate::parse::AnythingValue::ScriptFile(x),
     Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
     Dispatch_Block <x:Block> => crate::parse::AnythingValue::Block(x),
     Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
@@ -148,11 +148,11 @@ AnythingInner: crate::parse::AnythingValue = {
 // =================================================
 // Items
 
-Script: ast::Script = {
+ScriptFile: ast::ScriptFile = {
     <items:Items> => {
         let mapfiles = state.mapfiles.clone();
         let image_sources = state.image_sources.clone();
-        ast::Script { items, mapfiles, image_sources }
+        ast::ScriptFile { items, mapfiles, image_sources }
     }
 };
 

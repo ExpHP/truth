@@ -301,7 +301,7 @@ mod resolve_vars {
     }
 
     impl Visit for Visitor<'_, '_> {
-        fn visit_script(&mut self, script: &ast::Script) {
+        fn visit_file(&mut self, script: &ast::ScriptFile) {
             self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Items);
             self.rib_stacks.enter_new_rib(Namespace::Funcs, RibKind::Items);
 

@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn simple() {
-        let out = strip_unused_labels::<ast::Script>(r#"
+        let out = strip_unused_labels::<ast::ScriptFile>(r#"
 void foo() {
     label_1:
     label_2:
@@ -125,7 +125,7 @@ void foo() {
 
     #[test]
     fn nested_func() {
-        let out = strip_unused_labels::<ast::Script>(r#"
+        let out = strip_unused_labels::<ast::ScriptFile>(r#"
 void foo() {
     label_1:
     const void bar() {

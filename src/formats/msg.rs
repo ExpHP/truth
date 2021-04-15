@@ -27,12 +27,12 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::Script, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::Script, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
+    pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
         compile(&game_format(game), script, ctx)
     }
 
@@ -185,7 +185,7 @@ fn decompile(
     format: &FileFormat,
     ctx: &mut CompilerContext,
     decompile_kind: DecompileKind,
-) -> Result<ast::Script, ErrorReported> {
+) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = &*format.instr_format();
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
@@ -206,7 +206,7 @@ fn decompile(
         }))
     }).collect_with_recovery::<Vec<_>>()?);
 
-    let mut script = ast::Script {
+    let mut script = ast::ScriptFile {
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items,
@@ -263,7 +263,7 @@ fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32>
 
 fn compile(
     format: &FileFormat,
-    ast: &ast::Script,
+    ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<MsgFile, ErrorReported> {
     let instr_format = &*format.instr_format();
