@@ -124,7 +124,7 @@ def process_file(game, file, timelog, badfiles):
         assert False, file
 
     # FIXME
-    if game >= '09' and format == 'msg':
+    if game >= '10' and format == 'msg':
         return
 
     os.makedirs(os.path.dirname(outspec), exist_ok=True)
