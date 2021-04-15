@@ -290,9 +290,8 @@ pub trait BinRead {
             self.read_exact(&mut out[old_end..])?;
         }
 
-        while out.last() == Some(&0) {
-            out.pop();
-        }
+        let zero_index = out.iter().position(|&x| x == 0).expect("null terminator guaranteed");
+        out.truncate(zero_index);
         Ok(Encoded(out))
     }
 
@@ -309,9 +308,11 @@ pub trait BinRead {
         for (byte, mask_byte) in out.iter_mut().zip(mask) {
             *byte ^= mask_byte;
         }
-        while out.last() == Some(&0) {
-            out.pop();
-        }
+        let zero_index = out.iter().position(|&x| x == 0).ok_or_else(|| {
+            // FIXME: Wrong because Cursor<Vec> reader expects no errors
+            self._bin_read_io_error(io::Error::new(io::ErrorKind::InvalidData, "string has no null terminator"))
+        })?;
+        out.truncate(zero_index);
         Ok(Encoded(out))
     }
 
