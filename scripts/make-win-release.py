@@ -46,7 +46,6 @@ def make_release(version, target):
     os.makedirs(release_dir)
     print('copying map/')
     shutil.copytree('map', os.path.join(release_dir, 'map'))
-    shutil.rmtree(os.path.join(release_dir, 'map', 'core'))
 
     for src_path in glob.glob(f'target/{target}/release/*.exe'):
         print(f'copying {src_path}')

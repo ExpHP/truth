@@ -43,7 +43,7 @@ Literals can be:
 * **Floats:** `1.0`, `-1.3f`, `2f`.  Again, no leading plus.
 * **Strings:** `"The quick brown fox\njumped over the lazy dog"`.  The control characters for strings are `\0`, `\n`, `\r`, `\\`, and `\"`.  
 
-In the game's own files, strings are encoded in Shift-JIS, though thcrap also lets them be in UTF-8.  Currently, `truth` dumps the string bytes back and forth identically except for escaping, without any regard to encoding.  In theory, this can lead to... [problems](https://github.com/ExpHP/truth/issues/2), which may be addressed in later versions.
+Source text files for `truth` **must** be encoded in UTF-8.  `truth` handles the conversion between the Shift-JIS encoding used in the binary files and the UTF-8 encoding used in source text.  (in the future, you may even be able to configure which encoding is used in the binary files... but source text will always be UTF-8!) 
 
 ### Variables
 
@@ -82,7 +82,7 @@ Similar to registers, you can apply type sigils to locals.  (in fact, all kinds 
 I0 = $F0;  // performs a truncating cast
 ```
 
-**Consts** are compile-time constant variables.  Unlike local declarations (which are statements), `const` declarations are technically considered a form of item.  This means they can be accessed from *anywhere* within the same block (even before the declaration).
+**Consts** are compile-time constant variables.  Unlike local declarations (which are statements), `const` declarations are technically considered a form of *item.*  This means they can be accessed from *anywhere* within the same block (even before the declaration).
 
 ```
 const int before = 3;
@@ -90,7 +90,7 @@ const int middle = after * before;
 const int after = 5;
 ```
 
-Unlike locals, `const` vars muse be initialized.
+Unlike locals, `const` vars must be initialized.
 
 Something interesting to note: While the other kinds of variables are limited to integers and floats, `const` vars may also be strings!
 
@@ -100,7 +100,7 @@ const string FIRST_NAME = "Johnny";
 
 ### Instructions
 
-A call to a raw instruction looks like this.  The part after `ins_` is the opcode, which must be written in a canonical form (no leading zeroes!):
+A call to a raw instruction looks like this:  The part after `ins_` is the opcode, which must be written in a canonical form (no leading zeroes!):
 
 ```C
 ins_420(69, I0);
@@ -115,6 +115,19 @@ seti(23, I0);
 In this case, raw instructions are basically indistinguishable from any other function calls of void type. ....At least, that's what I would say, but *function calls beyond singular instructions are not yet implemented.*
 
 (at some point, inline functions like thecl will be a thing! And truecl will likely share thecl's sugar for invoking other subroutines without the `call` instruction)
+
+#### Pseudo-args
+
+If you decompile an instruction with an unknown signature, you may see something like this: (along with a warning)
+
+```C
+ins_1011(@mask=0b100, @blob="00501c46 00000040 00541c46");
+```
+
+This is the most raw form possible of an instruction call.  The `@<name>=`...-style arguments are called **pseudo-arguments.** They indicates the exact stream of bytes to write for the instruction's argument list, as well as the bitmask of which arguments are registers.
+
+* `@blob=<string>` provides the argument bytes, written in hexadecimal pairs.  These will be the exact bytes written to the file (so e.g. a string argument in TH08 MSG should be encoded as Shift-JIS with every byte XORed with 0x77, as they are in the file).  Only hexadecimal characters (and whitespace) are permitted, and the total number of bytes must be a multiple of 4.
+* `@mask=<int>` provides the register bitmask.  Notice that the bits in a binary integer literal read from right to left, so in the example above, the *third argument* is a register.  When omitted, `@mask` defaults to zero.
 
 ### Expressions
 
@@ -142,7 +155,7 @@ Unlike in C, assignments are **not** expressions; they are statements.  They are
 ```
 ...and so on for each of `*=`, `/=`, `%=`, `&=`, `|=`
 
-(**note:** it's possible that in the future I might consider turning assignments into expressions, as a generalization of "clobber" syntax)
+(**note:** it's possible that, in the future, assignments may become proper expressions, as a generalization of "clobber" syntax)
 
 ### Block structures
 

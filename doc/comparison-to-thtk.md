@@ -51,7 +51,4 @@ there are some new things as well:
 
 truanm still needs these features before it can be considered "feature complete":
 
-* [ ] **globals** (named compile-time constants)
 * [ ] **compiling expressions that involve jumps.**  (e.g. `a == b` and `a || b` in arbitrary expressions; currently these are only supported inside `if (...)`)
-* [ ] **named sprite/script arguments,** e.g. `sprite(sprite30);` instead of `sprite(30);`.
-* [x] **word-sized (2-byte) arguments,** for the `anchor` instruction.  (this will also help later with some MSG and ECL formats...)
