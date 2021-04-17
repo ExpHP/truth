@@ -6,9 +6,12 @@ pub fn core_signatures(game: Game) -> &'static CoreSignatures {
         | Th095 | Th125
         => EMPTY,
 
-        | Th06 | Th07 | Th08 | Th09 | Th10 | Alcostg | Th11 | Th12
-        | Th128 | Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17
-        => MSG,
+        | Th06 | Th07 | Th08 | Th09
+        => MSG_06_09,
+
+        | Th10 | Alcostg | Th11 | Th12 | Th128 | Th13
+        | Th14 | Th143 | Th15 | Th16 | Th165 | Th17
+        => MSG_10_17
     }
 }
 
@@ -19,7 +22,7 @@ static EMPTY: &CoreSignatures = &CoreSignatures {
     var: &[],
 };
 
-static MSG: &CoreSignatures = &CoreSignatures {
+static MSG_06_09: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th06, 0, Some("")),
@@ -51,11 +54,7 @@ static MSG: &CoreSignatures = &CoreSignatures {
         (Th08, 22, Some("")),
 
         // =========================================
-        // FIXME: Everything beyond this point is copied from thtk,
-        //        which has a track record for being wrong about unused instructions
-        //        and arguments that are always zero in vanilla files.
-        //
-        //        I'll reverse MSG in these games at some point...  - ExpHP
+        // FIXME: TH09 is copied from thtk and still needs to be reversed properly.
 
         (Th09, 3, Some("ssm(bs=4;mask=0x77,7,16)")),
         (Th09, 8, Some("")),
@@ -71,28 +70,46 @@ static MSG: &CoreSignatures = &CoreSignatures {
         (Th09, 26, Some("S")),
         // 27 is not in the jumptable; could be a nop, but it's never used
         (Th09, 28, Some("S")),
-
-        // (FIXME: this many changed signatures looks suspicious, don't it?
-        //         This is probably a rewrite of the format, and should be broken
-        //         into a new CoreSignatures if that's the case)
-        (Th10, 1, Some("S")),
-        (Th10, 2, Some("S")),
+        // =========================================
+    ],
+    var: &[],
+};
+static MSG_10_17: &CoreSignatures = &CoreSignatures {
+    inherit: &[],
+    ins: &[
+        (Th10, 0, Some("")),
+        (Th10, 1, Some("S")),  // arg is unused
+        (Th10, 2, Some("S")),  // arg is unused
         (Th10, 3, Some("")),
         (Th10, 4, Some("")),
         (Th10, 5, Some("")),
+        (Th10, 6, Some("")),
         (Th10, 7, Some("")),
+        (Th10, 8, Some("")),
+        (Th10, 9, Some("S")),
         (Th10, 10, Some("S")),
+        (Th10, 11, Some("")),
         (Th10, 12, Some("S")),
-        (Th10, 14, Some("S")),
-        (Th10, 17, Some("m(bs=4;mask=0x77,7,16)")),
+        (Th10, 13, Some("S")),
+        (Th10, 14, Some("m(bs=4;mask=0x77,7,16)")),
+        (Th10, 15, Some("m(bs=4;mask=0x77,7,16)")),
+        (Th10, 16, Some("m(bs=4;mask=0x77,7,16)")),
+        (Th10, 17, Some("")),
         (Th10, 18, Some("")),
         (Th10, 19, Some("")),
         (Th10, 20, Some("")),
         (Th10, 21, Some("")),
         (Th10, 22, Some("")),
         (Th10, 23, Some("")),
-        (Th10, 25, Some("S")),
+        // thcrap assigns "S" to 25, but there is quite thoroughly
+        // no evidence of such an instruction...
 
+        // =========================================
+        // FIXME: Everything beyond this point is copied from thtk,
+        //        which has a track record for being wrong about unused instructions
+        //        and arguments that are always zero in vanilla files.
+        //
+        //        I'll reverse MSG in these games at some point...  - ExpHP
         (Th11, 9, Some("")),
         (Th11, 10, Some("S")),
         (Th11, 11, Some("S")),
