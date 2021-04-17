@@ -7,6 +7,7 @@ import argparse
 import os
 import sys
 import time
+import fnmatch
 
 PROG = os.path.basename(sys.argv[0])
 
@@ -23,6 +24,7 @@ def main():
     global INPUT_DIR
     global DUMP_DIR
 
+    ALL_FORMATS = ['anm', 'std', 'msg']
     parser = argparse.ArgumentParser(
         description='Script used to test recompilation of all files in all games.',
     )
@@ -39,6 +41,11 @@ def main():
 
     if not args.game:
         args.game = [('06', '99')]
+
+    if args.what == 'all':
+        args.what = list(ALL_FORMATS)
+    else:
+        args.what = [args.what]  # one format
 
     if args.ssd:
         INPUT_DIR = SSD_INPUT_DIR
@@ -59,12 +66,7 @@ def main():
         if not any(lo <= game <= hi for (lo, hi) in args.game):
             continue
         for filename in os.listdir(f'{INPUT_DIR}/{INPUT_SUBDIR_PREFIX}{game}'):
-            do_it = any([
-                filename.endswith('.anm') and args.what in ['anm', 'all'],
-                filename.endswith('.std') and args.what in ['std', 'all'],
-                (filename.startswith('msg') or filename.endswith('.msg')) and args.what in ['msg', 'all'],
-            ])
-            if do_it:
+            if get_format(game, filename) in args.what:
                 all_files.append((game, filename, timelog, badfiles))
 
     if args.build:
@@ -99,6 +101,34 @@ def main():
     for key in sorted(timelog):
         print(f'{key:14} {timelog[key]:>7.3f}')
 
+MSG_GLOBS = {
+    '06': 'msg*',
+    '07': 'msg*',
+    '08': 'msg*',
+    '09': '*.msg',
+    '095': 'XXXXX',
+    '10': 'st0*.msg',  # don't want to hit e*.msg or staff.msg
+    '11': 'st0*.msg',
+    '12': 'st0*.msg',
+    '125': 'XXXXX',
+    '128': 'st_*.msg',
+    '13': 'st0*.msg',
+    '14': 'st0*.msg',
+    '143': 'msg*.msg',
+    '15': 'st0*.msg',
+    '16': 'st0*.msg',
+    '165': 'msg*.msg',
+    '17': 'st0*.msg',
+}
+
+def get_format(game, path):
+    if path.endswith('.std'):
+        return 'std'
+    elif path.endswith('.anm'):
+        return 'anm'
+    elif fnmatch.fnmatch(os.path.basename(path), MSG_GLOBS[game]):
+        return 'msg'
+    return None
 
 # ABORT = 0
 def process_file(game, file, timelog, badfiles):
@@ -108,24 +138,18 @@ def process_file(game, file, timelog, badfiles):
     outspec = f'{DUMP_DIR}/{DUMP_SUBDIR_PREFIX}{game}/{file}.spec'
     outfile = f'{DUMP_DIR}/{DUMP_SUBDIR_PREFIX}{game}/{file}'
 
-    if file.endswith('.std'):
-        format = 'std'
+    format = get_format(game, file)
+    if format == 'std':
         decompile_args = ['target/release/trustd', 'decompile', '-g', game, input]
         compile_args = ['target/release/trustd', 'compile', '-g', game, outspec, '-o', outfile]
-    elif file.endswith('.anm'):
-        format = 'anm'
+    elif format == 'anm':
         decompile_args = ['target/release/truanm', 'decompile', '-g', game, input]
         compile_args = ['target/release/truanm', 'compile', '-g', game, outspec, '-i', input, '-o', outfile]
-    elif file.startswith('msg') or file.endswith('.msg'):
-        format = 'msg'
+    elif format == 'msg':
         decompile_args = ['target/release/trumsg', 'decompile', '-g', game, input]
         compile_args = ['target/release/trumsg', 'compile', '-g', game, outspec, '-o', outfile]
     else:
         assert False, file
-
-    # FIXME
-    if game >= '10' and format == 'msg':
-        return
 
     os.makedirs(os.path.dirname(outspec), exist_ok=True)
 
