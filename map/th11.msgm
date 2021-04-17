@@ -1,0 +1,32 @@
+!msgmap
+!ins_names
+
+# Same as th10
+0 end
+1 showPlayer    # 40
+2 showEnemy     # 44
+3 showTextBox   # 48
+4 hidePlayer    # hide 40
+5 hideEnemy     # hide 44,5c
+6 hideTextBox   # hide 48,4c,50,54,58
+7 focusPlayer   # 2->40, 3->44, 2->48, pos 68
+8 focusEnemy    # 3->40, 2->44, 3->48, pos 74
+9 focusYoukai   # 8->40, 8->44, 8->48, pos 80
+
+10 skippable
+11 textPause
+# 12 looks like enemyAppear from older games but is unused
+13 facePlayer
+14 faceEnemy
+15 textLine1
+16 textLine2
+17 textAdd
+18 textClear   # 3 -> 4c,50,54,58
+19 musicBoss
+20 intro
+21 stageBonus
+22 musicFade
+23 shakePlayer
+24 shakeEnemy
+# 25 (S)  sets y offset (pos2) of 4c,50,54,58
+# 26 ()   enables flag 2
