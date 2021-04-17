@@ -124,13 +124,14 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
         (Th11, 25, Some("S")), // new
         (Th11, 26, Some("")),  // new
 
+        (Th12, 27, Some("f")),
+
         // =========================================
         // FIXME: Everything beyond this point is copied from thtk,
         //        which has a track record for being wrong about unused instructions
         //        and arguments that are always zero in vanilla files.
         //
         //        I'll reverse MSG in these games at some point...  - ExpHP
-        (Th12, 27, Some("f")),
 
         (Th128, 28, Some("ff")),
         (Th128, 29, Some("S")),

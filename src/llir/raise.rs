@@ -603,13 +603,13 @@ fn decode_args_with_abi(
                 Ok(ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32))
             },
 
-            | ArgEncoding::String { block_size: _, mask }
+            | ArgEncoding::String { block_size: _, mask,  }
             => {
                 // read to end
                 let read_len = remaining_len;
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let encoded = args_blob.read_cstring_masked_exact(read_len, mask).expect("already checked len");
+                let encoded = args_blob.read_cstring_masked_exact(read_len, mask, emitter).expect("already checked len");
                 let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
                 Ok(ScalarValue::String(string))
             },

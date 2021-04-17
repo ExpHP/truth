@@ -441,7 +441,7 @@ fn write_std(
 }
 
 fn read_string_128(r: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<Sp<String>> {
-    r.read_cstring_masked_exact(128, AcceleratingByteMask::constant(0x00))?
+    r.read_cstring_masked_exact(128, AcceleratingByteMask::constant(0x00), emitter)?
         .decode(DEFAULT_ENCODING).map(|x| sp!(x))
         .map_err(|e| emitter.as_sized().emit(e))
 }

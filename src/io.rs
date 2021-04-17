@@ -299,19 +299,22 @@ pub trait BinRead {
     /// Reads the given number of bytes as a masked string, where the null bytes are also masked.
     ///
     /// This reads exactly the given number of bytes, then xors every byte with a mask,
-    /// and finally trims trailing nulls.  The returned value may contain interior nulls.
+    /// and finally truncates at the first null.
     ///
     /// The returned string will be less than `num_bytes` long due to the trimming of nulls.
-    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: AcceleratingByteMask) -> Result<Encoded, Self::Err> {
+    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: AcceleratingByteMask, emitter: &dyn Emitter) -> Result<Encoded, Self::Err> {
         // FIXME: I feel like 'mask' should be 'IntoIterator<Item=u8>', but... object safety.
         //        (maybe we could kill the associated types and move methods onto `dyn BinRead`?)
         let mut out = self.read_byte_vec(num_bytes)?;
         for (byte, mask_byte) in out.iter_mut().zip(mask) {
             *byte ^= mask_byte;
         }
-        while out.last() == Some(&0) {
-            out.pop();
-        }
+        let zero_idx = out.iter().position(|&x| x == 0).unwrap_or_else(|| {
+            emitter.as_sized().emit(warning!("missing null terminator will be appended to string")).ignore();
+            out.len()
+        });
+        out.truncate(zero_idx);
+
         Ok(Encoded(out))
     }
 
@@ -492,8 +495,9 @@ fn test_masked_cstring() {
         let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
         longer_padded.extend(mask.clone().take(10));
 
+        let emitter = RootEmitter::new_stderr();
         let mut r = std::io::Cursor::new(longer_padded);
-        let read_back = r.read_cstring_masked_exact(encoded.len(), mask).unwrap();
+        let read_back = r.read_cstring_masked_exact(encoded.len(), mask, &emitter).unwrap();
         assert_eq!(bytes, &read_back.0[..]);  // make sure it dropped the nul bytes
         assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
     }

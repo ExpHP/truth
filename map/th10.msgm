@@ -16,7 +16,7 @@
 8 focusEnemy
 9 skippable
 10 textPause
-# 11 looks like enemyAppear from older games but is unused
+11 enemyAppear
 12 facePlayer
 13 faceEnemy
 14 textLine1

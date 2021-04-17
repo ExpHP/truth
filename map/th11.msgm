@@ -11,11 +11,11 @@
 6 hideTextBox   # hide 48,4c,50,54,58
 7 focusPlayer   # 2->40, 3->44, 2->48, pos 68
 8 focusEnemy    # 3->40, 2->44, 3->48, pos 74
-9 focusYoukai   # 8->40, 8->44, 8->48, pos 80
+9 focusOther    # 8->40, 8->44, 8->48, pos 80
 
 10 skippable
 11 textPause
-# 12 looks like enemyAppear from older games but is unused
+12 enemyAppear
 13 facePlayer
 14 faceEnemy
 15 textLine1
@@ -30,3 +30,4 @@
 24 shakeEnemy
 # 25 (S)  sets y offset (pos2) of 4c,50,54,58
 # 26 ()   enables flag 2
+27 musicFadeCustom
