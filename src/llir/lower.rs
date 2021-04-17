@@ -96,7 +96,9 @@ pub fn lower_sub_ast_to_instrs(
 
     // And now postprocess
     assign_registers(&mut out, instr_format, &ctx)?;
-    encode_labels(&mut out, instr_format, 0, &ctx.defs, &ctx.emitter)?;
+
+    let label_info = gather_label_info(instr_format, 0, &out, &ctx.defs, &ctx.emitter)?;
+    encode_labels(&mut out, instr_format, &label_info, &ctx.emitter)?;
 
     /// FIXME: won't using ctx.emitter possible cause double warnings here?
     fn fixme() {} // to generate an unused warning I can't ignore
@@ -114,43 +116,7 @@ pub fn lower_sub_ast_to_instrs(
 
 // =============================================================================
 
-/// Eliminates all `LowerArg::Label`s by replacing them with their dword values.
-fn encode_labels(
-    code: &mut [LowerStmt],
-    format: &dyn InstrFormat,
-    initial_offset: u64,
-    defs: &context::Defs,
-    emitter: &context::RootEmitter,
-) -> Result<(), ErrorReported> {
-    // partial encoding pass to gather label offsets
-    let label_info = gather_label_info(format, initial_offset, code, defs, emitter)?;
-
-    code.iter_mut().map(|stmt| {
-        if let LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) = stmt {
-             for arg in args {
-                match arg.value {
-                    | LowerArg::Label(ref label)
-                    | LowerArg::TimeOf(ref label)
-                    => match label_info.get(label) {
-                        Some(info) => match arg.value {
-                            LowerArg::Label(_) => arg.value = LowerArg::Raw((format.encode_label(info.offset) as i32).into()),
-                            LowerArg::TimeOf(_) => arg.value = LowerArg::Raw(info.time.into()),
-                            _ => unreachable!(),
-                        },
-                        None => return Err(emitter.emit(error!{
-                            message("undefined label '{}'", label),
-                            primary(arg, "there is no label by this name"),
-                        })),
-                    },
-
-                    _ => {},
-                } // match arg.value
-            } // for arg in args
-        } // if let LowerStmt::Instr { .. }
-        Ok(())
-    }).collect_with_recovery()
-}
-
+type LabelInfoMap = HashMap<Sp<Ident>, RawLabelInfo>;
 struct RawLabelInfo {
     time: i32,
     offset: u64,
@@ -163,7 +129,7 @@ fn gather_label_info(
     code: &[LowerStmt],
     defs: &context::Defs,
     emitter: &context::RootEmitter,
-) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, ErrorReported> {
+) -> Result<LabelInfoMap, ErrorReported> {
     use std::collections::hash_map::Entry;
 
     // Due to things like the TH12 MSG furigana bug, the size of an instruction can depend
@@ -217,6 +183,39 @@ fn gather_label_info(
     }).collect_with_recovery()?;
 
     Ok(out)
+}
+
+/// Eliminates all `LowerArg::Label`s by replacing them with their dword values.
+fn encode_labels(
+    code: &mut [LowerStmt],
+    format: &dyn InstrFormat,
+    label_info: &LabelInfoMap,
+    emitter: &context::RootEmitter,
+) -> Result<(), ErrorReported> {
+    code.iter_mut().map(|stmt| {
+        if let LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) = stmt {
+            for arg in args {
+                match arg.value {
+                    | LowerArg::Label(ref label)
+                    | LowerArg::TimeOf(ref label)
+                    => match label_info.get(label) {
+                        Some(info) => match arg.value {
+                            LowerArg::Label(_) => arg.value = LowerArg::Raw((format.encode_label(info.offset) as i32).into()),
+                            LowerArg::TimeOf(_) => arg.value = LowerArg::Raw(info.time.into()),
+                            _ => unreachable!(),
+                        },
+                        None => return Err(emitter.emit(error!{
+                            message("undefined label '{}'", label),
+                            primary(arg, "there is no label by this name"),
+                        })),
+                    },
+
+                    _ => {},
+                } // match arg.value
+            } // for arg in args
+        } // if let LowerStmt::Instr { .. }
+        Ok(())
+    }).collect_with_recovery()
 }
 
 /// Replaces special args like Labels and TimeOf with dummy values.
