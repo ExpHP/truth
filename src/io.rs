@@ -15,13 +15,14 @@ pub type WriteError = crate::error::ErrorReported;
 pub type ReadResult<T> = Result<T, ReadError>;
 pub type WriteResult<T = ()> = Result<T, WriteError>;
 
-/// String bytes encoded using the user's selected binary string encoding.
+/// String bytes encoded using the user's selected binary string encoding. (and then possibly
+/// encrypted in some manner)
 ///
-/// This is a wrapper around `Vec<u8>` to help ensure that string encoding/decoding
-/// is done using the correct encoding, and not through accidental or habitual usage of
-/// `std::str::from_utf8` and `str::as_bytes`.
+/// This is a wrapper around `Vec<u8>` to help ensure that the appropriate level of attention
+/// is paid to string encoding/decoding, acting as a speed bump against the habitual usage
+/// of `std::str::from_utf8` and `str::as_bytes`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Encoded(Vec<u8>);
+pub struct Encoded(pub Vec<u8>);
 
 pub type Encoding = &'static encoding_rs::Encoding;
 
@@ -44,6 +45,12 @@ impl Encoded {
         match enc.decode_without_bom_handling(self.0.as_ref()) {
             (_, true) => Err(error!("could not read string using encoding '{}'", enc.name())),
             (str, _) => Ok(str.into_owned().into()),
+        }
+    }
+
+    pub fn apply_xor_mask(&mut self, mask: impl IntoIterator<Item=u8>) {
+        for (own_byte, mask_byte) in self.0.iter_mut().zip(mask) {
+            *own_byte ^= mask_byte;
         }
     }
 

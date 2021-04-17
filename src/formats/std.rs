@@ -453,7 +453,7 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn Emitter, s: 
             primary(s, "{} bytes (max allowed: 127)", encoded.len()),
         )));
     }
-    f.write_cstring_masked(&encoded, 128, AcceleratingByteMask::constant(0x00))?;
+    f.write_cstring(&encoded, 128)?;
     Ok(())
 }
 

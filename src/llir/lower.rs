@@ -2,6 +2,7 @@ use std::collections::{HashMap};
 
 use super::{unsupported, SimpleArg};
 use crate::llir::{RawInstr, InstrFormat, ArgEncoding, ScalarType};
+use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast;
@@ -9,6 +10,7 @@ use crate::resolve::DefId;
 use crate::ident::{Ident};
 use crate::context::{self, CompilerContext};
 use crate::io::{Encoded, DEFAULT_ENCODING};
+use crate::value::ScalarValue;
 
 mod stackless;
 
@@ -93,15 +95,21 @@ pub fn lower_sub_ast_to_instrs(
     let mut out = lowerer.out;
 
     // And now postprocess
-    encode_labels(&mut out, instr_format, 0, &ctx.defs, &ctx.emitter)?;
     assign_registers(&mut out, instr_format, &ctx)?;
+    encode_labels(&mut out, instr_format, 0, &ctx.defs, &ctx.emitter)?;
 
-    out.into_iter().filter_map(|x| match x {
-        LowerStmt::Instr(instr) => Some(encode_args(&instr, &ctx.defs, &ctx.emitter)),
+    /// FIXME: won't using ctx.emitter possible cause double warnings here?
+    fn fixme() {} // to generate an unused warning I can't ignore
+
+    Ok(out.into_iter().filter_map(|x| match x {
+        LowerStmt::Instr(instr) => Some({
+            encode_args(&instr, &ctx.defs, &ctx.emitter)
+                .expect("shouldn't fail because we encoded it successfully when computing label offsets")
+        }),
         LowerStmt::Label { .. } => None,
         LowerStmt::RegAlloc { .. } => None,
         LowerStmt::RegFree { .. } => None,
-    }).collect_with_recovery()
+    }).collect())
 }
 
 // =============================================================================
@@ -114,11 +122,12 @@ fn encode_labels(
     defs: &context::Defs,
     emitter: &context::RootEmitter,
 ) -> Result<(), ErrorReported> {
+    // partial encoding pass to gather label offsets
     let label_info = gather_label_info(format, initial_offset, code, defs, emitter)?;
 
-    code.iter_mut().map(|thing| {
-        match thing {
-            LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) => for arg in args {
+    code.iter_mut().map(|stmt| {
+        if let LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) = stmt {
+             for arg in args {
                 match arg.value {
                     | LowerArg::Label(ref label)
                     | LowerArg::TimeOf(ref label)
@@ -133,11 +142,11 @@ fn encode_labels(
                             primary(arg, "there is no label by this name"),
                         })),
                     },
+
                     _ => {},
-                }
-            },
-            _ => {},
-        }
+                } // match arg.value
+            } // for arg in args
+        } // if let LowerStmt::Instr { .. }
         Ok(())
     }).collect_with_recovery()
 }
@@ -146,6 +155,8 @@ struct RawLabelInfo {
     time: i32,
     offset: u64,
 }
+
+/// A quick pass near the end of a subroutine's compilation that collects the offsets of all labels.
 fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: u64,
@@ -155,12 +166,36 @@ fn gather_label_info(
 ) -> Result<HashMap<Sp<Ident>, RawLabelInfo>, ErrorReported> {
     use std::collections::hash_map::Entry;
 
+    // Due to things like the TH12 MSG furigana bug, the size of an instruction can depend
+    // on other instructions written before it.  Thus, there's no easy way to get the size
+    // of an instruction without repeating all of the logic involved in encoding it.
+    //
+    // Basically, here we will perform a full encoding pass of all instructions, substituting
+    // unknown labels and etc. with dummy values, just so we can determine the number of bytes
+    // that each instruction will occupy.  These encoded instructions will then be thrown out,
+    // and we'll do a second, TRUE encoding pass later once we have substituted everything
+    // with their proper values.
+    //
+    // We could maybe get rid of the second encoding pass by tracking offsets to fix up, like
+    // a linker?  But we'd have to do it per-instruction and it'd be awkward.  (it'd have to
+    // be per-instruction because AnmFile/StdFile/etc. structs need to contain something that
+    // is a vec of data per-instruction, else they're not suitable for READING binary files).
+    //
+    // I doubt that the extra encoding is a big issue in the grand scheme of things.  - Exp
+
     let mut offset = initial_offset;
     let mut out = HashMap::new();
-    code.iter().map(|thing| {
+
+    code.iter().enumerate().map(|(index, thing)| {
         match *thing {
             LowerStmt::Instr(ref instr) => {
-                offset += precompute_instr_size(instr, format, defs, emitter)? as u64;
+                emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
+                    // encode the instruction with dummy values
+                    let same_size_instr = substitute_dummy_args(instr);
+                    let raw_instr = encode_args(&same_size_instr, defs, emitter)?;
+                    offset += format.instr_size(&raw_instr) as u64;
+                    Ok(())
+                })?;
             },
             LowerStmt::Label { time, ref label } => {
                 match out.entry(label.clone()) {
@@ -184,74 +219,31 @@ fn gather_label_info(
     Ok(out)
 }
 
+/// Replaces special args like Labels and TimeOf with dummy values.
+///
+/// This preserves the number of bytes in the written instruction.
+fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
+    let &LowerInstr { time, opcode, user_param_mask, ref args } = instr;
+    let new_args = match args {
+        LowerArgs::Unknown(blob) => LowerArgs::Unknown(blob.clone()),
+        LowerArgs::Known(args) => LowerArgs::Known(args.iter().map(|arg| match arg.value {
+            | LowerArg::Label(_)
+            | LowerArg::TimeOf(_)
+            => sp!(arg.span => LowerArg::Raw(SimpleArg { value: ScalarValue::Int(0), is_reg: false })),
+
+            | LowerArg::Local { .. }
+            => sp!(arg.span => LowerArg::Raw(SimpleArg { value: ScalarValue::Int(0), is_reg: true })),
+
+            | LowerArg::Raw(_) => arg.clone(),
+        }).collect())
+    };
+    LowerInstr { time, opcode, user_param_mask, args: new_args }
+}
+
 // =============================================================================
 
-// FIXME the existence of this still bothers me but I don't currently see a better solution
-//
-/// Determine what the final total size of the instruction will be based on the arguments and signature.
-///
-/// Typically we work with [`InstrRaw`] when we need to know the size of an instruction, but
-/// fixing jump labels requires us to know the size before the args are fully encoded.
-///
-/// Unlike [`encode_args`], this has to deal with variants of [`LowerArg`] that are not the raw argument.
-fn precompute_instr_size(instr: &LowerInstr, instr_format: &dyn InstrFormat, defs: &context::Defs, emitter: &context::RootEmitter) -> Result<usize, ErrorReported> {
-    let arg_size = precompute_instr_args_size(instr, defs, emitter)?;
-
-    Ok(instr_format.instr_header_size() + arg_size)
-}
-
-fn precompute_instr_args_size(instr: &LowerInstr, defs: &context::Defs, emitter: &context::RootEmitter) -> Result<usize, ErrorReported> {
-    let args = match &instr.args {
-        LowerArgs::Known(args) => args,
-        LowerArgs::Unknown(blob) => {
-            assert!(blob.len() % 4 == 0);  // should be checked already
-            return Ok(blob.len());
-        },
-    };
-
-    let abi = defs.ins_abi(instr.opcode).expect("(bug!) how did this typecheck with no signature?");
-
-    let mut size = 0;
-    for (arg, enc) in zip!(args, abi.arg_encodings()) {
-        match arg.value {
-            LowerArg::Raw(_) => match enc {
-                | ArgEncoding::Dword
-                | ArgEncoding::Color
-                | ArgEncoding::Float
-                | ArgEncoding::JumpOffset
-                | ArgEncoding::JumpTime
-                | ArgEncoding::Padding
-                | ArgEncoding::Script
-                | ArgEncoding::Sprite
-                => size += 4,
-
-                | ArgEncoding::Word
-                => size += 2,
-
-                | ArgEncoding::String { block_size, mask: _ }
-                => {
-                    // blech, we have to encode the string (which allocates) just to compute the correct length!
-                    let string = arg.expect_raw().expect_string();
-                    let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
-                    let string_len = encoded.len();
-                    size += crate::io::cstring_num_bytes(string_len, block_size);
-                },
-            },
-            LowerArg::Local { .. } => size += 4,
-            LowerArg::Label { .. } => size += 4,
-            LowerArg::TimeOf { .. } => size += 4,
-        }
-    }
-
-    for enc in abi.arg_encodings().skip(args.len()) {
-        assert_eq!(enc, ArgEncoding::Padding);
-        size += 4;
-    }
-
-    Ok(size)
-}
-
-fn encode_args(instr: &LowerInstr, defs: &context::Defs, emitter: &context::RootEmitter) -> Result<RawInstr, ErrorReported> {
+/// Implements the encoding of argument values into byte blobs according to an instruction's ABI.
+fn encode_args(instr: &LowerInstr, defs: &context::Defs, emitter: &impl Emitter) -> Result<RawInstr, ErrorReported> {
     use crate::io::BinWrite;
 
     let args = match &instr.args {
@@ -311,7 +303,7 @@ fn encode_args(instr: &LowerInstr, defs: &context::Defs, emitter: &context::Root
     })
 }
 
-fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &context::RootEmitter) -> Result<u16, ErrorReported> {
+fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &impl Emitter) -> Result<u16, ErrorReported> {
     if args.len() > 16 {
         return Err(emitter.emit(error!(
             message("too many arguments in instruction!"),
@@ -330,37 +322,4 @@ fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &context::RootEmitter) -> 
         mask += bit;
     }
     Ok(mask)
-}
-
-#[test]
-fn test_precomputed_string_len() {
-    use crate::value::ScalarValue;
-    use encoding_rs::SHIFT_JIS;
-
-    // the point of this test is to make sure the precomputed length of string arguments
-    // uses the correct encoding instead of UTF-8.
-    let str = "ｶﾀｶﾅｶﾀｶﾅｶﾀｶﾅｶﾀｶﾅ";
-    let utf8_len = str.len();
-    let sjis_len = SHIFT_JIS.encode(str).0.len();
-    assert_ne!(utf8_len, sjis_len);
-
-    let arg = LowerArg::Raw(SimpleArg { value: ScalarValue::String(str.into()), is_reg: false });
-    let instr = LowerInstr { time: 0, opcode: 1, user_param_mask: None, args: LowerArgs::Known(vec![sp!(arg)]) };
-
-    let mut scope = crate::Builder::new().build();
-    let mut truth = scope.truth();
-    let ctx = truth.ctx();
-
-    ctx.set_ins_abi(1, crate::llir::InstrAbi::parse("m(bs=4;mask=0x77,0,0)", ctx.emitter).unwrap());
-
-    let actual = precompute_instr_args_size(&instr, &ctx.defs, &ctx.emitter).unwrap();
-    let expected = encode_args(&instr, &ctx.defs, &ctx.emitter).unwrap().args_blob.len();
-    assert_eq!(actual, expected);
-
-    // the written length should be *slightly more* than sjis_len because there's the null terminator
-    // and padding.  That's not too well-defined to check, though.
-    //
-    // However, we can be sure of the following, because the SJIS string is so much shorter than the
-    // UTF8 encoding.
-    assert!(actual < utf8_len);
 }
