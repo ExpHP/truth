@@ -103,9 +103,10 @@ pub fn lower_sub_ast_to_instrs(
     /// FIXME: won't using ctx.emitter possible cause double warnings here?
     fn fixme() {} // to generate an unused warning I can't ignore
 
+    let mut encoding_state = ArgEncodingState::new();
     Ok(out.into_iter().filter_map(|x| match x {
         LowerStmt::Instr(instr) => Some({
-            encode_args(&instr, &ctx.defs, &ctx.emitter)
+            encode_args(&mut encoding_state, &instr, &ctx.defs, &ctx.emitter)
                 .expect("shouldn't fail because we encoded it successfully when computing label offsets")
         }),
         LowerStmt::Label { .. } => None,
@@ -152,13 +153,15 @@ fn gather_label_info(
     let mut offset = initial_offset;
     let mut out = HashMap::new();
 
+    let mut encoding_state = ArgEncodingState::new();
+
     code.iter().enumerate().map(|(index, thing)| {
         match *thing {
             LowerStmt::Instr(ref instr) => {
                 emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
                     // encode the instruction with dummy values
                     let same_size_instr = substitute_dummy_args(instr);
-                    let raw_instr = encode_args(&same_size_instr, defs, emitter)?;
+                    let raw_instr = encode_args(&mut encoding_state, &same_size_instr, defs, emitter)?;
                     offset += format.instr_size(&raw_instr) as u64;
                     Ok(())
                 })?;
@@ -241,8 +244,21 @@ fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
 
 // =============================================================================
 
+/// Mutable state that must persist from one instruction to the next when encoding instruction args into bytes.
+struct ArgEncodingState {
+    /// Records additional bytes that should be appended to the next string before it is padded
+    /// and masked, in order to simulate the TH12 MSG furigana bug.
+    furibug_bytes: Option<Encoded>,
+}
+
+impl ArgEncodingState {
+    pub fn new() -> Self { ArgEncodingState {
+        furibug_bytes: None,
+    }}
+}
+
 /// Implements the encoding of argument values into byte blobs according to an instruction's ABI.
-fn encode_args(instr: &LowerInstr, defs: &context::Defs, emitter: &impl Emitter) -> Result<RawInstr, ErrorReported> {
+fn encode_args(state: &mut ArgEncodingState, instr: &LowerInstr, defs: &context::Defs, emitter: &impl Emitter) -> Result<RawInstr, ErrorReported> {
     use crate::io::BinWrite;
 
     let args = match &instr.args {
@@ -277,12 +293,24 @@ fn encode_args(instr: &LowerInstr, defs: &context::Defs, emitter: &impl Emitter)
             | ArgEncoding::Word
             => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
 
-            | ArgEncoding::String { block_size, mask }
+            | ArgEncoding::String { block_size, mask, furibug }
             => {
                 let string = arg.expect_raw().expect_string();
                 let mut encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
+
+                if furibug {
+                    if let Some(furibug_bytes) = state.furibug_bytes.take() {
+                        encoded.0.push(0);
+                        encoded.0.extend(furibug_bytes.0)
+                    }
+                }
+
                 encoded.null_pad(block_size);
                 encoded.apply_xor_mask(mask);
+
+                if furibug && string.starts_with("|") {
+                    state.furibug_bytes = Some(encoded.clone());
+                }
 
                 args_blob.write_all(&encoded.0).expect("Cursor<Vec> failed?!");
             },

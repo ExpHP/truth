@@ -603,7 +603,7 @@ fn decode_args_with_abi(
                 Ok(ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32))
             },
 
-            | ArgEncoding::String { block_size: _, mask }
+            | ArgEncoding::String { block_size: _, mask, furibug: _ }
             => {
                 // read to end
                 let read_len = remaining_len;

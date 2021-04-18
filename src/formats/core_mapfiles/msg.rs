@@ -124,7 +124,10 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
         (Th11, 25, Some("S")), // new
         (Th11, 26, Some("")),  // new
 
-        (Th12, 27, Some("f")),
+        (Th12, 15, Some("m(bs=4;mask=0x77,7,16;furibug)")), // enable furibug
+        (Th12, 16, Some("m(bs=4;mask=0x77,7,16;furibug)")),
+        (Th12, 17, Some("m(bs=4;mask=0x77,7,16;furibug)")),
+        (Th12, 27, Some("f")), // new
 
         // =========================================
         // FIXME: Everything beyond this point is copied from thtk,

@@ -55,9 +55,12 @@ pub enum ArgEncoding {
     ///
     /// The string can be encoded with an accelerating XOR mask. The three integers supplied to
     /// `mask` are the initial mask value, the initial velocity, and acceleration.
+    ///
+    /// Adding `;furibug` replicates a strange quirk in TH12+ MSG files related to strings that represent furigana.
     String {
         block_size: usize,
         mask: AcceleratingByteMask,
+        furibug: bool,
     },
 }
 

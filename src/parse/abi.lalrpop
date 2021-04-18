@@ -26,9 +26,9 @@ ArgEncoding: ArgEncoding = {
 
 ZString: ArgEncoding = {
     "z" "(" <block_size:BlockSizeArg> ")"
-    => ArgEncoding::String {
-        block_size: block_size as _,
-        mask: AcceleratingByteMask::constant(0x00),
+    => {
+        let mask = AcceleratingByteMask::constant(0x00);
+        ArgEncoding::String { block_size, mask, furibug: false }
     },
 
     "z" => {
@@ -37,13 +37,13 @@ ZString: ArgEncoding = {
         )).ignore();
 
         let mask = AcceleratingByteMask::constant(0x00);
-        ArgEncoding::String { block_size: 4, mask }
+        ArgEncoding::String { block_size: 4, mask, furibug: false }
     },
 };
 
 MString: ArgEncoding = {
-    "m" "(" <block_size:BlockSizeArg> ";" <mask:MaskArg> ")"
-    => ArgEncoding::String { block_size: block_size as _, mask },
+    "m" "(" <block_size:BlockSizeArg> ";" <mask:MaskArg> <furibug:(";" "furibug")?> ")"
+    => ArgEncoding::String { block_size: block_size as _, mask, furibug: furibug.is_some() },
 
     "m" => {
         emitter.as_sized().emit(warning!(
@@ -51,11 +51,11 @@ MString: ArgEncoding = {
         )).ignore();
 
         let mask = AcceleratingByteMask::constant(0x77);
-        ArgEncoding::String { block_size: 4, mask }
+        ArgEncoding::String { block_size: 4, mask, furibug: false }
     },
 };
 
-BlockSizeArg = "bs" "=" <UnsignedInt>;
+BlockSizeArg: usize = "bs" "=" <x:UnsignedInt> => x as _;
 
 MaskArg: AcceleratingByteMask = {
     "mask" "=" <mask:UnsignedInt> "," <vel:UnsignedInt> "," <accel:UnsignedInt>
