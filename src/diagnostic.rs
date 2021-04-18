@@ -2,6 +2,7 @@
 use std::fmt;
 use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 
 use codespan_reporting as cs;
 use cs::term::termcolor as tc;
@@ -61,7 +62,7 @@ impl Diagnostic {
 
 /// Type that decides where diagnostic messages get written, and that stores the metadata necessary to render them.
 pub struct RootEmitter {
-    pub files: Files,
+    pub files: Rc<Files>,
     config: cs::term::Config,
     writer: Box<RefCell<dyn WriteError>>,
 }
@@ -79,13 +80,14 @@ impl fmt::Debug for RootEmitter {
 impl RootEmitter {
     fn from_writer<W: WriteError + 'static>(writer: W) -> Self {
         RootEmitter {
-            files: Files::new(),
+            files: Rc::new(Files::new()),
             config: default_term_config(),
             writer: Box::new(RefCell::new(writer)),
         }
     }
 
-    /// Create a [`RootEmitter`] that writes diagnostics to the standard error stream.
+    /// Create a [`RootEmitter`] with an empty file database, which writes diagnostics to the
+    /// standard error stream.
     pub fn new_stderr() -> Self {
         if crate::env::is_test_mode() {
             Self::from_writer(EprintErrorWriter)
@@ -99,8 +101,8 @@ impl RootEmitter {
         }
     }
 
-    /// Create a [`RootEmitter`] that captures diagnostic output which can be recovered
-    /// by calling [`Self::get_captured_diagnostics`].
+    /// Create a [`RootEmitter`] with an empty file database, that captures diagnostic output
+    /// to be recovered later by calling [`Self::get_captured_diagnostics`].
     pub fn new_captured() -> Self {
         Self::from_writer(CapturingErrorWriter::new())
     }
@@ -117,6 +119,15 @@ impl RootEmitter {
     /// was constructed using [`Self::new_captured`]. (otherwise, returns `None`)
     pub fn get_captured_diagnostics(&self) -> Option<String> {
         self.writer.borrow().get_captured_output()
+    }
+
+    /// Obtain an emitter for a new writer, with shared access to the same [file database][`Files`].
+    pub fn with_writer<W: WriteError + 'static>(&self, writer: W) -> Self {
+        RootEmitter {
+            files: Rc::clone(&self.files),
+            config: self.config.clone(),
+            writer: Box::new(RefCell::new(writer)),
+        }
     }
 }
 
@@ -196,6 +207,9 @@ impl IntoDiagnostics for Diagnostic {
 impl IntoDiagnostics for Vec<Diagnostic> {
     fn into_diagnostics(self) -> Vec<Diagnostic> { self }
 }
+
+/// A WriteColor equivalent to /dev/null.NoColor
+pub fn dev_null() -> tc::NoColor<std::io::Sink> { tc::NoColor::new(std::io::sink()) }
 
 // =============================================================================
 

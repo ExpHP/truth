@@ -100,14 +100,13 @@ pub fn lower_sub_ast_to_instrs(
     let label_info = gather_label_info(instr_format, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, instr_format, &label_info, &ctx.emitter)?;
 
-    /// FIXME: won't using ctx.emitter possible cause double warnings here?
-    fn fixme() {} // to generate an unused warning I can't ignore
-
     let mut encoding_state = ArgEncodingState::new();
     Ok(out.into_iter().filter_map(|x| match x {
         LowerStmt::Instr(instr) => Some({
-            encode_args(&mut encoding_state, &instr, &ctx.defs, &ctx.emitter)
-                .expect("shouldn't fail because we encoded it successfully when computing label offsets")
+            // this is the second time we're using encode_args (first time was to get labels), so suppress warnings
+            let null_emitter = ctx.emitter.with_writer(crate::diagnostic::dev_null());
+            encode_args(&mut encoding_state, &instr, &ctx.defs, &null_emitter)
+                .expect("we encoded this successfully before!")
         }),
         LowerStmt::Label { .. } => None,
         LowerStmt::RegAlloc { .. } => None,
