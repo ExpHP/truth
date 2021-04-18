@@ -10,7 +10,7 @@ use crate::resolve::{RegId};
 use crate::context::{self, Defs};
 use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
-use crate::io::DEFAULT_ENCODING;
+use crate::io::{DEFAULT_ENCODING, Encoded};
 
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
@@ -603,13 +603,16 @@ fn decode_args_with_abi(
                 Ok(ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32))
             },
 
-            | ArgEncoding::String { block_size: _, mask,  }
+            | ArgEncoding::String { block_size: _, mask }
             => {
                 // read to end
                 let read_len = remaining_len;
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let encoded = args_blob.read_cstring_masked_exact(read_len, mask, emitter).expect("already checked len");
+                let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
+                encoded.apply_xor_mask(mask);
+                encoded.trim_first_nul(emitter);
+
                 let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
                 Ok(ScalarValue::String(string))
             },

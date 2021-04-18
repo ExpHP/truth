@@ -27,7 +27,6 @@ pub struct Encoded(pub Vec<u8>);
 pub type Encoding = &'static encoding_rs::Encoding;
 
 pub use encoding_rs::SHIFT_JIS as DEFAULT_ENCODING;
-use crate::llir::AcceleratingByteMask;
 
 impl Encoded {
     pub fn encode<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding) -> Result<Self, Diagnostic> {
@@ -52,6 +51,31 @@ impl Encoded {
         for (own_byte, mask_byte) in self.0.iter_mut().zip(mask) {
             *own_byte ^= mask_byte;
         }
+    }
+
+    /// Given a string that is expected to have an explicit NUL terminator, trim it before the first NUL.
+    pub fn trim_first_nul(&mut self, emitter: &dyn Emitter) {
+        let zero_idx = self.0.iter().position(|&x| x == 0).unwrap_or_else(|| {
+            emitter.as_sized().emit(warning!("missing null terminator will be appended to string")).ignore();
+            self.len()
+        });
+        self.0.truncate(zero_idx);
+    }
+
+    /// Assuming there is no existing NUL-terminator, adds an explicit NUL terminator by padding
+    /// up to a multiple of the given length.
+    ///
+    /// This is NOT idempotent. (it does not check for existing NULs, as these could be accidental
+    /// due to masking)
+    pub fn null_pad(&mut self, block_size: usize) {
+        let min_size = self.0.len() + 1;
+
+        // basically a ceiling divide
+        let final_len = match min_size % block_size {
+            0 => min_size,
+            r => min_size + block_size - r,
+        };
+        self.0.resize(final_len, 0);
     }
 
     pub fn len(&self) -> usize { self.0.len() }
@@ -303,26 +327,11 @@ pub trait BinRead {
         Ok(Encoded(out))
     }
 
-    /// Reads the given number of bytes as a masked string, where the null bytes are also masked.
-    ///
-    /// This reads exactly the given number of bytes, then xors every byte with a mask,
-    /// and finally truncates at the first null.
-    ///
-    /// The returned string will be less than `num_bytes` long due to the trimming of nulls.
-    fn read_cstring_masked_exact(&mut self, num_bytes: usize, mask: AcceleratingByteMask, emitter: &dyn Emitter) -> Result<Encoded, Self::Err> {
-        // FIXME: I feel like 'mask' should be 'IntoIterator<Item=u8>', but... object safety.
-        //        (maybe we could kill the associated types and move methods onto `dyn BinRead`?)
-        let mut out = self.read_byte_vec(num_bytes)?;
-        for (byte, mask_byte) in out.iter_mut().zip(mask) {
-            *byte ^= mask_byte;
-        }
-        let zero_idx = out.iter().position(|&x| x == 0).unwrap_or_else(|| {
-            emitter.as_sized().emit(warning!("missing null terminator will be appended to string")).ignore();
-            out.len()
-        });
-        out.truncate(zero_idx);
-
-        Ok(Encoded(out))
+    /// Reads the given number of bytes as a string, and trims before the first nul.
+    fn read_cstring_exact(&mut self, num_bytes: usize, emitter: &dyn Emitter) -> Result<Encoded, Self::Err> {
+        let mut out = Encoded(self.read_byte_vec(num_bytes)?);
+        out.trim_first_nul(emitter);
+        Ok(out)
     }
 
     fn pos(&mut self) -> Result<u64, Self::Err> {
@@ -343,18 +352,6 @@ impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
             return Err(emitter.emit(error!("failed to find magic: '{}'", magic)));
         }
         Ok(())
-    }
-}
-
-/// Returns the number of bytes that would be read by [`BinRead::read_cstring`], or written by
-/// [`BinWrite::write_cstring`] and [`BinWrite::write_cstring_masked`].
-pub fn cstring_num_bytes(string_len: usize, block_size: usize) -> usize {
-    let min_size = string_len + 1;  // NUL terminator
-
-    // basically a ceiling divide
-    match min_size % block_size {
-        0 => min_size,
-        r => min_size + block_size - r,
     }
 }
 
@@ -381,23 +378,11 @@ pub trait BinWrite {
         io::Write::write_all(self._bin_write_writer(), bytes).map_err(|e| self._bin_write_io_error(e))
     }
 
-    /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`.
+    /// Writes a string, adding a null terminator by zero-padding up to a multiple of the given `block_size`.
     fn write_cstring(&mut self, s: &Encoded, block_size: usize) -> Result<(), Self::Err> {
-        self.write_cstring_masked(s, block_size, AcceleratingByteMask::constant(0x00))
-    }
-
-    /// Writes a null-terminated string, zero-padding it to a multiple of the given `block_size`,
-    /// then xor-ing every byte (including the nulls) with a mask.
-    fn write_cstring_masked(&mut self, s: &Encoded, block_size: usize, mask: AcceleratingByteMask) -> Result<(), Self::Err> {
-        let mut to_write = s.0.to_vec();
-        let final_len = cstring_num_bytes(to_write.len(), block_size);
-        to_write.resize(final_len, 0);
-
-        for (byte, mask_byte) in to_write.iter_mut().zip(mask) {
-            *byte ^= mask_byte;
-        }
-        BinWrite::write_all(self, &to_write)?;
-        Ok(())
+        let mut to_write = s.clone();
+        to_write.null_pad(block_size);
+        BinWrite::write_all(self, &to_write.0)
     }
 
     fn write_u32s(&mut self, xs: &[u32]) -> Result<(), Self::Err> {
@@ -463,9 +448,6 @@ impl<W: Write + Seek + ?Sized> BinWrite for W {
 #[test]
 fn test_cstring_io() {
     fn check(block_size: usize, bytes: &[u8], encoded: Vec<u8>) {
-        // check length function
-        assert_eq!(cstring_num_bytes(bytes.len(), block_size), encoded.len());
-
         // check writing
         let emitter = RootEmitter::new_stderr();
         let mut w = BinWriter::from_writer(&emitter, "test".into(), std::io::Cursor::new(vec![]));
@@ -488,28 +470,4 @@ fn test_cstring_io() {
     check(4, &[1, 2, 3], vec![1, 2, 3, 0]);
     check(4, &[1, 2, 3, 4], vec![1, 2, 3, 4, 0, 0, 0, 0]);
     check(4, &[1, 2, 3, 4, 5], vec![1, 2, 3, 4, 5, 0, 0, 0]);
-}
-
-#[test]
-fn test_masked_cstring() {
-    fn check(mask: AcceleratingByteMask, block_size: usize, bytes: &[u8], encoded: Vec<u8>) {
-        // check writing
-        let mut w = std::io::Cursor::new(vec![]);
-        w.write_cstring_masked(&Encoded(bytes.to_vec()), block_size, mask.clone()).unwrap();
-        assert_eq!(encoded, w.into_inner());
-
-        // check reading
-        let mut longer_padded = encoded.clone();  // have a longer vec so we can be sure it stops on its own
-        longer_padded.extend(mask.clone().take(10));
-
-        let emitter = RootEmitter::new_stderr();
-        let mut r = std::io::Cursor::new(longer_padded);
-        let read_back = r.read_cstring_masked_exact(encoded.len(), mask, &emitter).unwrap();
-        assert_eq!(bytes, &read_back.0[..]);  // make sure it dropped the nul bytes
-        assert_eq!(encoded.len() as u64, BinRead::pos(&mut r).unwrap());
-    }
-
-    let mask = AcceleratingByteMask::constant(0x77);
-    check(mask.clone(), 4, &[1, 2, 3], vec![0x76, 0x75, 0x74, 0x77]);
-    check(mask.clone(), 4, &[1, 2, 3, 4], vec![0x76, 0x75, 0x74, 0x73, 0x77, 0x77, 0x77, 0x77]);
 }

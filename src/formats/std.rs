@@ -6,7 +6,7 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::game::Game;
 use crate::ident::{Ident};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, AcceleratingByteMask};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
@@ -441,7 +441,7 @@ fn write_std(
 }
 
 fn read_string_128(r: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<Sp<String>> {
-    r.read_cstring_masked_exact(128, AcceleratingByteMask::constant(0x00), emitter)?
+    r.read_cstring_exact(128, emitter)?
         .decode(DEFAULT_ENCODING).map(|x| sp!(x))
         .map_err(|e| emitter.as_sized().emit(e))
 }

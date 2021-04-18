@@ -280,8 +280,11 @@ fn encode_args(instr: &LowerInstr, defs: &context::Defs, emitter: &impl Emitter)
             | ArgEncoding::String { block_size, mask }
             => {
                 let string = arg.expect_raw().expect_string();
-                let encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
-                args_blob.write_cstring_masked(&encoded, block_size, mask).expect("Cursor<Vec> failed?!")
+                let mut encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
+                encoded.null_pad(block_size);
+                encoded.apply_xor_mask(mask);
+
+                args_blob.write_all(&encoded.0).expect("Cursor<Vec> failed?!");
             },
         }
     }
