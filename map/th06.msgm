@@ -6,13 +6,13 @@
 3 textSet
 4 textPause
 5 anmInterrupt
-6 enemyAppear
+6 eclResume
 7 music
 8 intro  # introduction text
 9 stageResults
 10 stop  # wait(infinity)
-11 stageNext
-12 musicFadeout
+11 stageEnd
+12 musicEnd
 13 skippable
 14 screenFade
 # 15

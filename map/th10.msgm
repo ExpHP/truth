@@ -6,26 +6,26 @@
 # Notes here: https://gist.github.com/ExpHP/6742c797523800075e911f659c000ca2
 
 0 end
-1 showPlayer
-2 showEnemy
-3 showTextBox
-4 hidePlayer
-5 hideEnemy
-6 hideTextBox
-7 focusPlayer
-8 focusEnemy
+1 playerShow
+2 bossShow
+3 textboxShow
+4 playerHide
+5 bossHide
+6 textboxHide
+7 speakerPlayer
+8 speakerBoss
 9 skippable
 10 textPause
-11 enemyAppear
-12 facePlayer
-13 faceEnemy
-14 textLine1
-15 textLine2
+11 eclResume
+12 playerFace
+13 bossFace
+14 textLine1   # never used
+15 textLine2   # never used
 16 textAdd
-17 textClear  # never actually used, but works at least in TH10
+17 textClear
 18 musicBoss
 19 intro
-20 stageBonus
-21 musicFade
-22 shakePlayer
-23 shakeEnemy   # nitori uses this
+20 stageEnd
+21 musicEnd
+22 playerShake
+23 bossShake   # like nitori

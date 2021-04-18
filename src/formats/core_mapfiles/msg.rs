@@ -129,16 +129,16 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
         (Th12, 17, Some("m(bs=4;mask=0x77,7,16;furibug)")),
         (Th12, 27, Some("f")), // new
 
+        (Th128, 28, Some("ff")),
+        (Th128, 29, Some("S")),
+        (Th128, 30, Some("")),
+
         // =========================================
         // FIXME: Everything beyond this point is copied from thtk,
         //        which has a track record for being wrong about unused instructions
         //        and arguments that are always zero in vanilla files.
         //
         //        I'll reverse MSG in these games at some point...  - ExpHP
-
-        (Th128, 28, Some("ff")),
-        (Th128, 29, Some("S")),
-        (Th128, 30, Some("")),
 
         (Th13, 31, Some("S")),
 
@@ -152,6 +152,8 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
 
         (Th16, 34, Some("SS")),
         (Th16, 35, Some("")),
+
+        // (Th18, 36, Some("")),
         // =========================================
     ],
     var: &[],

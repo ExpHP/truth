@@ -1,33 +1,41 @@
 !msgmap
 !ins_names
 
-# Same as th10
 0 end
-1 showPlayer    # 40
-2 showEnemy     # 44
-3 showTextBox   # 48
-4 hidePlayer    # hide 40
-5 hideEnemy     # hide 44,5c
-6 hideTextBox   # hide 48,4c,50,54,58
-7 focusPlayer   # 2->40, 3->44, 2->48, pos 68
-8 focusEnemy    # 3->40, 2->44, 3->48, pos 74
-9 focusOther    # 8->40, 8->44, 8->48, pos 80
-
+1 playerShow
+2 bossShow
+3 textboxShow   # nop in TH128+
+4 playerHide
+5 bossHide
+6 textboxHide
+7 speakerPlayer
+8 speakerBoss
+9 speakerNone  # Inserted in TH09, shifting IDs of remaining instrs
 10 skippable
 11 textPause
-12 enemyAppear
-13 facePlayer
-14 faceEnemy
-15 textLine1
-16 textLine2
+12 eclResume
+13 playerFace
+14 bossFace
+15 textLine1   # never used
+16 textLine2   # never used
 17 textAdd
-18 textClear   # 3 -> 4c,50,54,58
+18 textClear
 19 musicBoss
 20 intro
-21 stageBonus
-22 musicFade
-23 shakePlayer
-24 shakeEnemy
-# 25 (S)  sets y offset (pos2) of 4c,50,54,58
+21 stageEnd
+22 musicEnd
+23 playerShake
+24 bossShake
+25 textOffsetY  # only used in TH11
+# 25 (S)  sets y offset (pos2) of 4c,50,54,58.  No longer used after TH12
 # 26 ()   enables flag 2
-27 musicFadeCustom
+27 musicFade
+28 bubblePos
+29 bubbleType
+30 routeSelect  # GFW only
+# 31: (S) TH13
+# 32: (S) TH14
+# 33: (S) TH143
+# 34: (SS) TH16
+# 35: () TH16
+36 store  # TH18 only
