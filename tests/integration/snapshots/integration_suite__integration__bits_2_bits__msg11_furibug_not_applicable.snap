@@ -1,0 +1,15 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.msgm"
+
+meta {table: {0: {script: "script0", flags: 256}}}
+
+
+script script0 {
+    textAdd("|4,9,abcdefghijklmn");
+    textAdd("ABCD_EFGHIJK");
+    textAdd("ABCD_EFGHIJK");
+}
+
