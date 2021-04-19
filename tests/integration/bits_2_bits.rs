@@ -114,3 +114,10 @@ b2b_test!(MSG_09, "map/any.msgm", msg09_default_mismatched_flags, "th09-default-
 b2b_test!(MSG_09, "map/any.msgm", msg09_default_zero_with_flags, "th09-default-zero-with-flags.msg");
 b2b_test!(MSG_09, "map/any.msgm", msg09_default_zero, "th09-default-zero.msg");
 b2b_test!(MSG_09, "map/any.msgm", msg09_no_default, "th09-no-default.msg");
+
+// TH11 MSG has furigana but does not yet have the furigana encoding bug in masked strings.
+b2b_test!(MSG_11, "map/any.msgm", msg11_furibug_not_applicable, "th11-furibug-not-applicable.msg");
+// Typical furigana bug example.
+b2b_test!(MSG_12, "map/any.msgm", msg12_furibug, "th12-furibug.msg");
+// Example with particular string length that caused a bug in TH17 Extra.
+b2b_test!(MSG_17, "map/any.msgm", msg17_furibug_ex_regression, "th17-furibug-ex-regression.msg");

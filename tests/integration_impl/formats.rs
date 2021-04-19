@@ -122,6 +122,35 @@ pub const MSG_08: Format = Format {
 pub const MSG_09: Format = Format {
     cmd: "trumsg",
     game: Game::Th09,
-    script_head: MSG_06.script_head,
+    script_head:  r#"
+#pragma mapfile "map/any.msgm"
+
+meta {
+    table: {
+        0: {script: "script0", flags: 256},
+    }
+}
+"#,
     make_main: MSG_06.make_main,
+};
+
+pub const MSG_11: Format = Format {
+    cmd: "trumsg",
+    game: Game::Th11,
+    script_head: MSG_09.script_head,
+    make_main: MSG_09.make_main,
+};
+
+pub const MSG_12: Format = Format {
+    cmd: "trumsg",
+    game: Game::Th12,
+    script_head: MSG_09.script_head,
+    make_main: MSG_09.make_main,
+};
+
+pub const MSG_17: Format = Format {
+    cmd: "trumsg",
+    game: Game::Th17,
+    script_head: MSG_09.script_head,
+    make_main: MSG_09.make_main,
 };

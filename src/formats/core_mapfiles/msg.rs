@@ -53,9 +53,6 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
         (Th08, 21, Some("S")),
         (Th08, 22, Some("")),
 
-        // =========================================
-        // FIXME: TH09 is copied from thtk and still needs to be reversed properly.
-
         (Th09, 3, Some("ssm(bs=4;mask=0x77,7,16)")),
         (Th09, 8, Some("")),
         (Th09, 15, Some("SSS")),
@@ -70,7 +67,6 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
         (Th09, 26, Some("S")),
         // 27 is not in the jumptable; could be a nop, but it's never used
         (Th09, 28, Some("S")),
-        // =========================================
     ],
     var: &[],
 };

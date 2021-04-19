@@ -295,16 +295,21 @@ fn encode_args(state: &mut ArgEncodingState, instr: &LowerInstr, defs: &context:
             | ArgEncoding::String { block_size, mask, furibug }
             => {
                 let string = arg.expect_raw().expect_string();
-                let mut encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
 
+                // convert to Shift-JIS or whatever
+                let mut encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
+                encoded.0.push(b'\0'); // have to do this eagerly to correctly reproduce TH17 Extra files
+
+                // the furigana bug appends a copy of the masked bytes from a previous furigana string
                 if furibug {
                     if let Some(furibug_bytes) = state.furibug_bytes.take() {
-                        encoded.0.push(0);
-                        encoded.0.extend(furibug_bytes.0)
+                        encoded.0.extend(furibug_bytes.0);
                     }
                 }
 
-                encoded.null_pad(block_size);
+                if encoded.len() % block_size != 0 {
+                    encoded.null_pad(block_size);
+                }
                 encoded.apply_xor_mask(mask);
 
                 if furibug && string.starts_with("|") {
