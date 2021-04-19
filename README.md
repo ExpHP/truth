@@ -2,17 +2,17 @@
 
 [![Build Status](https://travis-ci.org/ExpHP/truth.svg?branch=main)](https://travis-ci.org/ExpHP/truth)
 
-Multipass [THTK](https://github.com/thpatch/thtk/) alternative.
+Multipass compiler for touhou binary script files.
 
 ![Sexy error message example](./doc/img/sexy-error.png)
 
-truth stands for "**t**htk **ru**st **th**ing".  Or maybe it stands for "**t**htk **ru**st **th**tk". I dunno, I mostly just picked it because `trustd` and `truecl` sound pretty dope.
+truth stands for "**t**ouhou **ru**st **th**ing".  Or maybe it stands for "**t**ouhou **ru**st **th**tk". I dunno, I mostly just picked it because `trustd` and `truecl` sound pretty dope.
 
 ## Development status
 
 * `trustd`: in beta; **feature complete, please give it a try!**
-* `truanm`: in alpha
-* `trumsg`: extremely alpha, only partial game support
+* `truanm`: in beta
+* `trumsg`: in beta
 
 Supports **all danmaku titles TH06–TH17.**  That is:
 
