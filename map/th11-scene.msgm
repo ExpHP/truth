@@ -35,7 +35,4 @@
 30 routeSelect  # GFW only
 # 31: (S) TH13
 # 32: (S) TH14
-33 portraitDarken     # DIFFERENT IN TH143 AND TH165!!!
-34 portraitHighlight
-35 lightsOut
-36 store  # TH18 only
+33 tutorial     # DIFFERENT IN TH16!!!

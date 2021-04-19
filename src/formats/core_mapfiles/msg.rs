@@ -101,8 +101,6 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
         (Th10, 21, Some("")),
         (Th10, 22, Some("")),
         (Th10, 23, Some("")),
-        // thcrap assigns "S" to 25, but there is quite thoroughly
-        // no evidence of such an instruction...
 
         // th11 inserts one in the middle :(
         (Th11, 9, Some("")),   // new
@@ -133,13 +131,6 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
         (Th128, 29, Some("S")),
         (Th128, 30, Some("")),
 
-        // =========================================
-        // FIXME: Everything beyond this point is copied from thtk,
-        //        which has a track record for being wrong about unused instructions
-        //        and arguments that are always zero in vanilla files.
-        //
-        //        I'll reverse MSG in these games at some point...  - ExpHP
-
         (Th13, 31, Some("S")),
 
         (Th14, 5, Some("S")),
@@ -150,11 +141,21 @@ static MSG_10_17: &CoreSignatures = &CoreSignatures {
 
         (Th143, 33, Some("S")),
 
+        (Th15, 33, None), // removed
+
+        (Th16, 33, Some("SS")), // replaced with something totally different (but unused)
         (Th16, 34, Some("SS")),
         (Th16, 35, Some("")),
 
+        (Th165, 33, Some("S")), // 165 MSG is identical to 143
+        (Th165, 34, None),
+        (Th165, 35, None),
+
+        (Th17, 33, Some("SS")), // 17 is like 16 again
+        (Th17, 34, Some("SS")),
+        (Th17, 35, Some("")),
+
         // (Th18, 36, Some("")),
-        // =========================================
     ],
     var: &[],
 };
