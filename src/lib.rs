@@ -36,6 +36,7 @@ pub mod ident;
 
 pub use formats::anm::{self, AnmFile};
 pub use formats::msg::{self, MsgFile};
+pub use formats::mission::{self, MissionMsgFile};
 pub use formats::std::{self, StdFile};
 mod formats;
 

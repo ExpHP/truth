@@ -335,13 +335,13 @@ pub mod msg_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, mapfile, game, msg_mode) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game(), cli::msg_mode()),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile, msg_mode));
     }
 
     fn run(
@@ -350,15 +350,25 @@ pub mod msg_compile {
         path: &Path,
         outpath: &Path,
         map_path: Option<PathBuf>,
+        msg_mode: MsgMode,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
-
         let ast = truth.read_script(&path)?;
-        truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
-        let msg = truth.compile_msg(game, &ast)?;
-        truth.write_msg(game, outpath, &msg)?;
+        match msg_mode {
+            MsgMode::Stage => {
+                load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
+                truth.load_mapfiles_from_pragmas(game, &ast)?;
+
+                let msg = truth.compile_msg(game, &ast)?;
+                truth.write_msg(game, outpath, &msg)?;
+            },
+            MsgMode::Mission => {
+                let msg = truth.compile_mission(game, &ast)?;
+                truth.write_mission(game, outpath, &msg)?;
+            },
+            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
+        }
         Ok(())
     }
 }
@@ -367,12 +377,12 @@ pub mod msg_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, max_columns, mapfile, game, msg_mode) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::msg_mode()),
         });
-        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile))
+        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile, msg_mode))
     }
 
     fn run(
@@ -381,12 +391,22 @@ pub mod msg_decompile {
         path: &Path,
         ncol: usize,
         map_path: Option<PathBuf>,
+        msg_mode: MsgMode,
     ) -> Result<(), ErrorReported> {
-        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-        load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
+        let ast = match msg_mode {
+            MsgMode::Stage => {
+                let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
+                load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
 
-        let msg = truth.read_msg(game, path)?;
-        let ast = truth.decompile_msg(game, &msg, crate::DecompileKind::Fancy)?;
+                let msg = truth.read_msg(game, path)?;
+                truth.decompile_msg(game, &msg, crate::DecompileKind::Fancy)?
+            },
+            MsgMode::Mission => {
+                let msg = truth.read_mission(game, path)?;
+                truth.decompile_mission(game, &msg)?
+            },
+            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
+        };
 
         let stdout = io::stdout();
         let fmt_config = crate::fmt::Config::new().max_columns(ncol);
@@ -435,7 +455,7 @@ fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) ->
 
 // =============================================================================
 
-use cli::{CmdSpec, Subcommands, SubcommandSpec};
+use cli::{CmdSpec, Subcommands, SubcommandSpec, MsgMode};
 
 mod cli {
     use super::*;
@@ -487,6 +507,18 @@ mod cli {
             short: "", long: "output-thecl-defs", metavar: "FILE",
             help: "write a file defining globals for anm scripts for use in thecl",
         }.map(|opt| opt.map(Into::into))
+    }
+
+    pub enum MsgMode { Stage, Mission, Ending }
+    pub fn msg_mode() -> impl CliArg<Value=MsgMode> {
+        let mission_opt = opts::Flag { short: "", long: "mission", help: "parse mission.msg or titlemsg.txt" };
+        let ending_opt = opts::Flag { short: "", long: "ending", help: "parse an ending MSG" };
+        mission_opt.zip(ending_opt).and_then(|(mission, ending)| match (mission, ending) {
+            (true, true) => Err(error!("--mission and --ending are incompatible")),
+            (true, false) => Ok(MsgMode::Mission),
+            (false, true) => Ok(MsgMode::Ending),
+            (false, false) => Ok(MsgMode::Stage),
+        })
     }
 
     pub enum Abbreviations { Allow, Forbid }
@@ -589,6 +621,11 @@ mod cli {
         /// NOTE: `matches.free` is in reverse order, so you can call `Vec::pop` to extract them.
         fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError>;
 
+        fn zip<BArg: CliArg>(self, other: BArg) -> Zip<Self, BArg>
+        where
+            Self: Sized,
+        { Zip(self, other) }
+
         fn map<B, F: Fn(Self::Value) -> B>(self, func: F) -> Map<Self, F>
         where
             Self: Sized,
@@ -600,6 +637,21 @@ mod cli {
             Self: Sized,
             F: Fn(Self::Value) -> Result<B, ArgError>,
         { AndThen(self, func) }
+    }
+
+    pub struct Zip<A, B>(A, B);
+    impl<A: CliArg, B: CliArg> CliArg for Zip<A, B> {
+        type Value = (A::Value, B::Value);
+
+        fn add_to_options(&self, opts: &mut Options) {
+            self.0.add_to_options(opts);
+            self.1.add_to_options(opts);
+        }
+        fn extract_value(&self, matches: &mut Matches) -> Result<Self::Value, ArgError> {
+            let a = self.0.extract_value(matches)?;
+            let b = self.1.extract_value(matches)?;
+            Ok((a, b))
+        }
     }
 
     pub struct Map<A, F>(A, F);
@@ -733,6 +785,21 @@ mod cli {
 
     pub mod opts {
         pub use super::*;
+
+        pub struct Flag {
+            pub short: &'static str,
+            pub long: &'static str,
+            pub help: &'static str
+        }
+        impl CliArg for Flag {
+            type Value = bool;
+            fn add_to_options(&self, opts: &mut getopts::Options) {
+                opts.optflag(self.short, self.long, self.help);
+            }
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                Ok(matches.opt_present(self.long))
+            }
+        }
 
         pub struct Opt {
             pub short: &'static str,
