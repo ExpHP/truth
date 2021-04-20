@@ -47,6 +47,20 @@ impl Encoded {
         }
     }
 
+    /// Encode into a fixed-size buffer.  The encoded bytes will by null-padded up to the specified length,
+    /// or an error will be returned if the string is too long to fit with a null terminator.
+    pub fn encode_fixed_size<S: AsRef<str> + ?Sized>(str: &Sp<S>, enc: Encoding, buf_size: usize) -> Result<Self, Diagnostic> {
+        let mut encoded = Encoded::encode(&str, enc)?;
+        if encoded.len() >= buf_size {
+            return Err(error!(
+                message("string is too long"),
+                primary(str, "{} bytes (max allowed: {})", encoded.len(), buf_size - 1),
+            ));
+        }
+        encoded.0.resize(buf_size, 0);
+        Ok(encoded)
+    }
+
     pub fn apply_xor_mask(&mut self, mask: impl IntoIterator<Item=u8>) {
         for (own_byte, mask_byte) in self.0.iter_mut().zip(mask) {
             *own_byte ^= mask_byte;
@@ -342,6 +356,8 @@ pub trait BinRead {
         Ok(())
     }
 }
+
+// Additional functions that
 
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     pub fn expect_magic(&mut self, emitter: &impl Emitter, magic: &str) -> ReadResult<()> {

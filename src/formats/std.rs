@@ -446,14 +446,8 @@ fn read_string_128(r: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<Sp<St
         .map_err(|e| emitter.as_sized().emit(e))
 }
 fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn Emitter, s: &Sp<S>) -> WriteResult {
-    let encoded = Encoded::encode(&s, DEFAULT_ENCODING).map_err(|e| emitter.as_sized().emit(e))?;
-    if encoded.len() >= 128 {
-        return Err(emitter.as_sized().emit(error!(
-            message("string too long for STD header"),
-            primary(s, "{} bytes (max allowed: 127)", encoded.len()),
-        )));
-    }
-    f.write_cstring(&encoded, 128)?;
+    let encoded = Encoded::encode_fixed_size(&s, DEFAULT_ENCODING, 128).map_err(|e| emitter.as_sized().emit(e))?;
+    f.write_all(&encoded.0)?;
     Ok(())
 }
 

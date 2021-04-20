@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::{Diagnostic, Emitter};
+use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
@@ -28,22 +28,26 @@ pub struct MsgFile {
 
 impl MsgFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
+        let format = game_format(game, &ctx.emitter)?;
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
+        decompile(self, &emitter, &format, ctx, decompile_kind)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
-        compile(&game_format(game), script, ctx)
+        let format = game_format(game, &ctx.emitter)?;
+        compile(&format, script, ctx)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
+        let format = game_format(game, &w.emitter()._root_emitter())?;
         let emitter = w.emitter();
-        write_msg(w, &emitter, &game_format(game), self)
+        write_msg(w, &emitter, &format, self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
+        let format = game_format(game, &r.emitter()._root_emitter())?;
         let emitter = r.emitter();
-        read_msg(r, &emitter, &game_format(game))
+        read_msg(r, &emitter, &format)
     }
 }
 
@@ -542,8 +546,13 @@ fn write_msg(
 
 // =============================================================================
 
-fn game_format(game: Game) -> FileFormat {
-    FileFormat { game }
+fn game_format(game: Game, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
+    match game {
+        | Game::Th095 | Game::Th125
+        => Err(emitter.emit(error!("{} does not have stage MSG files; maybe try 'trumsg --mission'?", game))),
+
+        _ => Ok(FileFormat { game })
+    }
 }
 
 pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
@@ -571,7 +580,7 @@ impl FileFormat {
             => Box::new(InstrFormat06),
 
             | Game::Th095 | Game::Th125
-            => unimplemented!("game does not have instructions!"),
+            => unreachable!(),
         }
     }
 }

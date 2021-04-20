@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::collections::HashSet;
 
 use indexmap::IndexMap as Map;
@@ -506,24 +507,13 @@ impl FromMeta<'_> for Ident {
     }
 }
 
-macro_rules! impl_from_meta_array {
-    ($n:literal; $($i:literal),*) => {
-        impl<'m, T: FromMeta<'m>> FromMeta<'m> for [T; $n] {
-            fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
-                match &meta.value {
-                    Meta::Array(xs) => match xs.len() {
-                        $n => Ok([ $(xs[$i].parse()?,)* ]),
-                        _ => Err(FromMetaError::expected(concat!("an array of length ", stringify!($n)), meta)),
-                    },
-                    _ => Err(FromMetaError::expected("an array", meta)),
-                }
-            }
-        }
-    };
+ impl<'m, T: FromMeta<'m>, const N: usize> FromMeta<'m> for [T; N] {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
+        meta.parse::<Vec<T>>()?.try_into().map_err(|_| {
+            FromMetaError::expected(concat!("an array of length ", stringify!($n)), meta)
+        })
+    }
 }
-impl_from_meta_array!(2; 0, 1);
-impl_from_meta_array!(3; 0, 1, 2);
-impl_from_meta_array!(4; 0, 1, 2, 3);
 
 impl<'m, T: FromMeta<'m>> FromMeta<'m> for indexmap::IndexMap<Sp<Ident>, T> {
     fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
@@ -565,9 +555,7 @@ impl<T: ToMeta> ToMeta for [T] {
     fn to_meta(&self) -> Meta { Meta::Array(self.iter().map(ToMeta::to_meta).map(|x| sp!(x)).collect()) }
 }
 impl<T: ToMeta> ToMeta for Vec<T> { fn to_meta(&self) -> Meta { self[..].to_meta() } }
-impl<T: ToMeta> ToMeta for [T; 2] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
-impl<T: ToMeta> ToMeta for [T; 3] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
-impl<T: ToMeta> ToMeta for [T; 4] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
+impl<T: ToMeta, const N: usize> ToMeta for [T; N] { fn to_meta(&self) -> Meta { self[..].to_meta() } }
 
 impl ToMeta for Ident {
     // write a string literal for now.  (FIXME: this isn't what we want!)
