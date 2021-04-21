@@ -33,10 +33,30 @@ mod raise;
 /// * Write to a binary file using [`write_instrs`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawInstr {
+    /// The time label of the instruction.
     pub time: i32,
     pub opcode: u16,
+    /// A mask indicating which arguments are registers, in languages that support registers.
     pub param_mask: u16,
+    /// The bytes after the instruction header, exactly as they will appear in the file.
     pub args_blob: Vec<u8>,
+    /// Difficulty mask.  Only used in ECL.
+    pub difficulty: u16,
+    /// Stack change arg.  Only used in modern ECL.
+    pub pop: i16,
+    /// If an instruction format has an unusual thing in its instruction headers that we don't want
+    /// to invent new syntax for, we can put it here to have it appear as the first instruction argument.
+    ///
+    /// Used by ECL timelines.
+    pub extra_arg: Option<u16>,
+}
+
+impl RawInstr {
+    pub const DEFAULTS: RawInstr = RawInstr {
+        time: 0, opcode: 0,
+        args_blob: Vec::new(), extra_arg: None,
+        param_mask: 0, difficulty: 0, pop: 0,
+    };
 }
 
 /// A simple argument, which is either an immediate or a register reference.
@@ -470,7 +490,7 @@ mod test_reader {
     }
 
     fn simple_instr(opcode: u16) -> RawInstr {
-        RawInstr { opcode, time: 0, param_mask: 0, args_blob: vec![] }
+        RawInstr { opcode, ..RawInstr::DEFAULTS }
     }
 
     struct TestInput {

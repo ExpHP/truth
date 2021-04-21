@@ -358,7 +358,7 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
     let unknown = reader.read_u32()?;
     let extra = format.read_extra(reader, emitter)?;
 
-    let object_offsets = (0..num_objects).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
+    let object_offsets = reader.read_u32s(num_objects)?;
     let objects = (0..num_objects)
         .map(|i| {
             let key = sp!(format!("object{}", i).parse::<Ident>().unwrap());
@@ -730,7 +730,7 @@ impl InstrFormat for InstrFormat06 {
         assert_eq!(argsize, 12);  // FIXME make error if < 12, warning if > 12
 
         let args_blob = f.read_byte_vec(12)?;
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
@@ -780,7 +780,7 @@ impl InstrFormat for InstrFormat10 {
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {

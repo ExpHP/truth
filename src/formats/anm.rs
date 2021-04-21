@@ -1080,7 +1080,7 @@ fn read_entry(
         Ok(header_data)
     })?;
 
-    let sprite_offsets = (0..header_data.num_sprites).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
+    let sprite_offsets = reader.read_u32s(header_data.num_sprites as usize)?;
     let script_ids_and_offsets = (0..header_data.num_scripts).map(|_| {
         Ok((reader.read_i32()?, reader.read_u32()? as u64))
     }).collect::<ReadResult<Vec<_>>>()?;
@@ -1694,7 +1694,7 @@ impl InstrFormat for InstrFormat06 {
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
         let args_blob = f.read_byte_vec(argsize)?;
-        let instr = RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob };
+        let instr = RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS };
 
         if (time, opcode, argsize) == (0, 0, 0) {
             Ok(ReadInstr::MaybeTerminal(instr))
@@ -1807,7 +1807,7 @@ impl InstrFormat for InstrFormat07 {
         let param_mask = f.read_u16()?;
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
