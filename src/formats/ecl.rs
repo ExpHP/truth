@@ -386,7 +386,7 @@ impl InstrFormat for TimelineInstrFormat {
 
     fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i16()? as i32;
-        let arg_0 = f.read_i16()? as u32;
+        let arg_0 = f.read_i16()? as i32;
 
         // with some games the terminal instruction is only 4 bytes long so we must check now
         if self.has_short_terminal() && (time, arg_0) == (-1, 4) {
@@ -400,19 +400,14 @@ impl InstrFormat for TimelineInstrFormat {
         let difficulty = f.read_u8()? as u16;
 
         // in games with the normal-sized terminal, the size is incorrectly 0, so check before reading args
-        if !self.has_short_terminal() && opcode == (-1_i16) as u16 {
-            if (time, opcode, size, difficulty) != (-1, 0, 0, 0) {
-                emitter.as_sized().emit(warning!("\
-                    unexpected data on terminal instruction: \
-                    expected (time, opcode, size, difficulty) = (-1, 0, 0, 0), got {:?}\
-                ", (time, opcode, size, difficulty))).ignore();
-            }
+        if !self.has_short_terminal() && (time, arg_0, opcode, size, difficulty) == (-1, -1, 0, 0, 0) {
+            // FIXME: really should be MaybeTerminal
             return Ok(ReadInstr::Terminal);
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
-
         eprintln!("{:04x} {:04x} {:04x} {:02x} {:02x}  {}", time as i16, arg_0 as u16, opcode as u16, size as u8, difficulty as u8, crate::io::hexify(&args_blob));
+
         let instr = RawInstr {
             time, opcode, difficulty, args_blob,
             extra_arg: Some(arg_0 as _),
