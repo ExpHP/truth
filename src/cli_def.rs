@@ -23,9 +23,12 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
             SubcommandSpec { name: "truanm", entry: truanm_main, public: true },
             SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
             SubcommandSpec { name: "trumsg", entry: trumsg_main, public: true },
+            // undocumented commands used for testing purposes;
+            // these are not easily discoverable, and may be removed any time
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
             SubcommandSpec { name: "ecl-reformat", entry: ecl_reformat::main, public: false },
             SubcommandSpec { name: "msg-redump", entry: msg_redump::main, public: false },
+            SubcommandSpec { name: "ecl-redump", entry: ecl_redump::main, public: false },
         ],
     })
 }
@@ -229,6 +232,30 @@ pub mod anm_redump {
     ) -> Result<(), ErrorReported> {
         let anm = truth.read_anm(game, path, true)?;
         truth.write_anm(game, outpath, &anm)
+    }
+}
+
+pub mod ecl_redump {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truth-core ecl-redump",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::game()),
+        });
+
+        wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
+    }
+
+    fn run(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        outpath: &Path,
+    ) -> Result<(), ErrorReported> {
+        let ecl = truth.read_ecl(game, path)?;
+        truth.write_ecl(game, outpath, &ecl)
     }
 }
 

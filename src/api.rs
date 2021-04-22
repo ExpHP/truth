@@ -137,6 +137,9 @@ impl Truth<'_> {
     pub fn compile_std(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::StdFile, ErrorReported> {
         crate::StdFile::compile_from_ast(game, ast, &mut self.ctx)
     }
+    // pub fn compile_ecl(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::EclFile, ErrorReported> {
+    //     crate::EclFile::compile_from_ast(game, ast, &mut self.ctx)
+    // }
 
     pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
@@ -150,6 +153,9 @@ impl Truth<'_> {
     pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::StdFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
+    // pub fn decompile_ecl(&mut self, game: Game, middle: &crate::EclFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
+    //     crate::EclFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
+    // }
 }
 
 /// # Binary file IO
@@ -192,6 +198,9 @@ impl<'ctx> Truth<'ctx> {
     pub fn read_std(&mut self, game: Game, path: &Path) -> Result<crate::StdFile, ErrorReported> {
         crate::StdFile::read_from_stream(&mut self.fs().open_read(path)?, game)
     }
+    pub fn read_ecl(&mut self, game: Game, path: &Path) -> Result<crate::EclFile, ErrorReported> {
+        crate::EclFile::read_from_stream(&mut self.fs().open_read(path)?, game)
+    }
 
     pub fn write_anm(&mut self, game: Game, outpath: &Path, middle: &crate::AnmFile) -> Result<(), ErrorReported> {
         crate::AnmFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
@@ -204,6 +213,9 @@ impl<'ctx> Truth<'ctx> {
     }
     pub fn write_std(&mut self, game: Game, outpath: &Path, middle: &crate::StdFile) -> Result<(), ErrorReported> {
         crate::StdFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
+    }
+    pub fn write_ecl(&mut self, game: Game, outpath: &Path, middle: &crate::EclFile) -> Result<(), ErrorReported> {
+        crate::EclFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
 
     /// Returns an object with filesystem-related helper methods.

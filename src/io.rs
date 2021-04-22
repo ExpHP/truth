@@ -392,10 +392,17 @@ impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
         self.read_exact(&mut read_bytes)?;
 
         if read_bytes != magic {
-            return Err(emitter.emit(error!("failed to find magic: '{}'", magic)));
+            return Err(emitter.emit(error!(
+                "failed to find magic: '{:02x?}' (got: '{:02x?}')",
+                hexify(magic), hexify(&read_bytes),
+            )));
         }
         Ok(())
     }
+}
+
+pub fn hexify(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join("")
 }
 
 /// Helper trait to simplify functions that write to Touhou's binary script files.

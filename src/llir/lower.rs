@@ -268,6 +268,8 @@ fn encode_args(state: &mut ArgEncodingState, instr: &LowerInstr, defs: &context:
                 opcode: instr.opcode,
                 param_mask: instr.user_param_mask.unwrap_or(0),
                 args_blob: blob.value.clone(),
+                // TODO
+                difficulty: 0, pop: 0, extra_arg: None,
             });
         },
     };
@@ -334,6 +336,8 @@ fn encode_args(state: &mut ArgEncodingState, instr: &LowerInstr, defs: &context:
             None => compute_param_mask(&args, emitter)?,
         },
         args_blob: args_blob.into_inner(),
+        // TODO
+        difficulty: 0, pop: 0, extra_arg: None,
     })
 }
 
