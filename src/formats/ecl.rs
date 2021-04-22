@@ -137,16 +137,11 @@ fn read_olde_ecl(
         num_timelines -= 1;  // in these games, that last entry points to the end of the file
     }
 
-    eprintln!("NUM_SUBS {}", num_subs);
-    eprintln!("NUM_TIMELINES {}", num_timelines);
-
     let subs = sub_offsets.into_iter().enumerate().map(|(index, sub_offset)| {
         let name = auto_sub_name(index as u32);
 
-        eprintln!(": SUB {} AT {:#x}", index, sub_offset);
         reader.seek_to(start_pos + sub_offset as u64)?;
         let instrs = emitter.chain_with(|f| write!(f, "in sub {}", index), |emitter| {
-            eprintln!("    TIME _OP_ SIZE DIFF MASK  ARGS");
             llir::read_instrs(reader, emitter, instr_format, sub_offset as u64, None)
         })?;
         Ok((name, instrs))
@@ -155,10 +150,8 @@ fn read_olde_ecl(
     let timelines = timeline_offsets[..num_timelines].iter().enumerate().map(|(index, &sub_offset)| {
         let name = auto_timeline_name(index as u32);
 
-        eprintln!(": TIMELINE {} AT {:#x}", index, sub_offset);
         reader.seek_to(start_pos + sub_offset as u64)?;
         let instrs = emitter.chain_with(|f| write!(f, "in timeline sub {}", index), |emitter| {
-            eprintln!("TIME ARG0 _OP_ SZ DF  ARGS");
             llir::read_instrs(reader, emitter, timeline_format, sub_offset as u64, None)
         })?;
         Ok((name, instrs))
@@ -325,7 +318,7 @@ struct InstrFormat06;
 
 impl InstrFormat for InstrFormat06 {
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
-        vec![]
+        vec![] // TODO
     }
 
     fn instr_header_size(&self) -> usize { 12 }
@@ -339,7 +332,6 @@ impl InstrFormat for InstrFormat06 {
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
 
-        eprintln!("{:08x} {:04x} {:04x} {:04x} {:04x}  {}", time, opcode, size, difficulty, param_mask, crate::io::hexify(&args_blob));
         let instr = RawInstr { time, opcode, param_mask, args_blob, difficulty, ..RawInstr::DEFAULTS };
 
         if opcode == (-1_i16) as u16 {
@@ -379,7 +371,7 @@ impl TimelineInstrFormat {
 
 impl InstrFormat for TimelineInstrFormat {
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
-        vec![]
+        vec![] // TODO
     }
 
     fn instr_header_size(&self) -> usize { 8 }
@@ -406,7 +398,6 @@ impl InstrFormat for TimelineInstrFormat {
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
-        eprintln!("{:04x} {:04x} {:04x} {:02x} {:02x}  {}", time as i16, arg_0 as u16, opcode as u16, size as u8, difficulty as u8, crate::io::hexify(&args_blob));
 
         let instr = RawInstr {
             time, opcode, difficulty, args_blob,
