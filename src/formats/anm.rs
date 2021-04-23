@@ -10,7 +10,7 @@ use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
@@ -1515,10 +1515,6 @@ fn game_format(game: Game) -> FileFormat {
     FileFormat { version, game, instr_format }
 }
 
-pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    super::core_mapfiles::anm::core_signatures(game).to_mapfile(game)
-}
-
 /// Type responsible for dealing with version differences in the format.
 struct FileFormat {
     version: Version,
@@ -1675,6 +1671,8 @@ impl FileFormat {
 }
 
 impl InstrFormat for InstrFormat06 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         vec![
             (IntrinsicInstrKind::Jmp, 5),
@@ -1725,6 +1723,8 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat07 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         use IntrinsicInstrKind as I;
 

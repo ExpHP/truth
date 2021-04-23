@@ -12,6 +12,8 @@ pub mod pos;
 #[macro_use]
 pub mod quote;
 
+mod core_mapfiles;
+
 pub use ast::{Visit, VisitMut};
 pub mod ast;
 pub use fmt::{Format, Formatter};

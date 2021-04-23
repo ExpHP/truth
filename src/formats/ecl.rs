@@ -1,22 +1,13 @@
-use std::fmt;
-use std::io;
-use std::num::NonZeroU64;
-
-use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
-use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
-use crate::pos::{Sp, Span};
-use crate::value::{ScalarType};
 use crate::context::CompilerContext;
-use crate::resolve::RegId;
 
 // =============================================================================
 
@@ -307,12 +298,8 @@ fn game_format(game: Game) -> Result<OldeFileFormat, ErrorReported> {
         | Game::Th06 | Game::Th07 | Game::Th08 | Game::Th09 | Game::Th095
         => Ok(OldeFileFormat { game }),
 
-        _ => Err(unimplemented!("game {} not yet supported", game)),
+        _ => unimplemented!("game {} not yet supported", game),
     }
-}
-
-pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    Default::default()
 }
 
 // =============================================================================
@@ -372,6 +359,8 @@ impl OldeFileFormat {
 struct InstrFormat06;
 
 impl InstrFormat for InstrFormat06 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Ecl }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![] // TODO
     }
@@ -416,6 +405,8 @@ impl InstrFormat for InstrFormat06 {
     }
 }
 
+// ------------
+
 struct TimelineInstrFormat { game: Game }
 impl TimelineInstrFormat {
     /// In some games, the terminal instruction is shorter than an actual instruction.
@@ -425,13 +416,15 @@ impl TimelineInstrFormat {
 }
 
 impl InstrFormat for TimelineInstrFormat {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Timeline }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![] // TODO
     }
 
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
+    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i16()? as i32;
         let arg_0 = f.read_i16()? as i32;
 

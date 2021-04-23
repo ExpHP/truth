@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::ast;
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, Scope};
@@ -128,8 +128,8 @@ impl Truth<'_> {
     pub fn compile_anm(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::AnmFile, ErrorReported> {
         crate::AnmFile::compile_from_ast(game, ast, &mut self.ctx)
     }
-    pub fn compile_msg(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::MsgFile, ErrorReported> {
-        crate::MsgFile::compile_from_ast(game, ast, &mut self.ctx)
+    pub fn compile_msg(&mut self, game: Game, language: InstrLanguage, ast: &ast::ScriptFile) -> Result<crate::MsgFile, ErrorReported> {
+        crate::MsgFile::compile_from_ast(game, language, ast, &mut self.ctx)
     }
     pub fn compile_mission(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::MissionMsgFile, ErrorReported> {
         crate::MissionMsgFile::compile_from_ast(game, ast, &mut self.ctx)
@@ -144,8 +144,8 @@ impl Truth<'_> {
     pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
-    pub fn decompile_msg(&mut self, game: Game, middle: &crate::MsgFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
-        crate::MsgFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
+    pub fn decompile_msg(&mut self, game: Game, language: InstrLanguage, middle: &crate::MsgFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::MsgFile::decompile_to_ast(middle, game, language, &mut self.ctx, decompile_options)
     }
     pub fn decompile_mission(&mut self, game: Game, middle: &crate::MissionMsgFile) -> Result<ast::ScriptFile, ErrorReported> {
         crate::MissionMsgFile::decompile_to_ast(middle, game, &mut self.ctx)
@@ -179,7 +179,7 @@ impl<'ctx> Truth<'ctx> {
     }
     pub fn read_image_source(&mut self, game: Game, path: &Path) -> Result<crate::anm::ImageSource, ErrorReported> {
         let metadata = self.fs().metadata(path).map_err(|e| self.emit(e))?;
-
+        
         if metadata.is_file() {
             let with_images = true;
             self.read_anm(game, path, with_images).map(crate::anm::ImageSource::Anm)
@@ -189,8 +189,8 @@ impl<'ctx> Truth<'ctx> {
             Err(self.emit(error!("{}: unable to determine type of path", path.display())))
         }
     }
-    pub fn read_msg(&mut self, game: Game, path: &Path) -> Result<crate::MsgFile, ErrorReported> {
-        crate::MsgFile::read_from_stream(&mut self.fs().open_read(path)?, game)
+    pub fn read_msg(&mut self, game: Game, language: InstrLanguage, path: &Path) -> Result<crate::MsgFile, ErrorReported> {
+        crate::MsgFile::read_from_stream(&mut self.fs().open_read(path)?, game, language)
     }
     pub fn read_mission(&mut self, game: Game, path: &Path) -> Result<crate::MissionMsgFile, ErrorReported> {
         crate::MissionMsgFile::read_from_stream(&mut self.fs().open_read(path)?, game)
@@ -205,8 +205,8 @@ impl<'ctx> Truth<'ctx> {
     pub fn write_anm(&mut self, game: Game, outpath: &Path, middle: &crate::AnmFile) -> Result<(), ErrorReported> {
         crate::AnmFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
-    pub fn write_msg(&mut self, game: Game, outpath: &Path, middle: &crate::MsgFile) -> Result<(), ErrorReported> {
-        crate::MsgFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
+    pub fn write_msg(&mut self, game: Game, language: InstrLanguage, outpath: &Path, middle: &crate::MsgFile) -> Result<(), ErrorReported> {
+        crate::MsgFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game, language)
     }
     pub fn write_mission(&mut self, game: Game, outpath: &Path, middle: &crate::MissionMsgFile) -> Result<(), ErrorReported> {
         crate::MissionMsgFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)

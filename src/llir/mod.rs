@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use enum_map::EnumMap;
 
 use crate::ast;
+use crate::game::InstrLanguage;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::pos::{Span};
@@ -378,6 +379,9 @@ pub enum ReadInstr {
 }
 
 pub trait InstrFormat {
+    /// Language key, so that signatures can be looked up for the right type of instruction (e.g. ECL vs timeline).
+    fn language(&self) -> InstrLanguage;
+
     fn intrinsic_instrs(&self) -> IntrinsicInstrs {
         IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
     }
@@ -441,6 +445,8 @@ pub struct TestFormat {
     pub anti_scratch_opcode: Option<u16>,
 }
 impl InstrFormat for TestFormat {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Dummy }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         self.intrinsic_opcode_pairs.clone()
     }
@@ -480,6 +486,7 @@ mod test_reader {
     }
 
     impl InstrFormat for SimpleInstrReader {
+        fn language(&self) -> InstrLanguage { InstrLanguage::Dummy }
         fn instr_header_size(&self) -> usize { 0x10 }
         fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
             Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))

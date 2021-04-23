@@ -4,7 +4,7 @@ use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
@@ -601,10 +601,6 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
     }
 }
 
-pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    super::core_mapfiles::std::core_signatures(game).to_mapfile(game)
-}
-
 // =============================================================================
 
 /// STD format, EoSD to PoFV.
@@ -708,6 +704,8 @@ pub struct InstrFormat06 { game: Game }
 pub struct InstrFormat10 { game: Game }
 
 impl InstrFormat for InstrFormat06 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         if Game::Th07 <= self.game && self.game <= Game::Th09 {
             vec![
@@ -760,6 +758,8 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat10 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         let mut out = vec![(llir::IntrinsicInstrKind::Jmp, 1)];
 

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::io;
 use crate::api::Truth;
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::error::ErrorReported;
 use crate::llir::DecompileOptions;
 
@@ -135,7 +135,7 @@ pub mod anm_decompile {
         decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Anm, map_path)?;
 
         let anm = truth.read_anm(game, path, false)?;
         let ast = truth.decompile_anm(game, &anm, decompile_options)?;
@@ -196,7 +196,7 @@ pub mod anm_compile {
         map_path: Option<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Anm, map_path)?;
 
         let ast = truth.read_script(&script_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -275,7 +275,7 @@ pub mod ecl_decompile {
         decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".eclm");
-        load_mapfiles(truth, game, map_path, crate::ecl::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Ecl, map_path)?;
 
         let anm = truth.read_ecl(game, path)?;
         let ast = truth.decompile_ecl(game, &anm, decompile_options)?;
@@ -368,7 +368,7 @@ pub mod std_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Std, map_path)?;
 
         let ast = truth.read_script(&path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -401,7 +401,7 @@ pub mod std_decompile {
         decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
-        load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Std, map_path)?;
 
         let std = truth.read_std(game, path)?;
         let ast = truth.decompile_std(game, &std, decompile_options)?;
@@ -433,8 +433,8 @@ pub mod msg_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), ErrorReported> {
-        let msg = truth.read_msg(game, path)?;
-        truth.write_msg(game, outpath, &msg)?;
+        let msg = truth.read_msg(game, InstrLanguage::Msg, path)?;
+        truth.write_msg(game, InstrLanguage::Msg, outpath, &msg)?;
         Ok(())
     }
 }
@@ -465,11 +465,11 @@ pub mod msg_compile {
 
         match msg_mode {
             MsgMode::Stage => {
-                load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
+                load_mapfiles(truth, game, InstrLanguage::Msg, map_path)?;
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
 
-                let msg = truth.compile_msg(game, &ast)?;
-                truth.write_msg(game, outpath, &msg)?;
+                let msg = truth.compile_msg(game, InstrLanguage::Msg, &ast)?;
+                truth.write_msg(game, InstrLanguage::Msg, outpath, &msg)?;
             },
             MsgMode::Mission => {
                 let msg = truth.compile_mission(game, &ast)?;
@@ -505,10 +505,10 @@ pub mod msg_decompile {
         let ast = match msg_mode {
             MsgMode::Stage => {
                 let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-                load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
+                load_mapfiles(truth, game, InstrLanguage::Msg, map_path)?;
 
-                let msg = truth.read_msg(game, path)?;
-                truth.decompile_msg(game, &msg, decompile_options)?
+                let msg = truth.read_msg(game, InstrLanguage::Msg, path)?;
+                truth.decompile_msg(game, InstrLanguage::Msg, &msg, decompile_options)?
             },
             MsgMode::Mission => {
                 let msg = truth.read_mission(game, path)?;
@@ -539,9 +539,10 @@ fn maybe_use_default_mapfile_for_decomp(
 fn load_mapfiles(
     truth: &mut Truth,
     game: Game,
+    language: InstrLanguage,
     mapfile_arg: Option<PathBuf>,
-    core_mapfile: crate::Eclmap,
 ) -> Result<(), ErrorReported> {
+    let core_mapfile = crate::core_mapfiles::core_mapfile(game, language);
     truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {

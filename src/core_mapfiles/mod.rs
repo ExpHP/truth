@@ -1,11 +1,26 @@
 use ::std::collections::BTreeMap;
 
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::eclmap::Eclmap;
 
-pub mod anm;
-pub mod msg;
-pub mod std;
+mod anm;
+mod msg;
+mod std;
+
+/// Obtain a mapfile with signatures and types for all vanilla instructions and registers.
+pub fn core_mapfile(game: Game, language: InstrLanguage) -> Eclmap {
+    let signatures = match language {
+        InstrLanguage::Anm => self::anm::core_signatures(game),
+        InstrLanguage::Std => self::std::core_signatures(game),
+        InstrLanguage::Msg => self::msg::core_signatures(game),
+        InstrLanguage::Ecl => CoreSignatures::EMPTY, // TODO
+        InstrLanguage::Timeline => CoreSignatures::EMPTY, // TODO
+        InstrLanguage::End => CoreSignatures::EMPTY, // TODO
+        InstrLanguage::Dummy => CoreSignatures::EMPTY,
+    };
+
+    signatures.to_mapfile(game)
+}
 
 /// Struct for representing some embedded mapfile information (notably the default signatures and
 /// register types for all mainstream games).
@@ -17,7 +32,7 @@ pub mod std;
 /// This internal data structure is designed to be easier to refactor and maintain compared to
 /// an actual mapfile, and in the future may even help guide attempts to solve the factoring
 /// problem for user mapfile syntax.
-pub struct CoreSignatures {
+struct CoreSignatures {
     /// A simple method of factoring out a single [`CoreSignatures`] into reusable
     /// portions when other methods fail to suffice. There's no specific, prescribed usage.
     ///
@@ -45,7 +60,11 @@ pub struct CoreSignatures {
 }
 
 impl CoreSignatures {
-    pub fn to_mapfile(&self, game: Game) -> Eclmap {
+    const EMPTY: &'static Self = &CoreSignatures {
+        inherit: &[], ins: &[], var: &[],
+    };
+
+    fn to_mapfile(&self, game: Game) -> Eclmap {
         let mut mapfile = Eclmap::new();
         self.apply_to_mapfile(game, &mut mapfile);
         mapfile
