@@ -38,6 +38,11 @@ pub enum Item {
         ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
         code: Block,
     },
+    Timeline {
+        keyword: TokenSpan,
+        number: Sp<i32>,
+        code: Block,
+    },
     Meta {
         keyword: Sp<MetaKeyword>,
         fields: Sp<meta::Fields>,
@@ -56,6 +61,7 @@ impl Item {
         Item::Func { qualifier: Some(sp_pat![token![inline]]), .. } => "inline function definition",
         Item::Func { qualifier: None, .. } => "exported function definition",
         Item::AnmScript { .. } => "script",
+        Item::Timeline { .. } => "timeline",
         Item::Meta { .. } => "meta",
         Item::ConstVar { .. } => "const definition",
     }}
@@ -726,6 +732,9 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
+                    v.visit_root_block(code);
+                },
+                Item::Timeline { keyword: _, number: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { keyword: _, fields } => {

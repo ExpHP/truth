@@ -456,7 +456,7 @@ fn decompile(
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new("ANM", &*instr_format, &ctx.emitter, decompile_options);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -465,7 +465,7 @@ fn decompile(
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
             let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
-                raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)
+                raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)
             })?;
 
             items.push(sp!(ast::Item::AnmScript {

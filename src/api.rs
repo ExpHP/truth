@@ -153,9 +153,9 @@ impl Truth<'_> {
     pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::StdFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
-    // pub fn decompile_ecl(&mut self, game: Game, middle: &crate::EclFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
-    //     crate::EclFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
-    // }
+    pub fn decompile_ecl(&mut self, game: Game, middle: &crate::EclFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::EclFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
+    }
 }
 
 /// # Binary file IO

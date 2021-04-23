@@ -244,8 +244,8 @@ fn decompile_std(
     let script = &std.script;
 
     let code = {
-        llir::Raiser::new(&ctx.emitter, decompile_options)
-            .raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?
+        llir::Raiser::new("STD", instr_format, &ctx.emitter, decompile_options)
+            .raise_instrs_to_sub_ast(emitter, script, &ctx.defs)?
     };
 
     let mut script = ast::ScriptFile {
@@ -331,6 +331,7 @@ fn compile_std(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
+                ast::Item::Timeline { .. } => return Err(emit(unsupported(&item.span))),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }

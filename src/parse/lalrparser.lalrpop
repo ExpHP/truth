@@ -179,12 +179,18 @@ Item: ast::Item = {
     ItemAnmScript,
     ItemMeta,
     ItemConstVar,
+    ItemTimeline,
 };
 
 ItemAnmScript: ast::Item = {
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>>
-    <code:FuncRootBlock>
+        <code:FuncRootBlock>
         => ast::Item::AnmScript { keyword, number, ident, code },
+};
+
+ItemTimeline: ast::Item = {
+    <keyword:TokenSpan<"timeline">> <number:Sp<LitIntSigned>> <code:FuncRootBlock>
+        => ast::Item::Timeline { keyword, number, code },
 };
 
 ItemMeta: ast::Item = {

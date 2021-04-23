@@ -193,13 +193,13 @@ fn decompile(
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new("MSG", instr_format, &ctx.emitter, decompile_options);
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
     })];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
-        let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
+        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?;
 
         Ok(sp!(ast::Item::AnmScript {
             number: None,
@@ -316,6 +316,7 @@ fn compile(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
+                ast::Item::Timeline { .. } => return Err(emit(unsupported(&item.span))),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }

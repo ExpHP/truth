@@ -54,7 +54,11 @@ struct UnknownArgsData {
 /// It tracks some state related to diagnostics, so that some consolidated warnings
 /// can be given at the end of decompilation.
 pub struct Raiser<'a> {
+    format_name: &'static str,
+    instr_format: &'a dyn InstrFormat,
     opcodes_without_abis: BTreeSet<u16>,
+    /// Emitter for warnings generated on Drop.
+    /// Root emitter because we don't want any additional context beyond the filename.
     _emitter: &'a context::RootEmitter,
     options: &'a DecompileOptions,
 }
@@ -66,8 +70,10 @@ impl Drop for Raiser<'_> {
 }
 
 impl<'a> Raiser<'a> {
-    pub fn new(emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
+    pub fn new(format_name: &'static str, instr_format: &'a dyn InstrFormat, emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
         Raiser {
+            format_name,
+            instr_format,
             opcodes_without_abis: Default::default(),
             _emitter: emitter,
             options,
@@ -77,17 +83,16 @@ impl<'a> Raiser<'a> {
     pub fn raise_instrs_to_sub_ast(
         &mut self,
         emitter: &dyn Emitter,
-        instr_format: &dyn InstrFormat,
         raw_script: &[RawInstr],
         defs: &Defs,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        raise_instrs_to_sub_ast(self, &emitter, instr_format, raw_script, defs)
+        raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)
     }
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
             self._emitter.emit(warning!(
-                message("instructions with unknown signatures were decompiled to byte blobs."),
+                message("{} instructions with unknown signatures were decompiled to byte blobs.", self.format_name),
                 note(
                     "The following opcodes were affected: {}",
                     self.opcodes_without_abis.iter()
@@ -103,10 +108,10 @@ impl<'a> Raiser<'a> {
 fn raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
     defs: &Defs,
 ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+    let instr_format = raiser.instr_format;
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
     let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(emitter, raw_instr, defs)).collect::<Result<_, _>>()?;

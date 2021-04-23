@@ -584,6 +584,13 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
+            ast::Item::Timeline { keyword: _, number, code } => {
+                out.fmt("timeline ")?;
+                out.state.time_stack.push(0);
+                out.fmt((number, " ", code))?;
+                out.state.time_stack.pop();
+                out.next_line()
+            },
             ast::Item::Meta { keyword, fields } => {
                 out.fmt((keyword, " ", fields))?;
                 out.next_line()

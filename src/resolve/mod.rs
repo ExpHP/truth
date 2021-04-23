@@ -351,6 +351,7 @@ mod resolve_vars {
                     self.rib_stacks.leave_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "const" });
                 },
 
+                | ast::Item::Timeline { .. }
                 | ast::Item::AnmScript { .. }
                 | ast::Item::Meta { .. }
                 => ast::walk_item(self, item),
@@ -487,8 +488,9 @@ mod resolve_vars {
                     }
                 },
 
+                ast::Item::AnmScript { .. } => {}
+                ast::Item::Timeline { .. } => {},
                 ast::Item::Meta { .. } => {},
-                ast::Item::AnmScript { .. } => {},
             } // match item.value
         }
     }

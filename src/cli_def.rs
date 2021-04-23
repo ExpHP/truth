@@ -23,12 +23,25 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
             SubcommandSpec { name: "truanm", entry: truanm_main, public: true },
             SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
             SubcommandSpec { name: "trumsg", entry: trumsg_main, public: true },
+            SubcommandSpec { name: "truecl", entry: truecl_main, public: true },
             // undocumented commands used for testing purposes;
             // these are not easily discoverable, and may be removed any time
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
-            SubcommandSpec { name: "ecl-reformat", entry: ecl_reformat::main, public: false },
+            SubcommandSpec { name: "text-reformat", entry: text_reformat::main, public: false },
             SubcommandSpec { name: "msg-redump", entry: msg_redump::main, public: false },
             SubcommandSpec { name: "ecl-redump", entry: ecl_redump::main, public: false },
+        ],
+    })
+}
+
+
+pub fn truecl_main(version: &str, args: &[String]) -> ! {
+    cli::parse_subcommand(version, &args, Subcommands {
+        abbreviations: cli::Abbreviations::Allow,
+        program: "truecl",
+        choices: &[
+            SubcommandSpec { name: "decompile", entry: ecl_decompile::main, public: true },
+            // SubcommandSpec { name: "compile", entry: ecl_compile::main, public: true },
         ],
     })
 }
@@ -72,12 +85,12 @@ pub fn trumsg_main(version: &str, args: &[String]) -> ! {
 }
 
 
-pub mod ecl_reformat {
+pub mod text_reformat {
     use super::*;
 
     pub fn main(version: &str, argv: &[String]) -> ! {
         let (input,) = cli::parse_args(version, argv, CmdSpec {
-            program: "truth-core ecl-reformat",
+            program: "truth-core text-reformat",
             usage_args: "FILE [OPTIONS...]",
             options: (cli::input(),),
         });
@@ -232,6 +245,42 @@ pub mod anm_redump {
     ) -> Result<(), ErrorReported> {
         let anm = truth.read_anm(game, path, true)?;
         truth.write_anm(game, outpath, &anm)
+    }
+}
+
+pub mod ecl_decompile {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, max_columns, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+            program: "truecl decompile",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::decompile_options()),
+        });
+
+        let stdout = io::stdout();
+        wrap_exit_code(|truth| {
+            let fmt_config = crate::fmt::Config::new().max_columns(max_columns);
+            let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
+            run(truth, &mut f, game, input.as_ref(), mapfile, &decompile_options)
+        });
+    }
+
+    pub(super) fn run(
+        truth: &mut Truth,
+        stdout: &mut crate::Formatter<impl io::Write>,
+        game: Game,
+        path: &Path,
+        map_path: Option<PathBuf>,
+        decompile_options: &DecompileOptions,
+    ) -> Result<(), ErrorReported> {
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".eclm");
+        load_mapfiles(truth, game, map_path, crate::ecl::game_core_mapfile(game))?;
+
+        let anm = truth.read_ecl(game, path)?;
+        let ast = truth.decompile_ecl(game, &anm, decompile_options)?;
+        stdout.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
+        Ok(())
     }
 }
 

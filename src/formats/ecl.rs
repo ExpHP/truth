@@ -11,12 +11,11 @@ use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarType};
 use crate::context::CompilerContext;
-use crate::passes::DecompileKind;
 use crate::resolve::RegId;
 
 // =============================================================================
@@ -25,16 +24,16 @@ use crate::resolve::RegId;
 #[derive(Debug, Clone)]
 pub struct OldeEclFile {
     pub subs: IndexMap<Ident, Vec<RawInstr>>,
-    pub timelines: IndexMap<Ident, Vec<RawInstr>>,
+    pub timelines: Vec<Vec<RawInstr>>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
 }
 
 impl OldeEclFile {
-    // pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
-    //     let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-    //     decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
-    // }
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
+        decompile(self, &emitter, &game_format(game)?, ctx, decompile_options)
+    }
     //
     // pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
     //     compile(&game_format(game), ast, ctx)
@@ -53,15 +52,48 @@ impl OldeEclFile {
 
 // =============================================================================
 
-#[cfg(nope)]
 fn decompile(
-    anm_file: &OldeEclFile,
+    ecl: &OldeEclFile,
     emitter: &impl Emitter,
     format: &OldeFileFormat,
     ctx: &mut CompilerContext,
-    decompile_kind: DecompileKind,
+    decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
+    let instr_format = &*format.instr_format();
+    let timeline_format = &*format.instr_format();
 
+    let mut items = vec![];
+    let mut timeline_raiser = llir::Raiser::new("ECL timeline", timeline_format, &ctx.emitter, decompile_options);
+    for (index, instrs) in ecl.timelines.iter().enumerate() {
+        items.push(sp!(ast::Item::Timeline {
+            keyword: sp!(()),
+            number: sp!(index as i32),
+            code: ast::Block({
+                timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?
+            }),
+        }));
+    }
+
+    let mut sub_raiser = llir::Raiser::new("ECL", instr_format, &ctx.emitter, decompile_options);
+    for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
+        items.push(sp!(ast::Item::Func {
+            qualifier: None,
+            ty_keyword: sp!(ast::TypeKeyword::Void),
+            ident: sp!(ResIdent::new_null(ident.clone())),
+            params: vec![],
+            code: Some(ast::Block({
+                sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?
+            })),
+        }));
+    }
+
+    let mut out = ast::ScriptFile {
+        items,
+        mapfiles: ctx.mapfiles_to_ast(),
+        image_sources: vec![],
+    };
+    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
+    Ok(out)
 }
 
 // =============================================================================
@@ -72,7 +104,36 @@ fn compile(
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<OldeEclFile, ErrorReported> {
+    let instr_format = &*format.instr_format();
+    let timeline_format = &*format.timeline_format();
 
+    let mut ast = ast.clone();
+    crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+
+    // group scripts by entry
+    let mut groups = vec![];
+    let mut script_names = vec![];
+    for item in &ast.items {
+        match &item.value {
+            ast::Item::Timeline { number, ref code, .. } => {
+                let instrs = llir::lower_sub_ast_to_instrs(timeline_format, &code.0, ctx)?;
+            },
+            ast::Item::Func { .. } => {
+                // if let Some(prev_entry) = cur_entry.take() {
+                //     groups.push((prev_entry, cur_group));
+                // }
+                // cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.emitter.emit(e))?);
+                // cur_group = vec![];
+            },
+            ast::Item::ConstVar { .. } => {},
+            _ => return Err(ctx.emitter.emit(error!(
+                message("feature not supported by format"),
+                primary(item, "not supported by ECL files"),
+            ))),
+        }
+    }
+
+    Ok(OldeEclFile { subs, timelines, binary_filename: None })
 }
 
 // =============================================================================
@@ -119,7 +180,6 @@ fn read_olde_ecl(
     let sub_offsets = reader.read_u32s(num_subs)?;
 
     // expect a prefix of the timeline array to be filled
-    // (because we can't represent a sparsely filled timeline array in the AST)
     let mut num_timelines = timeline_offsets.iter().position(|&x| x == 0).unwrap_or(timeline_offsets.len());
     for &offset in &timeline_offsets[num_timelines..] {
         if offset != 0 {
@@ -148,13 +208,11 @@ fn read_olde_ecl(
     }).collect::<ReadResult<_>>()?;
 
     let timelines = timeline_offsets[..num_timelines].iter().enumerate().map(|(index, &sub_offset)| {
-        let name = auto_timeline_name(index as u32);
-
         reader.seek_to(start_pos + sub_offset as u64)?;
         let instrs = emitter.chain_with(|f| write!(f, "in timeline sub {}", index), |emitter| {
             llir::read_instrs(reader, emitter, timeline_format, sub_offset as u64, None)
         })?;
-        Ok((name, instrs))
+        Ok(instrs)
     }).collect::<ReadResult<_>>()?;
 
     let binary_filename = Some(reader.display_filename().to_string());
@@ -163,9 +221,6 @@ fn read_olde_ecl(
 
 pub fn auto_sub_name(i: u32) -> Ident {
     format!("sub{}", i).parse::<Ident>().unwrap()
-}
-pub fn auto_timeline_name(i: u32) -> Ident {
-    format!("timeline{}", i).parse::<Ident>().unwrap()
 }
 
 fn write_olde_ecl(
@@ -212,18 +267,18 @@ fn write_olde_ecl(
     }
 
     let mut sub_offsets = vec![];
-    for (index, (ident, sub)) in ecl.subs.iter().enumerate() {
+    for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(w.pos()? - start_pos);
         emitter.chain_with(|f| write!(f, "in sub {} (index {})", ident, index), |emitter| {
-            llir::write_instrs(w, emitter, instr_format, &sub)
+            llir::write_instrs(w, emitter, instr_format, instrs)
         })?;
     }
 
     let mut timeline_offsets = vec![];
-    for (index, (ident, sub)) in ecl.timelines.iter().enumerate() {
+    for (index, instrs) in ecl.timelines.iter().enumerate() {
         timeline_offsets.push(w.pos()? - start_pos);
-        emitter.chain_with(|f| write!(f, "in sub {} (index {})", ident, index), |emitter| {
-            llir::write_instrs(w, emitter, timeline_format, &sub)
+        emitter.chain_with(|f| write!(f, "in timeline {}", index), |emitter| {
+            llir::write_instrs(w, emitter, timeline_format, instrs)
         })?;
     }
 
@@ -257,7 +312,7 @@ fn game_format(game: Game) -> Result<OldeFileFormat, ErrorReported> {
 }
 
 pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    super::core_mapfiles::msg::core_signatures(game).to_mapfile(game)
+    Default::default()
 }
 
 // =============================================================================
