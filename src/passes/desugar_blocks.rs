@@ -281,6 +281,7 @@ mod tests {
     use crate::resolve::RegId;
     use crate::vm::{AstVm, LoggedCall};
     use crate::value::{ScalarValue::{Int}, ScalarType as Ty};
+    use crate::game::InstrLanguage::Dummy;
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId, Ty)>,
@@ -295,10 +296,11 @@ mod tests {
 
             let mut ctx = truth.ctx();
             for &(name, reg, ty) in &self.globals {
-                ctx.define_global_reg_alias(reg, name.parse().unwrap());
-                ctx.set_reg_ty(reg, ty.into());
+                ctx.define_global_reg_alias(Dummy, reg, name.parse().unwrap());
+                ctx.set_reg_ty(Dummy, reg, ty.into());
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ctx).unwrap();
+            crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, &mut ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
 

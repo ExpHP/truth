@@ -42,7 +42,7 @@ pub use formats::std::{self, StdFile};
 pub use formats::ecl::{self, OldeEclFile as EclFile};
 mod formats;
 
-pub use game::Game;
+pub use game::{Game, InstrLanguage};
 mod game;
 
 #[doc(hidden)]

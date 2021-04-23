@@ -244,7 +244,7 @@ fn decompile_std(
     let script = &std.script;
 
     let code = {
-        llir::Raiser::new("STD", instr_format, &ctx.emitter, decompile_options)
+        llir::Raiser::new(instr_format, &ctx.emitter, decompile_options)
             .raise_instrs_to_sub_ast(emitter, script, &ctx.defs)?
     };
 
@@ -284,6 +284,7 @@ fn compile_std(
         let mut script = script.clone();
 
         crate::passes::resolve_names::assign_res_ids(&mut script, ctx)?;
+        crate::passes::resolve_names::assign_languages(&mut script, format.instr_format().language(), ctx)?;
         crate::passes::resolve_names::run(&script, ctx)?;
         crate::passes::type_check::run(&script, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;

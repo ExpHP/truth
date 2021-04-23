@@ -436,16 +436,30 @@ pub trait InstrFormat {
 }
 
 /// An implementation of InstrFormat for testing the raising and lowering phases of compilation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TestFormat {
+    pub language: InstrLanguage,
     pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
     /// For simulating the existence of an instruction like ANM `ins_509`
     pub anti_scratch_opcode: Option<u16>,
 }
+
+impl Default for TestFormat {
+    fn default() -> Self {
+        TestFormat {
+            language: InstrLanguage::Dummy,
+            intrinsic_opcode_pairs: Default::default(),
+            general_use_int_regs: Default::default(),
+            general_use_float_regs: Default::default(),
+            anti_scratch_opcode: None,
+        }
+    }
+}
+
 impl InstrFormat for TestFormat {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Dummy }
+    fn language(&self) -> InstrLanguage { self.language }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         self.intrinsic_opcode_pairs.clone()

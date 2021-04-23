@@ -106,7 +106,8 @@ impl Lowerer<'_, '_> {
         args: &[Sp<Expr>],
     ) -> Result<u16, ErrorReported> {
         // all function statements currently refer to single instructions
-        let opcode = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
+        let (lang, opcode) = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
+        assert_eq!(lang, self.instr_format.language());
 
         self.lower_instruction(stmt, opcode as _, pseudos, args)
     }
@@ -782,7 +783,7 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<Low
     // Up to this point in compilation, register aliases use Var::Named.
     // But now, we want both registers and their aliases to be resolved to a register
     let arg = match ctx.var_reg_from_ast(&var.name) {
-        Ok(reg) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
+        Ok((_lang, reg)) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
         Err(def_id) => LowerArg::Local { def_id, read_ty },
     };
     Ok((sp!(var.span => arg), read_ty))
@@ -846,7 +847,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 let required_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
-                    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(reg));
+                    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(format.language(), reg));
 
                     let mut error = error!(
                         message("script too complex to compile"),

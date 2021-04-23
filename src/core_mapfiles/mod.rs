@@ -7,7 +7,8 @@ mod anm;
 mod msg;
 mod std;
 
-/// Obtain a mapfile with signatures and types for all vanilla instructions and registers.
+/// Obtain a mapfile with signatures and types for all vanilla instructions and registers
+/// for a single InstrLanguage.
 pub fn core_mapfile(game: Game, language: InstrLanguage) -> Eclmap {
     let signatures = match language {
         InstrLanguage::Anm => self::anm::core_signatures(game),
@@ -19,7 +20,7 @@ pub fn core_mapfile(game: Game, language: InstrLanguage) -> Eclmap {
         InstrLanguage::Dummy => CoreSignatures::EMPTY,
     };
 
-    signatures.to_mapfile(game)
+    signatures.to_mapfile(language, game)
 }
 
 /// Struct for representing some embedded mapfile information (notably the default signatures and
@@ -64,8 +65,8 @@ impl CoreSignatures {
         inherit: &[], ins: &[], var: &[],
     };
 
-    fn to_mapfile(&self, game: Game) -> Eclmap {
-        let mut mapfile = Eclmap::new();
+    fn to_mapfile(&self, language: InstrLanguage, game: Game) -> Eclmap {
+        let mut mapfile = Eclmap::new(language);
         self.apply_to_mapfile(game, &mut mapfile);
         mapfile
     }

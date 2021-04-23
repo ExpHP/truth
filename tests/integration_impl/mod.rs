@@ -212,7 +212,7 @@ impl TestFile {
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
-        truth.read_msg(format.game, self.as_path()).unwrap()
+        truth.read_msg(format.game, truth::InstrLanguage::Msg, self.as_path()).unwrap()
     }
 }
 

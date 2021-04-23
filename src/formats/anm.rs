@@ -456,7 +456,7 @@ fn decompile(
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new("ANM", &*instr_format, &ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new(&*instr_format, &ctx.emitter, decompile_options);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -812,6 +812,7 @@ fn compile(
 
     let mut ast = ast.clone();
     crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     define_color_format_consts(ctx);
 

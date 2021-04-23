@@ -2,6 +2,7 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::collections::HashMap;
 
+use crate::game::InstrLanguage;
 use crate::ident::{Ident, ResIdent};
 use crate::context::CompilerContext;
 
@@ -32,7 +33,7 @@ mod tests;
 pub struct ResId(pub NonZeroU64);
 
 /// Represents some sort of definition; a unique thing (an item, a local variable, a globally-defined
-/// register alias, etc.) that a name can possibly be resolved to.
+/// register alias, etc.) that an identifier can possibly be resolved to.
 ///
 /// [`DefId`]s are created by the methods on [`CompilerContext`], and can be obtained after creation
 /// from [`Resolutions`].
@@ -76,8 +77,7 @@ pub mod rib {
     use crate::pos::{Sp, Span};
     use crate::diagnostic::Diagnostic;
 
-    /// A helper used during name resolution to track stacks of [`Ribs`] representing the current scope
-    ///
+    /// A helper used during name resolution to track stacks of [`Ribs`] representing the current scope.
     #[derive(Debug, Clone)]
     pub(super) struct RibStacks {
         ribs: enum_map::EnumMap<Namespace, Vec<Rib>>,
@@ -126,7 +126,7 @@ pub mod rib {
         Items,
 
         /// A rib created from entries in a mapfile.
-        Mapfile,
+        Mapfile { language: InstrLanguage },
 
         /// A set of names generated from e.g. meta.
         Generated,
@@ -161,8 +161,8 @@ pub mod rib {
                 (RibKind::Params, _) => "parameter",
                 (RibKind::Items, Namespace::Vars) => "const",
                 (RibKind::Items, Namespace::Funcs) => "function",
-                (RibKind::Mapfile, Namespace::Vars) => "register alias",
-                (RibKind::Mapfile, Namespace::Funcs) => "instruction alias",
+                (RibKind::Mapfile { .. }, Namespace::Vars) => "register alias",
+                (RibKind::Mapfile { .. }, Namespace::Funcs) => "instruction alias",
                 (RibKind::Generated, Namespace::Vars) => "automatic const",
                 (RibKind::Generated, Namespace::Funcs) => "automatic func",
 
@@ -232,6 +232,9 @@ pub mod rib {
                 if let Some(cause) = rib.kind.local_barrier_cause() {
                     crossed_local_border.get_or_insert(cause);
                 }
+
+                unimplemented!("FIXME: Reject a Mapfile result with the wrong language (and record it to mention in the error message)");
+                unimplemented!(" AND ADD A TEST FOR IT TOO, YOU LAZY BUM ");
 
                 if let Some(def) = rib.defs.get(cur_ident) {
                     if rib.kind.holds_locals() && crossed_local_border.is_some() {

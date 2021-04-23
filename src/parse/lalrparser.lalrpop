@@ -607,7 +607,7 @@ ExprTerm: ast::Expr = {
 #[inline]
 CallableName: ast::CallableName = {
     <ident:ResIdent> => ast::CallableName::Normal { ident },
-    <opcode:RawInsIdent> => ast::CallableName::Ins { opcode },
+    <opcode:RawInsIdent> => ast::CallableName::Ins { opcode, language: None },
 };
 
 ExprCallParenArgs: Vec<Sp<ast::Expr>> = {
@@ -776,7 +776,7 @@ VarName: ast::VarName = {
         => ast::VarName::Normal { ident },
 
     "REG" "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]"
-        => ast::VarName::Reg { reg: i32::wrapping_mul(x, sign).into() },
+        => ast::VarName::Reg { reg: i32::wrapping_mul(x, sign).into(), language: None },
 };
 
 VarIdent: ast::Var = <ident:ResIdent> => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident } };

@@ -2,26 +2,41 @@ use std::collections::{BTreeMap};
 use regex::Regex;
 use lazy_static::lazy_static;
 
-use crate::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::diagnostic::{RootEmitter, Emitter};
 use crate::ident::Ident;
 use crate::io::Fs;
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 
-#[derive(Debug, Default)]
+/// FIXME: Rename to Mapfile, how have I not done this already?!  - Exp
+#[derive(Debug)]
 pub struct Eclmap {
+    pub language: InstrLanguage,
     pub ins_names: BTreeMap<i32, Ident>,
     pub ins_signatures: BTreeMap<i32, String>,
     pub ins_rets: BTreeMap<i32, String>,
     pub gvar_names: BTreeMap<i32, Ident>,
     pub gvar_types: BTreeMap<i32, String>,
+    /// For historic reasons, [`InstrLanguage::Timeline`] has dedicated sections.
+    /// When these are seen in a file, they will always define things for timelines
+    /// instead of [`Self::language`].
     pub timeline_ins_names: BTreeMap<i32, Ident>,
     pub timeline_ins_signatures: BTreeMap<i32, String>,
 }
 
 impl Eclmap {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(language: InstrLanguage) -> Self {
+        Eclmap {
+            language,
+            ins_names: Default::default(),
+            ins_signatures: Default::default(),
+            ins_rets: Default::default(),
+            gvar_names: Default::default(),
+            gvar_types: Default::default(),
+            /// Legacy `timeline` sections. These will always apply to [`InstrLanguage::Timeline`] instead of [`Self::language`].
+            timeline_ins_names: Default::default(),
+            timeline_ins_signatures: Default::default(),
+        }
     }
 
     pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>, root_emitter: &RootEmitter) -> Result<Self, ErrorReported> {
@@ -63,7 +78,7 @@ impl Eclmap {
                 std::env::split_paths(&paths)
                     .map(|p| p.join(format!("any.{}", extension.trim_start_matches("."))))
                     .filter(|p| p.exists())
-                    .collect::<Vec<_>>()  // stop borrowing
+                    .take(1).collect::<Vec<_>>()  // stop borrowing
             }).next()
     }
 
@@ -95,13 +110,23 @@ impl Eclmap {
 
     fn from_seqmap(seqmap: SeqMap, emitter: &impl Emitter) -> Result<Eclmap, ErrorReported> {
         let SeqMap { magic, mut maps } = seqmap;
-        match &magic[..] {
-            "!eclmap" => {},
-            "!anmmap" => {},
-            "!stdmap" => {},
-            "!msgmap" => {},
+
+        // NOTE: Experimental.  We have two options for deciding the language:
+        //
+        //   - Take the language as an argument to this function (since it should be known, anyways).
+        //     (this could be better for Ending MSG)
+        //   - Decide it from the magic.
+        //     (this could facilitate the separation of "timelinemap"s out from eclmaps)
+        //
+        // Neither is a clear winner at this point in time, but deciding it from the magic is a smaller
+        // diff so we do that for now.    - Exp
+        let language = match &magic[..] {
+            "!eclmap" => InstrLanguage::Ecl,
+            "!anmmap" => InstrLanguage::Anm,
+            "!stdmap" => InstrLanguage::Std,
+            "!msgmap" => InstrLanguage::Msg,
             _ => return Err(emitter.emit(error!("bad magic: {:?}", magic))),
-        }
+        };
 
         let mut pop_map = |section: &str| maps.remove(section).unwrap_or_else(BTreeMap::new);
         let parse_idents = |section: &str, m: BTreeMap<i32, String>| -> Result<BTreeMap<i32, Ident>, ErrorReported> {
@@ -117,6 +142,7 @@ impl Eclmap {
         }
 
         let out = Eclmap {
+            language,
             ins_names: pop_ident_map!("ins_names")?,
             ins_signatures: pop_map("ins_signatures"),
             ins_rets: pop_map("ins_rets"),

@@ -105,7 +105,7 @@ pub fn lower_sub_ast_to_instrs(
         LowerStmt::Instr(instr) => Some({
             // this is the second time we're using encode_args (first time was to get labels), so suppress warnings
             let null_emitter = ctx.emitter.with_writer(crate::diagnostic::dev_null());
-            encode_args(&mut encoding_state, &instr, &ctx.defs, &null_emitter)
+            encode_args(&mut encoding_state, instr_format, &instr, &ctx.defs, &null_emitter)
                 .expect("we encoded this successfully before!")
         }),
         LowerStmt::Label { .. } => None,
@@ -160,7 +160,7 @@ fn gather_label_info(
                 emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
                     // encode the instruction with dummy values
                     let same_size_instr = substitute_dummy_args(instr);
-                    let raw_instr = encode_args(&mut encoding_state, &same_size_instr, defs, emitter)?;
+                    let raw_instr = encode_args(&mut encoding_state, format, &same_size_instr, defs, emitter)?;
                     offset += format.instr_size(&raw_instr) as u64;
                     Ok(())
                 })?;
@@ -257,7 +257,13 @@ impl ArgEncodingState {
 }
 
 /// Implements the encoding of argument values into byte blobs according to an instruction's ABI.
-fn encode_args(state: &mut ArgEncodingState, instr: &LowerInstr, defs: &context::Defs, emitter: &impl Emitter) -> Result<RawInstr, ErrorReported> {
+fn encode_args(
+    state: &mut ArgEncodingState,
+    instr_format: &dyn InstrFormat,
+    instr: &LowerInstr,
+    defs: &context::Defs,
+    emitter: &impl Emitter,
+) -> Result<RawInstr, ErrorReported> {
     use crate::io::BinWrite;
 
     let args = match &instr.args {
@@ -274,7 +280,10 @@ fn encode_args(state: &mut ArgEncodingState, instr: &LowerInstr, defs: &context:
         },
     };
 
-    let abi = defs.ins_abi(instr.opcode).expect("(bug!) we already checked sigs for known args");
+    let abi = {
+        defs.ins_abi(instr_format.language(), instr.opcode)
+            .expect("(bug!) we already checked sigs for known args")
+    };
 
     let mut args_blob = std::io::Cursor::new(vec![]);
     for (arg, enc) in zip!(args, abi.arg_encodings()) {

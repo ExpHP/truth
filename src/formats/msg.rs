@@ -193,7 +193,7 @@ fn decompile(
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new("MSG", instr_format, &ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new(instr_format, &ctx.emitter, decompile_options);
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
@@ -274,6 +274,7 @@ fn compile(
         let mut ast = ast.clone();
 
         crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+        crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
         crate::passes::resolve_names::run(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;

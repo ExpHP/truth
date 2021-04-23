@@ -4,6 +4,7 @@ use crate::meta;
 use crate::resolve::{DefId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
+use crate::game::InstrLanguage;
 use crate::value;
 
 // =============================================================================
@@ -423,7 +424,14 @@ impl Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallableName {
     Normal { ident: ResIdent },
-    Ins { opcode: u16 },
+    Ins {
+        opcode: u16,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`].
+        /// It exists to help a variety of other passes look up info about instrs.
+        ///
+        /// Notably, in ECL, some of these may be set to [`InstrLanguage::Timeline`] instead of [`InstrLanguage::ECL`].
+        language: Option<InstrLanguage>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -450,11 +458,12 @@ impl VarName {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarName {
     Normal { ident: ResIdent },
-    Reg { reg: RegId },
-}
-
-impl From<RegId> for VarName {
-    fn from(reg: RegId) -> Self { VarName::Reg { reg } }
+    Reg {
+        reg: RegId,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`].
+        /// It exists to help a variety of other passes look up info about instrs.
+        language: Option<InstrLanguage>,
+    },
 }
 
 impl From<ResIdent> for VarName {
@@ -650,7 +659,7 @@ impl std::fmt::Display for CallableName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CallableName::Normal { ident } => fmt::Display::fmt(ident, f),
-            CallableName::Ins { opcode } => write!(f, "ins_{}", opcode),
+            CallableName::Ins { opcode, language: _ } => write!(f, "ins_{}", opcode),
         }
     }
 }
@@ -703,6 +712,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_goto(&mut self, e: & $($mut)? StmtGoto) { walk_goto(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
+            fn visit_callable_name(&mut self, e: & $($mut)? Sp<CallableName>) { walk_callable_name(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
         }
@@ -884,7 +894,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(b);
                 },
                 Expr::Call { name, args, pseudos } => {
-                    walk_callable_name(v, name);
+                    v.visit_callable_name(name);
                     for sp_pat![PseudoArg { value, kind: _, at_sign: _, eq_sign: _ }] in pseudos {
                         v.visit_expr(value);
                     }
@@ -900,12 +910,12 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        fn walk_callable_name<V>(v: &mut V, x: & $($mut)? Sp<CallableName>)
+        pub fn walk_callable_name<V>(v: &mut V, x: & $($mut)? Sp<CallableName>)
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.value {
                 CallableName::Normal { ident } => v.visit_res_ident(ident),
-                CallableName::Ins { opcode: _ } => {},
+                CallableName::Ins { language: _, opcode: _ } => {},
             }
         }
 
@@ -915,7 +925,7 @@ macro_rules! generate_visitor_stuff {
             let Var { name, ty_sigil: _ } = & $($mut)? x.value;
             match name {
                 VarName::Normal { ident } => v.visit_res_ident(ident),
-                VarName::Reg { reg: _ } => {},
+                VarName::Reg { language: _, reg: _ } => {},
             }
         }
     };
@@ -952,6 +962,7 @@ pub use self::mut_::{
     walk_goto as walk_goto_mut,
     walk_expr as walk_expr_mut,
     walk_var as walk_var_mut,
+    walk_callable_name as walk_callable_name_mut,
 };
 mod ref_ {
     use super::*;
@@ -959,4 +970,5 @@ mod ref_ {
 }
 pub use self::ref_::{
     Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
+    walk_callable_name,
 };

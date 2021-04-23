@@ -115,6 +115,7 @@ impl fmt::Display for Game {
 /// are two distinct instruction sets that both appear in `.ecl` files, while "mission" files (`mission.msg`)
 /// do not have any instruction sets at all.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(enum_map::Enum)]
 pub enum InstrLanguage {
     Ecl, Anm, Msg, End, Std, Timeline,
     Dummy, // used in unit tests

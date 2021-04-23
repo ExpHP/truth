@@ -54,7 +54,7 @@ fn decompile(
     let timeline_format = &*format.instr_format();
 
     let mut items = vec![];
-    let mut timeline_raiser = llir::Raiser::new("ECL timeline", timeline_format, &ctx.emitter, decompile_options);
+    let mut timeline_raiser = llir::Raiser::new(timeline_format, &ctx.emitter, decompile_options);
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Timeline {
             keyword: sp!(()),
@@ -65,7 +65,7 @@ fn decompile(
         }));
     }
 
-    let mut sub_raiser = llir::Raiser::new("ECL", instr_format, &ctx.emitter, decompile_options);
+    let mut sub_raiser = llir::Raiser::new(instr_format, &ctx.emitter, decompile_options);
     for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
         items.push(sp!(ast::Item::Func {
             qualifier: None,
@@ -100,6 +100,7 @@ fn compile(
 
     let mut ast = ast.clone();
     crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     // group scripts by entry
     let mut groups = vec![];

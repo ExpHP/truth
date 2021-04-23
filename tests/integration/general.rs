@@ -111,6 +111,14 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, const_reg,
+    items: r#"
+        const int y = $REG[10000];
+    "#,
+    expect_fail: "const context",
+);
+
+source_test!(
     ANM_10, func_untyped,
     items: r#"
         var foo() { return 1; }
@@ -135,6 +143,28 @@ source_test!(
         inline const int foo() { return 1; }
     "#,
     expect_fail: "extra qualifier",
+);
+
+source_test!(
+    ANM_10, func_const_reg,
+    items: r#"
+        const int foo() {
+            int x = 3 + $REG[10000];
+            return x;
+        }
+    "#,
+    expect_fail: "const context",
+);
+
+source_test!(
+    ANM_10, func_const_ins,
+    items: r#"
+        const int foo() {
+            ins_23();
+            return 5;
+        }
+    "#,
+    expect_fail: "const context",
 );
 
 source_test!(

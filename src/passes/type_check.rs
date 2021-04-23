@@ -404,7 +404,7 @@ impl ExprTypeChecker<'_, '_> {
             );
             match self.ctx.var_reg_from_ast(&var.name) {
                 Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
-                Ok(reg) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
+                Ok((_lang, reg)) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
             };
             self.emit(err)
         })
@@ -443,8 +443,8 @@ impl ExprTypeChecker<'_, '_> {
         // Type-check normal args.
         let siggy = match self.ctx.func_signature_from_ast(name) {
             Ok(siggy) => siggy,
-            Err(crate::context::defs::InsMissingSigError { opcode }) => return Err(self.emit(error!(
-                message("signature not known for opcode {}", opcode),
+            Err(crate::context::defs::InsMissingSigError { opcode, language }) => return Err(self.emit(error!(
+                message("signature not known for {} opcode {}", language.descr(), opcode),
                 primary(name, "signature not known"),
                 note("try adding this instruction's signature to your mapfiles"),
             ))),
