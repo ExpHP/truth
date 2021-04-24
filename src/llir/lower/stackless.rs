@@ -683,7 +683,7 @@ impl Lowerer<'_, '_> {
         let def_id = self.ctx.define_local(ident.clone(), tmp_ty.into());
         let sigil = get_temporary_read_ty(tmp_ty, span).map_err(|e| self.ctx.emitter.emit(e))?;
 
-        let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
+        let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ast::VarName::new_local(ident.value) });
         self.out.push(LowerStmt::RegAlloc { def_id, cause: span });
 
         Ok((def_id, var))

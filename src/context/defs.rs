@@ -526,8 +526,6 @@ impl CompilerContext<'_> {
 
     /// Get the innate type of a variable at a place where it is referenced, ignoring its sigils.
     ///
-    /// `language` is used to resolve `REG[<id>]` syntax variables.  It can be `None` for `const` code.
-    ///
     /// # Panics
     ///
     /// Panics if there is `REG` syntax and `language` is `None`; this should be caught in an earlier pass.
@@ -578,15 +576,13 @@ impl CompilerContext<'_> {
 
     /// Get the signature of any kind of callable function. (instructions, inline and const functions...)
     ///
-    /// `language` is used to resolve `ins_` statements.  It can be `None` for `const` code.
-    ///
     /// # Panics
     ///
     /// Panics if there is `ins_` syntax and `language` is `None`; this should be caught in an earlier pass.
     pub fn func_signature_from_ast(&self, name: &ast::CallableName) -> Result<&Signature, InsMissingSigError> {
         match *name {
             ast::CallableName::Ins { opcode, language } => self.defs.ins_signature(language.expect("must run assign_languages pass!"), opcode),
-            ast::CallableName::Normal { ref ident } => self.defs.func_signature(self.resolutions.expect_def(ident)),
+            ast::CallableName::Normal { ref ident, .. } => self.defs.func_signature(self.resolutions.expect_def(ident)),
         }
     }
 
@@ -605,7 +601,10 @@ impl CompilerContext<'_> {
     pub fn reg_to_ast(&self, language: InstrLanguage, reg: RegId) -> ast::VarName {
         match self.defs.reg_aliases.get(&(language, reg)) {
             None => ast::VarName::Reg { reg, language: Some(language) },
-            Some(&def_id) => self.defs.var_name(def_id).clone().into(),
+            Some(&def_id) => {
+                let ident = self.defs.var_name(def_id).clone();
+                ast::VarName::Normal { ident, language_if_reg: Some(language) }
+            },
         }
     }
 
@@ -614,7 +613,10 @@ impl CompilerContext<'_> {
     pub fn ins_to_ast(&self, language: InstrLanguage, opcode: u16) -> ast::CallableName {
         match self.defs.ins_aliases.get(&(language, opcode)) {
             None => ast::CallableName::Ins { opcode, language: Some(language) },
-            Some(&def_id) => ast::CallableName::Normal { ident: self.defs.func_name(def_id).clone() },
+            Some(&def_id) => {
+                let ident = self.defs.func_name(def_id).clone();
+                ast::CallableName::Normal { ident, language_if_ins: Some(language) }
+            },
         }
     }
 }

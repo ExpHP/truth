@@ -371,7 +371,7 @@ pub enum Expr {
         // note: deliberately called 'name' instead of 'ident' so that you can
         //       match both this and the inner ident without shadowing
         name: Sp<CallableName>,
-        /// Args beginning with @ that represent raw pieces of an instruction.
+        /// Args beginning with `@` that represent raw pieces of an instruction.
         pseudos: Vec<Sp<PseudoArg>>,
         args: Vec<Sp<Expr>>,
     },
@@ -423,11 +423,18 @@ impl Expr {
 /// in name resolution.  This makes it easier to use the AST VM [`crate::vm::AstVm`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallableName {
-    Normal { ident: ResIdent },
+    Normal {
+        ident: ResIdent,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it may still be `None`).
+        ///
+        /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
+        /// as all useful information can be found through the resolved [`DefId`].
+        language_if_ins: Option<InstrLanguage>,
+    },
     Ins {
         opcode: u16,
-        /// This field is `None` until initialized by [`crate::passes::assign_languages`].
-        /// It exists to help a variety of other passes look up info about instrs.
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it is guaranteed to be `Some`).
+        /// It exists to help a variety of other passes look up e.g. type info about raw registers.
         ///
         /// Notably, in ECL, some of these may be set to [`InstrLanguage::Timeline`] instead of [`InstrLanguage::ECL`].
         language: Option<InstrLanguage>,
@@ -442,6 +449,12 @@ pub struct Var {
 }
 
 impl VarName {
+    /// Construct from the identifier of a local or parameter.
+    pub fn new_local(ident: ResIdent) -> Self {
+        // language_if_reg: None is okay since it's not a reg alias
+        VarName::Normal { ident, language_if_reg: None }
+    }
+
     pub fn is_named(&self) -> bool { match self {
         VarName::Normal { .. } => true,
         VarName::Reg { .. } => false,
@@ -450,24 +463,27 @@ impl VarName {
     /// Panic if it's not a normal ident.  This should be safe to call on vars in declarations.
     #[track_caller]
     pub fn expect_ident(&self) -> &ResIdent { match self {
-        VarName::Normal { ident } => ident,
+        VarName::Normal { ident, .. } => ident,
         VarName::Reg { .. } => panic!("unexpected register"),
     }}
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarName {
-    Normal { ident: ResIdent },
+    Normal {
+        ident: ResIdent,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it may still be `None`).
+        ///
+        /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
+        /// as all useful information can be found through the resolved [`DefId`].
+        language_if_reg: Option<InstrLanguage>,
+    },
     Reg {
         reg: RegId,
-        /// This field is `None` until initialized by [`crate::passes::assign_languages`].
-        /// It exists to help a variety of other passes look up info about instrs.
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it is guaranteed to be `Some`).
+        /// It exists to help a variety of other passes look up e.g. type info about raw instructions.
         language: Option<InstrLanguage>,
     },
-}
-
-impl From<ResIdent> for VarName {
-    fn from(ident: ResIdent) -> Self { VarName::Normal { ident } }
 }
 
 string_enum! {
@@ -658,7 +674,7 @@ impl From<&str> for LitString {
 impl std::fmt::Display for CallableName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CallableName::Normal { ident } => fmt::Display::fmt(ident, f),
+            CallableName::Normal { ident, language_if_ins: _ } => fmt::Display::fmt(ident, f),
             CallableName::Ins { opcode, language: _ } => write!(f, "ins_{}", opcode),
         }
     }
@@ -914,7 +930,7 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.value {
-                CallableName::Normal { ident } => v.visit_res_ident(ident),
+                CallableName::Normal { language_if_ins: _, ident } => v.visit_res_ident(ident),
                 CallableName::Ins { language: _, opcode: _ } => {},
             }
         }
@@ -924,7 +940,7 @@ macro_rules! generate_visitor_stuff {
         {
             let Var { name, ty_sigil: _ } = & $($mut)? x.value;
             match name {
-                VarName::Normal { ident } => v.visit_res_ident(ident),
+                VarName::Normal { language_if_reg: _, ident } => v.visit_res_ident(ident),
                 VarName::Reg { language: _, reg: _ } => {},
             }
         }

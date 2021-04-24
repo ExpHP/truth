@@ -397,7 +397,7 @@ impl AstVm {
 
     fn var_id_from_name(&self, var: &ast::VarName, resolutions: &Resolutions) -> VarId {
         match *var {
-            ast::VarName::Normal { ref ident } => VarId::Other(resolutions.expect_def(ident)),
+            ast::VarName::Normal { ref ident, language_if_reg: _ } => VarId::Other(resolutions.expect_def(ident)),
             ast::VarName::Reg { reg, language: _ } => VarId::Reg(reg),
         }
     }

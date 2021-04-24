@@ -606,7 +606,7 @@ ExprTerm: ast::Expr = {
 
 #[inline]
 CallableName: ast::CallableName = {
-    <ident:ResIdent> => ast::CallableName::Normal { ident },
+    <ident:ResIdent> => ast::CallableName::Normal { ident, language_if_ins: None },
     <opcode:RawInsIdent> => ast::CallableName::Ins { opcode, language: None },
 };
 
@@ -773,13 +773,14 @@ VarSigil: Option<ast::VarSigil> = {
 
 VarName: ast::VarName = {
     <ident:ResIdent>
-        => ast::VarName::Normal { ident },
+        => ast::VarName::Normal { ident, language_if_reg: None },
 
     "REG" "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]"
         => ast::VarName::Reg { reg: i32::wrapping_mul(x, sign).into(), language: None },
 };
 
-VarIdent: ast::Var = <ident:ResIdent> => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident } };
+VarIdent: ast::Var = <ident:ResIdent>
+    => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident, language_if_reg: None } };
 
 OptionalMinus: i32 = {
     "-" => -1,

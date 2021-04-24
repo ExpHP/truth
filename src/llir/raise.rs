@@ -498,17 +498,20 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Sprite
         => match raw.expect_int() {
             -1 => Ok(Expr::from(-1)),
-            id => Ok(Expr::Var(sp!(ast::Var {
-                name: ast::VarName::Normal { ident: ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _)) },
-                ty_sigil: None,
-            }))),
+            id => {
+                // NOTE: `language: none` is okay since it's not a register alias.
+                let ident = ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _));
+                let name = ast::VarName::Normal { ident, language_if_reg: None };
+                Ok(Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+            },
         },
 
         | ArgEncoding::Script
-        => Ok(Expr::Var(sp!(ast::Var {
-            name: ast::VarName::Normal { ident: ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _)) },
-            ty_sigil: None,
-        }))),
+        => {
+            let ident = ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _));
+            let name = ast::VarName::Normal { ident, language_if_reg: None };
+            Ok(Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+        },
 
         | ArgEncoding::Color
         | ArgEncoding::JumpOffset  // NOTE: might eventually want offsetof(label)

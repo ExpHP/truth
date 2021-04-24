@@ -386,7 +386,7 @@ mod resolve_vars {
                         let (var, init_value) = &pair.value;
 
                         // variable should not be allowed to appear in its own initializer, so walk the expression first.
-                        if let ast::VarName::Normal { ident } = &var.value.name {
+                        if let ast::VarName::Normal { ident, .. } = &var.value.name {
                             if let Some(init_value) = init_value {
                                 self.visit_expr(init_value);
                             }

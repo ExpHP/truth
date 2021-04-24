@@ -859,7 +859,7 @@ impl Format for ast::Expr {
 
 impl Format for ast::CallableName {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt(format_args!("{}", self))
+        out.append_display_to_line(self)
     }
 }
 
@@ -882,7 +882,7 @@ impl Format for ast::Var {
 impl Format for ast::VarName {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::VarName::Normal { ident } => out.fmt(ident),
+            ast::VarName::Normal { ident, language_if_reg: _ } => out.fmt(ident),
             ast::VarName::Reg { reg, language: _ } => out.fmt(("REG[", reg.0, "]")),
         }
     }
@@ -899,8 +899,7 @@ impl Format for ResIdent {
 
 impl Format for Ident {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let s: &str = self.as_ref();
-        out.fmt(s)
+        out.append_display_to_line(self)
     }
 }
 

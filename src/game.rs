@@ -131,7 +131,7 @@ impl InstrLanguage {
             Self::Std => "STD",
             Self::Msg => "Stage MSG",
             Self::End => "Ending MSG",
-            Self::Dummy => "Dummy Test Language"
+            Self::Dummy => "Dummy Test Language",
         }
     }
 }
