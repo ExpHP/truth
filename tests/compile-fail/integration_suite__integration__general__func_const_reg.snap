@@ -1,0 +1,11 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: raw register in const context
+   ┌─ <input>:26:25
+   │
+26 │             int x = 3 + $REG[10000];
+   │                         ^^^^^^^^^^^ forbidden in this context
+
+
