@@ -1,6 +1,7 @@
 use crate::api::Truth;
 use crate::parse::Parse;
 use crate::fmt::Format;
+use crate::game::InstrLanguage;
 use crate::ast;
 
 const ECLMAP: &'static str = r#"!eclmap
@@ -42,7 +43,8 @@ macro_rules! test {
     (
         // Create a compile-fail snapshot test
         [expect_fail($expected:expr)]
-        $name:ident = <$ty:ty> $source:literal) => {
+        $name:ident = <$ty:ty> $source:literal
+    ) => {
         #[test]
         fn $name() { assert_snapshot!(resolve_expect_err::<$ty>($source, $expected).trim()); }
     };
@@ -60,6 +62,7 @@ fn resolve<A: ast::Visitable + Parse>(truth: &mut Truth, text: &str) -> Result<A
     let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
 
     let ctx = truth.ctx();
+    crate::passes::resolve_names::assign_languages(&mut parsed, InstrLanguage::Ecl, ctx).unwrap();
     crate::passes::resolve_names::assign_res_ids(&mut parsed, ctx).unwrap();
     match crate::passes::resolve_names::run(&parsed, ctx) {
         Ok(()) => Ok(parsed),

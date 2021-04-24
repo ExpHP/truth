@@ -163,7 +163,7 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
         let language_dest = match &mut var.name {
             ast::VarName::Reg { language, .. } => language,
-            ast::VarName::Normal { language_if_reg: language, .. } => language,
+            ast::VarName::Normal { language_if_reg, .. } => language_if_reg,
         };
         *language_dest = self.language_stack.last().expect("empty stack?!").clone();
 
@@ -178,7 +178,7 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
     fn visit_callable_name(&mut self, name: &mut Sp<ast::CallableName>) {
         let language_dest = match &mut name.value {
             ast::CallableName::Ins { language, .. } => language,
-            ast::CallableName::Normal { language_if_ins: language, .. } => language,
+            ast::CallableName::Normal { language_if_ins, .. } => language_if_ins,
         };
         *language_dest = self.language_stack.last().expect("empty stack?!").clone();
 

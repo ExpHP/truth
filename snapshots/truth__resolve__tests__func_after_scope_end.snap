@@ -2,7 +2,7 @@
 source: src/resolve/tests.rs
 expression: "resolve_expect_err::<ast::Block>(r#\"{\n    if (true) {\n        int foo() { return 4; }\n        int b = foo();  // should be OK\n    }\n    int c = foo();  // should fail at `foo`\n}\"#,\n                                 \"in this scope\").trim()"
 ---
-error: unknown function 'foo'
+error: unknown ECL instruction or function 'foo'
   ┌─ <input>:6:13
   │
 6 │     int c = foo();  // should fail at `foo`

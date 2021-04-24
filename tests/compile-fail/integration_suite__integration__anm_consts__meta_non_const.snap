@@ -2,10 +2,12 @@
 source: tests/integration/anm_consts.rs
 expression: stderr
 ---
-error: const expression required
-   ┌─ <input>:28:22
+error: unknown variable 'I0'
+   ┌─ <input>:28:26
    │
 28 │     memory_priority: 3 * I0,
-   │                      ^^^^^^ non-const expression
+   │                          ^^ not found in this scope
+   │
+   = there is a 'I0' defined in ANM, which is not usable in a const context
 
 

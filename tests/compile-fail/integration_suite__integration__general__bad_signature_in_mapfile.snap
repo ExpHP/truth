@@ -2,6 +2,6 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: tests/integration/resources/mapfile-with-bad-signature.anmm: in signature for opcode 1000: 'z' or 'm' arguments can only appear at the very end
+error: tests/integration/resources/mapfile-with-bad-signature.anmm: in signature for ANM opcode 1000: 'z' or 'm' arguments can only appear at the very end
 
 

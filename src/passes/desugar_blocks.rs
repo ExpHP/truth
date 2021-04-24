@@ -68,9 +68,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             ast::StmtBody::Declaration { ty_keyword: _, vars } => {
                 for pair in vars {
                     let (var, _) = &pair.value;
-                    if let ast::VarName::Normal { ident, language_if_reg: language } = &var.value.name {
-                        assert_eq!(language, &None);
-
+                    if let ast::VarName::Normal { ident, .. } = &var.value.name {
                         let def_id = self.resolutions.expect_def(ident);
                         self.stack.last_mut().expect("(bug?) empty stack?")
                             .locals_declared_at_this_level.push(def_id);

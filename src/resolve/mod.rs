@@ -65,10 +65,14 @@ pub enum Namespace {
 }
 
 impl Namespace {
-    pub fn noun_long(self) -> &'static str { match self {
-        Namespace::Vars => "variable",
-        Namespace::Funcs => "function",
-    }}
+    pub fn noun_long(self, alias_language: Option<InstrLanguage>) -> String {
+        match (self, alias_language) {
+            (Namespace::Vars, Some(language)) => format!("{} register or variable", language.descr()),
+            (Namespace::Funcs, Some(language)) => format!("{} instruction or function", language.descr()),
+            (Namespace::Vars, None) => format!("variable"),
+            (Namespace::Funcs, None) => format!("function"),
+        }
+    }
 }
 
 pub mod rib {
@@ -224,17 +228,16 @@ pub mod rib {
         }
 
         /// Resolve an identifier by walking backwards through the stack of ribs.
-        pub fn resolve(&self, ns: Namespace, cur_span: Span, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
+        pub fn resolve(&self, ns: Namespace, cur_span: Span, alias_language: Option<InstrLanguage>, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
             // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
             let mut crossed_local_border = None::<&str>;
+            // set to Some(_) if we find a match for a reg/instr alias that isn't usable here
+            let mut language_with_ident = None::<InstrLanguage>;
 
-            for rib in self.ribs[ns].iter().rev() {
+            'ribs: for rib in self.ribs[ns].iter().rev() {
                 if let Some(cause) = rib.kind.local_barrier_cause() {
                     crossed_local_border.get_or_insert(cause);
                 }
-
-                unimplemented!("FIXME: Reject a Mapfile result with the wrong language (and record it to mention in the error message)");
-                unimplemented!(" AND ADD A TEST FOR IT TOO, YOU LAZY BUM ");
 
                 if let Some(def) = rib.defs.get(cur_ident) {
                     if rib.kind.holds_locals() && crossed_local_border.is_some() {
@@ -246,16 +249,31 @@ pub mod rib {
                             primary(cur_span, "used in a nested {}", item_kind),
                             secondary(local_span, "defined here"),
                         ));
-                    } else {
-                        return Ok(def.def_id);
                     }
+
+                    if let RibKind::Mapfile { language: mapfile_language } = rib.kind {
+                        if alias_language != Some(mapfile_language) {
+                            language_with_ident = Some(mapfile_language);
+                            continue 'ribs;
+                        }
+                    }
+                    return Ok(def.def_id);
                 }
             } // for rib in ....
 
-            Err(error!(
-                message("unknown {} '{}'", ns.noun_long(), cur_ident),
+            let mut diag = error!(
+                message("unknown {} '{}'", ns.noun_long(alias_language), cur_ident),
                 primary(cur_span, "not found in this scope"),
-            ))
+            );
+
+            if let Some(other_language) = language_with_ident {
+                let extra = match alias_language {
+                    None => ", which is not usable in a const context",
+                    Some(_) => "",  // the "_ instruction or" in the main message is enough
+                };
+                diag.note(format!("there is a '{}' defined in {}{}", cur_ident, other_language.descr(), extra));
+            }
+            Err(diag)
         }
     }
 
@@ -409,8 +427,8 @@ mod resolve_vars {
         }
 
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
-            if let ast::VarName::Normal { ref ident, .. } = var.name {
-                match self.rib_stacks.resolve(Namespace::Vars, var.span, ident) {
+            if let ast::VarName::Normal { ref ident, language_if_reg, .. } = var.name {
+                match self.rib_stacks.resolve(Namespace::Vars, var.span, language_if_reg, ident) {
                     Err(e) => self.errors.set(self.ctx.emitter.emit(e)),
                     Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 }
@@ -419,8 +437,8 @@ mod resolve_vars {
 
         fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
             if let ast::Expr::Call { name, .. } = &expr.value {
-                if let ast::CallableName::Normal { ident, .. } = &name.value {
-                    match self.rib_stacks.resolve(Namespace::Funcs, name.span, ident) {
+                if let ast::CallableName::Normal { ref ident, language_if_ins, .. } = name.value {
+                    match self.rib_stacks.resolve(Namespace::Funcs, name.span, language_if_ins, ident) {
                         Err(e) => self.errors.set(self.ctx.emitter.emit(e)),
                         Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                     }

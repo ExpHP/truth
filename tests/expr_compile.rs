@@ -282,6 +282,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
         let ctx = truth.ctx();
+        truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx).unwrap();
         truth::passes::resolve_names::assign_res_ids(&mut block, ctx).unwrap();
         truth::passes::resolve_names::run(&block, ctx).unwrap();
         truth::passes::resolve_names::aliases_to_raw(&mut block, ctx).unwrap();

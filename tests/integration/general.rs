@@ -18,13 +18,13 @@ source_test!(
 source_test!(
     ANM_10, unknown_instr_name,
     main_body: r#"  iMadeThisUpYesterday(0, 0, 0);  "#,
-    expect_fail: "unknown function",
+    expect_fail: "instruction or function",
 );
 
 source_test!(
     ANM_10, unknown_variable,
     main_body: r#"  int x = y;  "#,
-    expect_fail: "unknown variable",
+    expect_fail: "register or variable",
 );
 
 source_test!(
