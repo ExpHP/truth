@@ -46,6 +46,63 @@ macro_rules! zip {
 
 // =============================================================================
 
+#[derive(Debug, thiserror::Error)]
+#[error("got {:?}, expected one of: {:?}", .got, .expected)]
+pub struct ParseStrEnumError {
+    pub got: String,
+    pub expected: &'static [&'static str],
+}
+
+// Quick little util for stringly enums.
+macro_rules! string_enum {
+    (
+        $(#[$($Enum_attr:tt)+])*
+        $vis:vis enum $Enum:ident {
+            $(
+                $(#[doc = $variant_doc:literal])*
+                #[str = $variant_str:literal] $Variant:ident,
+            )*
+        }
+    ) => {
+        $(#[$($Enum_attr)+])*
+        $vis enum $Enum {
+            $( $(#[doc = $variant_doc])* $Variant, )*
+        }
+
+        // used mainly for error messages
+        impl ::std::fmt::Display for $Enum {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                ::std::fmt::Display::fmt(match self {
+                    $( $Enum::$Variant => $variant_str, )*
+                }, f)
+            }
+        }
+
+        impl crate::fmt::Format for $Enum {
+            fn fmt<W: ::std::io::Write>(&self, out: &mut crate::fmt::Formatter<W>) -> crate::fmt::Result {
+                out.fmt(format_args!("{}", self))
+            }
+        }
+
+        impl ::std::str::FromStr for $Enum {
+            type Err = crate::util_macros::ParseStrEnumError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $( $variant_str => Ok($Enum::$Variant), )*
+
+                    _ => Err(crate::util_macros::ParseStrEnumError {
+                        got: s.to_string(),
+                        expected: &[ $($variant_str),* ],
+                    }),
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+
 #[macro_export]
 macro_rules! _diagnostic {
     ( // shorthand for message only

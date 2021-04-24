@@ -95,7 +95,7 @@ pub struct EntrySpecs {
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
     pub memory_priority: Option<u32>,
-    pub has_data: Option<bool>,
+    pub source: Option<Source>,
     pub low_res_scale: Option<bool>,
 }
 
@@ -103,13 +103,13 @@ impl Entry {
     fn make_meta(&self) -> meta::Fields {
         let EntrySpecs {
             width, height, format, colorkey, offset_x, offset_y,
-            memory_priority, has_data, low_res_scale,
+            memory_priority, source, low_res_scale,
         } = &self.specs;
 
         Meta::make_object()
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
-            .field_opt("has_data", has_data.as_ref())
+            .field_opt("source", source.as_ref())
             .field_opt("width", width.as_ref())
             .field_opt("height", height.as_ref())
             .field_opt("offset_x", offset_x.as_ref())
@@ -137,7 +137,7 @@ impl Entry {
             let offset_y = m.get_field("offset_y")?;
             let memory_priority = m.get_field("memory_priority")?;
             let low_res_scale = m.get_field("low_res_scale")?;
-            let has_data = m.get_field("has_data")?;
+            let source = m.get_field("source")?;
             let path = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let texture = None;
@@ -148,10 +148,33 @@ impl Entry {
 
             let specs = EntrySpecs {
                 width, height, format, colorkey, offset_x, offset_y,
-                memory_priority, has_data, low_res_scale,
+                memory_priority, source, low_res_scale,
             };
             let scripts = Default::default();
             Ok(Entry { specs, texture, path, path_2, scripts, sprites })
+        })
+    }
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Source {
+        #[str = "none"] None,
+        #[str = "copy"] Copy,
+        #[str = "dummy"] Dummy,
+    }
+}
+
+impl ToMeta for Source {
+    fn to_meta(&self) -> Meta {
+        self.to_string().to_meta()
+    }
+}
+
+impl FromMeta<'_> for Source {
+    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+        meta.parse::<String>()?.parse().map_err(|_| {
+            FromMetaError::expected("the string \"none\", \"copy\", or \"dummy\"", meta)
         })
     }
 }
@@ -279,7 +302,7 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     let EntrySpecs {
         width: src_width, height: src_height, format: src_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
-        memory_priority: src_memory_priority, has_data: src_has_data,
+        memory_priority: src_memory_priority, source: src_source,
         low_res_scale: src_low_res_scale,
     } = src_file.specs;
 
@@ -294,10 +317,10 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     or_inplace(&mut dest_specs.offset_x, src_offset_x);
     or_inplace(&mut dest_specs.offset_y, src_offset_y);
     or_inplace(&mut dest_specs.memory_priority, src_memory_priority);
-    or_inplace(&mut dest_specs.has_data, src_has_data);
+    or_inplace(&mut dest_specs.source, src_source);
     or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
 
-    if dest_specs.has_data != Some(false) {
+    if dest_specs.source.unwrap_or(Source::Copy) == Source::Copy {
         or_inplace(&mut dest_file.texture, src_file.texture);
     }
 
@@ -646,7 +669,10 @@ fn read_entry(
         format: Some(header_data.format), colorkey: Some(header_data.colorkey),
         offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
         memory_priority: Some(header_data.memory_priority),
-        has_data: Some(header_data.has_data != 0),
+        source: match header_data.has_data {
+            0 => Some(Source::None),
+            _ => Some(Source::Copy),
+        },
         low_res_scale: Some(header_data.low_res_scale != 0),
     };
 
@@ -724,13 +750,17 @@ fn write_entry(
 
     let EntrySpecs {
         width, height, format, colorkey, offset_x, offset_y, memory_priority,
-        has_data, low_res_scale,
+        source, low_res_scale,
     } = entry.specs;
 
-    fn missing(emitter: &impl Emitter, problem: &str) -> ErrorReported {
-        const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
+    fn missing(emitter: &impl Emitter, problem: &str, note_2: Option<&str>) -> ErrorReported {
+        let mut diag = error!("{}", problem);
+        diag.note(format!("if this data is available in an existing anm file, try using '-i ANM_FILE'"));
+        if let Some(note) = note_2 {
+            diag.note(note.to_string());
+        }
 
-        emitter.emit(error!(message("{}", problem), note("{}", SUGGESTION)))
+        emitter.emit(diag)
     }
 
     emitter.chain_with(|f| write!(f, "in header"), |emitter| {
@@ -739,7 +769,7 @@ fn write_entry(
                 Some(x) => x,
                 None => {
                     let problem = format!("missing required field '{}'!", stringify!($name));
-                    return Err(missing(emitter, &problem));
+                    return Err(missing(emitter, &problem, None));
                 },
             }};
         }
@@ -752,7 +782,7 @@ fn write_entry(
             offset_x: expect!(offset_x),
             offset_y: expect!(offset_y),
             memory_priority: expect!(memory_priority),
-            has_data: expect!(has_data) as u32,
+            has_data: (expect!(source) != Source::None) as u32,
             low_res_scale: expect!(low_res_scale) as u32,
             version: file_format.version as u32,
             num_sprites: entry.sprites.len() as u32,
@@ -762,7 +792,7 @@ fn write_entry(
             next_offset: 0, thtx_offset: None,
         })
     })?;
-    let has_data = has_data.expect("already checked");
+    let source = source.expect("already checked");
 
     let sprite_offsets_pos = w.pos()?;
     w.write_u32s(&vec![0; entry.sprites.len()])?;
@@ -798,17 +828,24 @@ fn write_entry(
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    if has_data {
-        match &entry.texture {
+    match source {
+        Source::Copy => match &entry.texture {
             None => {
-                let problem = format!("'has_data' is true, but there's no bitmap data available!");
-                return Err(missing(emitter, &problem));
+                let problem = "entry has 'source: \"copy\"', but there's no bitmap data available!";
+                let note_2 = "alternatively, use 'source: \"dummy\"' to create dummy data that thcrap can replace";
+                return Err(missing(emitter, problem, Some(note_2)));
             },
             Some(texture) => {
                 texture_offset = w.pos()? - entry_pos;
                 write_texture(w, texture)?;
             },
-        }
+        },
+
+        Source::Dummy => {
+            unimplemented!("generate something")
+        },
+
+        Source::None => {},
     };
 
     let end_pos = w.pos()?;
