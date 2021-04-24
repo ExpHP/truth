@@ -75,219 +75,6 @@ impl Namespace {
     }
 }
 
-pub mod rib {
-    use super::*;
-
-    use crate::pos::{Sp, Span};
-    use crate::diagnostic::Diagnostic;
-
-    /// A helper used during name resolution to track stacks of [`Ribs`] representing the current scope.
-    #[derive(Debug, Clone)]
-    pub(super) struct RibStacks {
-        ribs: enum_map::EnumMap<Namespace, Vec<Rib>>,
-    }
-
-    /// A collection of names in a single namespace whose scopes all end simultaneously.
-    ///
-    /// The name and concept derives from [rustc's own ribs].  A stack of these is tracked for each
-    /// namespace, and name resolution walks backwards through the stack trying to find a match.
-    ///
-    /// [rustc's own ribs]: https://doc.rust-lang.org/nightly/nightly-rustc/rustc_resolve/late/struct.Rib.html
-    #[derive(Debug, Clone)]
-    pub struct Rib {
-        pub ns: Namespace,
-        pub kind: RibKind,
-        defs: HashMap<Ident, RibEntry>,
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct RibEntry {
-        pub def_id: DefId,
-        pub def_ident_span: Span,
-    }
-
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum RibKind {
-        /// Contains locals defined within a block. One is created for each block, and it will
-        /// always be the top rib when visiting statements.
-        ///
-        /// (contrast with rustc where the idea of ribs is borrowed from; unlike rust, truth does
-        ///  not allow locals to shadow other locals defined in the same block, because that
-        ///  functionality is not useful in a language with such a primitive type system)
-        Locals,
-
-        /// Function parameters.  (really just locals, but we put "parameter" in error messages)
-        Params,
-
-        /// An empty, "marker" rib indicating the beginning of an item's definition, blocking access
-        /// to all locals in outer ribs.  (and re-providing access to const items they've shadowed)
-        LocalBarrier {
-            /// `"function"`, `"const"`
-            of_what: &'static str
-        },
-
-        /// Contains items within a block.  (`const`s or funcs)
-        Items,
-
-        /// A rib created from entries in a mapfile.
-        Mapfile { language: InstrLanguage },
-
-        /// A set of names generated from e.g. meta.
-        Generated,
-
-        /// An empty rib that's always first so that we don't need to justify
-        DummyRoot,
-    }
-
-    impl Rib {
-        pub fn new(ns: Namespace, kind: RibKind) -> Self {
-            Rib { kind, ns, defs: Default::default() }
-        }
-
-        pub fn get(&mut self, ident: &Ident) -> Option<&RibEntry> {
-            self.defs.get(ident)
-        }
-
-        /// Returns the old definition if this is a redefinition.
-        pub fn insert(&mut self, ident: Sp<impl AsRef<Ident>>, def_id: DefId) -> Result<(), RibEntry> {
-            let new_entry = RibEntry { def_id, def_ident_span: ident.span };
-            match self.defs.insert(ident.value.as_ref().clone(), new_entry) {
-                None => Ok(()),
-                Some(old) => Err(old)
-            }
-        }
-
-        /// Get a singular noun (with no article) describing the type of thing the rib contains,
-        /// e.g. `"register alias"` or `"parameter"`.
-        pub fn noun(&self) -> &'static str {
-            match (&self.kind, self.ns) {
-                (RibKind::Locals, _) => "local",
-                (RibKind::Params, _) => "parameter",
-                (RibKind::Items, Namespace::Vars) => "const",
-                (RibKind::Items, Namespace::Funcs) => "function",
-                (RibKind::Mapfile { .. }, Namespace::Vars) => "register alias",
-                (RibKind::Mapfile { .. }, Namespace::Funcs) => "instruction alias",
-                (RibKind::Generated, Namespace::Vars) => "automatic const",
-                (RibKind::Generated, Namespace::Funcs) => "automatic func",
-
-                (RibKind::LocalBarrier { .. }, ns) |
-                (RibKind::DummyRoot, ns) => panic!("noun called on {:?} {:?} rib", self, ns),
-            }
-        }
-    }
-
-    impl RibKind {
-        /// If this is a barrier that hides outer local variables, get a string describing it.
-        /// (`"function"` or `"const"`)
-        pub fn local_barrier_cause(&self) -> Option<&'static str> {
-            match *self {
-                RibKind::LocalBarrier { of_what } => Some(of_what),
-                _ => None,
-            }
-        }
-
-        /// Determine if this rib holds a kind of local.
-        pub fn holds_locals(&self) -> bool {
-            match *self {
-                RibKind::Locals => true,
-                RibKind::Params => true,
-                _ => false,
-            }
-        }
-    }
-
-    impl RibStacks {
-        /// Create a new [`NameResolver`] sitting in the empty scope.
-        pub fn new() -> Self {
-            RibStacks { ribs: enum_map::enum_map!{
-                ns => vec![Rib { ns, kind: RibKind::DummyRoot, defs: Default::default() }],
-            }}
-        }
-
-        /// Push a rib onto a namespace's rib stack.
-        pub fn enter_rib(&mut self, rib: Rib) {
-            self.ribs[rib.ns].push(rib)
-        }
-
-        /// Push an empty rib onto a namespace's rib stack.
-        pub fn enter_new_rib(&mut self, ns: Namespace, kind: RibKind) {
-            self.enter_rib(Rib::new(ns, kind))
-        }
-
-        /// Pop a rib from a namespace, double-checking its `kind` for our sanity.
-        pub fn leave_rib(&mut self, ns: Namespace, expected_kind: RibKind) {
-            let popped = self.ribs[ns].pop().expect("unbalanced rib usage!");
-            assert_eq!(popped.kind, expected_kind);
-        }
-
-        /// Get the top rib for a namespace, checking that it is the given kind.
-        pub fn top_rib(&mut self, ns: Namespace, expected_kind: RibKind) -> &mut Rib {
-            let out = self.ribs[ns].last_mut().expect("no ribs?");
-            assert_eq!(out.kind, expected_kind);
-            out
-        }
-
-        /// Resolve an identifier by walking backwards through the stack of ribs.
-        pub fn resolve(&self, ns: Namespace, cur_span: Span, alias_language: Option<InstrLanguage>, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
-            // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
-            let mut crossed_local_border = None::<&str>;
-            // set to Some(_) if we find a match for a reg/instr alias that isn't usable here
-            let mut language_with_ident = None::<InstrLanguage>;
-
-            'ribs: for rib in self.ribs[ns].iter().rev() {
-                if let Some(cause) = rib.kind.local_barrier_cause() {
-                    crossed_local_border.get_or_insert(cause);
-                }
-
-                if let Some(def) = rib.defs.get(cur_ident) {
-                    if rib.kind.holds_locals() && crossed_local_border.is_some() {
-                        let local_kind = rib.noun();
-                        let local_span = def.def_ident_span;
-                        let item_kind = crossed_local_border.unwrap();
-                        return Err(error!(
-                            message("cannot use {} from outside {}", local_kind, item_kind),
-                            primary(cur_span, "used in a nested {}", item_kind),
-                            secondary(local_span, "defined here"),
-                        ));
-                    }
-
-                    if let RibKind::Mapfile { language: mapfile_language } = rib.kind {
-                        if alias_language != Some(mapfile_language) {
-                            language_with_ident = Some(mapfile_language);
-                            continue 'ribs;
-                        }
-                    }
-                    return Ok(def.def_id);
-                }
-            } // for rib in ....
-
-            let mut diag = error!(
-                message("unknown {} '{}'", ns.noun_long(alias_language), cur_ident),
-                primary(cur_span, "not found in this scope"),
-            );
-
-            if let Some(other_language) = language_with_ident {
-                let extra = match alias_language {
-                    None => ", which is not usable in a const context",
-                    Some(_) => "",  // the "_ instruction or" in the main message is enough
-                };
-                diag.note(format!("there is a '{}' defined in {}{}", cur_ident, other_language.descr(), extra));
-            }
-            Err(diag)
-        }
-    }
-
-    impl std::iter::FromIterator<Rib> for RibStacks {
-        fn from_iter<It: IntoIterator<Item=Rib>>(iter: It) -> Self {
-            let mut out = Self::new();
-            for rib in iter {
-                out.ribs[rib.ns].push(rib);
-            }
-            out
-        }
-    }
-}
-
 pub use resolve_vars::Visitor as ResolveVarsVisitor;
 mod resolve_vars {
     use super::*;
@@ -517,6 +304,218 @@ mod resolve_vars {
     }
 }
 
+pub mod rib {
+    use super::*;
+
+    use crate::pos::{Sp, Span};
+    use crate::diagnostic::Diagnostic;
+
+    /// A helper used during name resolution to track stacks of [`Ribs`] representing the current scope.
+    #[derive(Debug, Clone)]
+    pub(super) struct RibStacks {
+        ribs: enum_map::EnumMap<Namespace, Vec<Rib>>,
+    }
+
+    /// A collection of names in a single namespace whose scopes all end simultaneously.
+    ///
+    /// The name and concept derives from [rustc's own ribs].  A stack of these is tracked for each
+    /// namespace, and name resolution walks backwards through the stack trying to find a match.
+    ///
+    /// [rustc's own ribs]: https://doc.rust-lang.org/nightly/nightly-rustc/rustc_resolve/late/struct.Rib.html
+    #[derive(Debug, Clone)]
+    pub struct Rib {
+        pub ns: Namespace,
+        pub kind: RibKind,
+        defs: HashMap<Ident, RibEntry>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct RibEntry {
+        pub def_id: DefId,
+        pub def_ident_span: Span,
+    }
+
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum RibKind {
+        /// Contains locals defined within a block. One is created for each block, and it will
+        /// always be the top rib when visiting statements.
+        ///
+        /// (contrast with rustc where the idea of ribs is borrowed from; unlike rust, truth does
+        ///  not allow locals to shadow other locals defined in the same block, because that
+        ///  functionality is not useful in a language with such a primitive type system)
+        Locals,
+
+        /// Function parameters.  (really just locals, but we put "parameter" in error messages)
+        Params,
+
+        /// An empty, "marker" rib indicating the beginning of an item's definition, blocking access
+        /// to all locals in outer ribs.  (and re-providing access to const items they've shadowed)
+        LocalBarrier {
+            /// `"function"`, `"const"`
+            of_what: &'static str
+        },
+
+        /// Contains items within a block.  (`const`s or funcs)
+        Items,
+
+        /// A rib created from entries in a mapfile.
+        Mapfile { language: InstrLanguage },
+
+        /// A set of names generated from e.g. meta.
+        Generated,
+
+        /// An empty rib that's always first so that we don't need to justify
+        DummyRoot,
+    }
+
+    impl Rib {
+        pub fn new(ns: Namespace, kind: RibKind) -> Self {
+            Rib { kind, ns, defs: Default::default() }
+        }
+
+        pub fn get(&mut self, ident: &Ident) -> Option<&RibEntry> {
+            self.defs.get(ident)
+        }
+
+        /// Returns the old definition if this is a redefinition.
+        pub fn insert(&mut self, ident: Sp<impl AsRef<Ident>>, def_id: DefId) -> Result<(), RibEntry> {
+            let new_entry = RibEntry { def_id, def_ident_span: ident.span };
+            match self.defs.insert(ident.value.as_ref().clone(), new_entry) {
+                None => Ok(()),
+                Some(old) => Err(old)
+            }
+        }
+
+        /// Get a singular noun (with no article) describing the type of thing the rib contains,
+        /// e.g. `"register alias"` or `"parameter"`.
+        pub fn noun(&self) -> &'static str {
+            match (&self.kind, self.ns) {
+                (RibKind::Locals, _) => "local",
+                (RibKind::Params, _) => "parameter",
+                (RibKind::Items, Namespace::Vars) => "const",
+                (RibKind::Items, Namespace::Funcs) => "function",
+                (RibKind::Mapfile { .. }, Namespace::Vars) => "register alias",
+                (RibKind::Mapfile { .. }, Namespace::Funcs) => "instruction alias",
+                (RibKind::Generated, Namespace::Vars) => "automatic const",
+                (RibKind::Generated, Namespace::Funcs) => "automatic func",
+
+                (RibKind::LocalBarrier { .. }, ns) |
+                (RibKind::DummyRoot, ns) => panic!("noun called on {:?} {:?} rib", self, ns),
+            }
+        }
+    }
+
+    impl RibKind {
+        /// If this is a barrier that hides outer local variables, get a string describing it.
+        /// (`"function"` or `"const"`)
+        pub fn local_barrier_cause(&self) -> Option<&'static str> {
+            match *self {
+                RibKind::LocalBarrier { of_what } => Some(of_what),
+                _ => None,
+            }
+        }
+
+        /// Determine if this rib holds a kind of local.
+        pub fn holds_locals(&self) -> bool {
+            match *self {
+                RibKind::Locals => true,
+                RibKind::Params => true,
+                _ => false,
+            }
+        }
+    }
+
+    impl RibStacks {
+        /// Create a new [`NameResolver`] sitting in the empty scope.
+        pub fn new() -> Self {
+            RibStacks { ribs: enum_map::enum_map!{
+                ns => vec![Rib { ns, kind: RibKind::DummyRoot, defs: Default::default() }],
+            }}
+        }
+
+        /// Push a rib onto a namespace's rib stack.
+        pub fn enter_rib(&mut self, rib: Rib) {
+            self.ribs[rib.ns].push(rib)
+        }
+
+        /// Push an empty rib onto a namespace's rib stack.
+        pub fn enter_new_rib(&mut self, ns: Namespace, kind: RibKind) {
+            self.enter_rib(Rib::new(ns, kind))
+        }
+
+        /// Pop a rib from a namespace, double-checking its `kind` for our sanity.
+        pub fn leave_rib(&mut self, ns: Namespace, expected_kind: RibKind) {
+            let popped = self.ribs[ns].pop().expect("unbalanced rib usage!");
+            assert_eq!(popped.kind, expected_kind);
+        }
+
+        /// Get the top rib for a namespace, checking that it is the given kind.
+        pub fn top_rib(&mut self, ns: Namespace, expected_kind: RibKind) -> &mut Rib {
+            let out = self.ribs[ns].last_mut().expect("no ribs?");
+            assert_eq!(out.kind, expected_kind);
+            out
+        }
+
+        /// Resolve an identifier by walking backwards through the stack of ribs.
+        pub fn resolve(&self, ns: Namespace, cur_span: Span, alias_language: Option<InstrLanguage>, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
+            // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
+            let mut crossed_local_border = None::<&str>;
+            // set to Some(_) if we find a match for a reg/instr alias that isn't usable here
+            let mut language_with_ident = None::<InstrLanguage>;
+
+            'ribs: for rib in self.ribs[ns].iter().rev() {
+                if let Some(cause) = rib.kind.local_barrier_cause() {
+                    crossed_local_border.get_or_insert(cause);
+                }
+
+                if let Some(def) = rib.defs.get(cur_ident) {
+                    if rib.kind.holds_locals() && crossed_local_border.is_some() {
+                        let local_kind = rib.noun();
+                        let local_span = def.def_ident_span;
+                        let item_kind = crossed_local_border.unwrap();
+                        return Err(error!(
+                            message("cannot use {} from outside {}", local_kind, item_kind),
+                            primary(cur_span, "used in a nested {}", item_kind),
+                            secondary(local_span, "defined here"),
+                        ));
+                    }
+
+                    if let RibKind::Mapfile { language: mapfile_language } = rib.kind {
+                        if alias_language != Some(mapfile_language) {
+                            language_with_ident = Some(mapfile_language);
+                            continue 'ribs;
+                        }
+                    }
+                    return Ok(def.def_id);
+                }
+            } // for rib in ....
+
+            let mut diag = error!(
+                message("unknown {} '{}'", ns.noun_long(alias_language), cur_ident),
+                primary(cur_span, "not found in this scope"),
+            );
+
+            if let Some(other_language) = language_with_ident {
+                let extra = match alias_language {
+                    None => ", which is not usable in a const context",
+                    Some(_) => "",  // the "_ instruction or" in the main message is enough
+                };
+                diag.note(format!("there is a '{}' defined in {}{}", cur_ident, other_language.descr(), extra));
+            }
+            Err(diag)
+        }
+    }
+
+    impl std::iter::FromIterator<Rib> for RibStacks {
+        fn from_iter<It: IntoIterator<Item=Rib>>(iter: It) -> Self {
+            let mut out = Self::new();
+            for rib in iter {
+                out.ribs[rib.ns].push(rib);
+            }
+            out
+        }
+    }
+}
 
 // =============================================================================
 
