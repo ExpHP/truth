@@ -1,13 +1,13 @@
 use indexmap::IndexMap;
 
 use crate::ast;
+use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
-use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 

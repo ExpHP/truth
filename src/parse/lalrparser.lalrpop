@@ -1,9 +1,8 @@
 use crate::diagnostic::Diagnostic;
 use crate::parse::lexer::{Token};
-use crate::meta::{self, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
-use crate::ast;
+use crate::ast::{self, meta, Meta};
 use super::lalrparser_util as util;
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
@@ -773,14 +772,14 @@ VarSigil: Option<ast::VarSigil> = {
 
 VarName: ast::VarName = {
     <ident:ResIdent>
-        => ast::VarName::Normal { ident, language_if_reg: None },
+        => ast::VarName::from_parsed_ident(ident),
 
     "REG" "[" <sign:OptionalMinus> <x:LitIntUnsigned> "]"
         => ast::VarName::Reg { reg: i32::wrapping_mul(x, sign).into(), language: None },
 };
 
 VarIdent: ast::Var = <ident:ResIdent>
-    => ast::Var { ty_sigil: None, name: ast::VarName::Normal { ident, language_if_reg: None } };
+    => ast::Var { ty_sigil: None, name: ast::VarName::from_parsed_ident(ident) };
 
 OptionalMinus: i32 = {
     "-" => -1,

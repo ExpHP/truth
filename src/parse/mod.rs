@@ -2,7 +2,6 @@ use lalrpop_util::lalrpop_mod;
 
 use crate::diagnostic::Diagnostic;
 use crate::ast;
-use crate::meta;
 use crate::pos::{Sp, Span};
 
 mod lalrparser_util;
@@ -124,7 +123,7 @@ pub enum AnythingValue {
     Stmt(ast::Stmt),
     Expr(ast::Expr),
     Var(ast::Var),
-    Meta(meta::Meta),
+    Meta(ast::Meta),
     LitString(ast::LitString),
 }
 
@@ -175,4 +174,4 @@ impl_parse!(ast::Stmt, Stmt);
 impl_parse!(ast::Expr, Expr);
 impl_parse!(ast::Var, Var);
 impl_parse!(ast::LitString, LitString);
-impl_parse!(meta::Meta, Meta);
+impl_parse!(ast::Meta, Meta);

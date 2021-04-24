@@ -1,5 +1,4 @@
 use crate::ast;
-use crate::meta;
 use crate::parse::Parse;
 use crate::error::ErrorReported;
 
@@ -196,7 +195,7 @@ parse_error_snapshot_test!(bad_ins_identifier_2, expect("instruction"), <ast::Ex
 parse_error_snapshot_test!(bad_ins_empty, expect("instruction"), <ast::Expr> r#" ins_() "#);
 parse_error_snapshot_test!(bad_ins_overflow, expect("instruction"), <ast::Expr> r#" ins_99999999999999() "#);
 parse_error_snapshot_test!(unclosed_comment, expect("token"), <ast::ScriptFile> r#" /* comment "#);
-parse_error_snapshot_test!(duplicate_meta_key, expect("duplicate"), <meta::Meta> r#"{
+parse_error_snapshot_test!(duplicate_meta_key, expect("duplicate"), <ast::Meta> r#"{
   a: {
     thing: 100,
     another: 101,

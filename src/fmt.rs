@@ -1,7 +1,6 @@
 use thiserror::Error;
 use std::io::{self, Write};
-use crate::ast;
-use crate::meta::{self, Meta};
+use crate::ast::{self, meta, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::Sp;
 

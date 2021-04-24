@@ -147,7 +147,7 @@ impl_into_spanned_for_ast!{
     ast::UnopKind, ast::BinopKind, ast::AssignOpKind,
     ast::CondKeyword, ast::TypeKeyword, ast::MetaKeyword,
     crate::ident::Ident,
-    crate::meta::Meta,
+    crate::ast::Meta,
     i32, f32,
 }
 

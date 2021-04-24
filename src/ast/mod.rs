@@ -1,11 +1,48 @@
 use std::fmt;
 
-use crate::meta;
 use crate::resolve::{DefId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::game::InstrLanguage;
 use crate::value;
+
+pub use meta::Meta;
+pub mod meta;
+
+pub mod pseudo;
+
+// Quick little util for stringly enums.
+macro_rules! string_enum {
+    (
+        $(#[$($Enum_attr:tt)+])*
+        $vis:vis enum $Enum:ident {
+            $(
+                $(#[doc = $variant_doc:literal])*
+                #[str = $variant_str:literal] $Variant:ident,
+            )*
+        }
+    ) => {
+        $(#[$($Enum_attr)+])*
+        $vis enum $Enum {
+            $( $(#[doc = $variant_doc])* $Variant, )*
+        }
+
+        // used mainly for error messages
+        impl ::std::fmt::Display for $Enum {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                ::std::fmt::Display::fmt(match self {
+                    $( $Enum::$Variant => $variant_str, )*
+                }, f)
+            }
+        }
+
+        impl crate::fmt::Format for $Enum {
+            fn fmt<W: ::std::io::Write>(&self, out: &mut crate::fmt::Formatter<W>) -> crate::fmt::Result {
+                out.fmt(format_args!("{}", self))
+            }
+        }
+    }
+}
 
 // =============================================================================
 
@@ -449,9 +486,17 @@ pub struct Var {
 }
 
 impl VarName {
-    /// Construct from the identifier of a local or parameter.
-    pub fn new_local(ident: ResIdent) -> Self {
-        // language_if_reg: None is okay since it's not a reg alias
+    /// Construct from the identifier of a local, parameter, or constant. (but NOT a register alias)
+    pub fn new_non_reg(ident: ResIdent) -> Self {
+        VarName::Normal { ident, language_if_reg: None }
+    }
+
+    /// For use internally by the parser on idents that may or may not be register aliases.
+    ///
+    /// Code outside of the parser should not use this; it should instead use [`Self::new_non_register`] if the
+    /// ident is known not to refer to a register, else it should construct one manually with the correct language.
+    pub(crate) fn from_parsed_ident(ident: ResIdent) -> Self {
+        // for the parser, it is okay to use 'language_if_reg: None' on register aliases because a later pass will fill it in.
         VarName::Normal { ident, language_if_reg: None }
     }
 

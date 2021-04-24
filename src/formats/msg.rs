@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast;
+use crate::ast::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
@@ -9,7 +10,6 @@ use crate::game::{Game, InstrLanguage};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
-use crate::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::value::ScalarValue;
 
 use indexmap::IndexMap;

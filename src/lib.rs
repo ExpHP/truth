@@ -21,9 +21,6 @@ pub mod fmt;
 
 pub mod parse;
 
-// FIXME make this part of `ast`
-pub mod meta;
-
 pub use eclmap::Eclmap;
 pub mod eclmap;
 
@@ -58,8 +55,6 @@ pub mod io;
 
 pub use llir::DecompileOptions;
 pub mod llir;
-
-pub mod pseudo;
 
 pub mod vm;
 

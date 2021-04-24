@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{self, Expr};
+use crate::ast::{self, pseudo};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
@@ -314,10 +314,10 @@ fn raise_unknown_instr(
     pseudos.push(sp!(ast::PseudoArg {
         at_sign: sp!(()), eq_sign: sp!(()),
         kind: sp!(token![blob]),
-        value: sp!(crate::pseudo::format_blob(&args.blob).into()),
+        value: sp!(pseudo::format_blob(&args.blob).into()),
     }));
 
-    Ok(ast::StmtBody::Expr(sp!(Expr::Call {
+    Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
         name: sp!(ast::CallableName::Ins { opcode: instr.opcode, language: Some(language) }),
         pseudos,
         args: vec![],
@@ -426,7 +426,7 @@ fn raise_decoded_instr(
         None => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
             let abi = expect_abi(language, instr, defs);
 
-            Ok(ast::StmtBody::Expr(sp!(Expr::Call {
+            Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
                 name: sp!(ast::CallableName::Ins { opcode, language: Some(language) }),
                 pseudos: vec![],
                 args: raise_args(language, emitter, args, abi)?,
@@ -436,7 +436,7 @@ fn raise_decoded_instr(
 }
 
 
-fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, ErrorReported> {
+fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<ast::Expr>>, ErrorReported> {
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
@@ -459,7 +459,7 @@ fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg
     Ok(out)
 }
 
-fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
+fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
     if raw.is_reg {
         let ty = match enc {
             | ArgEncoding::Padding
@@ -477,13 +477,13 @@ fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, e
             | ArgEncoding::Word => return Err(emitter.emit(error!("unexpected register used as word-sized argument"))),
             | ArgEncoding::String { .. } => return Err(emitter.emit(error!("unexpected register used as string argument"))),
         };
-        Ok(Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, ty)?)))
+        Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, ty)?)))
     } else {
         raise_arg_to_literal(emitter, raw, enc)
     }
 }
 
-fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
+fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
     if raw.is_reg {
         return Err(emitter.emit(error!("expected an immediate, got a register")));
     }
@@ -493,35 +493,34 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Word
         | ArgEncoding::Dword
         | ArgEncoding::JumpTime  // NOTE: might eventually want timeof(label)
-        => Ok(Expr::from(raw.expect_int())),
+        => Ok(ast::Expr::from(raw.expect_int())),
 
         | ArgEncoding::Sprite
         => match raw.expect_int() {
-            -1 => Ok(Expr::from(-1)),
+            -1 => Ok(ast::Expr::from(-1)),
             id => {
-                // NOTE: `language: none` is okay since it's not a register alias.
-                let ident = ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _));
-                let name = ast::VarName::Normal { ident, language_if_reg: None };
-                Ok(Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+                let const_ident = ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _));
+                let name = ast::VarName::new_non_reg(const_ident);
+                Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
             },
         },
 
         | ArgEncoding::Script
         => {
-            let ident = ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _));
-            let name = ast::VarName::Normal { ident, language_if_reg: None };
-            Ok(Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+            let const_ident = ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _));
+            let name = ast::VarName::new_non_reg(const_ident);
+            Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
         },
 
         | ArgEncoding::Color
         | ArgEncoding::JumpOffset  // NOTE: might eventually want offsetof(label)
-        => Ok(Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
+        => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
 
         | ArgEncoding::Float
-        => Ok(Expr::from(raw.expect_float())),
+        => Ok(ast::Expr::from(raw.expect_float())),
 
         | ArgEncoding::String { .. }
-        => Ok(Expr::from(raw.expect_string().clone())),
+        => Ok(ast::Expr::from(raw.expect_string().clone())),
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::integration_impl::formats::*;
-use truth::meta::ToMeta;
+use truth::ast::meta::ToMeta;
 
 // =============================================================================
 // Image sources

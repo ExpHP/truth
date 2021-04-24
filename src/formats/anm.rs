@@ -7,6 +7,7 @@ use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
+use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
@@ -14,7 +15,6 @@ use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
-use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
@@ -342,8 +342,9 @@ impl Entry {
 fn format_to_meta(format_num: u32) -> Meta {
     for known_format in ColorFormat::get_all() {
         if format_num == known_format as u32 {
+            let ident = ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap());
             return Meta::Scalar(sp!(ast::Expr::Var(sp!(ast::Var {
-                name: ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap()).into(),
+                name: ast::VarName::new_non_reg(ident),
                 ty_sigil: None,
             }))));
         }
