@@ -8,6 +8,6 @@ error: unknown variable 'I0'
 28 │     memory_priority: 3 * I0,
    │                          ^^ not found in this scope
    │
-   = there is a 'I0' defined in ANM, which is not usable in a const context
+   = there is a 'I0' defined in ANM, which is not a const expression
 
 

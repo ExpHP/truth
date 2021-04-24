@@ -496,9 +496,10 @@ pub mod rib {
             );
 
             if let Some(other_language) = language_with_ident {
-                let extra = match alias_language {
-                    None => ", which is not usable in a const context",
-                    Some(_) => "",  // the "_ instruction or" in the main message is enough
+                let extra = match (alias_language, ns) {
+                    (None, Namespace::Funcs) => ", which is not usable in a const context",
+                    (None, Namespace::Vars) => ", which is not a const expression",
+                    (Some(_), _) => "",  // the "_ instruction or" in the main message is enough
                 };
                 diag.note(format!("there is a '{}' defined in {}{}", cur_ident, other_language.descr(), extra));
             }

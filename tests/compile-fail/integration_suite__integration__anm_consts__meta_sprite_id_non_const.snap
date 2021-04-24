@@ -8,6 +8,6 @@ error: unknown variable 'I0'
 29 │         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
    │                                                                 ^^ not found in this scope
    │
-   = there is a 'I0' defined in ANM, which is not usable in a const context
+   = there is a 'I0' defined in ANM, which is not a const expression
 
 
