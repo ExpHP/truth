@@ -763,6 +763,11 @@ fn write_entry(
         emitter.emit(diag)
     }
 
+    let offset_x = offset_x.unwrap_or(0);
+    let offset_y = offset_y.unwrap_or(0);
+    let colorkey = colorkey.unwrap_or(0);
+    let memory_priority = memory_priority.unwrap_or(file_format.default_memory_priority());
+    let low_res_scale = low_res_scale.unwrap_or(false) as u32;
     emitter.chain_with(|f| write!(f, "in header"), |emitter| {
         macro_rules! expect {
             ($name:ident) => { match $name {
@@ -778,12 +783,12 @@ fn write_entry(
             width: expect!(width),
             height: expect!(height),
             format: expect!(format).value,
-            colorkey: expect!(colorkey),
-            offset_x: expect!(offset_x),
-            offset_y: expect!(offset_y),
-            memory_priority: expect!(memory_priority),
+            colorkey,
+            offset_x,
+            offset_y,
+            memory_priority,
+            low_res_scale,
             has_data: (expect!(source) != Source::None) as u32,
-            low_res_scale: expect!(low_res_scale) as u32,
             version: file_format.version as u32,
             num_sprites: entry.sprites.len() as u32,
             num_scripts: entry.scripts.len() as u32,
@@ -1145,6 +1150,13 @@ impl FileFormat {
     }
 
     fn instr_format(&self) -> &dyn InstrFormat { &*self.instr_format }
+
+    fn default_memory_priority(&self) -> u32 {
+        match self.version {
+            Version::V0 => 0,
+            _ => 10,
+        }
+    }
 }
 
 impl InstrFormat for InstrFormat06 {

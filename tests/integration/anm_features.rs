@@ -149,6 +149,36 @@ script -45 script0 {
         }
     );
 
+    // Test defaulted fields.
+    source_test!(
+        ANM_12, default_fields,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
+
+entry {
+    path: "subdir/file.png",
+    source: "none",
+    width: 512,
+    height: 512,
+    format: 3,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
+}
+
+
+script -45 script0 {
+    delete();
+}
+"#,
+        check_compiled:|output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.offset_x, Some(0));
+            assert_eq!(anm.entries[0].specs.offset_y, Some(0));
+            assert_eq!(anm.entries[0].specs.colorkey, Some(0));
+            assert_eq!(anm.entries[0].specs.memory_priority, Some(10));
+            assert_eq!(anm.entries[0].specs.low_res_scale, Some(false));
+        }
+    );
+
     // This input is like 'okay' but it is missing some metadata.
     source_test!(
         ANM_12, err_missing_metadata,
