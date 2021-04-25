@@ -90,7 +90,7 @@ pub struct Script {
 pub struct EntrySpecs {
     pub width: Option<u32>,
     pub height: Option<u32>,
-    pub format: Option<u32>,
+    pub format: Option<Sp<u32>>,
     pub colorkey: Option<u32>, // Only in old format
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
@@ -114,7 +114,7 @@ impl Entry {
             .field_opt("height", height.as_ref())
             .field_opt("offset_x", offset_x.as_ref())
             .field_opt("offset_y", offset_y.as_ref())
-            .field_opt("format", format.as_ref())
+            .field_opt("format", format.as_ref().map(|x| x.value))
             .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
             .field_opt("memory_priority", memory_priority.as_ref())
             .field_opt("low_res_scale", low_res_scale.as_ref())
@@ -666,7 +666,7 @@ fn read_entry(
     };
     let specs = EntrySpecs {
         width: Some(header_data.width), height: Some(header_data.height),
-        format: Some(header_data.format), colorkey: Some(header_data.colorkey),
+        format: Some(sp!(header_data.format)), colorkey: Some(header_data.colorkey),
         offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
         memory_priority: Some(header_data.memory_priority),
         source: match header_data.has_data {
@@ -777,7 +777,7 @@ fn write_entry(
         file_format.write_header(w, &EntryHeaderData {
             width: expect!(width),
             height: expect!(height),
-            format: expect!(format),
+            format: expect!(format).value,
             colorkey: expect!(colorkey),
             offset_x: expect!(offset_x),
             offset_y: expect!(offset_y),
@@ -793,6 +793,9 @@ fn write_entry(
         })
     })?;
     let source = source.expect("already checked");
+    let width = width.expect("already checked");
+    let height = height.expect("already checked");
+    let format = format.expect("already checked");
 
     let sprite_offsets_pos = w.pos()?;
     w.write_u32s(&vec![0; entry.sprites.len()])?;
@@ -842,7 +845,12 @@ fn write_entry(
         },
 
         Source::Dummy => {
-            unimplemented!("generate something")
+            texture_offset = w.pos()? - entry_pos;
+            let data = generate_texture_data(&w.emitter(), format, (width * height) as usize)?;
+            write_texture(w, &Texture {
+                thtx: ThtxHeader { format: format.value, width, height },
+                data: Some(data),
+            })?;
         },
 
         Source::None => {},
@@ -930,6 +938,35 @@ fn write_texture(f: &mut BinWriter, texture: &Texture) -> WriteResult {
     f.write_u32(data.len() as _)?;
     f.write_all(data)?;
     Ok(())
+}
+
+// =============================================================================
+
+const FORMAT_ARGB_8888: u32 = 1;
+const FORMAT_RGB_565: u32 = 3;
+const FORMAT_ARGB_4444: u32 = 5;
+const FORMAT_GRAY_8: u32 = 7;
+
+fn generate_texture_data(emitter: &impl Emitter, format: Sp<u32>, num_pixels: usize) -> Result<Vec<u8>, ErrorReported> {
+    let fill: &[u8] = match format.value {
+        // magenta
+        FORMAT_ARGB_8888 => &[0xFF, 0xFF, 0x00, 0xFF],
+        FORMAT_RGB_565 => &[0b000_11111, 0b11111_000],
+        FORMAT_ARGB_4444 => &[0x0F, 0xFF],
+
+        // 50% gray
+        FORMAT_GRAY_8 => &[0x80],
+
+        // unknown format
+        _ => {
+            return Err(emitter.emit(error!(
+                message("unknown color format '{}'", format),
+                primary(format, "cannot generate dummy data for this format"),
+            )));
+        },
+    };
+
+    Ok(fill.repeat(num_pixels))
 }
 
 // =============================================================================
