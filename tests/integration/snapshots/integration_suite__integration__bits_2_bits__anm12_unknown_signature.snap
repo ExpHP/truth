@@ -6,7 +6,7 @@ expression: s
 
 entry {
     path: "subdir/file1.png",
-    has_data: false,
+    source: "none",
     width: 1000,
     height: 1000,
     offset_x: 0,

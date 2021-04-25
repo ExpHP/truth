@@ -2,7 +2,7 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: string too long for STD header
+error: string is too long
    ┌─ <input>:6:17
    │  
  6 │       stage_name: "

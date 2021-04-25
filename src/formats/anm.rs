@@ -88,9 +88,17 @@ pub struct Script {
 
 #[derive(Debug, Clone)]
 pub struct EntrySpecs {
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub format: Option<Sp<u32>>,
+    // NOTE: While most file type objects contain plain values (using things like 'field_default'
+    // to handle defaults in meta conversions), this has to contain Options for the sake of the
+    // "merging" of entries that occurs when --image-source is used.
+    //
+    // It makes this type really annoying to work with.  But that's life.
+    pub buf_width: Option<Sp<u32>>,
+    pub buf_height: Option<Sp<u32>>,
+    pub buf_format: Option<Sp<u32>>,
+    pub img_width: Option<Sp<u32>>,
+    pub img_height: Option<Sp<u32>>,
+    pub img_format: Option<Sp<u32>>,
     pub colorkey: Option<u32>, // Only in old format
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
@@ -101,37 +109,128 @@ pub struct EntrySpecs {
 
 impl Entry {
     fn make_meta(&self) -> meta::Fields {
+        let mut specs = self.specs.clone();
+
+        // derive properties of the runtime buffer based on the image
+        if let (Some(buf_width), Some(img_width)) = (specs.buf_width, specs.img_width) {
+            if buf_width == img_width.next_power_of_two() {
+                specs.buf_width = None;
+            }
+        }
+
+        if let (Some(buf_height), Some(img_height)) = (specs.buf_height, specs.img_height) {
+            if buf_height == img_height.next_power_of_two() {
+                specs.buf_height = None;
+            }
+        }
+
+        if let (Some(buf_format), Some(img_format)) = (specs.buf_format, specs.img_format) {
+            if buf_format == img_format {
+                specs.buf_format = None;
+            }
+        }
+
         let EntrySpecs {
-            width, height, format, colorkey, offset_x, offset_y,
-            memory_priority, source, low_res_scale,
-        } = &self.specs;
+            buf_width, buf_height, buf_format, colorkey, offset_x, offset_y,
+            img_width, img_height, img_format, memory_priority, source, low_res_scale,
+        } = &specs;
 
         Meta::make_object()
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
             .field_opt("source", source.as_ref())
-            .field_opt("width", width.as_ref())
-            .field_opt("height", height.as_ref())
+            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
+            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
+            .field_opt("img_format", img_format.as_ref().map(|x| x.value))
             .field_opt("offset_x", offset_x.as_ref())
             .field_opt("offset_y", offset_y.as_ref())
-            .field_opt("format", format.as_ref().map(|x| x.value))
             .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
             .field_opt("memory_priority", memory_priority.as_ref())
             .field_opt("low_res_scale", low_res_scale.as_ref())
-            .with_mut(|b| if let Some(texture) = &self.texture {
-                b.field("thtx_format", &texture.thtx.format);
-                b.field("thtx_width", &texture.thtx.width);
-                b.field("thtx_height", &texture.thtx.height);
-            })
+            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
+            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
+            .field_opt("img_format", img_format.as_ref().map(|x| x.value))
             .field("sprites", &self.sprites)
             .build_fields()
     }
 
-    fn from_fields(fields: &Sp<meta::Fields>) -> Result<Self, FromMetaError<'_>> {
+    fn from_fields<'a>(fields: &'a Sp<meta::Fields>, emitter: &impl Emitter) -> Result<Self, FromMetaError<'a>> {
         meta::ParseObject::scope(fields, |m| {
-            let format = m.get_field("format")?;
-            let width = m.get_field("width")?;
-            let height = m.get_field("height")?;
+            let deprecated_format = m.get_field_and_key("format")?;
+            let deprecated_width = m.get_field_and_key("width")?;
+            let deprecated_height = m.get_field_and_key("height")?;
+            let mut buf_format = m.get_field::<Sp<u32>>("buf_format")?;
+            let mut buf_width = m.get_field::<Sp<u32>>("buf_width")?;
+            let mut buf_height = m.get_field::<Sp<u32>>("buf_height")?;
+            for (deprecated_key_value, value) in vec![
+                (deprecated_format, &mut buf_format),
+                (deprecated_width, &mut buf_width),
+                (deprecated_height, &mut buf_height),
+            ] {
+                static ONCE: std::sync::Once = std::sync::Once::new();
+
+                if let Some((deprecated_key, deprecated_value)) = deprecated_key_value {
+                    ONCE.call_once(|| emitter.emit(warning!(
+                        message("\
+                            deprecation warning: 'format', 'width', and 'height' have been \
+                            renamed to 'buf_format', 'buf_width', and 'buf_height'.  The old \
+                            names will be removed in a future version.\
+                        "),
+                        primary(deprecated_key, "deprecated key"),
+                    )).ignore());
+
+                    value.get_or_insert(deprecated_value);
+                }
+            }
+
+            let deprecated_img_format = m.get_field_and_key("thtx_format")?;
+            let deprecated_img_width = m.get_field_and_key("thtx_width")?;
+            let deprecated_img_height = m.get_field_and_key("thtx_height")?;
+            let mut img_format = m.get_field::<Sp<u32>>("img_format")?;
+            let mut img_width = m.get_field::<Sp<u32>>("img_width")?;
+            let mut img_height = m.get_field::<Sp<u32>>("img_height")?;
+            for (deprecated_key_value, value) in vec![
+                (deprecated_img_format, &mut img_format),
+                (deprecated_img_width, &mut img_width),
+                (deprecated_img_height, &mut img_height),
+            ] {
+                static ONCE: std::sync::Once = std::sync::Once::new();
+
+                if let Some((deprecated_key, deprecated_value)) = deprecated_key_value {
+                    ONCE.call_once(|| emitter.emit(warning!(
+                        message("\
+                            deprecation warning: 'thtx_format', 'thtx_width', and 'thtx_height' have \
+                            been renamed to 'img_format', 'img_width', and 'img_height'.  The old \
+                            names will be removed in a future version.\
+                        "),
+                        primary(deprecated_key, "deprecated key"),
+                    )).ignore());
+
+                    value.get_or_insert(deprecated_value);
+                }
+            }
+
+            for (field, buf_value, img_value) in vec![
+                ("buf_height", buf_height, img_height),
+                ("buf_width", buf_width, img_height),
+            ] {
+                if let Some(buf_value) = buf_value {
+                    if !buf_value.value.is_power_of_two() {
+                        emitter.emit(warning!(
+                            message("buf_{} = {} should be a power of two", field, buf_value),
+                            primary(buf_value, "not a power of two")
+                        )).ignore();
+                    }
+                    if let Some(img_value) = img_value {
+                        emitter.emit(warning!(
+                            message("buf_{} = {} is not large enough for img_{} = {}", field, buf_value, field, img_value),
+                            secondary(img_value, "image dimension defined here"),
+                            primary(buf_value, "buffer too small for image"),
+                        )).ignore();
+                    }
+                }
+            }
+
             let colorkey = m.get_field("colorkey")?;
             let offset_x = m.get_field("offset_x")?;
             let offset_y = m.get_field("offset_y")?;
@@ -141,13 +240,12 @@ impl Entry {
             let path = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let texture = None;
-            m.allow_field("thtx_format")?;
-            m.allow_field("thtx_width")?;
-            m.allow_field("thtx_height")?;
             let sprites = m.get_field("sprites")?.unwrap_or_default();
 
             let specs = EntrySpecs {
-                width, height, format, colorkey, offset_x, offset_y,
+                buf_width, buf_height, buf_format,
+                img_width, img_height, img_format,
+                colorkey, offset_x, offset_y,
                 memory_priority, source, low_res_scale,
             };
             let scripts = Default::default();
@@ -300,7 +398,8 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     // though it's tedious, we fully unpack this struct to that the compiler doesn't
     // let us forget to update this function when we add a new field.
     let EntrySpecs {
-        width: src_width, height: src_height, format: src_format,
+        img_width: src_img_width, img_height: src_img_height, img_format: src_img_format,
+        buf_width: src_buf_width, buf_height: src_buf_height, buf_format: src_buf_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
         memory_priority: src_memory_priority, source: src_source,
         low_res_scale: src_low_res_scale,
@@ -310,9 +409,12 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
         *dest = dest.take().or(src);
     }
 
-    or_inplace(&mut dest_specs.width, src_width);
-    or_inplace(&mut dest_specs.height, src_height);
-    or_inplace(&mut dest_specs.format, src_format);
+    or_inplace(&mut dest_specs.img_width, src_img_width);
+    or_inplace(&mut dest_specs.img_height, src_img_height);
+    or_inplace(&mut dest_specs.img_format, src_img_format);
+    or_inplace(&mut dest_specs.buf_width, src_buf_width);
+    or_inplace(&mut dest_specs.buf_height, src_buf_height);
+    or_inplace(&mut dest_specs.buf_format, src_buf_format);
     or_inplace(&mut dest_specs.colorkey, src_colorkey);
     or_inplace(&mut dest_specs.offset_x, src_offset_x);
     or_inplace(&mut dest_specs.offset_y, src_offset_y);
@@ -375,7 +477,7 @@ fn compile(
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
-                cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.emitter.emit(e))?);
+                cur_entry = Some(Entry::from_fields(fields, ctx.emitter).map_err(|e| ctx.emitter.emit(e))?);
                 cur_group = vec![];
             },
             &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
