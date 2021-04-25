@@ -1,3 +1,5 @@
+use truth::sp;
+
 use crate::integration_impl::formats::*;
 use crate::integration_impl::{TestFile, expected};
 
@@ -29,11 +31,11 @@ mod embedded_image {
 entry {
     path: "lmao.png",
     source: "copy",
-    width: 128,
-    height: 128,
+    buf_width: 128,
+    buf_height: 128,
     offset_x: 200,  // overridden from image source
     offset_y: 0,
-    format: 3,
+    buf_format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -98,11 +100,11 @@ mod no_source {
 entry {
     path: "subdir/file.png",
     source: "none",
-    width: 512,
-    height: 512,
+    buf_width: 512,  // "none" requires buf_*.  Defaulting from img_* will be tested later
+    buf_height: 512,
+    buf_format: 3,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -128,11 +130,11 @@ script -45 script0 {
 entry {
     path: "subdir/file.png",
     source: "dummy",
-    width: 512,
-    height: 512,
+    img_width: 512,
+    img_height: 512,
+    img_format: 3,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -158,9 +160,9 @@ script -45 script0 {
 entry {
     path: "subdir/file.png",
     source: "none",
-    width: 512,
-    height: 512,
-    format: 3,
+    img_width: 512,  // use img_ here to test defaulting of buf_ from img_
+    img_height: 512,
+    img_format: 3,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }
 
@@ -207,11 +209,11 @@ script -45 script0 {
 entry {
     path: "subdir/file.png",
     source: "copy",
-    width: 512,
-    height: 512,
+    buf_width: 512,
+    buf_height: 512,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
+    buf_format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -256,10 +258,10 @@ script script1 {
     "#,
     check_compiled:|output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.width, Some(2000));  // pulled from file1
+        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(2000)));  // pulled from file1
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.width, Some(1000));  // pulled from file2
+        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(1000)));  // pulled from file2
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },
@@ -295,10 +297,10 @@ script script1 {
     "#,
     check_compiled:|output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.width, Some(1000));
+        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(1000)));
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.width, Some(2000));
+        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(2000)));
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },

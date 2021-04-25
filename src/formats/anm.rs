@@ -139,9 +139,9 @@ impl Entry {
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
             .field_opt("source", source.as_ref())
-            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
-            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
-            .field_opt("img_format", img_format.as_ref().map(|x| x.value))
+            .field_opt("buf_width", buf_width.as_ref().map(|x| x.value))
+            .field_opt("buf_height", buf_height.as_ref().map(|x| x.value))
+            .field_opt("buf_format", buf_format.as_ref().map(|x| x.value))
             .field_opt("offset_x", offset_x.as_ref())
             .field_opt("offset_y", offset_y.as_ref())
             .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
@@ -279,6 +279,8 @@ impl FromMeta<'_> for Source {
 
 #[derive(Clone)]
 pub struct Texture {
+    /// FIXME: This data is also redundantly stored on EntrySpecs now.
+    ///        It's confusing and probably causes bugs.
     pub thtx: ThtxHeader,
     pub data: Option<Vec<u8>>,
 }
@@ -767,8 +769,13 @@ fn read_entry(
         },
     };
     let specs = EntrySpecs {
-        width: Some(header_data.width), height: Some(header_data.height),
-        format: Some(sp!(header_data.format)), colorkey: Some(header_data.colorkey),
+        buf_width: Some(sp!(header_data.width)),
+        buf_height: Some(sp!(header_data.height)),
+        buf_format: Some(sp!(header_data.format)),
+        img_width: texture.as_ref().map(|x| sp!(x.thtx.width)),
+        img_height: texture.as_ref().map(|x| sp!(x.thtx.height)),
+        img_format: texture.as_ref().map(|x| sp!(x.thtx.format)),
+        colorkey: Some(header_data.colorkey),
         offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
         memory_priority: Some(header_data.memory_priority),
         source: match header_data.has_data {
@@ -851,7 +858,9 @@ fn write_entry(
     let entry_pos = w.pos()?;
 
     let EntrySpecs {
-        width, height, format, colorkey, offset_x, offset_y, memory_priority,
+        buf_width, buf_height, buf_format,
+        img_width, img_height, img_format,
+        colorkey, offset_x, offset_y, memory_priority,
         source, low_res_scale,
     } = entry.specs;
 
@@ -865,32 +874,35 @@ fn write_entry(
         emitter.emit(diag)
     }
 
+    let buf_width = buf_width.or(img_width.map(|x| x.sp_map(u32::next_power_of_two)));
+    let buf_height = buf_height.or(img_height.map(|x| x.sp_map(u32::next_power_of_two)));
+    let buf_format = buf_format.or(img_format);
     let offset_x = offset_x.unwrap_or(0);
     let offset_y = offset_y.unwrap_or(0);
     let colorkey = colorkey.unwrap_or(0);
     let memory_priority = memory_priority.unwrap_or(file_format.default_memory_priority());
     let low_res_scale = low_res_scale.unwrap_or(false) as u32;
+    let source = source.unwrap_or(Source::None);
     emitter.chain_with(|f| write!(f, "in header"), |emitter| {
         macro_rules! expect {
-            ($name:ident) => { match $name {
-                Some(x) => x,
-                None => {
+            ($name:ident) => {
+                $name.ok_or_else(|| {
                     let problem = format!("missing required field '{}'!", stringify!($name));
-                    return Err(missing(emitter, &problem, None));
-                },
-            }};
+                    missing(emitter, &problem, None)
+                })?
+            };
         }
 
         file_format.write_header(w, &EntryHeaderData {
-            width: expect!(width),
-            height: expect!(height),
-            format: expect!(format).value,
+            width: expect!(buf_width).value,
+            height: expect!(buf_height).value,
+            format: expect!(buf_format).value,
             colorkey,
             offset_x,
             offset_y,
             memory_priority,
             low_res_scale,
-            has_data: (expect!(source) != Source::None) as u32,
+            has_data: (source != Source::None) as u32,
             version: file_format.version as u32,
             num_sprites: entry.sprites.len() as u32,
             num_scripts: entry.scripts.len() as u32,
@@ -899,10 +911,6 @@ fn write_entry(
             next_offset: 0, thtx_offset: None,
         })
     })?;
-    let source = source.expect("already checked");
-    let width = width.expect("already checked");
-    let height = height.expect("already checked");
-    let format = format.expect("already checked");
 
     let sprite_offsets_pos = w.pos()?;
     w.write_u32s(&vec![0; entry.sprites.len()])?;
@@ -953,6 +961,19 @@ fn write_entry(
 
         Source::Dummy => {
             texture_offset = w.pos()? - entry_pos;
+
+            macro_rules! expect {
+                ($name:ident) => {
+                    $name.ok_or_else(|| emitter.emit(error!(
+                        message("missing required field '{}'!", stringify!($name)),
+                        note("field is required due to 'source: \"generate\"'"),
+                    )))?
+                };
+            }
+
+            let format = expect!(img_format);
+            let width = expect!(img_width).value;
+            let height = expect!(img_height).value;
             let data = generate_texture_data(&w.emitter(), format, (width * height) as usize)?;
             write_texture(w, &Texture {
                 thtx: ThtxHeader { format: format.value, width, height },
