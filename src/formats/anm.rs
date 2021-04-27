@@ -107,8 +107,48 @@ pub struct EntrySpecs {
     pub low_res_scale: Option<bool>,
 }
 
+impl EntrySpecs {
+    // (this takes Game instead of FileFormat so it can be public for integration tests)
+    pub fn fill_defaults(&self, game: Game) -> EntrySpecs {
+        let file_format = game_format(game);
+        EntrySpecs {
+            img_width: self.img_width,
+            img_height: self.img_height,
+            img_format: self.img_format,
+            buf_width: self.buf_width.or(self.img_width.map(|x| x.sp_map(u32::next_power_of_two))),
+            buf_height: self.buf_height.or(self.img_height.map(|x| x.sp_map(u32::next_power_of_two))),
+            buf_format: self.buf_format.or(self.img_format),
+            offset_x: self.offset_x.unwrap_or(0),
+            offset_y: self.offset_y.unwrap_or(0),
+            colorkey: self.colorkey.unwrap_or(0),
+            memory_priority: self.memory_priority.unwrap_or(file_format.default_memory_priority()),
+            low_res_scale: self.low_res_scale.unwrap_or(false),
+            source: self.source.unwrap_or(Source::Copy),
+        }
+    }
+
+    pub fn suppress_defaults(&self, game: Game) -> EntrySpecs {
+        let file_format = game_format(game);
+
+        EntrySpecs {
+            img_width: self.img_width,
+            img_height: self.img_height,
+            img_format: self.img_format,
+            buf_width: self.buf_width.filter(|x| !(self.img_width.is_some() && x == self.img_width.unwrap().value.next_power_of_two())),
+            buf_height: self.buf_height.filter(|x| !(self.img_height.is_some() && x == self.img_height.unwrap().value.next_power_of_two())),
+            buf_format: self.buf_format.filter(|x| !(self.img_format.is_some() && x == self.img_format.unwrap())),
+            offset_x: self.offset_x.filter(|x| x != 0),
+            offset_y: self.offset_y.filter(|x| x != 0),
+            colorkey: self.colorkey.filter(|x| x != 0),
+            memory_priority: self.memory_priority.filter(|x| x != file_format.default_memory_priority()),
+            low_res_scale: self.low_res_scale.filter(|x| x != false),
+            source: self.source.unwrap_or(|x| Source::Copy),
+        }
+    }
+}
+
 impl Entry {
-    fn make_meta(&self) -> meta::Fields {
+    fn make_meta(&self, file_format: &FileFormat) -> meta::Fields {
         let mut specs = self.specs.clone();
 
         // derive properties of the runtime buffer based on the image
@@ -133,7 +173,7 @@ impl Entry {
         let EntrySpecs {
             buf_width, buf_height, buf_format, colorkey, offset_x, offset_y,
             img_width, img_height, img_format, memory_priority, source, low_res_scale,
-        } = &specs;
+        } = &specs.suppress_defaults(file_format.game);
 
         Meta::make_object()
             .field("path", &self.path.value)
@@ -347,7 +387,7 @@ fn decompile(
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
-            fields: sp!(entry.make_meta()),
+            fields: sp!(entry.make_meta(format)),
         }));
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
@@ -862,7 +902,7 @@ fn write_entry(
         img_width, img_height, img_format,
         colorkey, offset_x, offset_y, memory_priority,
         source, low_res_scale,
-    } = entry.specs;
+    } = entry.specs.fill_defaults(file_format.game);
 
     fn missing(emitter: &impl Emitter, problem: &str, note_2: Option<&str>) -> ErrorReported {
         let mut diag = error!("{}", problem);
@@ -874,15 +914,6 @@ fn write_entry(
         emitter.emit(diag)
     }
 
-    let buf_width = buf_width.or(img_width.map(|x| x.sp_map(u32::next_power_of_two)));
-    let buf_height = buf_height.or(img_height.map(|x| x.sp_map(u32::next_power_of_two)));
-    let buf_format = buf_format.or(img_format);
-    let offset_x = offset_x.unwrap_or(0);
-    let offset_y = offset_y.unwrap_or(0);
-    let colorkey = colorkey.unwrap_or(0);
-    let memory_priority = memory_priority.unwrap_or(file_format.default_memory_priority());
-    let low_res_scale = low_res_scale.unwrap_or(false) as u32;
-    let source = source.unwrap_or(Source::None);
     emitter.chain_with(|f| write!(f, "in header"), |emitter| {
         macro_rules! expect {
             ($name:ident) => {
@@ -1077,10 +1108,10 @@ const FORMAT_GRAY_8: u32 = 7;
 
 fn generate_texture_data(emitter: &impl Emitter, format: Sp<u32>, num_pixels: usize) -> Result<Vec<u8>, ErrorReported> {
     let fill: &[u8] = match format.value {
-        // magenta
-        FORMAT_ARGB_8888 => &[0xFF, 0xFF, 0x00, 0xFF],
+        // magenta, slightly transparent or else thcrap defaults to overlay
+        FORMAT_ARGB_8888 => &[0xFF, 0xFF, 0x00, 0xFE],
         FORMAT_RGB_565 => &[0b000_11111, 0b11111_000],
-        FORMAT_ARGB_4444 => &[0x0F, 0xFF],
+        FORMAT_ARGB_4444 => &[0x0F, 0xEF],
 
         // 50% gray
         FORMAT_GRAY_8 => &[0x80],
