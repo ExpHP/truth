@@ -25,6 +25,7 @@ git-version = "0.3.4"
 logos = "0.12"
 encoding_rs = "0.8"
 atty = "0.2"
+png = "0.16.8"
 
 [dev-dependencies]
 insta = "1.3"
