@@ -1,12 +1,13 @@
 use std::fmt;
 use std::io;
 use std::num::NonZeroU64;
+use std::path::Path;
 
 use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
+use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
 use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
@@ -58,6 +59,10 @@ impl AnmFile {
         write_anm(w, &emitter, &game_format(game), self)
     }
 
+    pub fn load_directory_as_image_source(fs: &Fs, path: &Path) -> ReadResult<Self> {
+        read_directory_as_image_source(fs, path)
+    }
+
     pub fn read_from_stream(r: &mut BinReader, game: Game, with_images: bool) -> ReadResult<Self> {
         let emitter = r.emitter();
         read_anm(r, &emitter, &game_format(game), with_images)
@@ -74,6 +79,7 @@ impl AnmFile {
 pub struct Entry {
     pub specs: EntrySpecs,
     pub texture: Option<Texture>,
+    // FIXME: Should hold PathBuf especially since we do equality comparisons on it
     pub path: Sp<String>,
     pub path_2: Option<Sp<String>>,
     pub scripts: IndexMap<Sp<Ident>, Script>,
@@ -86,7 +92,7 @@ pub struct Script {
     pub instrs: Vec<RawInstr>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EntrySpecs {
     // NOTE: While most file type objects contain plain values (using things like 'field_default'
     // to handle defaults in meta conversions), this has to contain Options for the sake of the
@@ -103,7 +109,7 @@ pub struct EntrySpecs {
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
     pub memory_priority: Option<u32>,
-    pub source: Option<Source>,
+    pub has_data: Option<bool>,
     pub low_res_scale: Option<bool>,
 }
 
@@ -111,19 +117,21 @@ impl EntrySpecs {
     // (this takes Game instead of FileFormat so it can be public for integration tests)
     pub fn fill_defaults(&self, game: Game) -> EntrySpecs {
         let file_format = game_format(game);
+
+        let img_format = Some(self.img_format.unwrap_or(sp!(DEFAULT_FORMAT)));
         EntrySpecs {
             img_width: self.img_width,
             img_height: self.img_height,
-            img_format: self.img_format,
             buf_width: self.buf_width.or(self.img_width.map(|x| x.sp_map(u32::next_power_of_two))),
             buf_height: self.buf_height.or(self.img_height.map(|x| x.sp_map(u32::next_power_of_two))),
-            buf_format: self.buf_format.or(self.img_format),
-            offset_x: self.offset_x.unwrap_or(0),
-            offset_y: self.offset_y.unwrap_or(0),
-            colorkey: self.colorkey.unwrap_or(0),
-            memory_priority: self.memory_priority.unwrap_or(file_format.default_memory_priority()),
-            low_res_scale: self.low_res_scale.unwrap_or(false),
-            source: self.source.unwrap_or(Source::Copy),
+            img_format,
+            buf_format: self.buf_format.or(img_format),
+            offset_x: Some(self.offset_x.unwrap_or(0)),
+            offset_y: Some(self.offset_y.unwrap_or(0)),
+            colorkey: Some(self.colorkey.unwrap_or(0)),
+            memory_priority: Some(self.memory_priority.unwrap_or(file_format.default_memory_priority())),
+            low_res_scale: Some(self.low_res_scale.unwrap_or(false)),
+            has_data: Some(self.has_data.unwrap_or(true)),
         }
     }
 
@@ -133,19 +141,25 @@ impl EntrySpecs {
         EntrySpecs {
             img_width: self.img_width,
             img_height: self.img_height,
-            img_format: self.img_format,
-            buf_width: self.buf_width.filter(|x| !(self.img_width.is_some() && x == self.img_width.unwrap().value.next_power_of_two())),
-            buf_height: self.buf_height.filter(|x| !(self.img_height.is_some() && x == self.img_height.unwrap().value.next_power_of_two())),
-            buf_format: self.buf_format.filter(|x| !(self.img_format.is_some() && x == self.img_format.unwrap())),
-            offset_x: self.offset_x.filter(|x| x != 0),
-            offset_y: self.offset_y.filter(|x| x != 0),
-            colorkey: self.colorkey.filter(|x| x != 0),
-            memory_priority: self.memory_priority.filter(|x| x != file_format.default_memory_priority()),
-            low_res_scale: self.low_res_scale.filter(|x| x != false),
-            source: self.source.unwrap_or(|x| Source::Copy),
+            // don't suppress buf_width and buf_height.  By always showing them in decompiled files, we increase the
+            // likelihood of a user noticing that there's something important about powers of 2 in image dimensions,
+            // possibly helping them to figure out why their non-power-of-2 PNG file looks bad when scrolled.
+            buf_width: self.buf_width,
+            buf_height: self.buf_height,
+
+            img_format: self.img_format.filter(|&x| x != DEFAULT_FORMAT),
+            buf_format: self.buf_format.filter(|&x| x != self.img_format.unwrap_or(sp!(DEFAULT_FORMAT))),
+            offset_x: self.offset_x.filter(|&x| x != 0),
+            offset_y: self.offset_y.filter(|&x| x != 0),
+            colorkey: self.colorkey.filter(|&x| x != 0),
+            memory_priority: self.memory_priority.filter(|&x| x != file_format.default_memory_priority()),
+            low_res_scale: self.low_res_scale.filter(|&x| x != false),
+            has_data: self.has_data.filter(|&x| x != true),
         }
     }
 }
+
+const DEFAULT_FORMAT: u32 = 1;
 
 impl Entry {
     fn make_meta(&self, file_format: &FileFormat) -> meta::Fields {
@@ -172,13 +186,13 @@ impl Entry {
 
         let EntrySpecs {
             buf_width, buf_height, buf_format, colorkey, offset_x, offset_y,
-            img_width, img_height, img_format, memory_priority, source, low_res_scale,
+            img_width, img_height, img_format, memory_priority, has_data, low_res_scale,
         } = &specs.suppress_defaults(file_format.game);
 
         Meta::make_object()
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
-            .field_opt("source", source.as_ref())
+            .field_opt("has_data", has_data.as_ref())
             .field_opt("buf_width", buf_width.as_ref().map(|x| x.value))
             .field_opt("buf_height", buf_height.as_ref().map(|x| x.value))
             .field_opt("buf_format", buf_format.as_ref().map(|x| x.value))
@@ -262,11 +276,13 @@ impl Entry {
                         )).ignore();
                     }
                     if let Some(img_value) = img_value {
-                        emitter.emit(warning!(
-                            message("buf_{} = {} is not large enough for img_{} = {}", field, buf_value, field, img_value),
-                            secondary(img_value, "image dimension defined here"),
-                            primary(buf_value, "buffer too small for image"),
-                        )).ignore();
+                        if buf_value < img_value {
+                            emitter.emit(warning!(
+                                message("buf_{} = {} is not large enough for img_{} = {}", field, buf_value, field, img_value),
+                                secondary(img_value, "image dimension defined here"),
+                                primary(buf_value, "buffer too small for image"),
+                            )).ignore();
+                        }
                     }
                 }
             }
@@ -276,7 +292,7 @@ impl Entry {
             let offset_y = m.get_field("offset_y")?;
             let memory_priority = m.get_field("memory_priority")?;
             let low_res_scale = m.get_field("low_res_scale")?;
-            let source = m.get_field("source")?;
+            let has_data = m.get_field("has_data")?;
             let path = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let texture = None;
@@ -286,7 +302,7 @@ impl Entry {
                 buf_width, buf_height, buf_format,
                 img_width, img_height, img_format,
                 colorkey, offset_x, offset_y,
-                memory_priority, source, low_res_scale,
+                memory_priority, has_data, low_res_scale,
             };
             let scripts = Default::default();
             Ok(Entry { specs, texture, path, path_2, scripts, sprites })
@@ -294,35 +310,21 @@ impl Entry {
     }
 }
 
-string_enum! {
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum Source {
-        #[str = "none"] None,
-        #[str = "copy"] Copy,
-        #[str = "dummy"] Dummy,
-    }
-}
-
-impl ToMeta for Source {
-    fn to_meta(&self) -> Meta {
-        self.to_string().to_meta()
-    }
-}
-
-impl FromMeta<'_> for Source {
-    fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
-        meta.parse::<String>()?.parse().map_err(|_| {
-            FromMetaError::expected("the string \"none\", \"copy\", or \"dummy\"", meta)
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct Texture {
-    /// FIXME: This data is also redundantly stored on EntrySpecs now.
-    ///        It's confusing and probably causes bugs.
-    pub thtx: ThtxHeader,
-    pub data: Option<Vec<u8>>,
+    /// Raw pixel data, to be interpreted according to [`EntrySpecs::img_width`], [`EntrySpecs::img_height`],
+    /// and [`EntrySpecs::img_format`].
+    ///
+    /// (they are stored separately because, when using `has_data: false`, we may copy those attributes from
+    ///  an image source without copying the pixel data, so that they can be used to generate defaults for
+    /// `buf_{width,height,format}`)
+    pub data: Vec<u8>,
+}
+
+impl fmt::Debug for Texture {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Texture(_)")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -330,15 +332,6 @@ pub struct ThtxHeader {
     pub format: u32,
     pub width: u32,
     pub height: u32,
-}
-
-impl fmt::Debug for Texture {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Texture")
-            .field("thtx", &self.thtx)
-            .field("data", &self.data.as_ref().map(|_| (..)))
-            .finish()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -443,7 +436,7 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
         img_width: src_img_width, img_height: src_img_height, img_format: src_img_format,
         buf_width: src_buf_width, buf_height: src_buf_height, buf_format: src_buf_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
-        memory_priority: src_memory_priority, source: src_source,
+        memory_priority: src_memory_priority, has_data: src_has_data,
         low_res_scale: src_low_res_scale,
     } = src_file.specs;
 
@@ -461,14 +454,71 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     or_inplace(&mut dest_specs.offset_x, src_offset_x);
     or_inplace(&mut dest_specs.offset_y, src_offset_y);
     or_inplace(&mut dest_specs.memory_priority, src_memory_priority);
-    or_inplace(&mut dest_specs.source, src_source);
+    or_inplace(&mut dest_specs.has_data, src_has_data);
     or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
 
-    if dest_specs.source.unwrap_or(Source::Copy) == Source::Copy {
+    if dest_specs.has_data.unwrap_or(true) != true {
         or_inplace(&mut dest_file.texture, src_file.texture);
     }
 
     Ok(())
+}
+
+// NOTE: basically, to take full advantage of the existing infrastructure for ANM image sources,
+// we implement directory image sources by "parsing" a directory into a fake ANM file object.
+//
+// I'm not sure if this is the best solution, as it could potentially open a large number of image
+// files that might not even be related to our ANM file... (thankfully at this time, we only
+// open them to read metadata.)             - Exp
+fn read_directory_as_image_source(fs: &Fs, root: &Path) -> ReadResult<AnmFile> {
+    let walk = {
+        walkdir::WalkDir::new(root)
+            .follow_links(true)
+            .into_iter()
+            .map(|result| result.map_err(|e| fs.emitter.emit(error!("{}", e))))
+    };
+
+    let mut anm_entries = vec![];
+    for file_entry in walk {
+        let file_entry = file_entry?;
+        if !file_entry.file_type().is_file() {
+            continue;
+        }
+
+        let path = file_entry.path();
+        match path.extension() {
+            None => continue,
+            Some(ext) => if ext.to_string_lossy().to_ascii_lowercase() == "png" {
+                let reader = fs.open(path)?.into_inner();
+                let (metadata, _) = png::Decoder::new(reader).read_info().map_err(|e| fs.emitter.emit(error!("{}: {}", path.display(), e)))?;
+
+                let path_string = {
+                    match file_entry.path().strip_prefix(root).expect("bad walkdir prefix?!").to_string_lossy() {
+                        std::borrow::Cow::Borrowed(s) => s.to_owned(),
+                        std::borrow::Cow::Owned(lossy) => {
+                            fs.emitter.emit(warning!("ignoring bad filename '{}'", lossy)).ignore();
+                            continue;
+                        },
+                    }
+                };
+
+                anm_entries.push(Entry {
+                    specs: EntrySpecs {
+                        img_width: Some(sp!(metadata.width)),
+                        img_height: Some(sp!(metadata.height)),
+                        ..Default::default()
+                    },
+                    path: sp!(path_string.replace("\\", "/")), // FIXME: should hold PathBuf to eliminate sensitivity to path separator...
+                    // we don't want to read pixel data, especially since we don't know if we'll even use it
+                    texture: None,
+                    path_2: None,
+                    scripts: Default::default(),
+                    sprites: Default::default(),
+                })
+            },
+        }
+    }
+    Ok(AnmFile { entries: anm_entries, binary_filename: None })
 }
 
 // =============================================================================
@@ -801,27 +851,25 @@ fn read_entry(
         return Err(emitter.emit(error!("inconsistency between thtx_offset and has_data/name")));
     }
 
-    let texture = match header_data.thtx_offset {
-        None => None,
+    let (tex_info, texture) = match header_data.thtx_offset {
+        None => (None, None),
         Some(n) => {
             reader.seek_to(entry_pos + n.get())?;
-            Some(read_texture(reader, emitter, with_images)?)
+            let (tex_info, maybe_texture) = read_texture(reader, emitter, with_images)?;
+            (Some(tex_info), maybe_texture)
         },
     };
     let specs = EntrySpecs {
         buf_width: Some(sp!(header_data.width)),
         buf_height: Some(sp!(header_data.height)),
         buf_format: Some(sp!(header_data.format)),
-        img_width: texture.as_ref().map(|x| sp!(x.thtx.width)),
-        img_height: texture.as_ref().map(|x| sp!(x.thtx.height)),
-        img_format: texture.as_ref().map(|x| sp!(x.thtx.format)),
+        img_width: tex_info.as_ref().map(|x| sp!(x.width)),
+        img_height: tex_info.as_ref().map(|x| sp!(x.height)),
+        img_format: tex_info.as_ref().map(|x| sp!(x.format)),
         colorkey: Some(header_data.colorkey),
         offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
         memory_priority: Some(header_data.memory_priority),
-        source: match header_data.has_data {
-            0 => Some(Source::None),
-            _ => Some(Source::Copy),
-        },
+        has_data: Some(header_data.has_data != 0),
         low_res_scale: Some(header_data.low_res_scale != 0),
     };
 
@@ -901,7 +949,7 @@ fn write_entry(
         buf_width, buf_height, buf_format,
         img_width, img_height, img_format,
         colorkey, offset_x, offset_y, memory_priority,
-        source, low_res_scale,
+        has_data, low_res_scale,
     } = entry.specs.fill_defaults(file_format.game);
 
     fn missing(emitter: &impl Emitter, problem: &str, note_2: Option<&str>) -> ErrorReported {
@@ -914,33 +962,40 @@ fn write_entry(
         emitter.emit(diag)
     }
 
-    emitter.chain_with(|f| write!(f, "in header"), |emitter| {
-        macro_rules! expect {
-            ($name:ident) => {
-                $name.ok_or_else(|| {
-                    let problem = format!("missing required field '{}'!", stringify!($name));
-                    missing(emitter, &problem, None)
-                })?
-            };
-        }
+    let colorkey = colorkey.expect("has default");
+    let offset_x = offset_x.expect("has default");
+    let offset_y = offset_y.expect("has default");
+    let memory_priority = memory_priority.expect("has default");
+    let has_data = has_data.expect("has default");
+    let low_res_scale = low_res_scale.expect("has default");
+    let img_format = img_format.expect("has default");
+    let buf_format = buf_format.expect("has default");
 
-        file_format.write_header(w, &EntryHeaderData {
-            width: expect!(buf_width).value,
-            height: expect!(buf_height).value,
-            format: expect!(buf_format).value,
-            colorkey,
-            offset_x,
-            offset_y,
-            memory_priority,
-            low_res_scale,
-            has_data: (source != Source::None) as u32,
-            version: file_format.version as u32,
-            num_sprites: entry.sprites.len() as u32,
-            num_scripts: entry.scripts.len() as u32,
-            // we will overwrite these later
-            name_offset: 0, secondary_name_offset: None,
-            next_offset: 0, thtx_offset: None,
-        })
+    macro_rules! expect {
+        ($name:ident) => {
+            $name.ok_or_else(|| {
+                let problem = format!("missing required field '{}'!", stringify!($name));
+                missing(emitter, &problem, None)
+            })?
+        };
+    }
+
+    file_format.write_header(w, &EntryHeaderData {
+        width: expect!(buf_width).value,
+        height: expect!(buf_height).value,
+        format: buf_format.value,
+        colorkey,
+        offset_x,
+        offset_y,
+        memory_priority,
+        low_res_scale: low_res_scale as u32,
+        has_data: has_data as u32,
+        version: file_format.version as u32,
+        num_sprites: entry.sprites.len() as u32,
+        num_scripts: entry.scripts.len() as u32,
+        // we will overwrite these later
+        name_offset: 0, secondary_name_offset: None,
+        next_offset: 0, thtx_offset: None,
     })?;
 
     let sprite_offsets_pos = w.pos()?;
@@ -977,42 +1032,23 @@ fn write_entry(
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    match source {
-        Source::Copy => match &entry.texture {
+    if has_data {
+        match &entry.texture {
             None => {
-                let problem = "entry has 'source: \"copy\"', but there's no bitmap data available!";
-                let note_2 = "alternatively, use 'source: \"dummy\"' to create dummy data that thcrap can replace";
+                let problem = "no bitmap data available!";
+                let note_2 = "alternatively, use 'has_data: false' to compile without an image";
                 return Err(missing(emitter, problem, Some(note_2)));
             },
             Some(texture) => {
-                texture_offset = w.pos()? - entry_pos;
-                write_texture(w, texture)?;
-            },
-        },
-
-        Source::Dummy => {
-            texture_offset = w.pos()? - entry_pos;
-
-            macro_rules! expect {
-                ($name:ident) => {
-                    $name.ok_or_else(|| emitter.emit(error!(
-                        message("missing required field '{}'!", stringify!($name)),
-                        note("field is required due to 'source: \"generate\"'"),
-                    )))?
+                let info = ThtxHeader {
+                    width: img_width.expect("have texture but somehow missing img_width?!").value,
+                    height: img_height.expect("have texture but somehow missing img_height?!").value,
+                    format: img_format.value,
                 };
-            }
-
-            let format = expect!(img_format);
-            let width = expect!(img_width).value;
-            let height = expect!(img_height).value;
-            let data = generate_texture_data(&w.emitter(), format, (width * height) as usize)?;
-            write_texture(w, &Texture {
-                thtx: ThtxHeader { format: format.value, width, height },
-                data: Some(data),
-            })?;
-        },
-
-        Source::None => {},
+                texture_offset = w.pos()? - entry_pos;
+                write_texture(w, &info, texture)?;
+            },
+        }
     };
 
     let end_pos = w.pos()?;
@@ -1062,7 +1098,7 @@ fn write_sprite(
 }
 
 #[inline(never)]
-fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<Texture> {
+fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<(ThtxHeader, Option<Texture>)> {
     f.expect_magic(emitter, "THTX")?;
 
     let zero = f.read_u16()?;
@@ -1078,54 +1114,24 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
     if with_images {
         let mut data = vec![0; size as usize];
         f.read_exact(&mut data)?;
-        Ok(Texture { thtx, data: Some(data) })
+        Ok((thtx, Some(Texture { data })))
     } else {
-        Ok(Texture { thtx, data: None })
+        Ok((thtx, None))
     }
 }
 
 #[inline(never)]
-fn write_texture(f: &mut BinWriter, texture: &Texture) -> WriteResult {
+fn write_texture(f: &mut BinWriter, info: &ThtxHeader, texture: &Texture) -> WriteResult {
     f.write_all(b"THTX")?;
 
     f.write_u16(0)?;
-    f.write_u16(texture.thtx.format as _)?;
-    f.write_u16(texture.thtx.width as _)?;
-    f.write_u16(texture.thtx.height as _)?;
+    f.write_u16(info.format as _)?;
+    f.write_u16(info.width as _)?;
+    f.write_u16(info.height as _)?;
 
-    let data = texture.data.as_ref().expect("(bug!) trying to write images but did not read them!");
-    f.write_u32(data.len() as _)?;
-    f.write_all(data)?;
+    f.write_u32(texture.data.len() as _)?;
+    f.write_all(&texture.data)?;
     Ok(())
-}
-
-// =============================================================================
-
-const FORMAT_ARGB_8888: u32 = 1;
-const FORMAT_RGB_565: u32 = 3;
-const FORMAT_ARGB_4444: u32 = 5;
-const FORMAT_GRAY_8: u32 = 7;
-
-fn generate_texture_data(emitter: &impl Emitter, format: Sp<u32>, num_pixels: usize) -> Result<Vec<u8>, ErrorReported> {
-    let fill: &[u8] = match format.value {
-        // magenta, slightly transparent or else thcrap defaults to overlay
-        FORMAT_ARGB_8888 => &[0xFF, 0xFF, 0x00, 0xFE],
-        FORMAT_RGB_565 => &[0b000_11111, 0b11111_000],
-        FORMAT_ARGB_4444 => &[0x0F, 0xEF],
-
-        // 50% gray
-        FORMAT_GRAY_8 => &[0x80],
-
-        // unknown format
-        _ => {
-            return Err(emitter.emit(error!(
-                message("unknown color format '{}'", format),
-                primary(format, "cannot generate dummy data for this format"),
-            )));
-        },
-    };
-
-    Ok(fill.repeat(num_pixels))
 }
 
 // =============================================================================
@@ -1155,7 +1161,7 @@ fn game_format(game: Game) -> FileFormat {
         true => Box::new(InstrFormat07 { version, game }),
         false => Box::new(InstrFormat06),
     };
-    FileFormat { version, instr_format }
+    FileFormat { version, game, instr_format }
 }
 
 pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
@@ -1163,7 +1169,11 @@ pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
 }
 
 /// Type responsible for dealing with version differences in the format.
-struct FileFormat { version: Version, instr_format: Box<dyn InstrFormat> }
+struct FileFormat {
+    version: Version,
+    game: Game,
+    instr_format: Box<dyn InstrFormat>,
+}
 struct InstrFormat06;
 struct InstrFormat07 { version: Version, game: Game }
 

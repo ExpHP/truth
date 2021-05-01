@@ -235,6 +235,15 @@ impl<'ctx> Fs<'ctx> {
         Ok(BinWriter::from_writer(self.emitter, &path_string, file))
     }
 
+    // (these have Err = Diagnostic instead of ErrorReported in case you don't want to fail on an error)
+    pub fn metadata(&self, path: &Path) -> Result<std::fs::Metadata, Diagnostic> {
+        path.metadata().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
+    }
+
+    pub fn symlink_metadata(&self, path: &Path) -> Result<std::fs::Metadata, Diagnostic> {
+        path.symlink_metadata().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
+    }
+
     pub fn canonicalize(&self, path: &Path) -> Result<PathBuf, Diagnostic> {
         path.canonicalize().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
     }

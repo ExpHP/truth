@@ -64,8 +64,6 @@ mod value;
 pub use api::{Builder, Truth};
 mod api;
 
-mod image;
-
 pub trait VeclikeIterator: ExactSizeIterator + DoubleEndedIterator { }
 impl<Xs: ExactSizeIterator + DoubleEndedIterator> VeclikeIterator for Xs { }
 
