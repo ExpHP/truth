@@ -130,8 +130,8 @@ impl EntrySpecs {
             offset_y: Some(self.offset_y.unwrap_or(0)),
             colorkey: Some(self.colorkey.unwrap_or(0)),
             memory_priority: Some(self.memory_priority.unwrap_or(file_format.default_memory_priority())),
-            low_res_scale: Some(self.low_res_scale.unwrap_or(false)),
-            has_data: Some(self.has_data.unwrap_or(true)),
+            low_res_scale: Some(self.low_res_scale.unwrap_or(DEFAULT_LOW_RES_SCALE)),
+            has_data: Some(self.has_data.unwrap_or(DEFAULT_HAS_DATA)),
         }
     }
 
@@ -153,13 +153,15 @@ impl EntrySpecs {
             offset_y: self.offset_y.filter(|&x| x != 0),
             colorkey: self.colorkey.filter(|&x| x != 0),
             memory_priority: self.memory_priority.filter(|&x| x != file_format.default_memory_priority()),
-            low_res_scale: self.low_res_scale.filter(|&x| x != false),
-            has_data: self.has_data.filter(|&x| x != true),
+            low_res_scale: self.low_res_scale.filter(|&x| x != DEFAULT_LOW_RES_SCALE),
+            has_data: self.has_data.filter(|&x| x != DEFAULT_HAS_DATA),
         }
     }
 }
 
 const DEFAULT_FORMAT: u32 = 1;
+const DEFAULT_LOW_RES_SCALE: bool = false;
+const DEFAULT_HAS_DATA: bool = true;
 
 impl Entry {
     fn make_meta(&self, file_format: &FileFormat) -> meta::Fields {
@@ -457,7 +459,7 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     or_inplace(&mut dest_specs.has_data, src_has_data);
     or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
 
-    if dest_specs.has_data.unwrap_or(true) != true {
+    if dest_specs.has_data.unwrap_or(DEFAULT_HAS_DATA) {
         or_inplace(&mut dest_file.texture, src_file.texture);
     }
 
