@@ -31,11 +31,11 @@ mod embedded_image {
 entry {
     path: "lmao.png",
     has_data: true,
-    buf_width: 128,
+    buf_width: 256,  // overriden from image source
     buf_height: 128,
     offset_x: 200,  // overridden from image source
     offset_y: 0,
-    buf_format: 3,
+    buf_format: FORMAT_RGB_565,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -50,6 +50,11 @@ script -45 script0 {
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
             assert_eq!(anm.entries[0].specs.offset_x, Some(200));
+            // the image has unnatural dimensions; make sure they are copied correctly
+            assert_eq!(anm.entries[0].specs.img_width, Some(sp!(105)));
+            assert_eq!(anm.entries[0].specs.img_height, Some(sp!(100)));
+            assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(256)));
+            assert_eq!(anm.entries[0].specs.buf_height, Some(sp!(128)));
         },
     );
 
@@ -80,9 +85,41 @@ script script1 {
 "#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
+            // can't check img_* because they're not saved
+            // assert_eq!(anm.entries[0].specs.img_width, Some(sp!(105)));
+            // assert_eq!(anm.entries[0].specs.img_height, Some(sp!(100)));
+            assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(128)));
+            assert_eq!(anm.entries[0].specs.buf_height, Some(sp!(128)));
             assert_eq!(anm.entries[0].sprites[0].offset, [12.0, 0.0]);
             assert_eq!(anm.entries[0].scripts.len(), 2);
             assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 2);
+        },
+    );
+
+    // This embedded image has an offset.
+    //
+    // This is to ensure that the code that subtracts offsets from PNG dimensions doesn't
+    // also accidentally apply to embedded images.
+    source_test!(
+        ANM_12, offset,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hi-10x18+105+9.png",
+    has_data: true,
+    sprites: {},
+}
+"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let specs = anm.entries[0].specs.fill_defaults(format.game);
+            assert_eq!(specs.img_width, Some(sp!(10)));
+            assert_eq!(specs.img_height, Some(sp!(18)));
+            assert_eq!(specs.buf_width, Some(sp!(16)));
+            assert_eq!(specs.buf_height, Some(sp!(32)));
+            check_data_for_10_18_105_9_image(&anm.entries[0].texture.as_ref().unwrap().data);
         },
     );
 }
@@ -143,11 +180,13 @@ script -45 script0 {
 "#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            assert_eq!(anm.entries[0].specs.offset_x, Some(0));
-            assert_eq!(anm.entries[0].specs.offset_y, Some(0));
-            assert_eq!(anm.entries[0].specs.colorkey, Some(0));
-            assert_eq!(anm.entries[0].specs.memory_priority, Some(10));
-            assert_eq!(anm.entries[0].specs.low_res_scale, Some(false));
+            let specs = anm.entries[0].specs.fill_defaults(format.game);
+
+            assert_eq!(specs.offset_x, Some(0));
+            assert_eq!(specs.offset_y, Some(0));
+            assert_eq!(specs.colorkey, Some(0));
+            assert_eq!(specs.memory_priority, Some(10));
+            assert_eq!(specs.low_res_scale, Some(false));
         }
     );
 
@@ -267,6 +306,7 @@ script script1 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
+
         assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(1024)));
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
@@ -370,6 +410,51 @@ entry {
     },
 );
 
+// FIXME: enable once we have a way of reading pixel data from PNGs
+#[cfg(nope)]
+source_test!(
+    ANM_12, png_import_with_offset,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-10x18+105+9.png",
+    offset_x: 105,
+    offset_y: 9,
+    has_data: true,
+    img_format: FORMAT_ARGB_8888,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.img_width, Some(sp!(10)));
+        assert_eq!(specs.img_height, Some(sp!(18)));
+        assert_eq!(specs.buf_width, Some(sp!(16)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        check_data_for_10_18_105_9_image(&anm.entries[0].texture.as_ref().unwrap().data);
+    },
+);
+
+// The test image "subdir/hi-10x18+105+9.png" has a special 2x2 marker in the top left:
+//             gray-128  gray-192
+//             gray-48   gray-0
+// This can be used to check that the proper region was extracted.
+fn check_data_for_10_18_105_9_image(data: &[u8]) {
+    let pixel_size = 4;
+    let row_size = pixel_size * 10;
+    assert_eq!(data.len(), row_size * 18);
+    assert_eq!(
+        &data[..2 * pixel_size],
+        &[0x80, 0x80, 0x80, 0xFF, 0xC0, 0xC0, 0xC0, 0xFF],
+    );
+    assert_eq!(
+        &data[row_size..row_size + 2 * pixel_size],
+        &[0x40, 0x40, 0x40, 0xFF, 0x00, 0x00, 0x00, 0xFF],
+    );
+}
+
 source_test!(
     ANM_12, png_import_meta_32x16,
     full_source: r#"
@@ -384,9 +469,6 @@ entry {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        // assert_eq!(specs.img_width, Some(sp!(32)));  // not saved in anm file...
-        // assert_eq!(specs.img_height, Some(sp!(16)));
-        // assert_eq!(specs.img_format, Some(sp!(1)));
         assert_eq!(specs.buf_width, Some(sp!(32)));
         assert_eq!(specs.buf_height, Some(sp!(16)));
         assert_eq!(specs.buf_format, Some(sp!(1)));
@@ -409,14 +491,37 @@ entry {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        // assert_eq!(specs.img_width, Some(sp!(7)));  // not saved in anm file...
-        // assert_eq!(specs.img_height, Some(sp!(20)));
-        // assert_eq!(specs.img_format, Some(sp!(1)));
         assert_eq!(specs.buf_width, Some(sp!(8)));
         assert_eq!(specs.buf_height, Some(sp!(32)));
         assert_eq!(specs.buf_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_none());
         assert_eq!(anm.entries[0].sprites.len(), 1);
+    },
+);
+
+source_test!(
+    ANM_12, png_import_meta_with_offset,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-10x18+105+9.png",
+    offset_x: 105,
+    offset_y: 9,
+    has_data: false,
+    img_format: FORMAT_ARGB_8888,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+
+        // buffer should be appropriately sized for the region WITHOUT the offset padding
+        assert_eq!(specs.buf_width, Some(sp!(16)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_none());
     },
 );
 

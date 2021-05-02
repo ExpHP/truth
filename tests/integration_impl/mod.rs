@@ -202,7 +202,7 @@ impl TestFile {
     pub fn read_anm(&self, format: &Format) -> truth::AnmFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
-        truth.read_anm(format.game, self.as_path(), false).unwrap()
+        truth.read_anm(format.game, self.as_path(), true).unwrap()
     }
 
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
