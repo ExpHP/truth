@@ -1,15 +1,15 @@
 // NOTE: This file shows what was compiled to produce `th12-multiple-match-source.anm`.
-//       It is mostly here for explanitory purposes.
+//       It is mostly here for explanatory purposes.
 //       Since it is not tested, it may fall out of date with the latest compiler syntax.
 
 entry {
     path: "subdir/file1.png",
     has_data: false,
-    width: 1000,
-    height: 1000,
+    buf_width: 1024,
+    buf_height: 1024,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
+    img_format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -25,11 +25,11 @@ script script0 {
 entry {
     path: "subdir/file2.png",
     has_data: false,
-    width: 2000,
-    height: 2000,
+    buf_width: 2048,
+    buf_height: 2048,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
+    img_format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,

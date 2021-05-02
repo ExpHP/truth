@@ -13,7 +13,7 @@ source_test!(
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {
         valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueC + 2 - valueC},
         valueB: {x: 0.0, y: 0.0, w: 0.0, h: 0.0},
@@ -24,7 +24,7 @@ entry {
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         valueE: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 401},
         valueF: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: _S(%valueE + 2.4) + 1},
@@ -51,7 +51,7 @@ source_test!(
     items: r#"
 entry {
     path: "subdir/file-2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
         bestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolestSprite * 3},
@@ -67,7 +67,7 @@ source_test!(
     items: r#"
 entry {
     path: "subdir/file-2.png",
-    source: "none",
+    has_data: false,
     memory_priority: 3 * I0,
     low_res_scale: false,
     sprites: {
@@ -89,7 +89,7 @@ source_test!(
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {
         valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
     },
@@ -97,7 +97,7 @@ entry {
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         xyzzyx: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 24},
         valueA: {x: 1.0, y: 1.0, w: 1.0, h: 1.0, id: 53},
@@ -124,7 +124,7 @@ source_test!(
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {
         valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
     },
@@ -132,7 +132,7 @@ entry {
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         xyzzyx: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 52},
         valueA: {x: 1.0, y: 1.0, w: 1.0, h: 1.0},   // dupe, but has same id as above
@@ -159,13 +159,13 @@ source_test!(
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
 }
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0, id: 1}},
 }
 
@@ -184,13 +184,13 @@ source_test!(
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
 }
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
 }
 
@@ -207,7 +207,7 @@ source_test!(
     items: r#"
 entry {
     path: "subdir/file-2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
     },
@@ -221,7 +221,7 @@ source_test!(
     items: r#"
 entry {
     path: "subdir/file-2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
     },
@@ -237,14 +237,14 @@ source_test!(
     items: r#"
 entry {
     path: "subdir/file-2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
     },
 }
 entry {
     path: "subdir/file-3.png",
-    source: "none",
+    has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
     },
@@ -258,14 +258,14 @@ source_test!(
     items: r#"
 entry {
     path: "subdir/file-2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
     },
 }
 entry {
     path: "subdir/file-3.png",
-    source: "none",
+    has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
     },
@@ -282,7 +282,7 @@ source_test!(
 
 entry {
     path: "lmao.png",
-    source: "none",
+    has_data: false,
     sprites: {
         sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 10},
     },
@@ -308,7 +308,7 @@ source_test!(
 
 entry {
     path: "lmao.png",
-    source: "none",
+    has_data: false,
     sprites: {
         sprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: B},
     },
@@ -334,7 +334,7 @@ source_test!(
 
 entry {
     path: "lmao.png",
-    source: "none",
+    has_data: false,
     sprites: {
         B: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 42},
         C: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: B + 2},
@@ -365,7 +365,7 @@ const string FILEPATH = "lmao.png";
 
 entry {
     path: FILEPATH,
-    source: "none",
+    has_data: false,
     sprites: {
         sprite0: {x: POS_X, y: 0.0, w: 512.0, h: 480.0},
         sprite1: {x: POS_X + 3.0, y: 0.0, w: 512.0, h: 480.0},
@@ -391,7 +391,7 @@ source_test!(
 
 entry {
     path: "lmao.png",
-    source: "none",
+    has_data: false,
     sprites: {
         wild: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 22 * 2 - 2},
     },
@@ -416,7 +416,7 @@ source_test!(
 
 entry {
     path: "lmao.png",
-    source: "none",
+    has_data: false,
     sprites: {
         RAND: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 22 * 2 - 2},
     },
@@ -440,7 +440,7 @@ const SCRIPT_IDS_EXAMPLE: &'static str = r#"
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {
         sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 0},
     },
@@ -454,7 +454,7 @@ script 24 irrelevant {}
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {
         sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 1},
     },

@@ -1,7 +1,7 @@
 use truth::sp;
 
 use crate::integration_impl::formats::*;
-use crate::integration_impl::{TestFile, expected};
+use crate::integration_impl::{TestFile};
 
 // =============================================================================
 // ANM file image sources
@@ -30,7 +30,7 @@ mod embedded_image {
 
 entry {
     path: "lmao.png",
-    source: "copy",
+    has_data: true,
     buf_width: 128,
     buf_height: 128,
     offset_x: 200,  // overridden from image source
@@ -64,7 +64,7 @@ script -45 script0 {
 
 entry {
     path: "lmao.png",
-    source: "copy",
+    has_data: true,
     // overridden from image source
     sprites: {sprite0: {id: 0, x: 12.0, y: 0.0, w: 40.0, h: 60.0}},
 }
@@ -99,8 +99,8 @@ mod no_source {
 
 entry {
     path: "subdir/file.png",
-    source: "none",
-    buf_width: 512,  // "none" requires buf_*.  Defaulting from img_* will be tested later
+    has_data: false,
+    buf_width: 512,
     buf_height: 512,
     buf_format: 3,
     offset_x: 0,
@@ -121,36 +121,6 @@ script -45 script0 {
         }
     );
 
-    // This test uses "dummy" instead of "none".
-    source_test!(
-        ANM_12, dummy,
-        full_source: r#"
-#pragma mapfile "map/any.anmm"
-
-entry {
-    path: "subdir/file.png",
-    source: "dummy",
-    img_width: 512,
-    img_height: 512,
-    img_format: 3,
-    offset_x: 0,
-    offset_y: 0,
-    colorkey: 0,
-    memory_priority: 0,
-    low_res_scale: false,
-    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-
-script -45 script0 {
-    delete();
-}
-"#,
-        check_compiled: |output, format| {
-            assert!(output.read_anm(format).entries[0].texture.is_some());
-        }
-    );
-
     // Test defaulted fields.
     source_test!(
         ANM_12, default_fields,
@@ -159,7 +129,7 @@ script -45 script0 {
 
 entry {
     path: "subdir/file.png",
-    source: "none",
+    has_data: false,
     img_width: 512,  // use img_ here to test defaulting of buf_ from img_
     img_height: 512,
     img_format: 3,
@@ -189,7 +159,7 @@ script -45 script0 {
 
 entry {
     path: "subdir/file.png",
-    source: "none",
+    has_data: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }
 
@@ -200,7 +170,7 @@ script -45 script0 {
         expect_fail: "required field",
     );
 
-    // This input is identical to 'okay' except with source: "copy", so it will fail.
+    // This input is identical to 'okay' except with 'has_data: true', so it will fail.
     source_test!(
         ANM_12, err_missing_image,
         full_source: r#"
@@ -208,7 +178,7 @@ script -45 script0 {
 
 entry {
     path: "subdir/file.png",
-    source: "copy",
+    has_data: true,
     buf_width: 512,
     buf_height: 512,
     offset_x: 0,
@@ -238,7 +208,7 @@ source_test!(
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }
 
@@ -248,7 +218,7 @@ script script0 {
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {sprite1: {id: 1, x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
 }
 
@@ -258,10 +228,10 @@ script script1 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(2000)));  // pulled from file1
+        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(2048)));  // pulled from file1
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(1000)));  // pulled from file2
+        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(1024)));  // pulled from file2
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },
@@ -277,7 +247,7 @@ source_test!(
 
 entry {
     path: "@R",
-    source: "none",
+    has_data: false,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }
 
@@ -287,7 +257,7 @@ script script0 {
 
 entry {
     path: "@R",
-    source: "none",
+    has_data: false,
     sprites: {sprite1: {id: 1, x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
 }
 
@@ -297,12 +267,32 @@ script script1 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(1000)));
+        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(1024)));
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(2000)));
+        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(2048)));
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
+    },
+);
+
+source_test!(
+    ANM_12, copy_meta_with_anm_source,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        // assert_eq!(specs.img_width, Some(sp!(2000)));  // not saved in anm file...
+        assert_eq!(specs.buf_width, Some(sp!(2048)));
+        assert!(anm.entries[0].texture.is_none());
     },
 );
 
@@ -321,17 +311,13 @@ source_test!(
     "#,
     expect_fail: "unexpected image_source",
 );
-source_test!(
-    ECL_08, image_source_in_ecl,
-    items: r#"
-        #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
-    "#,
-    expect_fail: "unexpected image_source",
-);
+// FIXME: ECL test when ECL exists
 
 // =============================================================================
 // Directory image sources
 
+// FIXME: enable once we have a way of reading pixel data from PNGs
+#[cfg(nope)]
 source_test!(
     ANM_12, png_import_32x16,
     full_source: r#"
@@ -339,7 +325,7 @@ source_test!(
 
 entry {
     path: "subdir/hi-32x16.png",
-    source: "copy",
+    has_data: true,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }
     "#,
@@ -352,11 +338,13 @@ entry {
         assert_eq!(specs.buf_width, Some(sp!(32)));
         assert_eq!(specs.buf_height, Some(sp!(16)));
         assert_eq!(specs.buf_format, Some(sp!(1)));
-        assert!(anm.entries[0].texture.unwrap().data.is_some());
+        assert!(anm.entries[0].texture.is_some());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
+// FIXME: enable once we have a way of reading pixel data from PNGs
+#[cfg(nope)]
 source_test!(
     ANM_12, png_import_7x20,
     full_source: r#"
@@ -364,7 +352,7 @@ source_test!(
 
 entry {
     path: "subdir/hi-7x20.png",
-    source: "copy",
+    has_data: true,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }
     "#,
@@ -377,11 +365,63 @@ entry {
         assert_eq!(specs.buf_width, Some(sp!(16)));
         assert_eq!(specs.buf_height, Some(sp!(32)));
         assert_eq!(specs.buf_format, Some(sp!(1)));
-        assert!(anm.entries[0].texture.unwrap().data.is_some());
+        assert!(anm.entries[0].texture.is_some());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
+source_test!(
+    ANM_12, png_import_meta_32x16,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-32x16.png",
+    has_data: false,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        // assert_eq!(specs.img_width, Some(sp!(32)));  // not saved in anm file...
+        // assert_eq!(specs.img_height, Some(sp!(16)));
+        // assert_eq!(specs.img_format, Some(sp!(1)));
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
+    },
+);
+
+source_test!(
+    ANM_12, png_import_meta_7x20,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-7x20.png",
+    has_data: false,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        // assert_eq!(specs.img_width, Some(sp!(7)));  // not saved in anm file...
+        // assert_eq!(specs.img_height, Some(sp!(20)));
+        // assert_eq!(specs.img_format, Some(sp!(1)));
+        assert_eq!(specs.buf_width, Some(sp!(8)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
+    },
+);
+
+// FIXME: enable once we have a way of reading pixel data from PNGs
+#[cfg(nope)]
 source_test!(
     ANM_12, png_import_with_buf_props,
     full_source: r#"
@@ -389,7 +429,7 @@ source_test!(
 
 entry {
     path: "subdir/hi-32x16.png",
-    source: "copy",
+    has_data: true,
     buf_width: 128,
     buf_height: 256,
     buf_format: 3,
@@ -406,11 +446,13 @@ entry {
         assert_eq!(specs.buf_height, Some(sp!(256)));
         assert_eq!(specs.buf_format, Some(sp!(3)));
         let pixel_size = 4; // bytes per pixel for format 1, the default
-        assert_eq!(anm.entries[0].texture.unwrap().data.len(), pixel_size * 128 * 128);
+        assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
+// FIXME: enable once we have a way of reading pixel data from PNGs
+#[cfg(nope)]
 source_test!(
     ANM_12, png_import_explicit_img_format,
     full_source: r#"
@@ -418,7 +460,7 @@ source_test!(
 
 entry {
     path: "subdir/hi-32x16.png",
-    source: "copy",
+    has_data: true,
     img_format: 3,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }
@@ -428,15 +470,17 @@ entry {
         let specs = anm.entries[0].specs.fill_defaults(format.game);
         assert_eq!(specs.img_width, Some(sp!(7)));
         assert_eq!(specs.img_height, Some(sp!(20)));
-        assert_eq!(specs.img_format, Some(sp!(1)));
+        assert_eq!(specs.img_format, Some(sp!(3)));
         assert_eq!(specs.buf_width, Some(sp!(16)));
         assert_eq!(specs.buf_height, Some(sp!(32)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert_eq!(specs.buf_format, Some(sp!(3)));
         let pixel_size = 2; // bytes per pixel for format 3
-        assert_eq!(anm.entries[0].texture.unwrap().data.len(), pixel_size * 32 * 16);
+        assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
+
+// FIXME NEEDSTEST: explicit_img_format equivalent for ANM file sources (i.e. transcode the THTX data)
 
 source_test!(
     ANM_12, png_import_multiple_dirs,
@@ -447,7 +491,7 @@ source_test!(
 
 entry {
     path: "subdir/hi-32x16.png",
-    source: "copy",
+    has_data: false,
     img_format: 3,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }
@@ -455,27 +499,66 @@ entry {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        assert_eq!(specs.img_width, Some(sp!(7)));
-        assert_eq!(specs.img_height, Some(sp!(20)));
-        assert_eq!(specs.img_format, Some(sp!(1)));
-        assert_eq!(specs.buf_width, Some(sp!(16)));
-        assert_eq!(specs.buf_height, Some(sp!(32)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
-        let pixel_size = 2; // bytes per pixel for format 3
-        assert_eq!(anm.entries[0].texture.unwrap().data.len(), pixel_size * 32 * 16);
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert!(anm.entries[0].texture.is_none());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
-// FIXME: Should have a test where both a .anm and a directory have the same image path,
+// FIXME NEEDSTEST:
+//        Should have a test where both a .anm and a directory have the same image path,
 //        but currently the order of image-source application isn't specified beyond
 //        "things in file take precedence over CLI"
 
-// FIXME: Test with wrong img_width/img_height
+source_test!(
+    ANM_12, png_import_wrong_img_width,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
-// FIXME: Test with buf_width/buf_height not a power of 2
+entry {
+    path: "subdir/hi-32x16.png",
+    has_data: false,
+    img_format: 3,
+    img_height: 32,
+    img_width: 32,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    expect_warning: "does not match image",
+);
 
-// FIXME: Test with buf_width/buf_height not large enough for image dimensions
+source_test!(
+    ANM_12, png_import_buf_not_power_2,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-7x20.png",
+    has_data: false,
+    buf_height: 7,
+    buf_width: 20,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    expect_warning: "not a power of two",
+);
+
+source_test!(
+    ANM_12, png_import_buf_too_small,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-32x16.png",
+    has_data: false,
+    buf_height: 16,
+    buf_width: 16,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}
+    "#,
+    expect_warning: "not large enough",
+);
 
 // =============================================================================
 
@@ -488,7 +571,7 @@ fn thecl_defs() {
 
 entry {
     path: "subdir/file1.png",
-    source: "none",
+    has_data: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 40.0, h: 60.0}},
 }
 
@@ -498,7 +581,7 @@ script there {}
 
 entry {
     path: "subdir/file2.png",
-    source: "none",
+    has_data: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 40.0, h: 60.0}},
 }
 

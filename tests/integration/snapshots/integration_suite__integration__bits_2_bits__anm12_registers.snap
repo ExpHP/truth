@@ -6,15 +6,11 @@ expression: s
 
 entry {
     path: "subdir/file.png",
-    source: "none",
+    has_data: false,
     buf_width: 512,
     buf_height: 512,
-    buf_format: 3,
-    offset_x: 0,
-    offset_y: 0,
-    colorkey: 0x0,
+    buf_format: FORMAT_RGB_565,
     memory_priority: 0,
-    low_res_scale: false,
     sprites: {sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }
 

@@ -14,7 +14,7 @@ pub const ANM_06: Format = Format {
 
 entry {
     path: "subdir/file.png",
-    source: "none",
+    has_data: false,
     img_width: 512,
     img_height: 512,
     img_format: 3,
