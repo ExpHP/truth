@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use crate::io::{BinRead, BinWrite, ReadResult, WriteResult};
+use crate::io::{BinRead, BinWrite};
 
 const FORMAT_ARGB_8888: u32 = 1;
 const FORMAT_RGB_565: u32 = 3;
@@ -27,9 +27,25 @@ impl ColorFormat {
         }
     }
 
+    pub fn get_all() -> Vec<ColorFormat> { vec![
+        ColorFormat::Argb8888,
+        ColorFormat::Rgb565,
+        ColorFormat::Argb4444,
+        ColorFormat::Gray8,
+    ]}
+
+    pub fn const_name(&self) -> &'static str {
+        match self {
+            ColorFormat::Argb8888 => "FORMAT_ARGB_8888",
+            ColorFormat::Rgb565 => "FORMAT_RGB_565",
+            ColorFormat::Argb4444 => "FORMAT_ARGB_4444",
+            ColorFormat::Gray8 => "FORMAT_GRAY_8",
+        }
+    }
+
     pub fn transcode_to_rgba_8888(&self, bytes: &[u8]) -> Vec<u8> {
         match self {
-            ColorFormat::Argb8888 => {},
+            ColorFormat::Argb8888 => bytes.to_vec(),
             ColorFormat::Rgb565 => Argb8888::encode(&Rgb565::decode(bytes)),
             ColorFormat::Argb4444 => Argb8888::encode(&Argb4444::decode(bytes)),
             ColorFormat::Gray8 => Argb8888::encode(&Gray8::decode(bytes)),
@@ -38,10 +54,21 @@ impl ColorFormat {
 
     pub fn transcode_from_rgba_8888(&self, bytes: &[u8]) -> Vec<u8> {
         match self {
-            ColorFormat::Argb8888 => {},
+            ColorFormat::Argb8888 => bytes.to_vec(),
             ColorFormat::Rgb565 => Rgb565::encode(&Argb8888::decode(bytes)),
             ColorFormat::Argb4444 => Argb4444::encode(&Argb8888::decode(bytes)),
             ColorFormat::Gray8 => Gray8::encode(&Argb8888::decode(bytes)),
+        }
+    }
+
+    pub fn dummy_fill_color_bytes(&self) -> &'static [u8] {
+        match self {
+            // Slightly transparent magenta where possible
+            // (if fully opaque, thcrap would overlay loaded images instead of overwriting the alpha channel)
+            ColorFormat::Argb8888 => &[0xFF, 0xFF, 0x00, 0xFE],
+            ColorFormat::Argb4444 => &[0x0F, 0xEF],
+            ColorFormat::Rgb565 => &[0b000_11111, 0b11111_000],
+            ColorFormat::Gray8 => &[0x80],
         }
     }
 }
@@ -50,9 +77,13 @@ impl ColorFormat {
 struct Components { red: u8, green: u8, blue: u8, alpha: u8 }
 
 impl Components {
-    const BLACK: Components = Components { red: 0, green: 0, blue: 0, alpha: 0xFF };
-    const WHITE: Components = Components { red: 0xFF, green: 0xFF, blue: 0xFF, alpha: 0xFF };
+    pub const BLACK: Components = Components { red: 0, green: 0, blue: 0, alpha: 0xFF };
+    pub const WHITE: Components = Components { red: 0xFF, green: 0xFF, blue: 0xFF, alpha: 0xFF };
 }
+
+/// Format which is the little-endian encoding of a 32-bit integer `0xAARRGGBB`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct Argb8888(u32);
 
 /// Format which is the little-endian encoding of a 16-bit integer `0bRRRRR_GGGGGG_BBBBB`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -67,27 +98,52 @@ struct Argb4444(u16);
 struct Gray8(u8);
 
 
-trait ColorBytes {
+trait ColorBytes: Sized
+where
+    Self: From<Components>,
+    Components: From<Self>,
+{
     const BYTES_PER_PIXEL: usize;
-    fn read_color_bytes<R: BinRead>(r: R) -> ReadResult<Self>;
-    fn write_color_bytes<W: BinWrite>(&self, w: W) -> WriteResult<()>;
+    fn read_color_bytes<R: BinRead>(r: R) -> Result<Self, R::Err> ;
+    fn write_color_bytes<W: BinWrite>(&self, w: W) -> Result<(), W::Err>;
 
     fn decode(bytes: &[u8]) -> Vec<Components> {
-        assert_eq!(bytes.len() % BYTES_PER_PIXEL, 0);
+        assert_eq!(bytes.len() % Self::BYTES_PER_PIXEL, 0);
 
         let mut reader = Cursor::new(bytes);
-        (0..bytes.len() / BYTES_PER_PIXEL)
+        (0..bytes.len() / Self::BYTES_PER_PIXEL)
             .map(|_| Components::from(Self::read_color_bytes(&mut reader).unwrap()))
             .collect()
     }
 
-    fn encode(mut colors: &[Components]) -> Vec<u8> {
-        let mut out = Cursor::new(Vec::with_capacity(colors.len() * BYTES_PER_PIXEL));
+    fn encode(colors: &[Components]) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::with_capacity(colors.len() * Self::BYTES_PER_PIXEL));
         for &components in colors {
             Self::from(components).write_color_bytes(&mut out).unwrap()
         }
         out.into_inner()
     }
+}
+
+impl From<Argb8888> for Components {
+    fn from(color: Argb8888) -> Components {
+        let [alpha, red, green, blue] = color.0.to_be_bytes();
+        Components { blue, green, red, alpha }
+    }
+}
+
+impl From<Components> for Argb8888 {
+    fn from(components: Components) -> Self {
+        let Components { blue, green, red, alpha } = components;
+        Argb8888(u32::from_be_bytes([alpha, red, green, blue]))
+    }
+}
+
+impl ColorBytes for Argb8888 {
+    const BYTES_PER_PIXEL: usize = 4;
+
+    fn read_color_bytes<R: BinRead>(mut r: R) -> Result<Self, R::Err> { r.read_u32().map(Argb8888) }
+    fn write_color_bytes<W: BinWrite>(&self, mut w: W) -> Result<(), W::Err> { w.write_u32(self.0) }
 }
 
 impl From<Rgb565> for Components {
@@ -117,8 +173,8 @@ impl From<Components> for Rgb565 {
 impl ColorBytes for Rgb565 {
     const BYTES_PER_PIXEL: usize = 2;
 
-    fn read_color_bytes<R: BinRead>(r: R) -> ReadResult<Self> { r.read_u16().map(Rgb565) }
-    fn write_color_bytes<W: BinWrite>(&self, w: W) -> WriteResult<()> { w.write_u16(self.0) }
+    fn read_color_bytes<R: BinRead>(mut r: R) -> Result<Self, R::Err> { r.read_u16().map(Rgb565) }
+    fn write_color_bytes<W: BinWrite>(&self, mut w: W) -> Result<(), W::Err> { w.write_u16(self.0) }
 }
 
 impl From<Argb4444> for Components {
@@ -143,15 +199,15 @@ impl From<Components> for Argb4444 {
         let red = (components.red >> 4) as u16;
         let alpha = (components.alpha >> 4) as u16;
 
-        Rgba4444(((alpha * 16 + red) * 16 + green) * 16 + blue)
+        Argb4444(((alpha * 16 + red) * 16 + green) * 16 + blue)
     }
 }
 
 impl ColorBytes for Argb4444 {
     const BYTES_PER_PIXEL: usize = 2;
 
-    fn read_color_bytes<R: BinRead>(r: R) -> ReadResult<Self> { r.read_u16().map(Argb4444) }
-    fn write_color_bytes<W: BinWrite>(&self, w: W) -> WriteResult<()> { w.write_u16(self.0) }
+    fn read_color_bytes<R: BinRead>(mut r: R) -> Result<Self, R::Err> { r.read_u16().map(Argb4444) }
+    fn write_color_bytes<W: BinWrite>(&self, mut w: W) -> Result<(), W::Err> { w.write_u16(self.0) }
 }
 
 impl From<Gray8> for Components {
@@ -178,8 +234,8 @@ impl From<Components> for Gray8 {
 impl ColorBytes for Gray8 {
     const BYTES_PER_PIXEL: usize = 1;
 
-    fn read_color_bytes<R: BinRead>(r: R) -> ReadResult<Self> { r.read_u8().map(Gray8) }
-    fn write_color_bytes<W: BinWrite>(&self, w: W) -> WriteResult<()> { w.write_u8(self.0) }
+    fn read_color_bytes<R: BinRead>(mut r: R) -> Result<Self, R::Err> { r.read_u8().map(Gray8) }
+    fn write_color_bytes<W: BinWrite>(&self, mut w: W) -> Result<(), W::Err> { w.write_u8(self.0) }
 }
 
 // take a color value that is N bits large and rescale it to M bits.
@@ -192,7 +248,7 @@ fn change_bit_depth<const IN: u32, const OUT: u32>(x: u8) -> u8 {
     } else {
         // upsizing.  The left shift will produce some zero bits, which we fill with
         // a copy of the most significant bits to evenly spread out the change
-        x << (OUT - IN) | x >> (OUT - 2*IN)
+        x << (OUT - IN) | x >> (2*IN - OUT)
     }
 }
 
@@ -201,10 +257,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn change_bit_depth() {
+    fn test_change_bit_depth() {
         assert_eq!(change_bit_depth::<4, 8>(0b1101), 0b11011101);
-        assert_eq!(change_bit_depth::<5, 8>(0b10111), 0b1011100);
-        assert_eq!(change_bit_depth::<8, 5>(0b1011100), 0b10111);
+        assert_eq!(change_bit_depth::<5, 8>(0b10111), 0b10111101);
+        assert_eq!(change_bit_depth::<8, 5>(0b10111000), 0b10111);
+        assert_eq!(change_bit_depth::<8, 5>(0b10111111), 0b10111);
     }
 
     // Test that in all cases where R = G = B, gray8 produces that value as its byte.
@@ -220,10 +277,10 @@ mod tests {
     // Black and white should round-trip.
     #[track_caller]
     fn black_and_white_check<C: From<Components> + Into<Components>>() {
-        let black = C::from(Components::BLACK);
-        let white = C::from(Components::WHITE);
-        assert_eq!(Components::from(black), Components::BLACK);
-        assert_eq!(Components::from(white), Components::WHITE);
+        let black: Components = C::from(Components::BLACK).into();
+        let white: Components = C::from(Components::WHITE).into();
+        assert_eq!(black, Components::BLACK);
+        assert_eq!(white, Components::WHITE);
     }
 
     #[test]

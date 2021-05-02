@@ -49,6 +49,8 @@ pub mod cli_def;
 pub use resolve::{RegId, DefId};
 mod resolve;
 
+mod image;
+
 pub use io::Fs;
 pub mod io;
 

@@ -8,14 +8,15 @@ use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
-use crate::diagnostic::{Emitter};
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
+use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
-use crate::value::{ScalarType};
+use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::resolve::RegId;
@@ -109,7 +110,7 @@ pub struct EntrySpecs {
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
     pub memory_priority: Option<u32>,
-    pub has_data: Option<bool>,
+    pub has_data: Option<HasData>,
     pub low_res_scale: Option<bool>,
 }
 
@@ -161,7 +162,7 @@ impl EntrySpecs {
 
 const DEFAULT_FORMAT: u32 = 1;
 const DEFAULT_LOW_RES_SCALE: bool = false;
-const DEFAULT_HAS_DATA: bool = true;
+const DEFAULT_HAS_DATA: HasData = HasData::True;
 
 impl Entry {
     fn make_meta(&self, file_format: &FileFormat) -> meta::Fields {
@@ -195,17 +196,17 @@ impl Entry {
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
             .field_opt("has_data", has_data.as_ref())
-            .field_opt("buf_width", buf_width.as_ref().map(|x| x.value))
-            .field_opt("buf_height", buf_height.as_ref().map(|x| x.value))
-            .field_opt("buf_format", buf_format.as_ref().map(|x| x.value))
+            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
+            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
+            .field_opt("img_format", img_format.as_ref().map(|x| format_to_meta(x.value)))
             .field_opt("offset_x", offset_x.as_ref())
             .field_opt("offset_y", offset_y.as_ref())
             .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
+            .field_opt("buf_width", buf_width.as_ref().map(|x| x.value))
+            .field_opt("buf_height", buf_height.as_ref().map(|x| x.value))
+            .field_opt("buf_format", buf_format.as_ref().map(|x| format_to_meta(x.value)))
             .field_opt("memory_priority", memory_priority.as_ref())
             .field_opt("low_res_scale", low_res_scale.as_ref())
-            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
-            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
-            .field_opt("img_format", img_format.as_ref().map(|x| x.value))
             .field("sprites", &self.sprites)
             .build_fields()
     }
@@ -309,6 +310,56 @@ impl Entry {
             let scripts = Default::default();
             Ok(Entry { specs, texture, path, path_2, scripts, sprites })
         })
+    }
+}
+
+fn format_to_meta(format_num: u32) -> Meta {
+    for known_format in ColorFormat::get_all() {
+        if format_num == known_format as u32 {
+            return Meta::Scalar(sp!(ast::Expr::Var(sp!(ast::Var {
+                name: ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap()).into(),
+                ty_sigil: None,
+            }))));
+        }
+    }
+    format_num.to_meta()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HasData {
+    /// Store no pixel data.
+    False,
+    /// Store pixel data copied from an image file.
+    True,
+    /// Generate and store dummy pixel data to be hot-swapped by thcrap.
+    Dummy,
+}
+
+impl From<bool> for HasData {
+    fn from(b: bool) -> Self { match b {
+        true => HasData::True,
+        false => HasData::False,
+    }}
+}
+
+impl<'a> FromMeta<'a> for HasData {
+    fn from_meta(meta: &'a Sp<Meta>) -> Result<Self, FromMetaError<'a>> {
+        match meta.parse()? {
+            ScalarValue::Int(0) => Ok(HasData::False),
+            ScalarValue::Int(_) => Ok(HasData::True),
+            ScalarValue::String(s) if s == "dummy" => Ok(HasData::Dummy),
+            _ => Err(FromMetaError::expected("a boolean or the string \"dummy\"", meta)),
+        }
+    }
+}
+
+impl ToMeta for HasData {
+    fn to_meta(&self) -> Meta {
+        match self {
+            HasData::False => false.to_meta(),
+            HasData::True => true.to_meta(),
+            HasData::Dummy => "dummy".to_meta(),
+        }
     }
 }
 
@@ -459,7 +510,7 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     or_inplace(&mut dest_specs.has_data, src_has_data);
     or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
 
-    if dest_specs.has_data.unwrap_or(DEFAULT_HAS_DATA) {
+    if dest_specs.has_data.unwrap_or(DEFAULT_HAS_DATA) == HasData::True {
         or_inplace(&mut dest_file.texture, src_file.texture);
     }
 
@@ -535,9 +586,10 @@ fn compile(
     let mut ast = ast.clone();
     crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
 
-    let mut extra_type_checks = vec![];
+    define_color_format_consts(ctx);
 
     // an early pass to define global constants for sprite and script names
+    let mut extra_type_checks = vec![];
     let script_ids = gather_script_ids(&ast, ctx)?;
     for (index, &(ref script_name, _)) in script_ids.values().enumerate() {
         let const_value: Sp<ast::Expr> = sp!(script_name.span => (index as i32).into());
@@ -623,6 +675,17 @@ fn write_thecl_defs(
 }
 
 // =============================================================================
+
+/// Define `FORMAT_ARGB_8888` and etc.
+fn define_color_format_consts(
+    ctx: &mut CompilerContext,
+) {
+    for format in ColorFormat::get_all() {
+        let ident = format.const_name().parse::<Ident>().unwrap();
+        let ident = ctx.resolutions.attach_fresh_res(ident);
+        ctx.define_auto_const_var(sp!(ident), ScalarType::Int, sp!((format as u32 as i32).into()));
+    }
+}
 
 // (this returns a Vec instead of a Map because there may be multiple sprites with the same Ident)
 fn gather_sprite_id_exprs(
@@ -871,7 +934,7 @@ fn read_entry(
         colorkey: Some(header_data.colorkey),
         offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
         memory_priority: Some(header_data.memory_priority),
-        has_data: Some(header_data.has_data != 0),
+        has_data: Some(HasData::from(header_data.has_data != 0)),
         low_res_scale: Some(header_data.low_res_scale != 0),
     };
 
@@ -1034,8 +1097,8 @@ fn write_entry(
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    if has_data {
-        match &entry.texture {
+    match has_data {
+        HasData::True => match &entry.texture {
             None => {
                 let problem = "no bitmap data available!";
                 let note_2 = "alternatively, use 'has_data: false' to compile without an image";
@@ -1050,8 +1113,37 @@ fn write_entry(
                 texture_offset = w.pos()? - entry_pos;
                 write_texture(w, &info, texture)?;
             },
-        }
-    };
+        }, // HasData::True => ...
+
+        HasData::Dummy => {
+            texture_offset = w.pos()? - entry_pos;
+
+            macro_rules! expect {
+                ($name:ident) => {
+                    $name.ok_or_else(|| emitter.emit(error!(
+                        message("missing required field '{}'!", stringify!($name)),
+                        note("field is required due to 'has_data: \"dummy\"'"),
+                    )))?
+                };
+            }
+            let width = expect!(img_width).value;
+            let height = expect!(img_height).value;
+            let format = require_known_format(img_format).map_err(|mut diag| {
+                diag.note(format!(
+                    "has_data: \"dummy\" requires one of the following formats: {}",
+                    ColorFormat::get_all().into_iter().map(|format| format.const_name())
+                        .collect::<Vec<_>>().join(", "),
+                ));
+                emitter.emit(diag)
+            })?;
+            let info = ThtxHeader { width, height, format: img_format.value };
+            let data = format.dummy_fill_color_bytes().repeat((width * height) as usize);
+
+            write_texture(w, &info, &Texture { data })?;
+        },
+
+        HasData::False => {},
+    }; // match has_data
 
     let end_pos = w.pos()?;
 
@@ -1079,6 +1171,14 @@ fn write_entry(
 
     w.seek_to(end_pos)?;
     Ok(())
+}
+
+fn require_known_format(format: Sp<u32>) -> Result<crate::image::ColorFormat, Diagnostic> {
+    crate::image::ColorFormat::from_format_num(format.value)
+        .ok_or_else(|| error!(
+            message("unknown color format {}", format.value),
+            primary(format, "unknown color format"),
+        ))
 }
 
 fn read_sprite(f: &mut BinReader) -> ReadResult<Sprite> {

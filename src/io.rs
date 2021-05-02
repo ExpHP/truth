@@ -278,7 +278,7 @@ fn nice_or_bust(path: impl AsRef<Path>) -> Option<String> {
 /// and simpler versions of the Seek API are provided (because the formats are full of offsets).
 pub trait BinRead {
     type Reader: Read + Seek + ?Sized;
-    type Err;
+    type Err: std::fmt::Debug;
 
     fn _bin_read_io_error(&mut self, err: io::Error) -> Self::Err;
     fn _bin_read_reader(&mut self) -> &mut Self::Reader;
