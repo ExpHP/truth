@@ -299,39 +299,30 @@ impl Entry {
                 }
             }
 
-            for (field, buf_value, img_value) in vec![
-                ("buf_height", buf_height, img_height),
-                ("buf_width", buf_width, img_height),
-            ] {
-                if let Some(buf_value) = buf_value {
-                    if !buf_value.value.is_power_of_two() {
-                        emitter.emit(warning!(
-                            message("buf_{} = {} should be a power of two", field, buf_value),
-                            primary(buf_value, "not a power of two")
-                        )).ignore();
-                    }
-                    if let Some(img_value) = img_value {
-                        if buf_value < img_value {
-                            emitter.emit(warning!(
-                                message("buf_{} = {} is not large enough for img_{} = {}", field, buf_value, field, img_value),
-                                secondary(img_value, "image dimension defined here"),
-                                primary(buf_value, "buffer too small for image"),
-                            )).ignore();
-                        }
-                    }
-                }
-            }
-
             let colorkey = m.get_field("colorkey")?;
             let offset_x = m.get_field("offset_x")?;
             let offset_y = m.get_field("offset_y")?;
             let memory_priority = m.get_field("memory_priority")?;
             let low_res_scale = m.get_field("low_res_scale")?;
             let has_data = m.get_field("has_data")?;
-            let path = m.expect_field("path")?;
+            let path: Sp<String> = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let texture = None;
             let sprites = m.get_field("sprites")?.unwrap_or_default();
+
+            for (field, buf_value) in vec![
+                ("height", buf_height),
+                ("width", buf_width),
+            ] {
+                if let Some(buf_value) = buf_value {
+                    if !buf_value.value.is_power_of_two() && !path.starts_with("@") {
+                        emitter.emit(warning!(
+                            message("buf_{} = {} should be a power of two", field, buf_value),
+                            primary(buf_value, "not a power of two")
+                        )).ignore();
+                    }
+                }
+            }
 
             let specs = EntrySpecs {
                 buf_width, buf_height, buf_format,
@@ -858,7 +849,6 @@ fn gather_sprite_id_exprs(
             out.push((res_ident, sprite_id));
         }
     }
-
     Ok(out)
 }
 
@@ -1278,6 +1268,22 @@ fn write_entry(
     }; // match has_data
 
     let end_pos = w.pos()?;
+
+    for (noun, img_dim, buf_dim) in vec![
+        ("width", img_width, buf_width),
+        ("height", img_height, buf_height),
+    ] {
+        if img_dim.is_none() { continue; }
+        if buf_dim.is_none() { continue; }
+        let (img_dim, buf_dim) = (img_dim.unwrap(), buf_dim.unwrap());
+        if img_dim > buf_dim {
+            emitter.emit(warning!(
+                message("buffer {} of {} too small for image {} of {}", noun, buf_dim, noun, img_dim),
+                primary(buf_dim, "buffer too small for image"),
+                // no img dimension span because it might not have one
+            )).ignore();
+        }
+    }
 
     w.seek_to(entry_pos + file_format.offset_to_thtx_offset())?;
     w.write_u32(texture_offset as _)?;

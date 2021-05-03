@@ -11,7 +11,7 @@ source_test!(
     items: r#"
         #pragma image_source "this/is/a/bad/path"
     "#,
-    expect_fail: "reading file",
+    expect_fail: "while resolving",
 );
 
 // Tests that copy an embedded image
@@ -597,8 +597,8 @@ source_test!(
 entry {
     path: "subdir/hi-7x20.png",
     has_data: false,
-    buf_height: 7,
-    buf_width: 20,
+    buf_width: 7,
+    buf_height: 21,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
     expect_warning: "not a power of two",
@@ -616,7 +616,7 @@ entry {
     buf_width: 16,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_warning: "not large enough",
+    expect_warning: "too small for",
 );
 
 // =============================================================================
