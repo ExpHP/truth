@@ -586,7 +586,7 @@ entry {
     img_height: 32,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_warning: "wrong image dimensions",
+    expect_fail: "wrong image dimensions",
 );
 
 source_test!(

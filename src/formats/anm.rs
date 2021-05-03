@@ -611,27 +611,28 @@ fn update_entry_from_directory_source(
     dest_entry: &mut Entry,
     src_directory: &Path,
 ) -> Result<(), ErrorReported> {
+    use image::{GenericImage, GenericImageView};
+
     let ref emitter = fs.emitter;
     let ref img_path = src_directory.join(&dest_entry.path.value);
     if !img_path.is_file() {  // race condition but not a big deal
         return Ok(());
     }
 
-    let (src_data_argb8888, src_dimensions);
+    let (src_image, src_dimensions): (Option<image::DynamicImage>, _);
     match dest_entry.specs.has_data.unwrap_or(DEFAULT_HAS_DATA) {
         HasData::True => {
             let image = image::open(img_path).map_err(|e| emitter.emit(error!(
                 message("{}: {}", fs.display_path(img_path), e)
             )))?;
-            let image = image.into_bgra8();
-            src_data_argb8888 = Some(image.to_vec());
             src_dimensions = image.dimensions();
+            src_image = Some(image);
         },
         HasData::Dummy | HasData::False => {
             let dims = image::image_dimensions(img_path).map_err(|e| emitter.emit(error!(
                 message("{}: {}", fs.display_path(img_path), e)
             )))?;
-            src_data_argb8888 = None;
+            src_image = None;
             src_dimensions = dims;
         },
     }
@@ -665,10 +666,11 @@ fn update_entry_from_directory_source(
     }
 
     // all dest dimensions are set now, but pre-existing ones might not match the image
-    let expected_src_dimensions = (
-        dest_entry.specs.img_width.unwrap().value + offsets.0,
-        dest_entry.specs.img_height.unwrap().value + offsets.1,
+    let dest_dimensions = (
+        dest_entry.specs.img_width.unwrap().value,
+        dest_entry.specs.img_height.unwrap().value,
     );
+    let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
     if src_dimensions != expected_src_dimensions {
         fn needstest() {}
 
@@ -681,12 +683,19 @@ fn update_entry_from_directory_source(
     }
 
     // if we read an image, load it into the right format
-    if dest_entry.texture.is_none() && src_data_argb8888.is_some() {
+    if dest_entry.texture.is_none() && src_image.is_some() {
         let dest_cformat = ColorFormat::from_format_num(dest_format.value).ok_or_else(|| emitter.emit(error!(
             message("cannot transcode into unknown color format {}", dest_format),
             primary(dest_format, "unknown color format"),
         )))?;
-        let dest_data = dest_cformat.transcode_from_argb_8888(&src_data_argb8888.unwrap());
+
+        let src_data_argb = {
+            src_image.unwrap().into_bgra8()
+                .sub_image(offsets.0, offsets.1, dest_dimensions.0, dest_dimensions.1)
+                .to_image().into_raw()
+        };
+
+        let dest_data = dest_cformat.transcode_from_argb_8888(&src_data_argb);
         dest_entry.texture = Some(Texture { data: dest_data });
     }
 
