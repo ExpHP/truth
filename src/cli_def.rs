@@ -165,7 +165,7 @@ pub mod anm_compile {
 
         for image_source_path in image_source_paths.iter() {
             let source_anm = truth.read_image_source(game, image_source_path)?;
-            compiled.apply_image_source(source_anm)?;
+            compiled.apply_image_source(source_anm, &truth.fs())?;
         }
 
         truth.write_anm(game, &outpath, &compiled)?;

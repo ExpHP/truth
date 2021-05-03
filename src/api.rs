@@ -171,16 +171,14 @@ impl<'ctx> Truth<'ctx> {
             },
         }
     }
-    pub fn read_image_source(&mut self, game: Game, path: &Path) -> Result<crate::AnmFile, ErrorReported> {
+    pub fn read_image_source(&mut self, game: Game, path: &Path) -> Result<crate::anm::ImageSource, ErrorReported> {
         let metadata = self.fs().metadata(path).map_err(|e| self.emit(e))?;
 
         if metadata.is_file() {
-            // NOTE: Perhaps confusingly, in this branch we load pixel data from the ANM,
-            // while in the directory branch we do NOT load pixel data from the PNGs...
             let with_images = true;
-            self.read_anm(game, path, with_images)
+            self.read_anm(game, path, with_images).map(crate::anm::ImageSource::Anm)
         } else if metadata.is_dir() {
-            crate::AnmFile::load_directory_as_image_source(&self.fs(), path)
+            Ok(crate::anm::ImageSource::Directory(path.to_owned()))
         } else {
             Err(self.emit(error!("{}: unable to determine type of path", path.display())))
         }

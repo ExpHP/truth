@@ -110,8 +110,7 @@ entry {
     path: "subdir/hi-10x18+105+9.png",
     has_data: true,
     sprites: {},
-}
-"#,
+}"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
             let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -146,13 +145,7 @@ entry {
     memory_priority: 0,
     low_res_scale: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-
-script -45 script0 {
-    delete();
-}
-"#,
+}"#,
         check_compiled: |output, format| {
             assert!(output.read_anm(format).entries[0].texture.is_none());
         }
@@ -171,13 +164,7 @@ entry {
     img_height: 512,
     img_format: 3,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-
-script -45 script0 {
-    delete();
-}
-"#,
+}"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
             let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -200,12 +187,7 @@ entry {
     path: "subdir/file.png",
     has_data: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-script -45 script0 {
-    delete();
-}
-        "#,
+}"#,
         expect_fail: "required field",
     );
 
@@ -227,12 +209,7 @@ entry {
     memory_priority: 0,
     low_res_scale: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-script -45 script0 {
-    delete();
-}
-        "#,
+}"#,
         expect_fail: "no bitmap data",
     );
 }
@@ -325,8 +302,7 @@ entry {
     path: "subdir/file2.png",
     has_data: false,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -356,8 +332,6 @@ source_test!(
 // =============================================================================
 // Directory image sources
 
-// FIXME: enable once we have a way of reading pixel data from PNGs
-#[cfg(nope)]
 source_test!(
     ANM_12, png_import_32x16,
     full_source: r#"
@@ -367,8 +341,7 @@ entry {
     path: "subdir/hi-32x16.png",
     has_data: true,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -383,10 +356,8 @@ entry {
     },
 );
 
-// FIXME: enable once we have a way of reading pixel data from PNGs
-#[cfg(nope)]
 source_test!(
-    ANM_12, png_import_7x20,
+    ANM_12, png_import_7x20,  // non powers of 2
     full_source: r#"
 #pragma image_source "./tests/integration/resources/dir-with-images"
 
@@ -394,15 +365,14 @@ entry {
     path: "subdir/hi-7x20.png",
     has_data: true,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
         assert_eq!(specs.img_width, Some(sp!(7)));
         assert_eq!(specs.img_height, Some(sp!(20)));
         assert_eq!(specs.img_format, Some(sp!(1)));
-        assert_eq!(specs.buf_width, Some(sp!(16)));
+        assert_eq!(specs.buf_width, Some(sp!(8)));
         assert_eq!(specs.buf_height, Some(sp!(32)));
         assert_eq!(specs.buf_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_some());
@@ -410,8 +380,6 @@ entry {
     },
 );
 
-// FIXME: enable once we have a way of reading pixel data from PNGs
-#[cfg(nope)]
 source_test!(
     ANM_12, png_import_with_offset,
     full_source: r#"
@@ -424,8 +392,7 @@ entry {
     has_data: true,
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -464,8 +431,7 @@ entry {
     path: "subdir/hi-32x16.png",
     has_data: false,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -486,8 +452,7 @@ entry {
     path: "subdir/hi-7x20.png",
     has_data: false,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -511,8 +476,7 @@ entry {
     has_data: false,
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -525,8 +489,6 @@ entry {
     },
 );
 
-// FIXME: enable once we have a way of reading pixel data from PNGs
-#[cfg(nope)]
 source_test!(
     ANM_12, png_import_with_buf_props,
     full_source: r#"
@@ -539,8 +501,7 @@ entry {
     buf_height: 256,
     buf_format: 3,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -556,8 +517,6 @@ entry {
     },
 );
 
-// FIXME: enable once we have a way of reading pixel data from PNGs
-#[cfg(nope)]
 source_test!(
     ANM_12, png_import_explicit_img_format,
     full_source: r#"
@@ -568,16 +527,15 @@ entry {
     has_data: true,
     img_format: 3,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        assert_eq!(specs.img_width, Some(sp!(7)));
-        assert_eq!(specs.img_height, Some(sp!(20)));
+        assert_eq!(specs.img_width, Some(sp!(32)));
+        assert_eq!(specs.img_height, Some(sp!(16)));
         assert_eq!(specs.img_format, Some(sp!(3)));
-        assert_eq!(specs.buf_width, Some(sp!(16)));
-        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
         assert_eq!(specs.buf_format, Some(sp!(3)));
         let pixel_size = 2; // bytes per pixel for format 3
         assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
@@ -599,8 +557,7 @@ entry {
     has_data: false,
     img_format: 3,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
@@ -617,7 +574,7 @@ entry {
 //        "things in file take precedence over CLI"
 
 source_test!(
-    ANM_12, png_import_wrong_img_width,
+    ANM_12, png_import_wrong_img_height,
     full_source: r#"
 #pragma image_source "./tests/integration/resources/dir-with-images"
 
@@ -625,12 +582,11 @@ entry {
     path: "subdir/hi-32x16.png",
     has_data: false,
     img_format: 3,
-    img_height: 32,
     img_width: 32,
+    img_height: 32,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
-    expect_warning: "does not match image",
+}"#,
+    expect_warning: "wrong image dimensions",
 );
 
 source_test!(
@@ -644,8 +600,7 @@ entry {
     buf_height: 7,
     buf_width: 20,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     expect_warning: "not a power of two",
 );
 
@@ -660,8 +615,7 @@ entry {
     buf_height: 16,
     buf_width: 16,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
-}
-    "#,
+}"#,
     expect_warning: "not large enough",
 );
 

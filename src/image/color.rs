@@ -43,7 +43,7 @@ impl ColorFormat {
         }
     }
 
-    pub fn transcode_to_rgba_8888(&self, bytes: &[u8]) -> Vec<u8> {
+    pub fn transcode_to_argb_8888(&self, bytes: &[u8]) -> Vec<u8> {
         match self {
             ColorFormat::Argb8888 => bytes.to_vec(),
             ColorFormat::Rgb565 => Argb8888::encode(&Rgb565::decode(bytes)),
@@ -52,7 +52,7 @@ impl ColorFormat {
         }
     }
 
-    pub fn transcode_from_rgba_8888(&self, bytes: &[u8]) -> Vec<u8> {
+    pub fn transcode_from_argb_8888(&self, bytes: &[u8]) -> Vec<u8> {
         match self {
             ColorFormat::Argb8888 => bytes.to_vec(),
             ColorFormat::Rgb565 => Rgb565::encode(&Argb8888::decode(bytes)),

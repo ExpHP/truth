@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io;
 use std::num::NonZeroU64;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
@@ -51,17 +51,16 @@ impl AnmFile {
     /// If multiple entries have the same path, then the first one with that path in `other` applies to the first
     /// one with that path in `self`, and so on in matching order.  This is to facilitate recompilation of files
     /// like `ascii.anm`, which have multiple `"@R"` entries.
-    pub fn apply_image_source(&mut self, other: Self) -> Result<(), ErrorReported> {
-        apply_image_source(self, other)
+    pub fn apply_image_source(&mut self, src: ImageSource, fs: &Fs<'_>) -> Result<(), ErrorReported> {
+        match src {
+            ImageSource::Anm(other) => apply_anm_image_source(self, other).map_err(|d| fs.emitter.emit(d)),
+            ImageSource::Directory(path) => apply_directory_image_source(fs, self, &path),
+        }
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
         let emitter = w.emitter();
         write_anm(w, &emitter, &game_format(game), self)
-    }
-
-    pub fn load_directory_as_image_source(fs: &Fs, path: &Path) -> ReadResult<Self> {
-        read_directory_as_image_source(fs, path)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game, with_images: bool) -> ReadResult<Self> {
@@ -100,17 +99,50 @@ pub struct EntrySpecs {
     // "merging" of entries that occurs when --image-source is used.
     //
     // It makes this type really annoying to work with.  But that's life.
-    pub buf_width: Option<Sp<u32>>,
-    pub buf_height: Option<Sp<u32>>,
-    pub buf_format: Option<Sp<u32>>,
+
+    /// Dimensions of an embedded image.  These are the values that will be written to the THTX section.
+    ///
+    /// It is possible for these to be `Some(_)` even if there is no embedded image, in particular
+    /// after metadata is copied from an image source for a `has_data: false` entry.
     pub img_width: Option<Sp<u32>>,
     pub img_height: Option<Sp<u32>>,
+    /// Color format of an embedded image.  This is the value that will be written to the THTX section.
+    ///
+    /// The number MAY correspond to a recognized [`ColorFormat`], but does not have to.
     pub img_format: Option<Sp<u32>>,
+
+    /// When `true`, a THTX section with an embedded image will be stored.
+    pub has_data: Option<HasData>,
+
+    /// Dimensions of the buffer created at runtime for Direct3D.
+    ///
+    /// These should always be powers of 2.
+    pub buf_width: Option<Sp<u32>>,
+    pub buf_height: Option<Sp<u32>>,
+    /// Color format of the buffer created by the game at runtime for Direct3D.
+    pub buf_format: Option<Sp<u32>>,
+    /// A transparent color for old games.
     pub colorkey: Option<u32>, // Only in old format
+
+    /// A field of ANM entries that appears to represent the offset into the original image file
+    /// on ZUN's PC from which the embedded image was extracted.
+    ///
+    /// Not sure if it has any meaning at runtime in-game. (FIXME)
+    ///
+    /// For reasons that have been lost to the sands of time, when thanm extracts an image that sets
+    /// this field, it produces a PNG that is padded on the left and top so that the extracted data
+    /// begins at this pixel offset. thcrap also uses this offset when hot-swapping image files,
+    /// since it is designed to work with thanm.
+    ///
+    /// Since we want to be compatible with thcrap, we have to do this as well...
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
+    /// :shrug:
     pub memory_priority: Option<u32>,
-    pub has_data: Option<HasData>,
+
+    /// A field of an entry that tells the game to scale down certain hi-res textures on lower resolutions,
+    /// e.g. the border around the game.  (not used for things like `ascii.anm` which have dedicated files
+    /// for each resolution)
     pub low_res_scale: Option<bool>,
 }
 
@@ -363,6 +395,7 @@ impl ToMeta for HasData {
     }
 }
 
+/// An embedded image (or at least metadata about an image) in an ANM entry.
 #[derive(Clone)]
 pub struct Texture {
     /// Raw pixel data, to be interpreted according to [`EntrySpecs::img_width`], [`EntrySpecs::img_height`],
@@ -463,7 +496,15 @@ fn decompile(
     Ok(out)
 }
 
-fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), ErrorReported> {
+// =============================================================================
+
+#[derive(Debug, Clone)]
+pub enum ImageSource {
+    Anm(AnmFile),
+    Directory(PathBuf),
+}
+
+fn apply_anm_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), Diagnostic> {
     let mut src_entries_by_path: IndexMap<_, Vec<_>> = IndexMap::new();
     for entry in src_file.entries {
         src_entries_by_path.entry(entry.path.clone()).or_default().push(entry);
@@ -474,13 +515,13 @@ fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), 
 
     for dest_entry in &mut dest_file.entries {
         if let Some(src_entry) = src_entries_by_path.get_mut(&dest_entry.path).and_then(|vec| vec.pop()) {
-            update_entry_from_image_source(dest_entry, src_entry)?;
+            update_entry_from_anm_image_source(dest_entry, src_entry)?;
         }
     }
     Ok(())
 }
 
-fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Result<(), ErrorReported> {
+fn update_entry_from_anm_image_source(dest_file: &mut Entry, mut src_file: Entry) -> Result<(), Diagnostic> {
     let dest_specs = &mut dest_file.specs;
 
     // though it's tedious, we fully unpack this struct to that the compiler doesn't
@@ -493,10 +534,6 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
         low_res_scale: src_low_res_scale,
     } = src_file.specs;
 
-    fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
-        *dest = dest.take().or(src);
-    }
-
     or_inplace(&mut dest_specs.img_width, src_img_width);
     or_inplace(&mut dest_specs.img_height, src_img_height);
     or_inplace(&mut dest_specs.img_format, src_img_format);
@@ -507,71 +544,157 @@ fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Res
     or_inplace(&mut dest_specs.offset_x, src_offset_x);
     or_inplace(&mut dest_specs.offset_y, src_offset_y);
     or_inplace(&mut dest_specs.memory_priority, src_memory_priority);
-    or_inplace(&mut dest_specs.has_data, src_has_data);
     or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
+    or_inplace(&mut dest_specs.has_data, src_has_data);
 
+    for (dest_dim, src_dim) in vec![
+        (dest_specs.img_width, src_img_width),
+        (dest_specs.img_height, src_img_height),
+    ] {
+        if src_dim.is_some() && dest_dim != src_dim {
+            // (we can safely unwrap all of these options because at least one src_dim is Some,
+            //  which implies both of them are, which also implies that the dest_dims are Some)
+            return Err(error!(
+                "mismatch in embedded image size for '{}': expected {}x{}, got {}x{}",
+                dest_file.path,
+                dest_specs.img_width.unwrap(), dest_specs.img_height.unwrap(),
+                src_img_width.unwrap(), src_img_height.unwrap(),
+            ));
+        }
+    }
+
+    // Importing a pixel buffer from an ANM file.  (offset has no effect here)
     if dest_specs.has_data.unwrap_or(DEFAULT_HAS_DATA) == HasData::True {
-        or_inplace(&mut dest_file.texture, src_file.texture);
+        if let (None, Some(src_texture)) = (&dest_file.texture, src_file.texture.take()) {
+            dest_specs.has_data = Some(HasData::True);
+
+            let src_format_num = src_file.specs.img_format.expect("image source has pixel data but no format!?");
+            let dest_format_num = dest_file.specs.img_format.expect("option was or-ed with Some so can't be None");
+            if src_format_num == dest_format_num {
+                dest_file.texture = Some(src_texture.clone());
+            } else {
+                fn needstest() {}
+
+                let dest_cformat = ColorFormat::from_format_num(dest_format_num.value).ok_or_else(|| error!(
+                    message("cannot transcode into unknown color format {}", dest_format_num),
+                    primary(dest_format_num, "unknown color format"),
+                ))?;
+                let src_cformat = ColorFormat::from_format_num(src_format_num.value).ok_or_else(|| error!(
+                    // this value has no span so produce a slightly different error
+                    "cannot transcode from unknown color format {} (for image '{}')",
+                    src_format_num, dest_file.path,
+                ))?;
+
+                let argb = src_cformat.transcode_to_argb_8888(&src_texture.data);
+                let dest_data = dest_cformat.transcode_from_argb_8888(&argb);
+                dest_file.texture = Some(Texture { data: dest_data });
+            } // if src_format_num == dest_format_num
+        } // if let ...
+    } // if dest_specs.has_data....
+
+    Ok(())
+}
+
+fn apply_directory_image_source(
+    fs: &Fs,
+    dest: &mut AnmFile,
+    src_directory: &Path,
+) -> Result<(), ErrorReported> {
+    for entry in dest.entries.iter_mut() {
+        update_entry_from_directory_source(fs, entry, src_directory)?;
+    }
+    Ok(())
+}
+
+fn update_entry_from_directory_source(
+    fs: &Fs,
+    dest_entry: &mut Entry,
+    src_directory: &Path,
+) -> Result<(), ErrorReported> {
+    let ref emitter = fs.emitter;
+    let ref img_path = src_directory.join(&dest_entry.path.value);
+    if !img_path.is_file() {  // race condition but not a big deal
+        return Ok(());
+    }
+
+    let (src_data_argb8888, src_dimensions);
+    match dest_entry.specs.has_data.unwrap_or(DEFAULT_HAS_DATA) {
+        HasData::True => {
+            let image = image::open(img_path).map_err(|e| emitter.emit(error!(
+                message("{}: {}", fs.display_path(img_path), e)
+            )))?;
+            let image = image.into_bgra8();
+            src_data_argb8888 = Some(image.to_vec());
+            src_dimensions = image.dimensions();
+        },
+        HasData::Dummy | HasData::False => {
+            let dims = image::image_dimensions(img_path).map_err(|e| emitter.emit(error!(
+                message("{}: {}", fs.display_path(img_path), e)
+            )))?;
+            src_data_argb8888 = None;
+            src_dimensions = dims;
+        },
+    }
+
+    // these must be well-defined for us to continue, so fill in defaults early
+    let dest_format = *dest_entry.specs.img_format.get_or_insert(sp!(DEFAULT_FORMAT));
+    let offsets = (
+        *dest_entry.specs.offset_x.get_or_insert(0),
+        *dest_entry.specs.offset_y.get_or_insert(0),
+    );
+
+    // set missing dest dimensions
+    for (dest_dim, src_dim, offset) in vec![
+        (&mut dest_entry.specs.img_width, src_dimensions.0, offsets.0),
+        (&mut dest_entry.specs.img_height, src_dimensions.1, offsets.1),
+    ] {
+        fn needstest() {}
+
+        if dest_dim.is_none() {
+            if src_dim >= offset {
+                *dest_dim = Some(sp!(src_dim - offset));
+            } else {
+                return Err(emitter.emit(error!(
+                    "{}: image too small ({}x{}) for an offset of ({}, {})",
+                    fs.display_path(img_path),
+                    src_dimensions.0, src_dimensions.1,
+                    offsets.0, offsets.1,
+                )))
+            }
+        }
+    }
+
+    // all dest dimensions are set now, but pre-existing ones might not match the image
+    let expected_src_dimensions = (
+        dest_entry.specs.img_width.unwrap().value + offsets.0,
+        dest_entry.specs.img_height.unwrap().value + offsets.1,
+    );
+    if src_dimensions != expected_src_dimensions {
+        fn needstest() {}
+
+        return Err(emitter.emit(error!(
+            "{}: wrong image dimensions (expected {}x{}, got {}x{})",
+            fs.display_path(img_path),
+            expected_src_dimensions.0, expected_src_dimensions.1,
+            src_dimensions.0, src_dimensions.1,
+        )))
+    }
+
+    // if we read an image, load it into the right format
+    if dest_entry.texture.is_none() && src_data_argb8888.is_some() {
+        let dest_cformat = ColorFormat::from_format_num(dest_format.value).ok_or_else(|| emitter.emit(error!(
+            message("cannot transcode into unknown color format {}", dest_format),
+            primary(dest_format, "unknown color format"),
+        )))?;
+        let dest_data = dest_cformat.transcode_from_argb_8888(&src_data_argb8888.unwrap());
+        dest_entry.texture = Some(Texture { data: dest_data });
     }
 
     Ok(())
 }
 
-// NOTE: basically, to take full advantage of the existing infrastructure for ANM image sources,
-// we implement directory image sources by "parsing" a directory into a fake ANM file object.
-//
-// I'm not sure if this is the best solution, as it could potentially open a large number of image
-// files that might not even be related to our ANM file... (thankfully at this time, we only
-// open them to read metadata.)             - Exp
-fn read_directory_as_image_source(fs: &Fs, root: &Path) -> ReadResult<AnmFile> {
-    let walk = {
-        walkdir::WalkDir::new(root)
-            .follow_links(true)
-            .into_iter()
-            .map(|result| result.map_err(|e| fs.emitter.emit(error!("{}", e))))
-    };
-
-    let mut anm_entries = vec![];
-    for file_entry in walk {
-        let file_entry = file_entry?;
-        if !file_entry.file_type().is_file() {
-            continue;
-        }
-
-        let path = file_entry.path();
-        match path.extension() {
-            None => continue,
-            Some(ext) => if ext.to_string_lossy().to_ascii_lowercase() == "png" {
-                let reader = fs.open(path)?.into_inner();
-                let (metadata, _) = png::Decoder::new(reader).read_info().map_err(|e| fs.emitter.emit(error!("{}: {}", path.display(), e)))?;
-
-                let path_string = {
-                    match file_entry.path().strip_prefix(root).expect("bad walkdir prefix?!").to_string_lossy() {
-                        std::borrow::Cow::Borrowed(s) => s.to_owned(),
-                        std::borrow::Cow::Owned(lossy) => {
-                            fs.emitter.emit(warning!("ignoring bad filename '{}'", lossy)).ignore();
-                            continue;
-                        },
-                    }
-                };
-
-                anm_entries.push(Entry {
-                    specs: EntrySpecs {
-                        img_width: Some(sp!(metadata.width)),
-                        img_height: Some(sp!(metadata.height)),
-                        ..Default::default()
-                    },
-                    path: sp!(path_string.replace("\\", "/")), // FIXME: should hold PathBuf to eliminate sensitivity to path separator...
-                    // we don't want to read pixel data, especially since we don't know if we'll even use it
-                    texture: None,
-                    path_2: None,
-                    scripts: Default::default(),
-                    sprites: Default::default(),
-                })
-            },
-        }
-    }
-    Ok(AnmFile { entries: anm_entries, binary_filename: None })
+fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
+    *dest = dest.take().or(src);
 }
 
 // =============================================================================
