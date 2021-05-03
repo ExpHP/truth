@@ -70,6 +70,9 @@ b2b_test!(STD_08, "map/any.stdm", std08_empty_script, "th08-empty-script.std");
 b2b_test!(STD_06, "map/any.stdm", std06_general, "th06-general.std");
 b2b_test!(STD_12, "map/any.stdm", std12_general, "th12-general.std");
 
+// ANM metadata
+b2b_test!(ANM_12, "map/any.anmm", anm12_weird_color_format, "th12-weird-color-format.anm");
+
 // Test that named regs use are named in the output.
 b2b_test!(
     ANM_12, "map/any.anmm", anm12_registers, "th12-registers.anm",

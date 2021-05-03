@@ -40,7 +40,13 @@ impl Format {
 
         do_with_text(&decompiled.read_to_string());
 
-        let recompiled = self.compile(&decompiled);
+        let mut args = vec![];
+        if self.cmd == "truanm" {
+            args.push("--image-source".as_ref());
+            args.push(infile.as_ref().as_ref());
+        }
+
+        let recompiled = self.compile_with_args(&decompiled, &args);
         assert_eq!(original.read(), recompiled.read());
     }
 

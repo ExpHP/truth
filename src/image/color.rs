@@ -76,6 +76,7 @@ impl ColorFormat {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 struct Components { red: u8, green: u8, blue: u8, alpha: u8 }
 
+#[cfg(test)]
 impl Components {
     pub const BLACK: Components = Components { red: 0, green: 0, blue: 0, alpha: 0xFF };
     pub const WHITE: Components = Components { red: 0xFF, green: 0xFF, blue: 0xFF, alpha: 0xFF };

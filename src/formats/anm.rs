@@ -564,8 +564,6 @@ fn update_entry_from_anm_image_source(dest_file: &mut Entry, mut src_file: Entry
             if src_format_num == dest_format_num {
                 dest_file.texture = Some(src_texture.clone());
             } else {
-                fn needstest() {}
-
                 let dest_cformat = ColorFormat::from_format_num(dest_format_num.value).ok_or_else(|| error!(
                     message("cannot transcode into unknown color format {}", dest_format_num),
                     primary(dest_format_num, "unknown color format"),
@@ -640,8 +638,6 @@ fn update_entry_from_directory_source(
         (&mut dest_entry.specs.img_width, src_dimensions.0, offsets.0),
         (&mut dest_entry.specs.img_height, src_dimensions.1, offsets.1),
     ] {
-        fn needstest() {}
-
         if dest_dim.is_none() {
             if src_dim >= offset {
                 *dest_dim = Some(sp!(src_dim - offset));
@@ -663,8 +659,6 @@ fn update_entry_from_directory_source(
     );
     let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
     if src_dimensions != expected_src_dimensions {
-        fn needstest() {}
-
         return Err(emitter.emit(error!(
             "{}: wrong image dimensions (expected {}x{}, got {}x{})",
             fs.display_path(img_path),

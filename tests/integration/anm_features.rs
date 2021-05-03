@@ -107,7 +107,7 @@ script script1 {
 #pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
 
 entry {
-    path: "subdir/hi-10x18+105+9.png",
+    path: "subdir/hai-10x18+105+9.png",
     has_data: true,
     sprites: {},
 }"#,
@@ -118,7 +118,27 @@ entry {
             assert_eq!(specs.img_height, Some(sp!(18)));
             assert_eq!(specs.buf_width, Some(sp!(16)));
             assert_eq!(specs.buf_height, Some(sp!(32)));
-            check_data_for_10_18_105_9_image(&anm.entries[0].texture.as_ref().unwrap().data);
+            check_data_for_hai_10_18_argb_8888(&anm.entries[0].texture.as_ref().unwrap().data);
+        },
+    );
+
+    // This reads embedded image metadata to generate dummy data.
+    source_test!(
+        ANM_12, dummy,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    has_data: "dummy",
+    sprites: {},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            assert_eq!(data.len(), 4 * 10 * 18);
+            assert_eq!(&data[..4], &data[4..8]); // all pixels are the same (unlike the original "hai" image)
         },
     );
 }
@@ -312,6 +332,147 @@ entry {
     },
 );
 
+mod color_formats {
+    use super::*;
+
+    // This one is okay because it requires no conversion.
+    source_test!(
+        // Note for all_files_tested(): image source based on "th12-embedded-weird-format-source.anm.spec"
+        ANM_12, weird_identity_ok,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-weird-format-source.anm"
+
+entry {
+    path: "teeny.png",
+    has_data: true,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}
+        "#,
+        expect_no_warning: (),
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.img_format, Some(sp!(8)));
+            assert!(anm.entries[0].texture.is_some());
+        },
+    );
+
+    source_test!(
+        ANM_12, transcode_ok,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    has_data: true,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.img_format, Some(sp!(7)));
+            check_data_for_hai_10_18_gray_8(&anm.entries[0].texture.as_ref().unwrap().data);
+        },
+    );
+
+    source_test!(
+        ANM_12, bad_transcode_from,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-weird-format-source.anm"
+
+entry {
+    path: "teeny.png",
+    has_data: true,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "from unknown color format",
+    );
+
+    source_test!(
+        ANM_12, bad_transcode_into,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "lmao.png",
+    has_data: true,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "into unknown color format",
+    );
+
+    source_test!(
+        ANM_12, dummy_ok,
+        full_source: r#"
+entry {
+    path: "i-dont-exist.png",
+    has_data: "dummy",
+    img_width: 27,
+    img_height: 25,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            assert_eq!(data.len(), 1 * 27 * 25);
+            assert_eq!(&data[..1], &data[1..2]); // all pixels are the same
+        },
+    );
+
+    source_test!(
+        ANM_12, bad_dummy,
+        full_source: r#"
+entry {
+    path: "i-dont-exist.png",
+    has_data: "dummy",
+    img_width: 27,
+    img_height: 25,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "unknown color format",
+    );
+
+    source_test!(
+        ANM_12, image_ok,
+        full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hai-10x18.png",
+    has_data: true,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.img_format, Some(sp!(7)));
+            check_data_for_hai_10_18_gray_8(&anm.entries[0].texture.as_ref().unwrap().data);
+        },
+    );
+
+    source_test!(
+        ANM_12, bad_image,
+        full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-7x20.png",
+    has_data: true,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "into unknown color format",
+    );
+}
+
 // FIXME somehow group these image_source tests so that new formats are automatically tested?
 source_test!(
     STD_08, image_source_in_std,
@@ -386,7 +547,7 @@ source_test!(
 #pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/hi-10x18+105+9.png",
+    path: "subdir/hai-10x18+105+9.png",
     offset_x: 105,
     offset_y: 9,
     has_data: true,
@@ -400,15 +561,15 @@ entry {
         assert_eq!(specs.img_height, Some(sp!(18)));
         assert_eq!(specs.buf_width, Some(sp!(16)));
         assert_eq!(specs.buf_height, Some(sp!(32)));
-        check_data_for_10_18_105_9_image(&anm.entries[0].texture.as_ref().unwrap().data);
+        check_data_for_hai_10_18_argb_8888(&anm.entries[0].texture.as_ref().unwrap().data);
     },
 );
 
-// The test image "subdir/hi-10x18+105+9.png" has a special 2x2 marker in the top left:
+// The test image "subdir/hai-10x18.png" has a special 2x2 marker in the top left:
 //             gray-128  gray-192
 //             gray-48   gray-0
 // This can be used to check that the proper region was extracted.
-fn check_data_for_10_18_105_9_image(data: &[u8]) {
+fn check_data_for_hai_10_18_argb_8888(data: &[u8]) {
     let pixel_size = 4;
     let row_size = pixel_size * 10;
     assert_eq!(data.len(), row_size * 18);
@@ -419,6 +580,20 @@ fn check_data_for_10_18_105_9_image(data: &[u8]) {
     assert_eq!(
         &data[row_size..row_size + 2 * pixel_size],
         &[0x40, 0x40, 0x40, 0xFF, 0x00, 0x00, 0x00, 0xFF],
+    );
+}
+
+fn check_data_for_hai_10_18_gray_8(data: &[u8]) {
+    let pixel_size = 1;
+    let row_size = pixel_size * 10;
+    assert_eq!(data.len(), row_size * 18);
+    assert_eq!(
+        &data[..2 * pixel_size],
+        &[0x80, 0xC0],
+    );
+    assert_eq!(
+        &data[row_size..row_size + 2 * pixel_size],
+        &[0x40, 0x00],
     );
 }
 
@@ -470,7 +645,7 @@ source_test!(
 #pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/hi-10x18+105+9.png",
+    path: "subdir/hai-10x18+105+9.png",
     offset_x: 105,
     offset_y: 9,
     has_data: false,
@@ -587,6 +762,21 @@ entry {
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
     expect_fail: "wrong image dimensions",
+);
+
+source_test!(
+    ANM_12, png_import_with_offset_too_big,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    offset_x: 1050,
+    offset_y: 90,
+    has_data: true,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    expect_fail: "image too small",
 );
 
 source_test!(

@@ -1,0 +1,7 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+error: cannot transcode from unknown color format 8 (for image 'teeny.png')
+
+

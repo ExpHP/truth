@@ -26,9 +26,27 @@ script -45 script0 {
 }
 
 
+// an image with a marker suitable for testing transcoding
+entry {
+    path: "subdir/hai-10x18.png",  // the image from resources/dir-with-images
+    has_data: true,
+    img_width: 10,
+    img_height: 18,
+    img_format: 1,
+    offset_x: 0,
+    offset_y: 0,
+    buf_width: 16,
+    buf_height: 32,
+    colorkey: 0,
+    memory_priority: 0,
+    low_res_scale: false,
+    sprites: {sprite1: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 18.0}},
+}
+
+
 // an image with an offset
 entry {
-    path: "subdir/hi-10x18+105+9.png",  // the image from resources/dir-with-images
+    path: "subdir/hai-10x18+105+9.png",  // the image from resources/dir-with-images
     has_data: true,
     img_width: 10,
     img_height: 18,
