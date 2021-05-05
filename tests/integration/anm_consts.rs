@@ -1,5 +1,3 @@
-use truth::sp;
-
 use crate::integration_impl::formats::*;
 use crate::integration_impl::{TestFile, expected};
 
