@@ -8,11 +8,12 @@ Multipass compiler for touhou binary script files.
 
 truth stands for "**t**ouhou **ru**st **th**ing".  Or maybe it stands for "**t**ouhou **ru**st **th**tk". I dunno, I mostly just picked it because `trustd` and `truecl` sound pretty dope.
 
-## Development status
+Tools provided:
 
-* `trustd`: in beta; **feature complete, please give it a try!**
-* `truanm`: in beta
-* `trumsg`: in beta
+* `trustd` for `.std` files
+* `truanm` for `.anm` files
+* `trumsg` for most msg files
+* `trumsg --mission` for `mission.msg`
 
 Supports **all danmaku titles TH06–TH17.**  That is:
 
@@ -20,20 +21,20 @@ Supports **all danmaku titles TH06–TH17.**  That is:
 > 
 > Uwabami Breakers is also supported (use `-g alcostg` or `-g 103`)
 
-## Docs
-
-See these doc pages:
-
-* A primer on [script syntax](./doc/syntax.md).
-* A [comparison to thtk](./doc/comparison-to-thtk.md).
-
-## Downloading
+# Downloading
 
 Get the latest Windows releases [right here on GitHub](https://github.com/ExpHP/truth/tags)!
 
 Development builds may also be posted occationally on the `#tools-dev` channel on the [ZUNcode discord server](https://discord.gg/fvPJvHJ).
 
 For even more bleeding edge, see [Building from source](#building-and-installing-from-source) below.
+
+## Docs
+
+See these doc pages:
+
+* A primer on [script syntax](./doc/syntax.md).
+* A [comparison to thtk](./doc/comparison-to-thtk.md).
 
 ## Using
 
