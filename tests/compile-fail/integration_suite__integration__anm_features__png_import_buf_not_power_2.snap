@@ -1,0 +1,17 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+warning: buf_height = 21 should be a power of two
+  ┌─ <input>:8:17
+  │
+8 │     buf_height: 21,
+  │                 ^^ not a power of two
+
+warning: buf_width = 7 should be a power of two
+  ┌─ <input>:7:16
+  │
+7 │     buf_width: 7,
+  │                ^ not a power of two
+
+

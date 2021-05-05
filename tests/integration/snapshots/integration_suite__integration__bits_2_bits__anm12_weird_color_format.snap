@@ -1,0 +1,21 @@
+---
+source: tests/integration/bits_2_bits.rs
+expression: s
+---
+#pragma mapfile "map/any.anmm"
+
+entry {
+    path: "teeny.png",
+    img_width: 27,
+    img_height: 25,
+    img_format: 8,
+    buf_width: 128,
+    buf_height: 128,
+    memory_priority: 0,
+    sprites: {sprite0: {x: 0.0, y: 0.0, w: 40.0, h: 60.0}},
+}
+
+
+script 0 script0 {
+}
+

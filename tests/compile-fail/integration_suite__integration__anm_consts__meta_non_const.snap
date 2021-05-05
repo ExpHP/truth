@@ -1,5 +1,5 @@
 ---
-source: tests/integration/anm_features.rs
+source: tests/integration/anm_consts.rs
 expression: stderr
 ---
 error: const expression required

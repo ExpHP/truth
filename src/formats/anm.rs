@@ -1,20 +1,22 @@
 use std::fmt;
 use std::io;
 use std::num::NonZeroU64;
+use std::path::{Path, PathBuf};
 
 use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
-use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::{Emitter};
+use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
+use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
-use crate::value::{ScalarType};
+use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
 use crate::passes::DecompileKind;
 use crate::resolve::RegId;
@@ -49,8 +51,11 @@ impl AnmFile {
     /// If multiple entries have the same path, then the first one with that path in `other` applies to the first
     /// one with that path in `self`, and so on in matching order.  This is to facilitate recompilation of files
     /// like `ascii.anm`, which have multiple `"@R"` entries.
-    pub fn apply_image_source(&mut self, other: Self) -> Result<(), ErrorReported> {
-        apply_image_source(self, other)
+    pub fn apply_image_source(&mut self, src: ImageSource, fs: &Fs<'_>) -> Result<(), ErrorReported> {
+        match src {
+            ImageSource::Anm(other) => apply_anm_image_source(self, other).map_err(|d| fs.emitter.emit(d)),
+            ImageSource::Directory(path) => apply_directory_image_source(fs, self, &path),
+        }
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
@@ -74,6 +79,7 @@ impl AnmFile {
 pub struct Entry {
     pub specs: EntrySpecs,
     pub texture: Option<Texture>,
+    // FIXME: Should hold PathBuf especially since we do equality comparisons on it
     pub path: Sp<String>,
     pub path_2: Option<Sp<String>>,
     pub scripts: IndexMap<Sp<Ident>, Script>,
@@ -86,68 +92,242 @@ pub struct Script {
     pub instrs: Vec<RawInstr>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EntrySpecs {
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub format: Option<u32>,
+    // NOTE: While most file type objects contain plain values (using things like 'field_default'
+    // to handle defaults in meta conversions), this has to contain Options for the sake of the
+    // "merging" of entries that occurs when --image-source is used.
+    //
+    // It makes this type really annoying to work with.  But that's life.
+
+    /// Dimensions of an embedded image.  These are the values that will be written to the THTX section.
+    ///
+    /// It is possible for these to be `Some(_)` even if there is no embedded image, in particular
+    /// after metadata is copied from an image source for a `has_data: false` entry.
+    pub img_width: Option<Sp<u32>>,
+    pub img_height: Option<Sp<u32>>,
+    /// Color format of an embedded image.  This is the value that will be written to the THTX section.
+    ///
+    /// The number MAY correspond to a recognized [`ColorFormat`], but does not have to.
+    pub img_format: Option<Sp<u32>>,
+
+    /// When `true`, a THTX section with an embedded image will be stored.
+    pub has_data: Option<HasData>,
+
+    /// Dimensions of the buffer created at runtime for Direct3D.
+    ///
+    /// These should always be powers of 2.
+    pub buf_width: Option<Sp<u32>>,
+    pub buf_height: Option<Sp<u32>>,
+    /// Color format of the buffer created by the game at runtime for Direct3D.
+    pub buf_format: Option<Sp<u32>>,
+    /// A transparent color for old games.
     pub colorkey: Option<u32>, // Only in old format
+
+    /// A field of ANM entries that appears to represent the offset into the original image file
+    /// on ZUN's PC from which the embedded image was extracted.
+    ///
+    /// Not sure if it has any meaning at runtime in-game. (FIXME)
+    ///
+    /// For reasons that have been lost to the sands of time, when thanm extracts an image that sets
+    /// this field, it produces a PNG that is padded on the left and top so that the extracted data
+    /// begins at this pixel offset. thcrap also uses this offset when hot-swapping image files,
+    /// since it is designed to work with thanm.
+    ///
+    /// Since we want to be compatible with thcrap, we have to do this as well...
     pub offset_x: Option<u32>,
     pub offset_y: Option<u32>,
+    /// :shrug:
     pub memory_priority: Option<u32>,
-    pub has_data: Option<bool>,
+
+    /// A field of an entry that tells the game to scale down certain hi-res textures on lower resolutions,
+    /// e.g. the border around the game.  (not used for things like `ascii.anm` which have dedicated files
+    /// for each resolution)
     pub low_res_scale: Option<bool>,
 }
 
+impl EntrySpecs {
+    // (this takes Game instead of FileFormat so it can be public for integration tests)
+    pub fn fill_defaults(&self, game: Game) -> EntrySpecs {
+        let file_format = game_format(game);
+
+        let img_format = Some(self.img_format.unwrap_or(sp!(DEFAULT_FORMAT)));
+        EntrySpecs {
+            img_width: self.img_width,
+            img_height: self.img_height,
+            buf_width: self.buf_width.or(self.img_width.map(|x| x.sp_map(u32::next_power_of_two))),
+            buf_height: self.buf_height.or(self.img_height.map(|x| x.sp_map(u32::next_power_of_two))),
+            img_format,
+            buf_format: self.buf_format.or(img_format),
+            offset_x: Some(self.offset_x.unwrap_or(0)),
+            offset_y: Some(self.offset_y.unwrap_or(0)),
+            colorkey: Some(self.colorkey.unwrap_or(0)),
+            memory_priority: Some(self.memory_priority.unwrap_or(file_format.default_memory_priority())),
+            low_res_scale: Some(self.low_res_scale.unwrap_or(DEFAULT_LOW_RES_SCALE)),
+            has_data: Some(self.has_data.unwrap_or(DEFAULT_HAS_DATA)),
+        }
+    }
+
+    pub fn suppress_defaults(&self, game: Game) -> EntrySpecs {
+        let file_format = game_format(game);
+
+        EntrySpecs {
+            img_width: self.img_width,
+            img_height: self.img_height,
+            // don't suppress buf_width and buf_height.  By always showing them in decompiled files, we increase the
+            // likelihood of a user noticing that there's something important about powers of 2 in image dimensions,
+            // possibly helping them to figure out why their non-power-of-2 PNG file looks bad when scrolled.
+            buf_width: self.buf_width,
+            buf_height: self.buf_height,
+
+            img_format: self.img_format.filter(|&x| x != DEFAULT_FORMAT),
+            buf_format: self.buf_format.filter(|&x| x != self.img_format.unwrap_or(sp!(DEFAULT_FORMAT))),
+            offset_x: self.offset_x.filter(|&x| x != 0),
+            offset_y: self.offset_y.filter(|&x| x != 0),
+            colorkey: self.colorkey.filter(|&x| x != 0),
+            memory_priority: self.memory_priority.filter(|&x| x != file_format.default_memory_priority()),
+            low_res_scale: self.low_res_scale.filter(|&x| x != DEFAULT_LOW_RES_SCALE),
+            has_data: self.has_data.filter(|&x| x != DEFAULT_HAS_DATA),
+        }
+    }
+}
+
+const DEFAULT_FORMAT: u32 = 1;
+const DEFAULT_LOW_RES_SCALE: bool = false;
+const DEFAULT_HAS_DATA: HasData = HasData::True;
+
 impl Entry {
-    fn make_meta(&self) -> meta::Fields {
+    fn make_meta(&self, file_format: &FileFormat) -> meta::Fields {
+        let mut specs = self.specs.clone();
+
+        // derive properties of the runtime buffer based on the image
+        if let (Some(buf_width), Some(img_width)) = (specs.buf_width, specs.img_width) {
+            if buf_width == img_width.next_power_of_two() {
+                specs.buf_width = None;
+            }
+        }
+
+        if let (Some(buf_height), Some(img_height)) = (specs.buf_height, specs.img_height) {
+            if buf_height == img_height.next_power_of_two() {
+                specs.buf_height = None;
+            }
+        }
+
+        if let (Some(buf_format), Some(img_format)) = (specs.buf_format, specs.img_format) {
+            if buf_format == img_format {
+                specs.buf_format = None;
+            }
+        }
+
         let EntrySpecs {
-            width, height, format, colorkey, offset_x, offset_y,
-            memory_priority, has_data, low_res_scale,
-        } = &self.specs;
+            buf_width, buf_height, buf_format, colorkey, offset_x, offset_y,
+            img_width, img_height, img_format, memory_priority, has_data, low_res_scale,
+        } = &specs.suppress_defaults(file_format.game);
 
         Meta::make_object()
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
             .field_opt("has_data", has_data.as_ref())
-            .field_opt("width", width.as_ref())
-            .field_opt("height", height.as_ref())
+            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
+            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
+            .field_opt("img_format", img_format.as_ref().map(|x| format_to_meta(x.value)))
             .field_opt("offset_x", offset_x.as_ref())
             .field_opt("offset_y", offset_y.as_ref())
-            .field_opt("format", format.as_ref())
             .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
+            .field_opt("buf_width", buf_width.as_ref().map(|x| x.value))
+            .field_opt("buf_height", buf_height.as_ref().map(|x| x.value))
+            .field_opt("buf_format", buf_format.as_ref().map(|x| format_to_meta(x.value)))
             .field_opt("memory_priority", memory_priority.as_ref())
             .field_opt("low_res_scale", low_res_scale.as_ref())
-            .with_mut(|b| if let Some(texture) = &self.texture {
-                b.field("thtx_format", &texture.thtx.format);
-                b.field("thtx_width", &texture.thtx.width);
-                b.field("thtx_height", &texture.thtx.height);
-            })
             .field("sprites", &self.sprites)
             .build_fields()
     }
 
-    fn from_fields(fields: &Sp<meta::Fields>) -> Result<Self, FromMetaError<'_>> {
+    fn from_fields<'a>(fields: &'a Sp<meta::Fields>, emitter: &impl Emitter) -> Result<Self, FromMetaError<'a>> {
         meta::ParseObject::scope(fields, |m| {
-            let format = m.get_field("format")?;
-            let width = m.get_field("width")?;
-            let height = m.get_field("height")?;
+            let deprecated_format = m.get_field_and_key("format")?;
+            let deprecated_width = m.get_field_and_key("width")?;
+            let deprecated_height = m.get_field_and_key("height")?;
+            let mut buf_format = m.get_field::<Sp<u32>>("buf_format")?;
+            let mut buf_width = m.get_field::<Sp<u32>>("buf_width")?;
+            let mut buf_height = m.get_field::<Sp<u32>>("buf_height")?;
+            for (deprecated_key_value, value) in vec![
+                (deprecated_format, &mut buf_format),
+                (deprecated_width, &mut buf_width),
+                (deprecated_height, &mut buf_height),
+            ] {
+                static ONCE: std::sync::Once = std::sync::Once::new();
+
+                if let Some((deprecated_key, deprecated_value)) = deprecated_key_value {
+                    ONCE.call_once(|| emitter.emit(warning!(
+                        message("\
+                            deprecation warning: 'format', 'width', and 'height' have been \
+                            renamed to 'buf_format', 'buf_width', and 'buf_height'.  The old \
+                            names will be removed in a future version.\
+                        "),
+                        primary(deprecated_key, "deprecated key"),
+                    )).ignore());
+
+                    value.get_or_insert(deprecated_value);
+                }
+            }
+
+            let deprecated_img_format = m.get_field_and_key("thtx_format")?;
+            let deprecated_img_width = m.get_field_and_key("thtx_width")?;
+            let deprecated_img_height = m.get_field_and_key("thtx_height")?;
+            let mut img_format = m.get_field::<Sp<u32>>("img_format")?;
+            let mut img_width = m.get_field::<Sp<u32>>("img_width")?;
+            let mut img_height = m.get_field::<Sp<u32>>("img_height")?;
+            for (deprecated_key_value, value) in vec![
+                (deprecated_img_format, &mut img_format),
+                (deprecated_img_width, &mut img_width),
+                (deprecated_img_height, &mut img_height),
+            ] {
+                static ONCE: std::sync::Once = std::sync::Once::new();
+
+                if let Some((deprecated_key, deprecated_value)) = deprecated_key_value {
+                    ONCE.call_once(|| emitter.emit(warning!(
+                        message("\
+                            deprecation warning: 'thtx_format', 'thtx_width', and 'thtx_height' have \
+                            been renamed to 'img_format', 'img_width', and 'img_height'.  The old \
+                            names will be removed in a future version.\
+                        "),
+                        primary(deprecated_key, "deprecated key"),
+                    )).ignore());
+
+                    value.get_or_insert(deprecated_value);
+                }
+            }
+
             let colorkey = m.get_field("colorkey")?;
             let offset_x = m.get_field("offset_x")?;
             let offset_y = m.get_field("offset_y")?;
             let memory_priority = m.get_field("memory_priority")?;
             let low_res_scale = m.get_field("low_res_scale")?;
             let has_data = m.get_field("has_data")?;
-            let path = m.expect_field("path")?;
+            let path: Sp<String> = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let texture = None;
-            m.allow_field("thtx_format")?;
-            m.allow_field("thtx_width")?;
-            m.allow_field("thtx_height")?;
             let sprites = m.get_field("sprites")?.unwrap_or_default();
 
+            for (field, buf_value) in vec![
+                ("height", buf_height),
+                ("width", buf_width),
+            ] {
+                if let Some(buf_value) = buf_value {
+                    if !buf_value.value.is_power_of_two() && !path.starts_with("@") {
+                        emitter.emit(warning!(
+                            message("buf_{} = {} should be a power of two", field, buf_value),
+                            primary(buf_value, "not a power of two")
+                        )).ignore();
+                    }
+                }
+            }
+
             let specs = EntrySpecs {
-                width, height, format, colorkey, offset_x, offset_y,
+                buf_width, buf_height, buf_format,
+                img_width, img_height, img_format,
+                colorkey, offset_x, offset_y,
                 memory_priority, has_data, low_res_scale,
             };
             let scripts = Default::default();
@@ -156,10 +336,72 @@ impl Entry {
     }
 }
 
+fn format_to_meta(format_num: u32) -> Meta {
+    for known_format in ColorFormat::get_all() {
+        if format_num == known_format as u32 {
+            return Meta::Scalar(sp!(ast::Expr::Var(sp!(ast::Var {
+                name: ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap()).into(),
+                ty_sigil: None,
+            }))));
+        }
+    }
+    format_num.to_meta()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HasData {
+    /// Store no pixel data.
+    False,
+    /// Store pixel data copied from an image file.
+    True,
+    /// Generate and store dummy pixel data to be hot-swapped by thcrap.
+    Dummy,
+}
+
+impl From<bool> for HasData {
+    fn from(b: bool) -> Self { match b {
+        true => HasData::True,
+        false => HasData::False,
+    }}
+}
+
+impl<'a> FromMeta<'a> for HasData {
+    fn from_meta(meta: &'a Sp<Meta>) -> Result<Self, FromMetaError<'a>> {
+        match meta.parse()? {
+            ScalarValue::Int(0) => Ok(HasData::False),
+            ScalarValue::Int(_) => Ok(HasData::True),
+            ScalarValue::String(s) if s == "dummy" => Ok(HasData::Dummy),
+            _ => Err(FromMetaError::expected("a boolean or the string \"dummy\"", meta)),
+        }
+    }
+}
+
+impl ToMeta for HasData {
+    fn to_meta(&self) -> Meta {
+        match self {
+            HasData::False => false.to_meta(),
+            HasData::True => true.to_meta(),
+            HasData::Dummy => "dummy".to_meta(),
+        }
+    }
+}
+
+/// An embedded image (or at least metadata about an image) in an ANM entry.
 #[derive(Clone)]
 pub struct Texture {
-    pub thtx: ThtxHeader,
-    pub data: Option<Vec<u8>>,
+    /// Raw pixel data, to be interpreted according to [`EntrySpecs::img_width`], [`EntrySpecs::img_height`],
+    /// and [`EntrySpecs::img_format`].
+    ///
+    /// (they are stored separately because, when using `has_data: false`, we may copy those attributes from
+    ///  an image source without copying the pixel data, so that they can be used to generate defaults for
+    /// `buf_{width,height,format}`)
+    pub data: Vec<u8>,
+}
+
+impl fmt::Debug for Texture {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Texture(_)")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -167,15 +409,6 @@ pub struct ThtxHeader {
     pub format: u32,
     pub width: u32,
     pub height: u32,
-}
-
-impl fmt::Debug for Texture {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Texture")
-            .field("thtx", &self.thtx)
-            .field("data", &self.data.as_ref().map(|_| (..)))
-            .finish()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -224,7 +457,7 @@ fn decompile(
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
-            fields: sp!(entry.make_meta()),
+            fields: sp!(entry.make_meta(format)),
         }));
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
@@ -254,7 +487,15 @@ fn decompile(
     Ok(out)
 }
 
-fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), ErrorReported> {
+// =============================================================================
+
+#[derive(Debug, Clone)]
+pub enum ImageSource {
+    Anm(AnmFile),
+    Directory(PathBuf),
+}
+
+fn apply_anm_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), Diagnostic> {
     let mut src_entries_by_path: IndexMap<_, Vec<_>> = IndexMap::new();
     for entry in src_file.entries {
         src_entries_by_path.entry(entry.path.clone()).or_default().push(entry);
@@ -265,43 +506,189 @@ fn apply_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), 
 
     for dest_entry in &mut dest_file.entries {
         if let Some(src_entry) = src_entries_by_path.get_mut(&dest_entry.path).and_then(|vec| vec.pop()) {
-            update_entry_from_image_source(dest_entry, src_entry)?;
+            update_entry_from_anm_image_source(dest_entry, src_entry)?;
         }
     }
     Ok(())
 }
 
-fn update_entry_from_image_source(dest_file: &mut Entry, src_file: Entry) -> Result<(), ErrorReported> {
+fn update_entry_from_anm_image_source(dest_file: &mut Entry, mut src_file: Entry) -> Result<(), Diagnostic> {
     let dest_specs = &mut dest_file.specs;
 
     // though it's tedious, we fully unpack this struct to that the compiler doesn't
     // let us forget to update this function when we add a new field.
     let EntrySpecs {
-        width: src_width, height: src_height, format: src_format,
+        img_width: src_img_width, img_height: src_img_height, img_format: src_img_format,
+        buf_width: src_buf_width, buf_height: src_buf_height, buf_format: src_buf_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
         memory_priority: src_memory_priority, has_data: src_has_data,
         low_res_scale: src_low_res_scale,
     } = src_file.specs;
 
-    fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
-        *dest = dest.take().or(src);
-    }
-
-    or_inplace(&mut dest_specs.width, src_width);
-    or_inplace(&mut dest_specs.height, src_height);
-    or_inplace(&mut dest_specs.format, src_format);
+    or_inplace(&mut dest_specs.img_width, src_img_width);
+    or_inplace(&mut dest_specs.img_height, src_img_height);
+    or_inplace(&mut dest_specs.img_format, src_img_format);
+    or_inplace(&mut dest_specs.buf_width, src_buf_width);
+    or_inplace(&mut dest_specs.buf_height, src_buf_height);
+    or_inplace(&mut dest_specs.buf_format, src_buf_format);
     or_inplace(&mut dest_specs.colorkey, src_colorkey);
     or_inplace(&mut dest_specs.offset_x, src_offset_x);
     or_inplace(&mut dest_specs.offset_y, src_offset_y);
     or_inplace(&mut dest_specs.memory_priority, src_memory_priority);
-    or_inplace(&mut dest_specs.has_data, src_has_data);
     or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
+    or_inplace(&mut dest_specs.has_data, src_has_data);
 
-    if dest_specs.has_data != Some(false) {
-        or_inplace(&mut dest_file.texture, src_file.texture);
+    for (dest_dim, src_dim) in vec![
+        (dest_specs.img_width, src_img_width),
+        (dest_specs.img_height, src_img_height),
+    ] {
+        if src_dim.is_some() && dest_dim != src_dim {
+            // (we can safely unwrap all of these options because at least one src_dim is Some,
+            //  which implies both of them are, which also implies that the dest_dims are Some)
+            return Err(error!(
+                "mismatch in embedded image size for '{}': expected {}x{}, got {}x{}",
+                dest_file.path,
+                dest_specs.img_width.unwrap(), dest_specs.img_height.unwrap(),
+                src_img_width.unwrap(), src_img_height.unwrap(),
+            ));
+        }
+    }
+
+    // Importing a pixel buffer from an ANM file.  (offset has no effect here)
+    if dest_specs.has_data.unwrap_or(DEFAULT_HAS_DATA) == HasData::True {
+        if let (None, Some(src_texture)) = (&dest_file.texture, src_file.texture.take()) {
+            dest_specs.has_data = Some(HasData::True);
+
+            let src_format_num = src_file.specs.img_format.expect("image source has pixel data but no format!?");
+            let dest_format_num = dest_file.specs.img_format.expect("option was or-ed with Some so can't be None");
+            if src_format_num == dest_format_num {
+                dest_file.texture = Some(src_texture.clone());
+            } else {
+                let dest_cformat = ColorFormat::from_format_num(dest_format_num.value).ok_or_else(|| error!(
+                    message("cannot transcode into unknown color format {}", dest_format_num),
+                    primary(dest_format_num, "unknown color format"),
+                ))?;
+                let src_cformat = ColorFormat::from_format_num(src_format_num.value).ok_or_else(|| error!(
+                    // this value has no span so produce a slightly different error
+                    "cannot transcode from unknown color format {} (for image '{}')",
+                    src_format_num, dest_file.path,
+                ))?;
+
+                let argb = src_cformat.transcode_to_argb_8888(&src_texture.data);
+                let dest_data = dest_cformat.transcode_from_argb_8888(&argb);
+                dest_file.texture = Some(Texture { data: dest_data });
+            } // if src_format_num == dest_format_num
+        } // if let ...
+    } // if dest_specs.has_data....
+
+    Ok(())
+}
+
+fn apply_directory_image_source(
+    fs: &Fs,
+    dest: &mut AnmFile,
+    src_directory: &Path,
+) -> Result<(), ErrorReported> {
+    for entry in dest.entries.iter_mut() {
+        update_entry_from_directory_source(fs, entry, src_directory)?;
+    }
+    Ok(())
+}
+
+fn update_entry_from_directory_source(
+    fs: &Fs,
+    dest_entry: &mut Entry,
+    src_directory: &Path,
+) -> Result<(), ErrorReported> {
+    use image::{GenericImage, GenericImageView};
+
+    let ref emitter = fs.emitter;
+    let ref img_path = src_directory.join(&dest_entry.path.value);
+    if !img_path.is_file() {  // race condition but not a big deal
+        return Ok(());
+    }
+
+    let (src_image, src_dimensions): (Option<image::DynamicImage>, _);
+    match dest_entry.specs.has_data.unwrap_or(DEFAULT_HAS_DATA) {
+        HasData::True => {
+            let image = image::open(img_path).map_err(|e| emitter.emit(error!(
+                message("{}: {}", fs.display_path(img_path), e)
+            )))?;
+            src_dimensions = image.dimensions();
+            src_image = Some(image);
+        },
+        HasData::Dummy | HasData::False => {
+            let dims = image::image_dimensions(img_path).map_err(|e| emitter.emit(error!(
+                message("{}: {}", fs.display_path(img_path), e)
+            )))?;
+            src_image = None;
+            src_dimensions = dims;
+        },
+    }
+
+    // these must be well-defined for us to continue, so fill in defaults early
+    let dest_format = *dest_entry.specs.img_format.get_or_insert(sp!(DEFAULT_FORMAT));
+    let offsets = (
+        *dest_entry.specs.offset_x.get_or_insert(0),
+        *dest_entry.specs.offset_y.get_or_insert(0),
+    );
+
+    // set missing dest dimensions
+    for (dest_dim, src_dim, offset) in vec![
+        (&mut dest_entry.specs.img_width, src_dimensions.0, offsets.0),
+        (&mut dest_entry.specs.img_height, src_dimensions.1, offsets.1),
+    ] {
+        if dest_dim.is_none() {
+            if src_dim >= offset {
+                *dest_dim = Some(sp!(src_dim - offset));
+            } else {
+                return Err(emitter.emit(error!(
+                    "{}: image too small ({}x{}) for an offset of ({}, {})",
+                    fs.display_path(img_path),
+                    src_dimensions.0, src_dimensions.1,
+                    offsets.0, offsets.1,
+                )))
+            }
+        }
+    }
+
+    // all dest dimensions are set now, but pre-existing ones might not match the image
+    let dest_dimensions = (
+        dest_entry.specs.img_width.unwrap().value,
+        dest_entry.specs.img_height.unwrap().value,
+    );
+    let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
+    if src_dimensions != expected_src_dimensions {
+        return Err(emitter.emit(error!(
+            "{}: wrong image dimensions (expected {}x{}, got {}x{})",
+            fs.display_path(img_path),
+            expected_src_dimensions.0, expected_src_dimensions.1,
+            src_dimensions.0, src_dimensions.1,
+        )))
+    }
+
+    // if we read an image, load it into the right format
+    if dest_entry.texture.is_none() && src_image.is_some() {
+        let dest_cformat = ColorFormat::from_format_num(dest_format.value).ok_or_else(|| emitter.emit(error!(
+            message("cannot transcode into unknown color format {}", dest_format),
+            primary(dest_format, "unknown color format"),
+        )))?;
+
+        let src_data_argb = {
+            src_image.unwrap().into_bgra8()
+                .sub_image(offsets.0, offsets.1, dest_dimensions.0, dest_dimensions.1)
+                .to_image().into_raw()
+        };
+
+        let dest_data = dest_cformat.transcode_from_argb_8888(&src_data_argb);
+        dest_entry.texture = Some(Texture { data: dest_data });
     }
 
     Ok(())
+}
+
+fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
+    *dest = dest.take().or(src);
 }
 
 // =============================================================================
@@ -316,9 +703,10 @@ fn compile(
     let mut ast = ast.clone();
     crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
 
-    let mut extra_type_checks = vec![];
+    define_color_format_consts(ctx);
 
     // an early pass to define global constants for sprite and script names
+    let mut extra_type_checks = vec![];
     let script_ids = gather_script_ids(&ast, ctx)?;
     for (index, &(ref script_name, _)) in script_ids.values().enumerate() {
         let const_value: Sp<ast::Expr> = sp!(script_name.span => (index as i32).into());
@@ -352,7 +740,7 @@ fn compile(
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
-                cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.emitter.emit(e))?);
+                cur_entry = Some(Entry::from_fields(fields, ctx.emitter).map_err(|e| ctx.emitter.emit(e))?);
                 cur_group = vec![];
             },
             &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
@@ -405,6 +793,17 @@ fn write_thecl_defs(
 
 // =============================================================================
 
+/// Define `FORMAT_ARGB_8888` and etc.
+fn define_color_format_consts(
+    ctx: &mut CompilerContext,
+) {
+    for format in ColorFormat::get_all() {
+        let ident = format.const_name().parse::<Ident>().unwrap();
+        let ident = ctx.resolutions.attach_fresh_res(ident);
+        ctx.define_auto_const_var(sp!(ident), ScalarType::Int, sp!((format as u32 as i32).into()));
+    }
+}
+
 // (this returns a Vec instead of a Map because there may be multiple sprites with the same Ident)
 fn gather_sprite_id_exprs(
     ast: &ast::ScriptFile,
@@ -444,7 +843,6 @@ fn gather_sprite_id_exprs(
             out.push((res_ident, sprite_id));
         }
     }
-
     Ok(out)
 }
 
@@ -634,19 +1032,25 @@ fn read_entry(
         return Err(emitter.emit(error!("inconsistency between thtx_offset and has_data/name")));
     }
 
-    let texture = match header_data.thtx_offset {
-        None => None,
+    let (tex_info, texture) = match header_data.thtx_offset {
+        None => (None, None),
         Some(n) => {
             reader.seek_to(entry_pos + n.get())?;
-            Some(read_texture(reader, emitter, with_images)?)
+            let (tex_info, maybe_texture) = read_texture(reader, emitter, with_images)?;
+            (Some(tex_info), maybe_texture)
         },
     };
     let specs = EntrySpecs {
-        width: Some(header_data.width), height: Some(header_data.height),
-        format: Some(header_data.format), colorkey: Some(header_data.colorkey),
+        buf_width: Some(sp!(header_data.width)),
+        buf_height: Some(sp!(header_data.height)),
+        buf_format: Some(sp!(header_data.format)),
+        img_width: tex_info.as_ref().map(|x| sp!(x.width)),
+        img_height: tex_info.as_ref().map(|x| sp!(x.height)),
+        img_format: tex_info.as_ref().map(|x| sp!(x.format)),
+        colorkey: Some(header_data.colorkey),
         offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
         memory_priority: Some(header_data.memory_priority),
-        has_data: Some(header_data.has_data != 0),
+        has_data: Some(HasData::from(header_data.has_data != 0)),
         low_res_scale: Some(header_data.low_res_scale != 0),
     };
 
@@ -723,46 +1127,57 @@ fn write_entry(
     let entry_pos = w.pos()?;
 
     let EntrySpecs {
-        width, height, format, colorkey, offset_x, offset_y, memory_priority,
+        buf_width, buf_height, buf_format,
+        img_width, img_height, img_format,
+        colorkey, offset_x, offset_y, memory_priority,
         has_data, low_res_scale,
-    } = entry.specs;
+    } = entry.specs.fill_defaults(file_format.game);
 
-    fn missing(emitter: &impl Emitter, problem: &str) -> ErrorReported {
-        const SUGGESTION: &'static str = "(if this data is available in an existing anm file, try using `-i ANM_FILE`)";
-
-        emitter.emit(error!(message("{}", problem), note("{}", SUGGESTION)))
-    }
-
-    emitter.chain_with(|f| write!(f, "in header"), |emitter| {
-        macro_rules! expect {
-            ($name:ident) => { match $name {
-                Some(x) => x,
-                None => {
-                    let problem = format!("missing required field '{}'!", stringify!($name));
-                    return Err(missing(emitter, &problem));
-                },
-            }};
+    fn missing(emitter: &impl Emitter, problem: &str, note_2: Option<&str>) -> ErrorReported {
+        let mut diag = error!("{}", problem);
+        diag.note(format!("if this data is available in an existing anm file, try using '-i ANM_FILE'"));
+        if let Some(note) = note_2 {
+            diag.note(note.to_string());
         }
 
-        file_format.write_header(w, &EntryHeaderData {
-            width: expect!(width),
-            height: expect!(height),
-            format: expect!(format),
-            colorkey: expect!(colorkey),
-            offset_x: expect!(offset_x),
-            offset_y: expect!(offset_y),
-            memory_priority: expect!(memory_priority),
-            has_data: expect!(has_data) as u32,
-            low_res_scale: expect!(low_res_scale) as u32,
-            version: file_format.version as u32,
-            num_sprites: entry.sprites.len() as u32,
-            num_scripts: entry.scripts.len() as u32,
-            // we will overwrite these later
-            name_offset: 0, secondary_name_offset: None,
-            next_offset: 0, thtx_offset: None,
-        })
+        emitter.emit(diag)
+    }
+
+    let colorkey = colorkey.expect("has default");
+    let offset_x = offset_x.expect("has default");
+    let offset_y = offset_y.expect("has default");
+    let memory_priority = memory_priority.expect("has default");
+    let has_data = has_data.expect("has default");
+    let low_res_scale = low_res_scale.expect("has default");
+    let img_format = img_format.expect("has default");
+    let buf_format = buf_format.expect("has default");
+
+    macro_rules! expect {
+        ($name:ident) => {
+            $name.ok_or_else(|| {
+                let problem = format!("missing required field '{}'!", stringify!($name));
+                missing(emitter, &problem, None)
+            })?
+        };
+    }
+
+    file_format.write_header(w, &EntryHeaderData {
+        width: expect!(buf_width).value,
+        height: expect!(buf_height).value,
+        format: buf_format.value,
+        colorkey,
+        offset_x,
+        offset_y,
+        memory_priority,
+        low_res_scale: low_res_scale as u32,
+        has_data: has_data as u32,
+        version: file_format.version as u32,
+        num_sprites: entry.sprites.len() as u32,
+        num_scripts: entry.scripts.len() as u32,
+        // we will overwrite these later
+        name_offset: 0, secondary_name_offset: None,
+        next_offset: 0, thtx_offset: None,
     })?;
-    let has_data = has_data.expect("already checked");
 
     let sprite_offsets_pos = w.pos()?;
     w.write_u32s(&vec![0; entry.sprites.len()])?;
@@ -798,20 +1213,71 @@ fn write_entry(
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    if has_data {
-        match &entry.texture {
+    match has_data {
+        HasData::True => match &entry.texture {
             None => {
-                let problem = format!("'has_data' is true, but there's no bitmap data available!");
-                return Err(missing(emitter, &problem));
+                let problem = "no bitmap data available!";
+                let note_2 = "alternatively, use 'has_data: false' to compile without an image";
+                return Err(missing(emitter, problem, Some(note_2)));
             },
             Some(texture) => {
+                let info = ThtxHeader {
+                    width: img_width.expect("have texture but somehow missing img_width?!").value,
+                    height: img_height.expect("have texture but somehow missing img_height?!").value,
+                    format: img_format.value,
+                };
                 texture_offset = w.pos()? - entry_pos;
-                write_texture(w, texture)?;
+                write_texture(w, &info, texture)?;
             },
-        }
-    };
+        }, // HasData::True => ...
+
+        HasData::Dummy => {
+            texture_offset = w.pos()? - entry_pos;
+
+            macro_rules! expect {
+                ($name:ident) => {
+                    $name.ok_or_else(|| emitter.emit(error!(
+                        message("missing required field '{}'!", stringify!($name)),
+                        note("field is required due to 'has_data: \"dummy\"'"),
+                    )))?
+                };
+            }
+            let width = expect!(img_width).value;
+            let height = expect!(img_height).value;
+            let format = require_known_format(img_format).map_err(|mut diag| {
+                diag.note(format!(
+                    "has_data: \"dummy\" requires one of the following formats: {}",
+                    ColorFormat::get_all().into_iter().map(|format| format.const_name())
+                        .collect::<Vec<_>>().join(", "),
+                ));
+                emitter.emit(diag)
+            })?;
+            let info = ThtxHeader { width, height, format: img_format.value };
+            let data = format.dummy_fill_color_bytes().repeat((width * height) as usize);
+
+            write_texture(w, &info, &Texture { data })?;
+        },
+
+        HasData::False => {},
+    }; // match has_data
 
     let end_pos = w.pos()?;
+
+    for (noun, img_dim, buf_dim) in vec![
+        ("width", img_width, buf_width),
+        ("height", img_height, buf_height),
+    ] {
+        if img_dim.is_none() { continue; }
+        if buf_dim.is_none() { continue; }
+        let (img_dim, buf_dim) = (img_dim.unwrap(), buf_dim.unwrap());
+        if img_dim > buf_dim {
+            emitter.emit(warning!(
+                message("buffer {} of {} too small for image {} of {}", noun, buf_dim, noun, img_dim),
+                primary(buf_dim, "buffer too small for image"),
+                // no img dimension span because it might not have one
+            )).ignore();
+        }
+    }
 
     w.seek_to(entry_pos + file_format.offset_to_thtx_offset())?;
     w.write_u32(texture_offset as _)?;
@@ -839,6 +1305,14 @@ fn write_entry(
     Ok(())
 }
 
+fn require_known_format(format: Sp<u32>) -> Result<crate::image::ColorFormat, Diagnostic> {
+    crate::image::ColorFormat::from_format_num(format.value)
+        .ok_or_else(|| error!(
+            message("unknown color format {}", format.value),
+            primary(format, "unknown color format"),
+        ))
+}
+
 fn read_sprite(f: &mut BinReader) -> ReadResult<Sprite> {
     Ok(Sprite {
         id: Some(f.read_u32()?),
@@ -858,7 +1332,7 @@ fn write_sprite(
 }
 
 #[inline(never)]
-fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<Texture> {
+fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<(ThtxHeader, Option<Texture>)> {
     f.expect_magic(emitter, "THTX")?;
 
     let zero = f.read_u16()?;
@@ -874,24 +1348,23 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
     if with_images {
         let mut data = vec![0; size as usize];
         f.read_exact(&mut data)?;
-        Ok(Texture { thtx, data: Some(data) })
+        Ok((thtx, Some(Texture { data })))
     } else {
-        Ok(Texture { thtx, data: None })
+        Ok((thtx, None))
     }
 }
 
 #[inline(never)]
-fn write_texture(f: &mut BinWriter, texture: &Texture) -> WriteResult {
+fn write_texture(f: &mut BinWriter, info: &ThtxHeader, texture: &Texture) -> WriteResult {
     f.write_all(b"THTX")?;
 
     f.write_u16(0)?;
-    f.write_u16(texture.thtx.format as _)?;
-    f.write_u16(texture.thtx.width as _)?;
-    f.write_u16(texture.thtx.height as _)?;
+    f.write_u16(info.format as _)?;
+    f.write_u16(info.width as _)?;
+    f.write_u16(info.height as _)?;
 
-    let data = texture.data.as_ref().expect("(bug!) trying to write images but did not read them!");
-    f.write_u32(data.len() as _)?;
-    f.write_all(data)?;
+    f.write_u32(texture.data.len() as _)?;
+    f.write_all(&texture.data)?;
     Ok(())
 }
 
@@ -908,7 +1381,7 @@ impl Version {
             Th08 | Th09 => Version::V3,
             Th095 | Th10 | Alcostg => Version::V4,
             Th11 | Th12 | Th125 | Th128 => Version::V7,
-            Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 => Version::V8,
+            Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => Version::V8,
         }
     }
 
@@ -922,7 +1395,7 @@ fn game_format(game: Game) -> FileFormat {
         true => Box::new(InstrFormat07 { version, game }),
         false => Box::new(InstrFormat06),
     };
-    FileFormat { version, instr_format }
+    FileFormat { version, game, instr_format }
 }
 
 pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
@@ -930,7 +1403,11 @@ pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
 }
 
 /// Type responsible for dealing with version differences in the format.
-struct FileFormat { version: Version, instr_format: Box<dyn InstrFormat> }
+struct FileFormat {
+    version: Version,
+    game: Game,
+    instr_format: Box<dyn InstrFormat>,
+}
 struct InstrFormat06;
 struct InstrFormat07 { version: Version, game: Game }
 
@@ -1071,6 +1548,13 @@ impl FileFormat {
     }
 
     fn instr_format(&self) -> &dyn InstrFormat { &*self.instr_format }
+
+    fn default_memory_priority(&self) -> u32 {
+        match self.version {
+            Version::V0 => 0,
+            _ => 10,
+        }
+    }
 }
 
 impl InstrFormat for InstrFormat06 {

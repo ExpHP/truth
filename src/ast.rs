@@ -6,39 +6,6 @@ use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::value;
 
-// Quick little util for stringly enums.
-macro_rules! string_enum {
-    (
-        $(#[$($Enum_attr:tt)+])*
-        $vis:vis enum $Enum:ident {
-            $(
-                $(#[doc = $variant_doc:literal])*
-                #[str = $variant_str:literal] $Variant:ident,
-            )*
-        }
-    ) => {
-        $(#[$($Enum_attr)+])*
-        $vis enum $Enum {
-            $( $(#[doc = $variant_doc])* $Variant, )*
-        }
-
-        // used mainly for error messages
-        impl ::std::fmt::Display for $Enum {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                ::std::fmt::Display::fmt(match self {
-                    $( $Enum::$Variant => $variant_str, )*
-                }, f)
-            }
-        }
-
-        impl crate::fmt::Format for $Enum {
-            fn fmt<W: ::std::io::Write>(&self, out: &mut crate::fmt::Formatter<W>) -> crate::fmt::Result {
-                out.fmt(format_args!("{}", self))
-            }
-        }
-    }
-}
-
 // =============================================================================
 
 /// Type used in the AST for the span of a single token with no useful data.

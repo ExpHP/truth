@@ -273,6 +273,14 @@ impl<'a> ParseObject<'a> {
         }
     }
 
+    pub fn get_field_and_key<T: FromMeta<'a>>(&mut self, field: &'static str) -> Result<Option<(Sp<Ident>, T)>, FromMetaError<'a>> {
+        self.valid_fields.insert(field);
+        match self.map.get_key_value(field) {
+            Some((key, x)) => Ok(Some((key.clone(), x.parse()?))),
+            None => Ok(None),
+        }
+    }
+
     /// Read a field from the object or variant, failing with a canned error message if it is not present.
     ///
     /// The field is automatically parsed into an output type using [`FromMeta`].  If you would rather parse

@@ -40,7 +40,13 @@ impl Format {
 
         do_with_text(&decompiled.read_to_string());
 
-        let recompiled = self.compile(&decompiled);
+        let mut args = vec![];
+        if self.cmd == "truanm" {
+            args.push("--image-source".as_ref());
+            args.push(infile.as_ref().as_ref());
+        }
+
+        let recompiled = self.compile_with_args(&decompiled, &args);
         assert_eq!(original.read(), recompiled.read());
     }
 
@@ -202,7 +208,7 @@ impl TestFile {
     pub fn read_anm(&self, format: &Format) -> truth::AnmFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
-        truth.read_anm(format.game, self.as_path(), false).unwrap()
+        truth.read_anm(format.game, self.as_path(), true).unwrap()
     }
 
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {

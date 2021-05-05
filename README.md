@@ -81,15 +81,28 @@ Alternatively, you can also put the following line in your script file, which is
 #pragma image_source "path/to/original.anm"
 ```
 
-Note that there is no feature to extract images into PNG files, and it is doubtful that there ever will need to be, since `thanm -x` remains perfectly fine for this purpose.  There is also no way to embed new images from `.png` files, as thcrap's image hotloading is far superior anyways.
-
 #### Compilation of brand new ANM files
 
- To compile a brand new ANM file that isn't based on any original ANM file, simply make sure to supply all necessary header data in the `entry` objects along with `has_data: false`; in this case, you do NOT require the `-i` flag.
+Directories containing image files are also valid image sources:
 
-An example of such a script be found in the [`anm_features` test file](./tests/integration/anm_features.rs), in the test `no_source::okay`.
+```C
+#pragma image_source "path/to/directory"
+```
 
-To use the compiled file, make a thcrap patch which contains images in all of the right locations.  (for instance, if the script has a `has_data: false` entry with `path: "subdir/file.png"`, the thcrap patch should have an image at e.g. `<patch_root>/th17/subdir/file.png`)
+In this case, an entry with the path `"subdir/image.png"` will try to load `path/to/directory/subdir/image.png` if it exists (unless the entry has `has_data: false`).  As long as an image can be found, all fields on an `entry` will be automatically filled with reasonable defaults.
+
+```C
+// this is all you need for a valid entry,
+// so long as the image can be located
+entry {
+    path: "subdir/image.png",
+    scripts: {
+        sprite0: {id: 0, x: 0.0, y: 0.0, w: 50.0, h: 50.0},
+    },
+}
+```
+
+If you're using thcrap and something bothers you about the fact that both your ANM file and your thcrap patch contain copies of the same images, you can put `has_data: "generate"` on an entry (the default is `has_data: true`).  This will cause it to generate magenta dummy data in the ANM file, to be hot-swapped out by thcrap.  Note that such an entry can still automatically grab the image dimensions from an image source.
 
 ## Building and installing from source
 

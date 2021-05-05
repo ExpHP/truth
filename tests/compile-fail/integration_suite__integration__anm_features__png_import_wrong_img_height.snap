@@ -1,0 +1,7 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+error: tests/integration/resources/dir-with-images/subdir/hi-32x16.png: wrong image dimensions (expected 32x32, got 32x16)
+
+

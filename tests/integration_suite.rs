@@ -6,6 +6,7 @@ mod integration_impl;
 
 mod integration {
     mod general;
+    mod anm_consts;
     mod anm_features;
     mod std_features;
     mod msg_features;

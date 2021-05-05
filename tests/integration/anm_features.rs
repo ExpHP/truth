@@ -1,15 +1,17 @@
+use truth::sp;
+
 use crate::integration_impl::formats::*;
-use crate::integration_impl::{TestFile, expected};
+use crate::integration_impl::{TestFile};
 
 // =============================================================================
-// Image sources
+// ANM file image sources
 
 source_test!(
     ANM_10, image_source_does_not_exist,
     items: r#"
         #pragma image_source "this/is/a/bad/path"
     "#,
-    expect_fail: "reading file",
+    expect_fail: "while resolving",
 );
 
 // Tests that copy an embedded image
@@ -29,11 +31,11 @@ mod embedded_image {
 entry {
     path: "lmao.png",
     has_data: true,
-    width: 128,
-    height: 128,
+    buf_width: 256,  // overriden from image source
+    buf_height: 128,
     offset_x: 200,  // overridden from image source
     offset_y: 0,
-    format: 3,
+    buf_format: FORMAT_RGB_565,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -45,9 +47,14 @@ script -45 script0 {
     delete();
 }
 "#,
-        check_compiled:|output, format| {
+        check_compiled: |output, format| {
             let anm = output.read_anm(format);
             assert_eq!(anm.entries[0].specs.offset_x, Some(200));
+            // the image has unnatural dimensions; make sure they are copied correctly
+            assert_eq!(anm.entries[0].specs.img_width, Some(sp!(105)));
+            assert_eq!(anm.entries[0].specs.img_height, Some(sp!(100)));
+            assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(256)));
+            assert_eq!(anm.entries[0].specs.buf_height, Some(sp!(128)));
         },
     );
 
@@ -76,11 +83,62 @@ script script1 {
     static();
 }
 "#,
-        check_compiled:|output, format| {
+        check_compiled: |output, format| {
             let anm = output.read_anm(format);
+            // can't check img_* because they're not saved
+            // assert_eq!(anm.entries[0].specs.img_width, Some(sp!(105)));
+            // assert_eq!(anm.entries[0].specs.img_height, Some(sp!(100)));
+            assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(128)));
+            assert_eq!(anm.entries[0].specs.buf_height, Some(sp!(128)));
             assert_eq!(anm.entries[0].sprites[0].offset, [12.0, 0.0]);
             assert_eq!(anm.entries[0].scripts.len(), 2);
             assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 2);
+        },
+    );
+
+    // This embedded image has an offset.
+    //
+    // This is to ensure that the code that subtracts offsets from PNG dimensions doesn't
+    // also accidentally apply to embedded images.
+    source_test!(
+        ANM_12, offset,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    has_data: true,
+    sprites: {},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let specs = anm.entries[0].specs.fill_defaults(format.game);
+            assert_eq!(specs.img_width, Some(sp!(10)));
+            assert_eq!(specs.img_height, Some(sp!(18)));
+            assert_eq!(specs.buf_width, Some(sp!(16)));
+            assert_eq!(specs.buf_height, Some(sp!(32)));
+            check_data_for_hai_10_18_argb_8888(&anm.entries[0].texture.as_ref().unwrap().data);
+        },
+    );
+
+    // This reads embedded image metadata to generate dummy data.
+    source_test!(
+        ANM_12, dummy,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    has_data: "dummy",
+    sprites: {},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            assert_eq!(data.len(), 4 * 10 * 18);
+            assert_eq!(&data[..4], &data[4..8]); // all pixels are the same (unlike the original "hai" image)
         },
     );
 }
@@ -98,24 +156,44 @@ mod no_source {
 entry {
     path: "subdir/file.png",
     has_data: false,
-    width: 512,
-    height: 512,
+    buf_width: 512,
+    buf_height: 512,
+    buf_format: 3,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
+}"#,
+        check_compiled: |output, format| {
+            assert!(output.read_anm(format).entries[0].texture.is_none());
+        }
+    );
 
+    // Test defaulted fields.
+    source_test!(
+        ANM_12, default_fields,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
 
-script -45 script0 {
-    delete();
-}
-"#,
-        check_compiled:|output, format| {
-            output.read_anm(format);
+entry {
+    path: "subdir/file.png",
+    has_data: false,
+    img_width: 512,  // use img_ here to test defaulting of buf_ from img_
+    img_height: 512,
+    img_format: 3,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let specs = anm.entries[0].specs.fill_defaults(format.game);
+
+            assert_eq!(specs.offset_x, Some(0));
+            assert_eq!(specs.offset_y, Some(0));
+            assert_eq!(specs.colorkey, Some(0));
+            assert_eq!(specs.memory_priority, Some(10));
+            assert_eq!(specs.low_res_scale, Some(false));
         }
     );
 
@@ -129,16 +207,11 @@ entry {
     path: "subdir/file.png",
     has_data: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-script -45 script0 {
-    delete();
-}
-        "#,
+}"#,
         expect_fail: "required field",
     );
 
-    // This input is identical to 'okay' except with has_data: true, so it will fail.
+    // This input is identical to 'okay' except with 'has_data: true', so it will fail.
     source_test!(
         ANM_12, err_missing_image,
         full_source: r#"
@@ -147,21 +220,16 @@ script -45 script0 {
 entry {
     path: "subdir/file.png",
     has_data: true,
-    width: 512,
-    height: 512,
+    buf_width: 512,
+    buf_height: 512,
     offset_x: 0,
     offset_y: 0,
-    format: 3,
+    buf_format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
-}
-
-script -45 script0 {
-    delete();
-}
-        "#,
+}"#,
         expect_fail: "no bitmap data",
     );
 }
@@ -194,12 +262,12 @@ script script1 {
     ins_2();
 }
     "#,
-    check_compiled:|output, format| {
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.width, Some(2000));  // pulled from file1
+        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(2048)));  // pulled from file1
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.width, Some(1000));  // pulled from file2
+        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(1024)));  // pulled from file2
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },
@@ -233,16 +301,177 @@ script script1 {
     ins_2();
 }
     "#,
-    check_compiled:|output, format| {
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.width, Some(1000));
+
+        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(1024)));
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.width, Some(2000));
+        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(2048)));
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },
 );
+
+source_test!(
+    ANM_12, copy_meta_with_anm_source,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file2.png",
+    has_data: false,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        // assert_eq!(specs.img_width, Some(sp!(2000)));  // not saved in anm file...
+        assert_eq!(specs.buf_width, Some(sp!(2048)));
+        assert!(anm.entries[0].texture.is_none());
+    },
+);
+
+mod color_formats {
+    use super::*;
+
+    // This one is okay because it requires no conversion.
+    source_test!(
+        // Note for all_files_tested(): image source based on "th12-embedded-weird-format-source.anm.spec"
+        ANM_12, weird_identity_ok,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-weird-format-source.anm"
+
+entry {
+    path: "teeny.png",
+    has_data: true,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}
+        "#,
+        expect_no_warning: (),
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.img_format, Some(sp!(8)));
+            assert!(anm.entries[0].texture.is_some());
+        },
+    );
+
+    source_test!(
+        ANM_12, transcode_ok,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    has_data: true,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.img_format, Some(sp!(7)));
+            check_data_for_hai_10_18_gray_8(&anm.entries[0].texture.as_ref().unwrap().data);
+        },
+    );
+
+    source_test!(
+        ANM_12, bad_transcode_from,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-weird-format-source.anm"
+
+entry {
+    path: "teeny.png",
+    has_data: true,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "from unknown color format",
+    );
+
+    source_test!(
+        ANM_12, bad_transcode_into,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "lmao.png",
+    has_data: true,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "into unknown color format",
+    );
+
+    source_test!(
+        ANM_12, dummy_ok,
+        full_source: r#"
+entry {
+    path: "i-dont-exist.png",
+    has_data: "dummy",
+    img_width: 27,
+    img_height: 25,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            assert_eq!(data.len(), 1 * 27 * 25);
+            assert_eq!(&data[..1], &data[1..2]); // all pixels are the same
+        },
+    );
+
+    source_test!(
+        ANM_12, bad_dummy,
+        full_source: r#"
+entry {
+    path: "i-dont-exist.png",
+    has_data: "dummy",
+    img_width: 27,
+    img_height: 25,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "unknown color format",
+    );
+
+    source_test!(
+        ANM_12, image_ok,
+        full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hai-10x18.png",
+    has_data: true,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        check_compiled: |output, format| {
+            let anm = output.read_anm(format);
+            assert_eq!(anm.entries[0].specs.img_format, Some(sp!(7)));
+            check_data_for_hai_10_18_gray_8(&anm.entries[0].texture.as_ref().unwrap().data);
+        },
+    );
+
+    source_test!(
+        ANM_12, bad_image,
+        full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-7x20.png",
+    has_data: true,
+    img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_fail: "into unknown color format",
+    );
+}
 
 // FIXME somehow group these image_source tests so that new formats are automatically tested?
 source_test!(
@@ -259,494 +488,326 @@ source_test!(
     "#,
     expect_fail: "unexpected image_source",
 );
+// FIXME: ECL test when ECL exists
 
 // =============================================================================
-// Sprite IDs
+// Directory image sources
 
-// This is the first written test of const vars that depend on other const vars.
-// (sprite IDs were the first const vars implemented in the compiler, even before
-//  const var items!)
 source_test!(
-    ANM_12, sprite_ids_gone_wild,
+    ANM_12, png_import_32x16,
     full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {
-        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueC + 2 - valueC},
-        valueB: {x: 0.0, y: 0.0, w: 0.0, h: 0.0},
-        valueC: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
-        valueD: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: valueE - 1},
-    },
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {
-        valueE: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 401},
-        valueF: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: _S(%valueE + 2.4) + 1},
-    },
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    check_compiled:|output, format| {
+    path: "subdir/hi-32x16.png",
+    has_data: true,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].sprites[0].id, Some(2));
-        assert_eq!(anm.entries[0].sprites[1].id, None);  // 3
-        assert_eq!(anm.entries[0].sprites[2].id, Some(53));
-        assert_eq!(anm.entries[0].sprites[3].id, Some(400));
-        assert_eq!(anm.entries[1].sprites[0].id, None);  // 401
-        assert_eq!(anm.entries[1].sprites[1].id, Some(404));
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.img_width, Some(sp!(32)));
+        assert_eq!(specs.img_height, Some(sp!(16)));
+        assert_eq!(specs.img_format, Some(sp!(1)));
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_some());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
 source_test!(
-    ANM_10, meta_sprite_id_circular_dependency,
-    items: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
-        bestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolestSprite * 3},
-        coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
-    },
-}
-    "#,
-    expect_fail: "depends on its own value",
-);
-
-source_test!(
-    ANM_10, meta_non_const,
-    items: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    memory_priority: 3 * I0,
-    low_res_scale: false,
-    sprites: {
-        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 200},
-    },
-}
-    "#,
-    // NOTE: be careful changing this.  If the new error complains about missing fields
-    // or missing image data, fix the test input instead.
-    expect_fail: "const",
-);
-
-// It is okay for two sprites to have the same name (this occurs in decompiled output),
-// but they must also have the same ID.
-source_test!(
-    ANM_12, sprite_ids_dupe,
+    ANM_12, png_import_7x20,  // non powers of 2
     full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {
-        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
-    },
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {
-        xyzzyx: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 24},
-        valueA: {x: 1.0, y: 1.0, w: 1.0, h: 1.0, id: 53},
-    },
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    check_compiled:|output, format| {
+    path: "subdir/hi-7x20.png",
+    has_data: true,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].sprites[0].id, Some(53));
-        assert_eq!(anm.entries[1].sprites[0].id, Some(24));
-        assert_eq!(anm.entries[1].sprites[1].id, Some(53));
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.img_width, Some(sp!(7)));
+        assert_eq!(specs.img_height, Some(sp!(20)));
+        assert_eq!(specs.img_format, Some(sp!(1)));
+        assert_eq!(specs.buf_width, Some(sp!(8)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_some());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
-// same but one's implicit
 source_test!(
-    ANM_12, sprite_ids_dupe_implicit,
+    ANM_12, png_import_with_offset,
     full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {
-        valueA: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 26 * 2 + 1},
-    },
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {
-        xyzzyx: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 52},
-        valueA: {x: 1.0, y: 1.0, w: 1.0, h: 1.0},   // dupe, but has same id as above
-    },
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    check_compiled:|output, format| {
+    path: "subdir/hai-10x18+105+9.png",
+    offset_x: 105,
+    offset_y: 9,
+    has_data: true,
+    img_format: FORMAT_ARGB_8888,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].sprites[0].id, Some(53));
-        assert_eq!(anm.entries[1].sprites[0].id, Some(52));
-        assert_eq!(anm.entries[1].sprites[1].id, None);  // 53
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.img_width, Some(sp!(10)));
+        assert_eq!(specs.img_height, Some(sp!(18)));
+        assert_eq!(specs.buf_width, Some(sp!(16)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        check_data_for_hai_10_18_argb_8888(&anm.entries[0].texture.as_ref().unwrap().data);
     },
 );
 
-// Now they have mismatched IDs.
+// The test image "subdir/hai-10x18.png" has a special 2x2 marker in the top left:
+//             gray-128  gray-192
+//             gray-48   gray-0
+// This can be used to check that the proper region was extracted.
+fn check_data_for_hai_10_18_argb_8888(data: &[u8]) {
+    let pixel_size = 4;
+    let row_size = pixel_size * 10;
+    assert_eq!(data.len(), row_size * 18);
+    assert_eq!(
+        &data[..2 * pixel_size],
+        &[0x80, 0x80, 0x80, 0xFF, 0xC0, 0xC0, 0xC0, 0xFF],
+    );
+    assert_eq!(
+        &data[row_size..row_size + 2 * pixel_size],
+        &[0x40, 0x40, 0x40, 0xFF, 0x00, 0x00, 0x00, 0xFF],
+    );
+}
+
+fn check_data_for_hai_10_18_gray_8(data: &[u8]) {
+    let pixel_size = 1;
+    let row_size = pixel_size * 10;
+    assert_eq!(data.len(), row_size * 18);
+    assert_eq!(
+        &data[..2 * pixel_size],
+        &[0x80, 0xC0],
+    );
+    assert_eq!(
+        &data[row_size..row_size + 2 * pixel_size],
+        &[0x40, 0x00],
+    );
+}
+
 source_test!(
-    ANM_12, err_sprite_clash,
+    ANM_12, png_import_meta_32x16,
     full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/file1.png",
+    path: "subdir/hi-32x16.png",
     has_data: false,
-    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0, id: 1}},
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    expect_fail: "ambiguous"
-);
-
-// Same but one's implicit.
-source_test!(
-    ANM_12, err_sprite_clash_implicit,
-    full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
-
-entry {
-    path: "subdir/file1.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
-}
-
-entry {
-    path: "subdir/file2.png",
-    has_data: false,
-    sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
-}
-
-script script0 {
-    ins_1();
-}
-    "#,
-    expect_fail: "ambiguous"
-);
-
-// Type-checking/const-checking sprite IDs is actually a bit annoying.
-source_test!(
-    ANM_10, meta_sprite_id_type_error,
-    items: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
-    },
-}
-    "#,
-    expect_fail: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, meta_sprite_id_non_const,
-    items: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
-    },
-}
-    "#,
-    expect_fail: "const",
-);
-
-// Dupes may follow different code paths for type checking and const checking since
-// the expressions are never used beyond checking equality to the originals.
-source_test!(
-    ANM_10, meta_sprite_id_dupe_type_error,
-    items: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
-    },
-}
-entry {
-    path: "subdir/file-3.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
-    },
-}
-    "#,
-    expect_fail: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, meta_sprite_id_dupe_non_const,
-    items: r#"
-entry {
-    path: "subdir/file-2.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3},
-    },
-}
-entry {
-    path: "subdir/file-3.png",
-    has_data: false,
-    sprites: {
-        coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
-    },
-}
-    "#,
-    expect_fail: "const",
-);
-
-source_test!(
-    ANM_12, const_using_sprite_id,
-    full_source: r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
-
-entry {
-    path: "lmao.png",
-    has_data: false,
-    sprites: {
-        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 10},
-    },
-}
-
-const int B = sprite0;
-
-script script0 {
-    ins_3(B);
-}
-    "#,
-    check_compiled:|output, format| {
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
 source_test!(
-    ANM_12, sprite_id_using_const,
+    ANM_12, png_import_meta_7x20,
     full_source: r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "lmao.png",
+    path: "subdir/hi-7x20.png",
     has_data: false,
-    sprites: {
-        sprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: B},
-    },
-}
-
-const int B = 10;
-
-script script0 {
-    ins_3(sprite);
-}
-    "#,
-    check_compiled:|output, format| {
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.buf_width, Some(sp!(8)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
 source_test!(
-    ANM_12, const_shadows_sprite_id,
+    ANM_12, png_import_meta_with_offset,
     full_source: r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "lmao.png",
+    path: "subdir/hai-10x18+105+9.png",
+    offset_x: 105,
+    offset_y: 9,
     has_data: false,
-    sprites: {
-        B: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 42},
-        C: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: B + 2},
-    },
-}
-
-const int B = 10;
-
-script script0 {
-    ins_3(B);
-}
-    "#,
-    check_compiled:|output, format| {
+    img_format: FORMAT_ARGB_8888,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].sprites[0].id, Some(42));
-        assert_eq!(anm.entries[0].sprites[1].id, Some(12));
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+
+        // buffer should be appropriately sized for the region WITHOUT the offset padding
+        assert_eq!(specs.buf_width, Some(sp!(16)));
+        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert!(anm.entries[0].texture.is_none());
     },
 );
 
 source_test!(
-    ANM_12, consts_in_various_other_meta,
+    ANM_12, png_import_with_buf_props,
     full_source: r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
-
-const string FILEPATH = "lmao.png";
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: FILEPATH,
-    has_data: false,
-    sprites: {
-        sprite0: {x: POS_X, y: 0.0, w: 512.0, h: 480.0},
-        sprite1: {x: POS_X + 3.0, y: 0.0, w: 512.0, h: 480.0},
-    },
-}
-
-const float POS_X = 20.0;
-
-script script0 {}
-    "#,
-    check_compiled:|output, format| {
+    path: "subdir/hi-32x16.png",
+    has_data: true,
+    buf_width: 128,
+    buf_height: 256,
+    buf_format: 3,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].sprites[0].offset[0], 20.0);
-        assert_eq!(anm.entries[0].sprites[1].offset[0], 23.0);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.img_width, Some(sp!(32)));
+        assert_eq!(specs.img_height, Some(sp!(16)));
+        assert_eq!(specs.img_format, Some(sp!(1)));
+        assert_eq!(specs.buf_width, Some(sp!(128)));
+        assert_eq!(specs.buf_height, Some(sp!(256)));
+        assert_eq!(specs.buf_format, Some(sp!(3)));
+        let pixel_size = 4; // bytes per pixel for format 1, the default
+        assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
 source_test!(
-    ANM_12, sprite_script_name_clash,
+    ANM_12, png_import_explicit_img_format,
     full_source: r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "lmao.png",
-    has_data: false,
-    sprites: {
-        wild: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 22 * 2 - 2},
-    },
-}
-
-script 23 script23 {
-    ins_3(-1);
-}
-
-script wild {  // should have ID 1
-    ins_3(-1);
-}
-    "#,
-    expect_fail: "ambiguous",
-);
-
-source_test!(
-    ANM_12, sprite_shadows_reg_alias,
-    full_source: r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
-
-entry {
-    path: "lmao.png",
-    has_data: false,
-    sprites: {
-        RAND: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 22 * 2 - 2},
-    },
-}
-
-const int x = $RAND;
-
-script 23 script23 {
-    ins_3(x);
-}
-    "#,
-    check_compiled:|output, format| {
+    path: "subdir/hi-32x16.png",
+    has_data: true,
+    img_format: 3,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![42, 0, 0, 0]);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.img_width, Some(sp!(32)));
+        assert_eq!(specs.img_height, Some(sp!(16)));
+        assert_eq!(specs.img_format, Some(sp!(3)));
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert_eq!(specs.buf_format, Some(sp!(3)));
+        let pixel_size = 2; // bytes per pixel for format 3
+        assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
 
-const SCRIPT_IDS_EXAMPLE: &'static str = r#"
-#pragma mapfile "map/any.anmm"
-#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+// FIXME NEEDSTEST: explicit_img_format equivalent for ANM file sources (i.e. transcode the THTX data)
+
+source_test!(
+    ANM_12, png_import_multiple_dirs,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-nothing-really"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+#pragma image_source "./tests/integration/resources/dir-with-nothing-really"
 
 entry {
-    path: "subdir/file1.png",
+    path: "subdir/hi-32x16.png",
     has_data: false,
-    sprites: {
-        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 0},
+    img_format: 3,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let specs = anm.entries[0].specs.fill_defaults(format.game);
+        assert_eq!(specs.buf_width, Some(sp!(32)));
+        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].sprites.len(), 1);
     },
-}
+);
 
-script myScript {
-    scriptNew(child);
-}
+// FIXME NEEDSTEST:
+//        Should have a test where both a .anm and a directory have the same image path,
+//        but currently the order of image-source application isn't specified beyond
+//        "things in file take precedence over CLI"
 
-script 24 irrelevant {}
+source_test!(
+    ANM_12, png_import_wrong_img_height,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
 entry {
-    path: "subdir/file2.png",
+    path: "subdir/hi-32x16.png",
     has_data: false,
-    sprites: {
-        sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 1},
-    },
-}
+    img_format: 3,
+    img_width: 32,
+    img_height: 32,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    expect_fail: "wrong image dimensions",
+);
 
-script child {}
+source_test!(
+    ANM_12, png_import_with_offset_too_big,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
-script 101 another {}
-"#;
+entry {
+    path: "subdir/hai-10x18+105+9.png",
+    offset_x: 1050,
+    offset_y: 90,
+    has_data: true,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    expect_fail: "image too small",
+);
 
-#[test]
-fn script_ids() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", SCRIPT_IDS_EXAMPLE);
-    let anm = format.compile(&source).read_anm(&format);
+source_test!(
+    ANM_12, png_import_buf_not_power_2,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
-    assert_eq!(anm.entries[0].scripts[0].id, 0);
-    assert_eq!(anm.entries[0].scripts[1].id, 24);
-    assert_eq!(anm.entries[1].scripts[0].id, 25);
-    assert_eq!(anm.entries[1].scripts[1].id, 101);
-}
+entry {
+    path: "subdir/hi-7x20.png",
+    has_data: false,
+    buf_width: 7,
+    buf_height: 21,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    expect_warning: "not a power of two",
+);
 
-#[test]
-fn scripts_as_consts() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", SCRIPT_IDS_EXAMPLE);
-    let anm = format.compile(&source).read_anm(&format);
+source_test!(
+    ANM_12, png_import_buf_too_small,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
 
-    // the value of the const should be the *index across all entries* (2), not the ID (25)
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![2, 0, 0, 0]);
-}
-
+entry {
+    path: "subdir/hi-32x16.png",
+    has_data: false,
+    buf_height: 16,
+    buf_width: 16,
+    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+}"#,
+    expect_warning: "too small for",
+);
 
 // =============================================================================
 
