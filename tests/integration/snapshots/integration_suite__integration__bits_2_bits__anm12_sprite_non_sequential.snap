@@ -7,9 +7,9 @@ expression: s
 entry {
     path: "subdir/file.png",
     has_data: false,
-    buf_width: 512,
-    buf_height: 512,
-    buf_format: FORMAT_RGB_565,
+    rt_width: 512,
+    rt_height: 512,
+    rt_format: FORMAT_RGB_565,
     memory_priority: 0,
     sprites: {
         sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},

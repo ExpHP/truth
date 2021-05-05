@@ -117,10 +117,10 @@ pub struct EntrySpecs {
     /// Dimensions of the buffer created at runtime for Direct3D.
     ///
     /// These should always be powers of 2.
-    pub buf_width: Option<Sp<u32>>,
-    pub buf_height: Option<Sp<u32>>,
+    pub rt_width: Option<Sp<u32>>,
+    pub rt_height: Option<Sp<u32>>,
     /// Color format of the buffer created by the game at runtime for Direct3D.
-    pub buf_format: Option<Sp<u32>>,
+    pub rt_format: Option<Sp<u32>>,
     /// A transparent color for old games.
     pub colorkey: Option<u32>, // Only in old format
 
@@ -155,10 +155,10 @@ impl EntrySpecs {
         EntrySpecs {
             img_width: self.img_width,
             img_height: self.img_height,
-            buf_width: self.buf_width.or(self.img_width.map(|x| x.sp_map(u32::next_power_of_two))),
-            buf_height: self.buf_height.or(self.img_height.map(|x| x.sp_map(u32::next_power_of_two))),
+            rt_width: self.rt_width.or(self.img_width.map(|x| x.sp_map(u32::next_power_of_two))),
+            rt_height: self.rt_height.or(self.img_height.map(|x| x.sp_map(u32::next_power_of_two))),
             img_format,
-            buf_format: self.buf_format.or(img_format),
+            rt_format: self.rt_format.or(img_format),
             offset_x: Some(self.offset_x.unwrap_or(0)),
             offset_y: Some(self.offset_y.unwrap_or(0)),
             colorkey: Some(self.colorkey.unwrap_or(0)),
@@ -174,14 +174,14 @@ impl EntrySpecs {
         EntrySpecs {
             img_width: self.img_width,
             img_height: self.img_height,
-            // don't suppress buf_width and buf_height.  By always showing them in decompiled files, we increase the
+            // don't suppress rt_width and rt_height.  By always showing them in decompiled files, we increase the
             // likelihood of a user noticing that there's something important about powers of 2 in image dimensions,
             // possibly helping them to figure out why their non-power-of-2 PNG file looks bad when scrolled.
-            buf_width: self.buf_width,
-            buf_height: self.buf_height,
+            rt_width: self.rt_width,
+            rt_height: self.rt_height,
 
             img_format: self.img_format.filter(|&x| x != DEFAULT_FORMAT),
-            buf_format: self.buf_format.filter(|&x| x != self.img_format.unwrap_or(sp!(DEFAULT_FORMAT))),
+            rt_format: self.rt_format.filter(|&x| x != self.img_format.unwrap_or(sp!(DEFAULT_FORMAT))),
             offset_x: self.offset_x.filter(|&x| x != 0),
             offset_y: self.offset_y.filter(|&x| x != 0),
             colorkey: self.colorkey.filter(|&x| x != 0),
@@ -201,26 +201,26 @@ impl Entry {
         let mut specs = self.specs.clone();
 
         // derive properties of the runtime buffer based on the image
-        if let (Some(buf_width), Some(img_width)) = (specs.buf_width, specs.img_width) {
-            if buf_width == img_width.next_power_of_two() {
-                specs.buf_width = None;
+        if let (Some(rt_width), Some(img_width)) = (specs.rt_width, specs.img_width) {
+            if rt_width == img_width.next_power_of_two() {
+                specs.rt_width = None;
             }
         }
 
-        if let (Some(buf_height), Some(img_height)) = (specs.buf_height, specs.img_height) {
-            if buf_height == img_height.next_power_of_two() {
-                specs.buf_height = None;
+        if let (Some(rt_height), Some(img_height)) = (specs.rt_height, specs.img_height) {
+            if rt_height == img_height.next_power_of_two() {
+                specs.rt_height = None;
             }
         }
 
-        if let (Some(buf_format), Some(img_format)) = (specs.buf_format, specs.img_format) {
-            if buf_format == img_format {
-                specs.buf_format = None;
+        if let (Some(rt_format), Some(img_format)) = (specs.rt_format, specs.img_format) {
+            if rt_format == img_format {
+                specs.rt_format = None;
             }
         }
 
         let EntrySpecs {
-            buf_width, buf_height, buf_format, colorkey, offset_x, offset_y,
+            rt_width, rt_height, rt_format, colorkey, offset_x, offset_y,
             img_width, img_height, img_format, memory_priority, has_data, low_res_scale,
         } = &specs.suppress_defaults(file_format.game);
 
@@ -234,9 +234,9 @@ impl Entry {
             .field_opt("offset_x", offset_x.as_ref())
             .field_opt("offset_y", offset_y.as_ref())
             .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
-            .field_opt("buf_width", buf_width.as_ref().map(|x| x.value))
-            .field_opt("buf_height", buf_height.as_ref().map(|x| x.value))
-            .field_opt("buf_format", buf_format.as_ref().map(|x| format_to_meta(x.value)))
+            .field_opt("rt_width", rt_width.as_ref().map(|x| x.value))
+            .field_opt("rt_height", rt_height.as_ref().map(|x| x.value))
+            .field_opt("rt_format", rt_format.as_ref().map(|x| format_to_meta(x.value)))
             .field_opt("memory_priority", memory_priority.as_ref())
             .field_opt("low_res_scale", low_res_scale.as_ref())
             .field("sprites", &self.sprites)
@@ -248,13 +248,13 @@ impl Entry {
             let deprecated_format = m.get_field_and_key("format")?;
             let deprecated_width = m.get_field_and_key("width")?;
             let deprecated_height = m.get_field_and_key("height")?;
-            let mut buf_format = m.get_field::<Sp<u32>>("buf_format")?;
-            let mut buf_width = m.get_field::<Sp<u32>>("buf_width")?;
-            let mut buf_height = m.get_field::<Sp<u32>>("buf_height")?;
+            let mut rt_format = m.get_field::<Sp<u32>>("rt_format")?;
+            let mut rt_width = m.get_field::<Sp<u32>>("rt_width")?;
+            let mut rt_height = m.get_field::<Sp<u32>>("rt_height")?;
             for (deprecated_key_value, value) in vec![
-                (deprecated_format, &mut buf_format),
-                (deprecated_width, &mut buf_width),
-                (deprecated_height, &mut buf_height),
+                (deprecated_format, &mut rt_format),
+                (deprecated_width, &mut rt_width),
+                (deprecated_height, &mut rt_height),
             ] {
                 static ONCE: std::sync::Once = std::sync::Once::new();
 
@@ -262,7 +262,7 @@ impl Entry {
                     ONCE.call_once(|| emitter.emit(warning!(
                         message("\
                             deprecation warning: 'format', 'width', and 'height' have been \
-                            renamed to 'buf_format', 'buf_width', and 'buf_height'.  The old \
+                            renamed to 'rt_format', 'rt_width', and 'rt_height'.  The old \
                             names will be removed in a future version.\
                         "),
                         primary(deprecated_key, "deprecated key"),
@@ -310,22 +310,22 @@ impl Entry {
             let texture = None;
             let sprites = m.get_field("sprites")?.unwrap_or_default();
 
-            for (field, buf_value) in vec![
-                ("height", buf_height),
-                ("width", buf_width),
+            for (field, rt_value) in vec![
+                ("height", rt_height),
+                ("width", rt_width),
             ] {
-                if let Some(buf_value) = buf_value {
-                    if !buf_value.value.is_power_of_two() && !path.starts_with("@") {
+                if let Some(rt_value) = rt_value {
+                    if !rt_value.value.is_power_of_two() && !path.starts_with("@") {
                         emitter.emit(warning!(
-                            message("buf_{} = {} should be a power of two", field, buf_value),
-                            primary(buf_value, "not a power of two")
+                            message("rt_{} = {} should be a power of two", field, rt_value),
+                            primary(rt_value, "not a power of two")
                         )).ignore();
                     }
                 }
             }
 
             let specs = EntrySpecs {
-                buf_width, buf_height, buf_format,
+                rt_width, rt_height, rt_format,
                 img_width, img_height, img_format,
                 colorkey, offset_x, offset_y,
                 memory_priority, has_data, low_res_scale,
@@ -519,7 +519,7 @@ fn update_entry_from_anm_image_source(dest_file: &mut Entry, mut src_file: Entry
     // let us forget to update this function when we add a new field.
     let EntrySpecs {
         img_width: src_img_width, img_height: src_img_height, img_format: src_img_format,
-        buf_width: src_buf_width, buf_height: src_buf_height, buf_format: src_buf_format,
+        rt_width: src_rt_width, rt_height: src_rt_height, rt_format: src_rt_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
         memory_priority: src_memory_priority, has_data: src_has_data,
         low_res_scale: src_low_res_scale,
@@ -528,9 +528,9 @@ fn update_entry_from_anm_image_source(dest_file: &mut Entry, mut src_file: Entry
     or_inplace(&mut dest_specs.img_width, src_img_width);
     or_inplace(&mut dest_specs.img_height, src_img_height);
     or_inplace(&mut dest_specs.img_format, src_img_format);
-    or_inplace(&mut dest_specs.buf_width, src_buf_width);
-    or_inplace(&mut dest_specs.buf_height, src_buf_height);
-    or_inplace(&mut dest_specs.buf_format, src_buf_format);
+    or_inplace(&mut dest_specs.rt_width, src_rt_width);
+    or_inplace(&mut dest_specs.rt_height, src_rt_height);
+    or_inplace(&mut dest_specs.rt_format, src_rt_format);
     or_inplace(&mut dest_specs.colorkey, src_colorkey);
     or_inplace(&mut dest_specs.offset_x, src_offset_x);
     or_inplace(&mut dest_specs.offset_y, src_offset_y);
@@ -1041,9 +1041,9 @@ fn read_entry(
         },
     };
     let specs = EntrySpecs {
-        buf_width: Some(sp!(header_data.width)),
-        buf_height: Some(sp!(header_data.height)),
-        buf_format: Some(sp!(header_data.format)),
+        rt_width: Some(sp!(header_data.width)),
+        rt_height: Some(sp!(header_data.height)),
+        rt_format: Some(sp!(header_data.format)),
         img_width: tex_info.as_ref().map(|x| sp!(x.width)),
         img_height: tex_info.as_ref().map(|x| sp!(x.height)),
         img_format: tex_info.as_ref().map(|x| sp!(x.format)),
@@ -1127,7 +1127,7 @@ fn write_entry(
     let entry_pos = w.pos()?;
 
     let EntrySpecs {
-        buf_width, buf_height, buf_format,
+        rt_width, rt_height, rt_format,
         img_width, img_height, img_format,
         colorkey, offset_x, offset_y, memory_priority,
         has_data, low_res_scale,
@@ -1150,7 +1150,7 @@ fn write_entry(
     let has_data = has_data.expect("has default");
     let low_res_scale = low_res_scale.expect("has default");
     let img_format = img_format.expect("has default");
-    let buf_format = buf_format.expect("has default");
+    let rt_format = rt_format.expect("has default");
 
     macro_rules! expect {
         ($name:ident) => {
@@ -1162,9 +1162,9 @@ fn write_entry(
     }
 
     file_format.write_header(w, &EntryHeaderData {
-        width: expect!(buf_width).value,
-        height: expect!(buf_height).value,
-        format: buf_format.value,
+        width: expect!(rt_width).value,
+        height: expect!(rt_height).value,
+        format: rt_format.value,
         colorkey,
         offset_x,
         offset_y,
@@ -1263,17 +1263,17 @@ fn write_entry(
 
     let end_pos = w.pos()?;
 
-    for (noun, img_dim, buf_dim) in vec![
-        ("width", img_width, buf_width),
-        ("height", img_height, buf_height),
+    for (noun, img_dim, rt_dim) in vec![
+        ("width", img_width, rt_width),
+        ("height", img_height, rt_height),
     ] {
         if img_dim.is_none() { continue; }
-        if buf_dim.is_none() { continue; }
-        let (img_dim, buf_dim) = (img_dim.unwrap(), buf_dim.unwrap());
-        if img_dim > buf_dim {
+        if rt_dim.is_none() { continue; }
+        let (img_dim, rt_dim) = (img_dim.unwrap(), rt_dim.unwrap());
+        if img_dim > rt_dim {
             emitter.emit(warning!(
-                message("buffer {} of {} too small for image {} of {}", noun, buf_dim, noun, img_dim),
-                primary(buf_dim, "buffer too small for image"),
+                message("runtime {} of {} too small for image {} of {}", noun, rt_dim, noun, img_dim),
+                primary(rt_dim, "runtime buffer too small for image"),
                 // no img dimension span because it might not have one
             )).ignore();
         }

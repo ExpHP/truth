@@ -2,10 +2,10 @@
 source: tests/integration/anm_features.rs
 expression: stderr
 ---
-warning: buffer width of 16 too small for image width of 32
-  ┌─ <input>:8:16
+warning: runtime width of 16 too small for image width of 32
+  ┌─ <input>:8:15
   │
-8 │     buf_width: 16,
-  │                ^^ buffer too small for image
+8 │     rt_width: 16,
+  │               ^^ runtime buffer too small for image
 
 

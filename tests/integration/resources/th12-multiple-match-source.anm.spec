@@ -5,8 +5,8 @@
 entry {
     path: "subdir/file1.png",
     has_data: false,
-    buf_width: 1024,
-    buf_height: 1024,
+    rt_width: 1024,
+    rt_height: 1024,
     offset_x: 0,
     offset_y: 0,
     img_format: 3,
@@ -25,8 +25,8 @@ script script0 {
 entry {
     path: "subdir/file2.png",
     has_data: false,
-    buf_width: 2048,
-    buf_height: 2048,
+    rt_width: 2048,
+    rt_height: 2048,
     offset_x: 0,
     offset_y: 0,
     img_format: 3,

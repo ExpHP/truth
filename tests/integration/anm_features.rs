@@ -31,11 +31,11 @@ mod embedded_image {
 entry {
     path: "lmao.png",
     has_data: true,
-    buf_width: 256,  // overriden from image source
-    buf_height: 128,
+    rt_width: 256,  // overriden from image source
+    rt_height: 128,
     offset_x: 200,  // overridden from image source
     offset_y: 0,
-    buf_format: FORMAT_RGB_565,
+    rt_format: FORMAT_RGB_565,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -53,8 +53,8 @@ script -45 script0 {
             // the image has unnatural dimensions; make sure they are copied correctly
             assert_eq!(anm.entries[0].specs.img_width, Some(sp!(105)));
             assert_eq!(anm.entries[0].specs.img_height, Some(sp!(100)));
-            assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(256)));
-            assert_eq!(anm.entries[0].specs.buf_height, Some(sp!(128)));
+            assert_eq!(anm.entries[0].specs.rt_width, Some(sp!(256)));
+            assert_eq!(anm.entries[0].specs.rt_height, Some(sp!(128)));
         },
     );
 
@@ -88,8 +88,8 @@ script script1 {
             // can't check img_* because they're not saved
             // assert_eq!(anm.entries[0].specs.img_width, Some(sp!(105)));
             // assert_eq!(anm.entries[0].specs.img_height, Some(sp!(100)));
-            assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(128)));
-            assert_eq!(anm.entries[0].specs.buf_height, Some(sp!(128)));
+            assert_eq!(anm.entries[0].specs.rt_width, Some(sp!(128)));
+            assert_eq!(anm.entries[0].specs.rt_height, Some(sp!(128)));
             assert_eq!(anm.entries[0].sprites[0].offset, [12.0, 0.0]);
             assert_eq!(anm.entries[0].scripts.len(), 2);
             assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 2);
@@ -116,8 +116,8 @@ entry {
             let specs = anm.entries[0].specs.fill_defaults(format.game);
             assert_eq!(specs.img_width, Some(sp!(10)));
             assert_eq!(specs.img_height, Some(sp!(18)));
-            assert_eq!(specs.buf_width, Some(sp!(16)));
-            assert_eq!(specs.buf_height, Some(sp!(32)));
+            assert_eq!(specs.rt_width, Some(sp!(16)));
+            assert_eq!(specs.rt_height, Some(sp!(32)));
             check_data_for_hai_10_18_argb_8888(&anm.entries[0].texture.as_ref().unwrap().data);
         },
     );
@@ -156,9 +156,9 @@ mod no_source {
 entry {
     path: "subdir/file.png",
     has_data: false,
-    buf_width: 512,
-    buf_height: 512,
-    buf_format: 3,
+    rt_width: 512,
+    rt_height: 512,
+    rt_format: 3,
     offset_x: 0,
     offset_y: 0,
     colorkey: 0,
@@ -220,11 +220,11 @@ entry {
 entry {
     path: "subdir/file.png",
     has_data: true,
-    buf_width: 512,
-    buf_height: 512,
+    rt_width: 512,
+    rt_height: 512,
     offset_x: 0,
     offset_y: 0,
-    buf_format: 3,
+    rt_format: 3,
     colorkey: 0,
     memory_priority: 0,
     low_res_scale: false,
@@ -264,10 +264,10 @@ script script1 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(2048)));  // pulled from file1
+        assert_eq!(anm.entries[0].specs.rt_width, Some(sp!(2048)));  // pulled from file1
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(1024)));  // pulled from file2
+        assert_eq!(anm.entries[1].specs.rt_width, Some(sp!(1024)));  // pulled from file2
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },
@@ -304,10 +304,10 @@ script script1 {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
 
-        assert_eq!(anm.entries[0].specs.buf_width, Some(sp!(1024)));
+        assert_eq!(anm.entries[0].specs.rt_width, Some(sp!(1024)));
         assert_eq!(anm.entries[0].sprites[0].size, [111.0, 111.0]);
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1);
-        assert_eq!(anm.entries[1].specs.buf_width, Some(sp!(2048)));
+        assert_eq!(anm.entries[1].specs.rt_width, Some(sp!(2048)));
         assert_eq!(anm.entries[1].sprites[0].size, [222.0, 220.0]);
         assert_eq!(anm.entries[1].scripts[0].instrs[0].opcode, 2);
     },
@@ -327,7 +327,7 @@ entry {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
         // assert_eq!(specs.img_width, Some(sp!(2000)));  // not saved in anm file...
-        assert_eq!(specs.buf_width, Some(sp!(2048)));
+        assert_eq!(specs.rt_width, Some(sp!(2048)));
         assert!(anm.entries[0].texture.is_none());
     },
 );
@@ -509,9 +509,9 @@ entry {
         assert_eq!(specs.img_width, Some(sp!(32)));
         assert_eq!(specs.img_height, Some(sp!(16)));
         assert_eq!(specs.img_format, Some(sp!(1)));
-        assert_eq!(specs.buf_width, Some(sp!(32)));
-        assert_eq!(specs.buf_height, Some(sp!(16)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert_eq!(specs.rt_width, Some(sp!(32)));
+        assert_eq!(specs.rt_height, Some(sp!(16)));
+        assert_eq!(specs.rt_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_some());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
@@ -533,9 +533,9 @@ entry {
         assert_eq!(specs.img_width, Some(sp!(7)));
         assert_eq!(specs.img_height, Some(sp!(20)));
         assert_eq!(specs.img_format, Some(sp!(1)));
-        assert_eq!(specs.buf_width, Some(sp!(8)));
-        assert_eq!(specs.buf_height, Some(sp!(32)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert_eq!(specs.rt_width, Some(sp!(8)));
+        assert_eq!(specs.rt_height, Some(sp!(32)));
+        assert_eq!(specs.rt_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_some());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
@@ -559,8 +559,8 @@ entry {
         let specs = anm.entries[0].specs.fill_defaults(format.game);
         assert_eq!(specs.img_width, Some(sp!(10)));
         assert_eq!(specs.img_height, Some(sp!(18)));
-        assert_eq!(specs.buf_width, Some(sp!(16)));
-        assert_eq!(specs.buf_height, Some(sp!(32)));
+        assert_eq!(specs.rt_width, Some(sp!(16)));
+        assert_eq!(specs.rt_height, Some(sp!(32)));
         check_data_for_hai_10_18_argb_8888(&anm.entries[0].texture.as_ref().unwrap().data);
     },
 );
@@ -610,9 +610,9 @@ entry {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        assert_eq!(specs.buf_width, Some(sp!(32)));
-        assert_eq!(specs.buf_height, Some(sp!(16)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert_eq!(specs.rt_width, Some(sp!(32)));
+        assert_eq!(specs.rt_height, Some(sp!(16)));
+        assert_eq!(specs.rt_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_none());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
@@ -631,9 +631,9 @@ entry {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        assert_eq!(specs.buf_width, Some(sp!(8)));
-        assert_eq!(specs.buf_height, Some(sp!(32)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert_eq!(specs.rt_width, Some(sp!(8)));
+        assert_eq!(specs.rt_height, Some(sp!(32)));
+        assert_eq!(specs.rt_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_none());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
@@ -657,9 +657,9 @@ entry {
         let specs = anm.entries[0].specs.fill_defaults(format.game);
 
         // buffer should be appropriately sized for the region WITHOUT the offset padding
-        assert_eq!(specs.buf_width, Some(sp!(16)));
-        assert_eq!(specs.buf_height, Some(sp!(32)));
-        assert_eq!(specs.buf_format, Some(sp!(1)));
+        assert_eq!(specs.rt_width, Some(sp!(16)));
+        assert_eq!(specs.rt_height, Some(sp!(32)));
+        assert_eq!(specs.rt_format, Some(sp!(1)));
         assert!(anm.entries[0].texture.is_none());
     },
 );
@@ -672,9 +672,9 @@ source_test!(
 entry {
     path: "subdir/hi-32x16.png",
     has_data: true,
-    buf_width: 128,
-    buf_height: 256,
-    buf_format: 3,
+    rt_width: 128,
+    rt_height: 256,
+    rt_format: 3,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
     check_compiled: |output, format| {
@@ -683,9 +683,9 @@ entry {
         assert_eq!(specs.img_width, Some(sp!(32)));
         assert_eq!(specs.img_height, Some(sp!(16)));
         assert_eq!(specs.img_format, Some(sp!(1)));
-        assert_eq!(specs.buf_width, Some(sp!(128)));
-        assert_eq!(specs.buf_height, Some(sp!(256)));
-        assert_eq!(specs.buf_format, Some(sp!(3)));
+        assert_eq!(specs.rt_width, Some(sp!(128)));
+        assert_eq!(specs.rt_height, Some(sp!(256)));
+        assert_eq!(specs.rt_format, Some(sp!(3)));
         let pixel_size = 4; // bytes per pixel for format 1, the default
         assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
         assert_eq!(anm.entries[0].sprites.len(), 1);
@@ -709,9 +709,9 @@ entry {
         assert_eq!(specs.img_width, Some(sp!(32)));
         assert_eq!(specs.img_height, Some(sp!(16)));
         assert_eq!(specs.img_format, Some(sp!(3)));
-        assert_eq!(specs.buf_width, Some(sp!(32)));
-        assert_eq!(specs.buf_height, Some(sp!(16)));
-        assert_eq!(specs.buf_format, Some(sp!(3)));
+        assert_eq!(specs.rt_width, Some(sp!(32)));
+        assert_eq!(specs.rt_height, Some(sp!(16)));
+        assert_eq!(specs.rt_format, Some(sp!(3)));
         let pixel_size = 2; // bytes per pixel for format 3
         assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
         assert_eq!(anm.entries[0].sprites.len(), 1);
@@ -736,8 +736,8 @@ entry {
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         let specs = anm.entries[0].specs.fill_defaults(format.game);
-        assert_eq!(specs.buf_width, Some(sp!(32)));
-        assert_eq!(specs.buf_height, Some(sp!(16)));
+        assert_eq!(specs.rt_width, Some(sp!(32)));
+        assert_eq!(specs.rt_height, Some(sp!(16)));
         assert!(anm.entries[0].texture.is_none());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
@@ -787,8 +787,8 @@ source_test!(
 entry {
     path: "subdir/hi-7x20.png",
     has_data: false,
-    buf_width: 7,
-    buf_height: 21,
+    rt_width: 7,
+    rt_height: 21,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
     expect_warning: "not a power of two",
@@ -802,8 +802,8 @@ source_test!(
 entry {
     path: "subdir/hi-32x16.png",
     has_data: false,
-    buf_height: 16,
-    buf_width: 16,
+    rt_height: 16,
+    rt_width: 16,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
     expect_warning: "too small for",

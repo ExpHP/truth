@@ -11,8 +11,8 @@ entry {
     img_height: 25,
     // this was compiled with img_format: 7 then modified to 8 in a hex editor
     img_format: 8,
-    buf_width: 128,
-    buf_height: 128,
+    rt_width: 128,
+    rt_height: 128,
     offset_x: 0,
     offset_y: 0,
     colorkey: 0,
