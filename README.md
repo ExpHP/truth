@@ -105,6 +105,15 @@ entry {
 
 If you're using thcrap and something bothers you about the fact that both your ANM file and your thcrap patch contain copies of the same images, you can put `has_data: "generate"` on an entry (the default is `has_data: true`).  This will cause it to generate magenta dummy data in the ANM file, to be hot-swapped out by thcrap.  Note that such an entry can still automatically grab the image dimensions from an image source.
 
+### MSG files — `trumsg`
+
+MSG files are nothing special; just follow the same instructions for STD files, but using `trumsg`.
+
+Well.  **Some** MSG files are special:
+
+* `mission.msg` in TH095 and TH125 is a *completely different format* from other MSG files.  To work with it you must **supply the `--mission` flag.**
+* Ending (e.g. `e01.msg`) and Staff Roll (e.g. `staff1.msg`) files use a different instruction set.  It is possible to work with them but you'll need to create a special mapfile.  Ping me on Discord and I'll see if I can throw one together.
+
 ## Building and installing from source
 
 [Install rust](https://rustup.rs/), and then:
