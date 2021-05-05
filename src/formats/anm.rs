@@ -1381,7 +1381,7 @@ impl Version {
             Th08 | Th09 => Version::V3,
             Th095 | Th10 | Alcostg => Version::V4,
             Th11 | Th12 | Th125 | Th128 => Version::V7,
-            Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 => Version::V8,
+            Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => Version::V8,
         }
     }
 

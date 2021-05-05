@@ -577,6 +577,7 @@ impl FileFormat {
             | Game::Th12 | Game::Th128 | Game::Th13
             | Game::Th14 | Game::Th143 | Game::Th15
             | Game::Th16 | Game::Th165 | Game::Th17
+            | Game::Th18
             => Box::new(InstrFormat06),
 
             | Game::Th095 | Game::Th125
