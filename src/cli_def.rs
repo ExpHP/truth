@@ -37,6 +37,8 @@ pub fn truanm_main(version: &str, args: &[String]) -> ! {
         choices: &[
             SubcommandSpec { name: "decompile", entry: anm_decompile::main, public: true },
             SubcommandSpec { name: "compile", entry: anm_compile::main, public: true },
+            SubcommandSpec { name: "extract", entry: anm_extract::main, public: true },
+            SubcommandSpec { name: "xtract", entry: anm_extract::main, public: false }, // let 'x' work
         ],
     })
 }
@@ -121,6 +123,36 @@ pub mod anm_decompile {
         let ast = truth.decompile_anm(game, &anm, crate::DecompileKind::Fancy)?;
         stdout.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
         Ok(())
+    }
+}
+
+pub mod anm_extract {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, mapfile, outdir, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truanm extract",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::mapfile(), cli::extract_outdir(), cli::game()),
+        });
+
+        wrap_exit_code(|truth| {
+            run(truth, game, input.as_ref(), &outdir, mapfile)
+        });
+    }
+
+    pub(super) fn run(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        outdir: &Path,
+        map_path: Option<PathBuf>,
+    ) -> Result<(), ErrorReported> {
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
+        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
+
+        let anm = truth.read_anm(game, path, true)?;
+        anm.extract_images(outdir, &truth.fs())
     }
 }
 
@@ -473,6 +505,14 @@ mod cli {
             short: "o", long: "output", metavar: "OUTPUT",
             help: "output file",
         }).map(Into::into)
+    }
+
+    pub fn extract_outdir() -> impl CliArg<Value=PathBuf> {
+        opts::Opt {
+            short: "o", long: "output", metavar: "DIR",
+            help: "a directory to write images, which will be created if it does not exist. \
+            Defaults to the current directory.",
+        }.map(|opt| opt.map(Into::into).unwrap_or_else(|| std::env::current_dir().unwrap()))
     }
 
     pub fn game() -> impl CliArg<Value=Game> {

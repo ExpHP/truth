@@ -43,6 +43,15 @@ impl ColorFormat {
         }
     }
 
+    pub fn bytes_per_pixel(&self) -> usize {
+        match self {
+            ColorFormat::Argb8888 => Argb8888::BYTES_PER_PIXEL,
+            ColorFormat::Rgb565 => Rgb565::BYTES_PER_PIXEL,
+            ColorFormat::Argb4444 => Argb4444::BYTES_PER_PIXEL,
+            ColorFormat::Gray8 => Gray8::BYTES_PER_PIXEL,
+        }
+    }
+
     pub fn transcode_to_argb_8888(&self, bytes: &[u8]) -> Vec<u8> {
         match self {
             ColorFormat::Argb8888 => bytes.to_vec(),

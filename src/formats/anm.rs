@@ -702,6 +702,8 @@ fn extract(
     anm: &AnmFile,
     out_path: &Path,
 ) -> Result<(), ErrorReported> {
+    // call this now to make sure ancestors of out_path don't get implicitly created when
+    // we use create_dir_all later
     fs.ensure_dir(out_path)?;
 
     let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
@@ -712,13 +714,19 @@ fn extract(
         }
 
         // tarbomb protection
-        let full_path = canonical_out_path.join(out_path);
-        let full_path = fs.canonicalize(full_path.as_ref()).map_err(|e| fs.emitter.emit(e))?;
+        let full_path = canonical_out_path.join(&entry.path);
+        let full_path = canonicalize_part_of_path_that_exists(full_path.as_ref()).map_err(|e| {
+            fs.emitter.emit(error!("while resolving '{}': {}", fs.display_path(&full_path), e))
+        })?;
         let display_path = fs.display_path(&full_path);
         if full_path.strip_prefix(&canonical_out_path).is_err() {
             return Err(fs.emitter.emit(error!(
                 message("skipping '{}': outside of destination directory", display_path),
             )));
+        }
+
+        if let Some(parent) = full_path.parent() {
+            fs.create_dir_all(&parent)?;
         }
 
         let image = produce_image_from_entry(entry).map_err(|s| {
@@ -729,19 +737,49 @@ fn extract(
             fs.emitter.emit(error!("while writing '{}': {}", display_path, e))
         })?;
 
-        fs.emitter.emit(info!("exported '{}'", display_path)).ignore();
+        println!("exported '{}'", display_path);
         Ok(())
     }).collect_with_recovery()
 }
 
+// based on cargo's normalize_path
+pub fn canonicalize_part_of_path_that_exists(path: &Path) -> Result<PathBuf, std::io::Error> {
+    let mut components = path.components().peekable();
+    let mut ret = if let Some(c @ std::path::Component::Prefix(..)) = components.peek().cloned() {
+        components.next();
+        PathBuf::from(c.as_os_str())
+    } else {
+        PathBuf::new()
+    };
+
+    for component in components {
+        match component {
+            std::path::Component::Prefix(..) => unreachable!(),
+            std::path::Component::RootDir => {
+                ret.push(component.as_os_str());
+                ret = ret.canonicalize()?;
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => { ret.pop(); }
+            std::path::Component::Normal(c) => {
+                ret.push(c);
+                if let Ok(dest) = ret.read_link() {
+                    ret = dest.canonicalize()?;
+                }
+            }
+        }
+    }
+    Ok(ret)
+}
+
 type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
 
-fn produce_image_from_entry(entry: &Entry) -> Result<BgraImage, String> {
-    use image::GenericImage;
+fn produce_image_from_entry(entry: &Entry) -> Result<image::RgbaImage, String> {
+    use image::{GenericImage, buffer::ConvertBuffer};
 
     let texture = entry.texture.as_ref().expect("produce_image_from_entry called without texture!");
     let content_width = entry.specs.img_width.expect("has data but no width?!").value;
-    let content_height = entry.specs.img_width.expect("has data but no height?!").value;
+    let content_height = entry.specs.img_height.expect("has data but no height?!").value;
     let format = entry.specs.img_format.expect("defaults were filled...").value;
     let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
         format!("cannot transcode from unknown color format {}", format)
@@ -761,7 +799,7 @@ fn produce_image_from_entry(entry: &Entry) -> Result<BgraImage, String> {
         .copy_from(&content, 0, 0)
         .expect("region should definitely be large enough");
 
-    Ok(output)
+    Ok(output.convert())
 }
 
 // =============================================================================
@@ -1417,6 +1455,13 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
         emitter.emit(warning!("nonzero thtx_zero lost: {}", zero)).ignore();
     }
     let thtx = ThtxHeader { format, width, height };
+
+    if let Some(cformat) = ColorFormat::from_format_num(format) {
+        let expected_size = cformat.bytes_per_pixel() as usize * width as usize * height as usize;
+        if expected_size != size as usize {
+            emitter.emit(warning!("strange image data size: {} bytes, expected {}", size, expected_size)).ignore();
+        }
+    }
 
     if with_images {
         let mut data = vec![0; size as usize];
