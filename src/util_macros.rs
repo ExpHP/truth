@@ -155,6 +155,12 @@ macro_rules! warning {
     ($($arg:tt)+) => { $crate::_diagnostic!(@warning, $($arg)+) };
 }
 
+/// Generates a [`crate::diagnostic::Diagnostic`] of severity `info`.
+#[macro_export]
+macro_rules! info {
+    ($($arg:tt)+) => { $crate::_diagnostic!(@info, $($arg)+) };
+}
+
 #[test]
 fn error_macro_examples() {
     use crate::ast;

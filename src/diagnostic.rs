@@ -27,6 +27,8 @@ impl Diagnostic {
     pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error(), unspanned_prefix: String::new() } }
     /// Construct with warning severity.  Generally you use the [`warning!`] macro instead.
     pub fn warning() -> Self { Diagnostic { imp: CsDiagnostic::warning(), unspanned_prefix: String::new() } }
+    /// Construct with info severity.  Generally you use the [`info!`] macro instead.
+    pub fn info() -> Self { Diagnostic { imp: CsDiagnostic::note(), unspanned_prefix: String::new() } }
 
     pub fn code(&mut self, code: &'static str) -> &mut Self {
         self.imp.code = Some(code.into());

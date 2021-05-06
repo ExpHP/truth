@@ -58,6 +58,10 @@ impl AnmFile {
         }
     }
 
+    pub fn extract_images(&self, dest: &Path, fs: &Fs<'_>) -> WriteResult {
+        extract(fs, self, dest)
+    }
+
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
         let emitter = w.emitter();
         write_anm(w, &emitter, &game_format(game), self)
@@ -689,6 +693,75 @@ fn update_entry_from_directory_source(
 
 fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
     *dest = dest.take().or(src);
+}
+
+// =============================================================================
+
+fn extract(
+    fs: &Fs<'_>,
+    anm: &AnmFile,
+    out_path: &Path,
+) -> Result<(), ErrorReported> {
+    fs.ensure_dir(out_path)?;
+
+    let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
+
+    anm.entries.iter().map(|entry| {
+        if entry.texture.is_none() {
+            return Ok(());
+        }
+
+        // tarbomb protection
+        let full_path = canonical_out_path.join(out_path);
+        let full_path = fs.canonicalize(full_path.as_ref()).map_err(|e| fs.emitter.emit(e))?;
+        let display_path = fs.display_path(&full_path);
+        if full_path.strip_prefix(&canonical_out_path).is_err() {
+            return Err(fs.emitter.emit(error!(
+                message("skipping '{}': outside of destination directory", display_path),
+            )));
+        }
+
+        let image = produce_image_from_entry(entry).map_err(|s| {
+            fs.emitter.emit(error!("skipping '{}': {}", display_path, s))
+        })?;
+
+        image.save(full_path).map_err(|e| {
+            fs.emitter.emit(error!("while writing '{}': {}", display_path, e))
+        })?;
+
+        fs.emitter.emit(info!("exported '{}'", display_path)).ignore();
+        Ok(())
+    }).collect_with_recovery()
+}
+
+type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
+
+fn produce_image_from_entry(entry: &Entry) -> Result<BgraImage, String> {
+    use image::GenericImage;
+
+    let texture = entry.texture.as_ref().expect("produce_image_from_entry called without texture!");
+    let content_width = entry.specs.img_width.expect("has data but no width?!").value;
+    let content_height = entry.specs.img_width.expect("has data but no height?!").value;
+    let format = entry.specs.img_format.expect("defaults were filled...").value;
+    let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
+        format!("cannot transcode from unknown color format {}", format)
+    })?;
+
+    let content_argb = cformat.transcode_to_argb_8888(&texture.data);
+    let content = BgraImage::from_raw(content_width, content_height, &content_argb[..]).expect("size error?!");
+
+    let offset_x = entry.specs.offset_x.unwrap_or(0);
+    let offset_y = entry.specs.offset_y.unwrap_or(0);
+    let output_width = content_width + offset_x;
+    let output_height = content_height + offset_y;
+    let output_init_argb = vec![0xFF; 4 * output_width as usize * output_height as usize];
+    let mut output = BgraImage::from_raw(output_width, output_height, output_init_argb).expect("size error?!");
+
+    output.sub_image(offset_x, offset_y, content_width, content_height)
+        .copy_from(&content, 0, 0)
+        .expect("region should definitely be large enough");
+
+    Ok(output)
 }
 
 // =============================================================================
