@@ -15,7 +15,7 @@ Tools provided:
 * `trumsg` for most msg files
 * `trumsg --mission` for `mission.msg`
 
-Supports **all danmaku titles TH06–TH17.**  That is:
+Supports **all danmaku titles TH06–TH18.**  That is:
 
 > TH06 (EoSD), TH07 (PCB), TH08 (IN), TH09 (PoFV), TH09.5 (StB), TH10 (MoF), TH11 (SA), TH12 (UFO), TH12.3 (GFW), TH12.5 (DS), TH13 (TD), TH14 (DDC), TH14.3 (ISC), TH15 (LoLK), TH16 (HSiFS), TH16.5 (VD), TH17 (WBaWC), TH18 (UM)
 > 
