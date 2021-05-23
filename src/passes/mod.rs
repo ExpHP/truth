@@ -1,6 +1,7 @@
 use crate::ast;
 use crate::error::ErrorReported;
 use crate::context::CompilerContext;
+use crate::llir::DecompileOptions;
 
 pub mod const_simplify;
 pub mod unused_labels;
@@ -24,29 +25,19 @@ pub mod evaluate_const_vars {
     }
 }
 
-pub enum DecompileKind { Simple, Fancy }
-
-pub fn postprocess_decompiled<V: ast::Visitable+ std::fmt::Debug>(script: &mut V, ctx: &CompilerContext, decompile_kind: DecompileKind) -> Result<(), ErrorReported> {
-    match decompile_kind {
-        DecompileKind::Simple => postprocess_decompiled_simple(script, ctx),
-        DecompileKind::Fancy => postprocess_decompiled_fancy(script, ctx),
-    }
-}
-
-pub fn postprocess_decompiled_fancy<V: ast::Visitable + std::fmt::Debug>(script: &mut V, ctx: &CompilerContext) -> Result<(), ErrorReported> {
-    if std::env::var("_TRUTH_DEBUG__MINIMAL").ok().as_deref() == Some("1") {
-        return postprocess_decompiled_simple(script, ctx);
-    }
-
+/// Run decompilation passes common to all languages.
+pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
+    script: &mut V,
+    ctx: &CompilerContext,
+    decompile_options: &DecompileOptions,
+) -> Result<(), ErrorReported> {
     resolve_names::raw_to_aliases(script, ctx)?;
-    decompile_loop::decompile_if_else(script)?;
-    decompile_loop::decompile_loop(script)?;
-    unused_labels::run(script)?;
 
-    Ok(())
-}
+    if decompile_options.blocks {
+        decompile_loop::decompile_if_else(script)?;
+        decompile_loop::decompile_loop(script)?;
+        unused_labels::run(script)?;
+    }
 
-pub fn postprocess_decompiled_simple<V: ast::Visitable>(script: &mut V, ctx: &CompilerContext) -> Result<(), ErrorReported> {
-    resolve_names::raw_to_aliases(script, ctx)?;
     Ok(())
 }

@@ -6,10 +6,9 @@ use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
-use crate::passes::DecompileKind;
 use crate::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::value::ScalarValue;
 
@@ -27,10 +26,10 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let format = game_format(game, &ctx.emitter)?;
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &format, ctx, decompile_kind)
+        decompile(self, &emitter, &format, ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
@@ -188,13 +187,13 @@ fn decompile(
     emitter: &impl Emitter,
     format: &FileFormat,
     ctx: &mut CompilerContext,
-    decompile_kind: DecompileKind,
+    decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = &*format.instr_format();
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new(&ctx.emitter);
+    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
@@ -215,7 +214,7 @@ fn decompile(
         image_sources: vec![],
         items,
     };
-    crate::passes::postprocess_decompiled(&mut script, ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut script, ctx, decompile_options)?;
     Ok(script)
 }
 

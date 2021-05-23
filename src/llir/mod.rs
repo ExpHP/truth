@@ -15,7 +15,7 @@ mod abi;
 pub use lower::lower_sub_ast_to_instrs;
 mod lower;
 
-pub use raise::Raiser;
+pub use raise::{Raiser, DecompileOptions};
 mod raise;
 
 /// The lowest level representation of an instruction that is common between all games.
@@ -262,6 +262,7 @@ pub enum IntrinsicInstrKind {
     CondJmp(ast::BinopKind, ScalarType),
 }
 
+#[derive(Default)]
 pub struct IntrinsicInstrs {
     intrinsic_opcodes: HashMap<IntrinsicInstrKind, u16>,
     opcode_intrinsics: HashMap<u16, IntrinsicInstrKind>,

@@ -12,6 +12,24 @@ use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
+#[derive(Debug, Clone)]
+pub struct DecompileOptions {
+    pub arguments: bool,
+    pub intrinsics: bool,  // invariant: intrinsics implies arguments
+    pub blocks: bool,
+}
+
+impl DecompileOptions {
+    /// Construct with all features enabled.
+    pub fn new() -> Self { Default::default() }
+}
+
+impl Default for DecompileOptions {
+    fn default() -> Self {
+        DecompileOptions { arguments: true, intrinsics: true, blocks: true }
+    }
+}
+
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
     time: i32,
@@ -38,6 +56,7 @@ struct UnknownArgsData {
 pub struct Raiser<'a> {
     opcodes_without_abis: BTreeSet<u16>,
     _emitter: &'a context::RootEmitter,
+    options: &'a DecompileOptions,
 }
 
 impl Drop for Raiser<'_> {
@@ -47,10 +66,11 @@ impl Drop for Raiser<'_> {
 }
 
 impl<'a> Raiser<'a> {
-    pub fn new(emitter: &'a context::RootEmitter) -> Self {
+    pub fn new(emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
         Raiser {
             opcodes_without_abis: Default::default(),
             _emitter: emitter,
+            options,
         }
     }
 
@@ -98,7 +118,12 @@ fn raise_instrs_to_sub_ast(
         body: ast::StmtBody::NoInstruction,
     })];
 
-    let intrinsic_instrs = instr_format.intrinsic_instrs();
+    // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
+    let intrinsic_instrs = match raiser.options.intrinsics {
+        true => instr_format.intrinsic_instrs(),
+        false => Default::default(),
+    };
+
     for (&offset, instr) in zip!(&instr_offsets, &script) {
         if let Some(label) = offset_labels.get(&offset) {
             out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
@@ -462,6 +487,7 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Padding
         | ArgEncoding::Word
         | ArgEncoding::Dword
+        | ArgEncoding::JumpTime  // NOTE: might eventually want timeof(label)
         => Ok(Expr::from(raw.expect_int())),
 
         | ArgEncoding::Sprite
@@ -480,6 +506,7 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         }))),
 
         | ArgEncoding::Color
+        | ArgEncoding::JumpOffset  // NOTE: might eventually want offsetof(label)
         => Ok(Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
 
         | ArgEncoding::Float
@@ -487,14 +514,6 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
 
         | ArgEncoding::String { .. }
         => Ok(Expr::from(raw.expect_string().clone())),
-
-        // These only show up in intrinsics where they are handled by other code.
-        //
-        // We *could* eventually support them in user-added custom instructions, but then we'd probably
-        // also need to add labels as expressions and `timeof(label)`.
-        | ArgEncoding::JumpOffset
-        | ArgEncoding::JumpTime
-        => Err(emitter.emit(error!("unexpected jump-related arg in non-jump instruction"))),
     }
 }
 
@@ -534,23 +553,23 @@ fn raise_jump_args(
 
 impl Raiser<'_> {
     fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
-        match defs.ins_abi(instr.opcode) {
-            Some(abi) => decode_args_with_abi(emitter, instr, abi),
-
-            // No ABI. Fall back to decompiling as a blob.
-            None => {
+        if self.options.arguments {
+            if let Some(abi) = defs.ins_abi(instr.opcode) {
+                return decode_args_with_abi(emitter, instr, abi);
+            } else {
                 self.opcodes_without_abis.insert(instr.opcode);
-
-                Ok(RaiseInstr {
-                    time: instr.time,
-                    opcode: instr.opcode,
-                    args: RaiseArgs::Unknown(UnknownArgsData {
-                        param_mask: instr.param_mask,
-                        blob: instr.args_blob.to_vec(),
-                    }),
-                })
-            },
+            }
         }
+
+        // Fall back to decompiling as a blob.
+        Ok(RaiseInstr {
+            time: instr.time,
+            opcode: instr.opcode,
+            args: RaiseArgs::Unknown(UnknownArgsData {
+                param_mask: instr.param_mask,
+                blob: instr.args_blob.to_vec(),
+            }),
+        })
     }
 }
 

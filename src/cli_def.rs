@@ -3,6 +3,7 @@ use std::io;
 use crate::api::Truth;
 use crate::game::Game;
 use crate::error::ErrorReported;
+use crate::llir::DecompileOptions;
 
 pub fn main(version: &str) -> ! {
     let mut args = std::env::args();
@@ -37,6 +38,8 @@ pub fn truanm_main(version: &str, args: &[String]) -> ! {
         choices: &[
             SubcommandSpec { name: "decompile", entry: anm_decompile::main, public: true },
             SubcommandSpec { name: "compile", entry: anm_compile::main, public: true },
+            SubcommandSpec { name: "extract", entry: anm_extract::main, public: true },
+            SubcommandSpec { name: "xtract", entry: anm_extract::main, public: false }, // let 'x' work
         ],
     })
 }
@@ -93,17 +96,17 @@ pub mod anm_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, max_columns, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truanm decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::decompile_options()),
         });
 
         let stdout = io::stdout();
         wrap_exit_code(|truth| {
             let fmt_config = crate::fmt::Config::new().max_columns(max_columns);
             let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-            run(truth, &mut f, game, input.as_ref(), mapfile)
+            run(truth, &mut f, game, input.as_ref(), mapfile, &decompile_options)
         });
     }
 
@@ -113,14 +116,45 @@ pub mod anm_decompile {
         game: Game,
         path: &Path,
         map_path: Option<PathBuf>,
+        decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
         load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
 
         let anm = truth.read_anm(game, path, false)?;
-        let ast = truth.decompile_anm(game, &anm, crate::DecompileKind::Fancy)?;
+        let ast = truth.decompile_anm(game, &anm, decompile_options)?;
         stdout.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
         Ok(())
+    }
+}
+
+pub mod anm_extract {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, mapfile, outdir, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truanm extract",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::mapfile(), cli::extract_outdir(), cli::game()),
+        });
+
+        wrap_exit_code(|truth| {
+            run(truth, game, input.as_ref(), &outdir, mapfile)
+        });
+    }
+
+    pub(super) fn run(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        outdir: &Path,
+        map_path: Option<PathBuf>,
+    ) -> Result<(), ErrorReported> {
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
+        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
+
+        let anm = truth.read_anm(game, path, true)?;
+        anm.extract_images(outdir, &truth.fs())
     }
 }
 
@@ -206,16 +240,16 @@ pub mod anm_benchmark {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (anm_path, script_path, game, output, mapfile) = cli::parse_args(version, args, CmdSpec {
+        let (anm_path, script_path, game, output, mapfile, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core anm-benchmark",
             usage_args: "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
                 cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfile(),
+                cli::game(), cli::required_output(), cli::mapfile(), cli::decompile_options(),
             ),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, mapfile))
+        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, mapfile, &decompile_options))
     }
 
     fn run(
@@ -225,13 +259,14 @@ pub mod anm_benchmark {
         script_path: &Path,
         outpath: &Path,
         map_path: Option<PathBuf>,
+        decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
             let fmt_config = crate::fmt::Config::new().max_columns(100);
             let mut script_out_utf8 = vec![];
             let mut f = crate::Formatter::with_config(&mut script_out_utf8, fmt_config);
-            super::anm_decompile::run(truth, &mut f, game, anm_path, map_path.clone())?;
+            super::anm_decompile::run(truth, &mut f, game, anm_path, map_path.clone(), &decompile_options)?;
             drop(f);
 
             truth.fs().write(script_path, &script_out_utf8)?;
@@ -277,12 +312,12 @@ pub mod std_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, max_columns, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trustd decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game()),
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::decompile_options()),
         });
-        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile))
+        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile, &decompile_options))
     }
 
     fn run(
@@ -291,12 +326,13 @@ pub mod std_decompile {
         path: &Path,
         ncol: usize,
         map_path: Option<PathBuf>,
+        decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
         load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
 
         let std = truth.read_std(game, path)?;
-        let ast = truth.decompile_std(game, &std, crate::DecompileKind::Fancy)?;
+        let ast = truth.decompile_std(game, &std, decompile_options)?;
 
         let stdout = io::stdout();
         let fmt_config = crate::fmt::Config::new().max_columns(ncol);
@@ -377,12 +413,12 @@ pub mod msg_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game, msg_mode) = cli::parse_args(version, args, CmdSpec {
+        let (input, max_columns, mapfile, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::msg_mode()),
+            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::msg_mode(), cli::decompile_options()),
         });
-        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile, msg_mode))
+        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile, msg_mode, &decompile_options))
     }
 
     fn run(
@@ -392,6 +428,7 @@ pub mod msg_decompile {
         ncol: usize,
         map_path: Option<PathBuf>,
         msg_mode: MsgMode,
+        decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let ast = match msg_mode {
             MsgMode::Stage => {
@@ -399,7 +436,7 @@ pub mod msg_decompile {
                 load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
 
                 let msg = truth.read_msg(game, path)?;
-                truth.decompile_msg(game, &msg, crate::DecompileKind::Fancy)?
+                truth.decompile_msg(game, &msg, decompile_options)?
             },
             MsgMode::Mission => {
                 let msg = truth.read_mission(game, path)?;
@@ -475,6 +512,14 @@ mod cli {
         }).map(Into::into)
     }
 
+    pub fn extract_outdir() -> impl CliArg<Value=PathBuf> {
+        opts::Opt {
+            short: "o", long: "output", metavar: "DIR",
+            help: "a directory to write images, which will be created if it does not exist. \
+            Defaults to the current directory.",
+        }.map(|opt| opt.map(Into::into).unwrap_or_else(|| std::env::current_dir().unwrap()))
+    }
+
     pub fn game() -> impl CliArg<Value=Game> {
         opts::ReqOpt(opts::Opt {
             short: "g", long: "game", metavar: "GAME",
@@ -507,6 +552,24 @@ mod cli {
             short: "", long: "output-thecl-defs", metavar: "FILE",
             help: "write a file defining globals for anm scripts for use in thecl",
         }.map(|opt| opt.map(Into::into))
+    }
+
+    pub fn decompile_options() -> impl CliArg<Value=DecompileOptions> {
+        let no_blocks = opts::Flag {
+            short: "", long: "no-blocks",
+            help: "prevent decompilation of loops and other control flow",
+        };
+        let no_intrinsics = opts::Flag {
+            short: "", long: "no-intrinsics",
+            help: "prevent recognition of special opcodes, so that every instruction decompiles uniformly into a simple function call",
+        };
+        let no_arguments = opts::Flag {
+            short: "", long: "no-arguments",
+            help: "prevent decompilation of arguments, leaving all instructions in their most raw format possible. A last resort for troublesome files",
+        };
+        no_intrinsics.zip(no_blocks).zip(no_arguments).map(|((no_intrinsics, no_blocks), no_arguments)| DecompileOptions {
+            intrinsics: !no_intrinsics, blocks: !no_blocks, arguments: !no_arguments,
+        })
     }
 
     pub enum MsgMode { Stage, Mission, Ending }

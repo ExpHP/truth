@@ -181,19 +181,19 @@ impl<'ctx> Fs<'ctx> {
     /// Wraps [`std::fs::write`].
     pub fn write(&self, path: &Path, data: impl AsRef<[u8]>) -> WriteResult {
         std::fs::write(path, data)
-            .map_err(|e| self.emitter.emit(error!("while writing file '{}': {}", path.display(), e)))
+            .map_err(|e| self.emitter.emit(error!("while writing file '{}': {}", self.display_path(path), e)))
     }
 
     /// Wraps [`std::fs::read`].
     pub fn read(&self, path: &Path) -> ReadResult<Vec<u8>> {
         std::fs::read(path)
-            .map_err(|e| self.emitter.emit(error!("while reading file '{}': {}", path.display(), e)))
+            .map_err(|e| self.emitter.emit(error!("while reading file '{}': {}", self.display_path(path), e)))
     }
 
     /// Wraps [`std::fs::read_to_string`].
     pub fn read_to_string(&self, path: &Path) -> ReadResult<String> {
         std::fs::read_to_string(path)
-            .map_err(|e| self.emitter.emit(error!("while reading file '{}': {}", path.display(), e)))
+            .map_err(|e| self.emitter.emit(error!("while reading file '{}': {}", self.display_path(path), e)))
     }
 
     /// Reads all contents of a file upfront and returns a [`BinReader`] for deserializing the bytes from memory.
@@ -203,7 +203,7 @@ impl<'ctx> Fs<'ctx> {
     pub fn open_read(&self, path: impl AsRef<Path>) -> ReadResult<BinReader<'ctx, io::Cursor<Vec<u8>>>> {
         let path = path.as_ref();
         let bytes = self.read(path)?;
-        let path_string = path.display().to_string();
+        let path_string = self.display_path(path);
 
         Ok(BinReader::from_reader(self.emitter, &path_string, io::Cursor::new(bytes)))
     }
@@ -211,7 +211,7 @@ impl<'ctx> Fs<'ctx> {
     /// Open a file handle for reading and wrap it in a [`BinReader`].
     pub fn open(&self, path: impl AsRef<Path>) -> ReadResult<BinReader<'ctx, fs::File>> {
         let path = path.as_ref();
-        let path_string = path.display().to_string();
+        let path_string = self.display_path(path);
         let file = std::fs::File::open(path)
             .map_err(|e| self.emitter.emit(error!("while opening file '{}': {}", path_string, e)))?;
 
@@ -228,7 +228,7 @@ impl<'ctx> Fs<'ctx> {
     /// Create a file and wrap a write handle in a [`BinWriter`].
     pub fn create(&self, path: impl AsRef<Path>) -> WriteResult<BinWriter<'ctx, fs::File>> {
         let path = path.as_ref();
-        let path_string = path.display().to_string();
+        let path_string = self.display_path(path);
         let file = fs::File::create(path)
             .map_err(|e| self.emitter.emit(error!("while creating file '{}': {}", path_string, e)))?;
 
@@ -237,19 +237,36 @@ impl<'ctx> Fs<'ctx> {
 
     // (these have Err = Diagnostic instead of ErrorReported in case you don't want to fail on an error)
     pub fn metadata(&self, path: &Path) -> Result<std::fs::Metadata, Diagnostic> {
-        path.metadata().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
+        path.metadata().map_err(|e| error!("while resolving '{}': {}", self.display_path(path), e))
     }
 
     pub fn symlink_metadata(&self, path: &Path) -> Result<std::fs::Metadata, Diagnostic> {
-        path.symlink_metadata().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
+        path.symlink_metadata().map_err(|e| error!("while resolving '{}': {}", self.display_path(path), e))
     }
 
     pub fn canonicalize(&self, path: &Path) -> Result<PathBuf, Diagnostic> {
-        path.canonicalize().map_err(|e| error!("while resolving '{}': {}", path.display(), e))
+        path.canonicalize().map_err(|e| error!("while resolving '{}': {}", self.display_path(path), e))
+    }
+
+    /// Ensure that a directory exists by creating it if it does not. (without creating parents)
+    ///
+    /// This is like a compromise between [`fs::create_dir`] and [`fs::create_dir_all`]
+    /// for use in situations where a non-existing parent is likely to be due to user error.
+    pub fn ensure_dir(&self, path: &Path) -> Result<(), ErrorReported> {
+        match std::fs::create_dir(path) {
+            Ok(()) => Ok(()),
+            Err(_) if path.is_dir() => Ok(()),
+            Err(e) => Err(self.emitter.emit(error!("while creating '{}': {}", self.display_path(path), e))),
+        }
+    }
+
+    pub fn create_dir_all(&self, path: &Path) -> Result<(), ErrorReported> {
+        std::fs::create_dir_all(path)
+            .map_err(|e| self.emitter.emit(error!("while creating '{}': {}", self.display_path(path), e)))
     }
 
     /// Make a path user-friendly (e.g. automatically change to relative or absolute
-    /// based on location).  Conversion may be lossy.
+    /// based on location).  Conversion may be lossy for non-UTF-8.
     pub fn display_path(&self, path: &Path) -> String {
         nice_display_path(path)
     }

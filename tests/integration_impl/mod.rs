@@ -64,11 +64,13 @@ impl Format {
     ///
     /// The comparison of the two compiled files helps check to make sure that the decompilation
     /// step did not accidentally change the meaning of the code.
-    pub fn sbsb_test(&self, original_source: &TestFile, with_decompiled: impl FnOnce(&str)) {
+    pub fn sbsb_test(&self, original_source: &TestFile, decompile_args: &[impl AsRef<OsStr>], with_decompiled: impl FnOnce(&str)) {
         truth::setup_for_test_harness();
 
+        let decompile_args = decompile_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+
         let compiled = self.compile(&original_source);
-        let decompiled = self.decompile(&compiled);
+        let decompiled = self.decompile_with_args(&compiled, &decompile_args);
         let decompiled_str = decompiled.read_to_string();
 
         eprintln!("== DECOMPILED:");
@@ -134,10 +136,6 @@ impl Format {
         }
         assert!(output.status.success());
         (outfile, output)
-    }
-
-    pub fn decompile(&self, src: &TestFile) -> TestFile {
-        self.decompile_with_args(src, &[])
     }
 
     pub fn decompile_with_args(&self, src: &TestFile, args: &[&OsStr]) -> TestFile {
@@ -295,7 +293,10 @@ macro_rules! source_test {
         // Does an "SBSB" test to test decompilation of a file compiled from simple source.
         //
         // IMPORTANT: Please see the documentation of Format::sbsb_test for more information.
-        $(, sbsb: $sbsb_check_fn:expr)?
+        $(
+            $(, decompile_args: $sbsb_decompile_args:expr)?
+            , sbsb: $sbsb_check_fn:expr
+        )?
 
         // Do a compile-fail snapshot test.
         //
@@ -350,7 +351,8 @@ macro_rules! source_test {
             )?
 
             $(
-                $format.sbsb_test(&source, $sbsb_check_fn);
+                let decompile_args = first_token!( $( (& $sbsb_decompile_args) )?  (&[] as &[&str]) );
+                $format.sbsb_test(&source, decompile_args, $sbsb_check_fn);
                 return;
             )?
 

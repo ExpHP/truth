@@ -6,11 +6,10 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::game::Game;
 use crate::ident::{Ident};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
-use crate::passes::DecompileKind;
 
 // =============================================================================
 
@@ -62,9 +61,9 @@ impl ToMeta for Std06Bgm {
 }
 
 impl StdFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile_std(self, &emitter, &*game_format(game), ctx, decompile_kind)
+        decompile_std(self, &emitter, &*game_format(game), ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -237,12 +236,15 @@ fn decompile_std(
     emitter: &impl Emitter,
     format: &dyn FileFormat,
     ctx: &mut CompilerContext,
-    decompile_kind: DecompileKind,
+    decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = format.instr_format();
     let script = &std.script;
 
-    let code = llir::Raiser::new(&ctx.emitter).raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?;
+    let code = {
+        llir::Raiser::new(&ctx.emitter, decompile_options)
+            .raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?
+    };
 
     let mut script = ast::ScriptFile {
         mapfiles: ctx.mapfiles_to_ast(),
@@ -260,7 +262,7 @@ fn decompile_std(
             }),
         ],
     };
-    crate::passes::postprocess_decompiled(&mut script, ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut script, ctx, decompile_options)?;
     Ok(script)
 }
 

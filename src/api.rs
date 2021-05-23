@@ -5,7 +5,7 @@ use crate::game::Game;
 use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, Scope};
-use crate::passes::DecompileKind;
+use crate::llir::DecompileOptions;
 
 /// Front-end API of `truth`, for direct use by `truth`'s various entry point functions, as well
 /// as by unit tests.
@@ -138,17 +138,17 @@ impl Truth<'_> {
         crate::StdFile::compile_from_ast(game, ast, &mut self.ctx)
     }
 
-    pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
-        crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
+    pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
-    pub fn decompile_msg(&mut self, game: Game, middle: &crate::MsgFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
-        crate::MsgFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
+    pub fn decompile_msg(&mut self, game: Game, middle: &crate::MsgFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::MsgFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
     pub fn decompile_mission(&mut self, game: Game, middle: &crate::MissionMsgFile) -> Result<ast::ScriptFile, ErrorReported> {
         crate::MissionMsgFile::decompile_to_ast(middle, game, &mut self.ctx)
     }
-    pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
-        crate::StdFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_kind)
+    pub fn decompile_std(&mut self, game: Game, middle: &crate::StdFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::StdFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
 }
 

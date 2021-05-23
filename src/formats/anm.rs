@@ -13,12 +13,11 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
-use crate::passes::DecompileKind;
 use crate::resolve::RegId;
 
 // =============================================================================
@@ -32,9 +31,9 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
+        decompile(self, &emitter, &game_format(game), ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -56,6 +55,10 @@ impl AnmFile {
             ImageSource::Anm(other) => apply_anm_image_source(self, other).map_err(|d| fs.emitter.emit(d)),
             ImageSource::Directory(path) => apply_directory_image_source(fs, self, &path),
         }
+    }
+
+    pub fn extract_images(&self, dest: &Path, fs: &Fs<'_>) -> WriteResult {
+        extract(fs, self, dest)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
@@ -448,12 +451,12 @@ fn decompile(
     emitter: &impl Emitter,
     format: &FileFormat,
     ctx: &mut CompilerContext,
-    decompile_kind: DecompileKind,
+    decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&ctx.emitter);
+    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -483,7 +486,7 @@ fn decompile(
         //       want to encourage people checking in vanilla ANM files.
         image_sources: vec![],
     };
-    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
     Ok(out)
 }
 
@@ -689,6 +692,113 @@ fn update_entry_from_directory_source(
 
 fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
     *dest = dest.take().or(src);
+}
+
+// =============================================================================
+
+fn extract(
+    fs: &Fs<'_>,
+    anm: &AnmFile,
+    out_path: &Path,
+) -> Result<(), ErrorReported> {
+    // call this now to make sure ancestors of out_path don't get implicitly created when
+    // we use create_dir_all later
+    fs.ensure_dir(out_path)?;
+
+    let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
+
+    anm.entries.iter().map(|entry| {
+        if entry.texture.is_none() {
+            return Ok(());
+        }
+
+        // tarbomb protection
+        let full_path = canonical_out_path.join(&entry.path);
+        let full_path = canonicalize_part_of_path_that_exists(full_path.as_ref()).map_err(|e| {
+            fs.emitter.emit(error!("while resolving '{}': {}", fs.display_path(&full_path), e))
+        })?;
+        let display_path = fs.display_path(&full_path);
+        if full_path.strip_prefix(&canonical_out_path).is_err() {
+            return Err(fs.emitter.emit(error!(
+                message("skipping '{}': outside of destination directory", display_path),
+            )));
+        }
+
+        if let Some(parent) = full_path.parent() {
+            fs.create_dir_all(&parent)?;
+        }
+
+        let image = produce_image_from_entry(entry).map_err(|s| {
+            fs.emitter.emit(error!("skipping '{}': {}", display_path, s))
+        })?;
+
+        image.save(full_path).map_err(|e| {
+            fs.emitter.emit(error!("while writing '{}': {}", display_path, e))
+        })?;
+
+        println!("exported '{}'", display_path);
+        Ok(())
+    }).collect_with_recovery()
+}
+
+// based on cargo's normalize_path
+pub fn canonicalize_part_of_path_that_exists(path: &Path) -> Result<PathBuf, std::io::Error> {
+    let mut components = path.components().peekable();
+    let mut ret = if let Some(c @ std::path::Component::Prefix(..)) = components.peek().cloned() {
+        components.next();
+        PathBuf::from(c.as_os_str())
+    } else {
+        PathBuf::new()
+    };
+
+    for component in components {
+        match component {
+            std::path::Component::Prefix(..) => unreachable!(),
+            std::path::Component::RootDir => {
+                ret.push(component.as_os_str());
+                ret = ret.canonicalize()?;
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => { ret.pop(); }
+            std::path::Component::Normal(c) => {
+                ret.push(c);
+                if let Ok(dest) = ret.read_link() {
+                    ret = dest.canonicalize()?;
+                }
+            }
+        }
+    }
+    Ok(ret)
+}
+
+type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
+
+fn produce_image_from_entry(entry: &Entry) -> Result<image::RgbaImage, String> {
+    use image::{GenericImage, buffer::ConvertBuffer};
+
+    let texture = entry.texture.as_ref().expect("produce_image_from_entry called without texture!");
+    let content_width = entry.specs.img_width.expect("has data but no width?!").value;
+    let content_height = entry.specs.img_height.expect("has data but no height?!").value;
+    let format = entry.specs.img_format.expect("defaults were filled...").value;
+    let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
+        format!("cannot transcode from unknown color format {}", format)
+    })?;
+
+    let content_argb = cformat.transcode_to_argb_8888(&texture.data);
+    let content = BgraImage::from_raw(content_width, content_height, &content_argb[..]).expect("size error?!");
+
+    let offset_x = entry.specs.offset_x.unwrap_or(0);
+    let offset_y = entry.specs.offset_y.unwrap_or(0);
+    let output_width = content_width + offset_x;
+    let output_height = content_height + offset_y;
+    let output_init_argb = vec![0xFF; 4 * output_width as usize * output_height as usize];
+    let mut output = BgraImage::from_raw(output_width, output_height, output_init_argb).expect("size error?!");
+
+    output.sub_image(offset_x, offset_y, content_width, content_height)
+        .copy_from(&content, 0, 0)
+        .expect("region should definitely be large enough");
+
+    Ok(output.convert())
 }
 
 // =============================================================================
@@ -1344,6 +1454,13 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
         emitter.emit(warning!("nonzero thtx_zero lost: {}", zero)).ignore();
     }
     let thtx = ThtxHeader { format, width, height };
+
+    if let Some(cformat) = ColorFormat::from_format_num(format) {
+        let expected_size = cformat.bytes_per_pixel() as usize * width as usize * height as usize;
+        if expected_size != size as usize {
+            emitter.emit(warning!("strange image data size: {} bytes, expected {}", size, expected_size)).ignore();
+        }
+    }
 
     if with_images {
         let mut data = vec![0; size as usize];
