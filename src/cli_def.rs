@@ -555,16 +555,20 @@ mod cli {
     }
 
     pub fn decompile_options() -> impl CliArg<Value=DecompileOptions> {
-        let no_intrinsics = opts::Flag {
-            short: "", long: "no-intrinsics",
-            help: "prevent recognition of special opcodes, so that every instruction decompiles uniformly into a simple function call",
-        };
         let no_blocks = opts::Flag {
             short: "", long: "no-blocks",
             help: "prevent decompilation of loops and other control flow",
         };
-        no_intrinsics.zip(no_blocks).map(|(no_intrinsics, no_blocks)| DecompileOptions {
-            intrinsics: !no_intrinsics, blocks: !no_blocks,
+        let no_intrinsics = opts::Flag {
+            short: "", long: "no-intrinsics",
+            help: "prevent recognition of special opcodes, so that every instruction decompiles uniformly into a simple function call",
+        };
+        let no_arguments = opts::Flag {
+            short: "", long: "no-arguments",
+            help: "prevent decompilation of arguments, leaving all instructions in their most raw format possible. A last resort for troublesome files",
+        };
+        no_intrinsics.zip(no_blocks).zip(no_arguments).map(|((no_intrinsics, no_blocks), no_arguments)| DecompileOptions {
+            intrinsics: !no_intrinsics, blocks: !no_blocks, arguments: !no_arguments,
         })
     }
 

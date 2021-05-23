@@ -324,6 +324,53 @@ source_test!(
     expect_fail: "const",
 );
 
+// A snippet to try decompiling with several decreasing levels of features.
+const SNIPPET_WITH_SEVERAL_INTRINSICS: &'static str = r#"
+interrupt[10]:
+label:
+    I0 = I2 + 3;
+    goto label @ 0;
+"#;
+
+source_test!(
+    ANM_12, decompile_no_nothing,  // "control group" test that keeps it all enabled
+    main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
+    sbsb: |decompiled| {
+        assert!(!decompiled.contains("goto "));
+        assert!(decompiled.contains("loop"));
+    },
+);
+
+source_test!(
+    ANM_12, decompile_no_blocks,
+    main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
+    decompile_args: ["--no-blocks"],
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("goto "));
+        assert!(!decompiled.contains("loop"));
+    },
+);
+
+source_test!(
+    ANM_12, decompile_no_intrinsics,
+    main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
+    decompile_args: ["--no-intrinsics"],
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("ins_64(10)"));
+        assert!(decompiled.contains("ins_4(0xc, 0)"));
+        assert!(decompiled.contains("ins_18($REG[10000], $REG[10002], 3)"));
+    },
+);
+
+source_test!(
+    ANM_12, decompile_no_arguments,
+    main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
+    decompile_args: ["--no-arguments"],
+    sbsb: |decompiled| {
+        assert_eq!(decompiled.matches("@blob").count(), 3);
+        assert_eq!(decompiled.matches("@mask").count(), 1);
+    },
+);
 
 source_test!(
     STD_08, shift_jis_in_source_file,

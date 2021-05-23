@@ -262,6 +262,7 @@ pub enum IntrinsicInstrKind {
     CondJmp(ast::BinopKind, ScalarType),
 }
 
+#[derive(Default)]
 pub struct IntrinsicInstrs {
     intrinsic_opcodes: HashMap<IntrinsicInstrKind, u16>,
     opcode_intrinsics: HashMap<u16, IntrinsicInstrKind>,
