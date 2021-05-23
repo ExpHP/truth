@@ -123,7 +123,6 @@ fn raise_instrs_to_sub_ast(
         true => instr_format.intrinsic_instrs(),
         false => Default::default(),
     };
-    eprintln!("{:?}", raiser.options);
 
     for (&offset, instr) in zip!(&instr_offsets, &script) {
         if let Some(label) = offset_labels.get(&offset) {
