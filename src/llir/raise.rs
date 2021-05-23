@@ -12,6 +12,28 @@ use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
+pub struct DecompileOptions {
+    /// This can be disabled to prevent recognition of opcodes for jumps, assignments, labels,
+    /// calls, returns, and etc., thereby causing every instruction to decompile uniformly into
+    /// a single call-like statement.
+    ///
+    /// Intrinsic recognition is a prerequisite for many other decompilation options, such as loops.
+    pub intrinsics: bool,
+    /// Enables loop/block decompilation.
+    pub blocks: bool,
+}
+
+impl DecompileOptions {
+    /// Construct with all features enabled.
+    pub fn new() -> Self { Default::default() }
+}
+
+impl Default for DecompileOptions {
+    fn default() -> Self {
+        DecompileOptions { intrinsics: true, blocks: true }
+    }
+}
+
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
     time: i32,
@@ -38,6 +60,7 @@ struct UnknownArgsData {
 pub struct Raiser<'a> {
     opcodes_without_abis: BTreeSet<u16>,
     _emitter: &'a context::RootEmitter,
+    options: &'a DecompileOptions,
 }
 
 impl Drop for Raiser<'_> {
@@ -47,10 +70,11 @@ impl Drop for Raiser<'_> {
 }
 
 impl<'a> Raiser<'a> {
-    pub fn new(emitter: &'a context::RootEmitter) -> Self {
+    pub fn new(emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
         Raiser {
             opcodes_without_abis: Default::default(),
             _emitter: emitter,
+            options,
         }
     }
 
@@ -88,6 +112,10 @@ fn raise_instrs_to_sub_ast(
     defs: &Defs,
 ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
+
+    if !raiser.options.intrinsics {
+        unimplemented!("--no-intrinsics");
+    }
 
     let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(emitter, raw_instr, defs)).collect::<Result<_, _>>()?;
 

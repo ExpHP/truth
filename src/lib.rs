@@ -28,7 +28,6 @@ pub mod eclmap;
 pub use context::{Scope, CompilerContext};
 pub mod context;
 
-pub use passes::DecompileKind;
 pub mod passes;
 
 pub use ident::{Ident, ParseIdentError};
@@ -54,6 +53,7 @@ mod image;
 pub use io::Fs;
 pub mod io;
 
+pub use llir::DecompileOptions;
 pub mod llir;
 
 pub mod pseudo;

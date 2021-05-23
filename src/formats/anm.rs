@@ -13,12 +13,11 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
 use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
-use crate::passes::DecompileKind;
 use crate::resolve::RegId;
 
 // =============================================================================
@@ -32,9 +31,9 @@ pub struct AnmFile {
 }
 
 impl AnmFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_kind: DecompileKind) -> Result<ast::ScriptFile, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &game_format(game), ctx, decompile_kind)
+        decompile(self, &emitter, &game_format(game), ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -452,12 +451,12 @@ fn decompile(
     emitter: &impl Emitter,
     format: &FileFormat,
     ctx: &mut CompilerContext,
-    decompile_kind: DecompileKind,
+    decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&ctx.emitter);
+    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -487,7 +486,7 @@ fn decompile(
         //       want to encourage people checking in vanilla ANM files.
         image_sources: vec![],
     };
-    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_kind)?;
+    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
     Ok(out)
 }
 
