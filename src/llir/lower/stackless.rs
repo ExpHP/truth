@@ -563,8 +563,9 @@ impl Lowerer<'_, '_> {
                     token![if] => binop.value,
                     token![unless] => binop.negate_comparison().expect("lower_cond_jump_comparison called with non-comparison operator"),
                 });
+                assert_eq!(data_a.ty, data_b.ty, "should've been type-checked");
+                let ty_arg = data_a.ty;
 
-                let ty_arg = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
                 let (lowered_label, lowered_time) = lower_goto_args(goto);
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,

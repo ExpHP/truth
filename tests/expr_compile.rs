@@ -235,7 +235,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let base_vm = make_randomized_vm(vars);
 
     let parsed_block = {
-        let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
+        let mut block = truth.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
         let ctx = truth.ctx();
         truth::passes::resolve_names::assign_res_ids(&mut block, ctx)?;
@@ -630,6 +630,15 @@ fn cond_jump_logical_negations() {
     check_bool("", "!(0)", true);
     check_bool("", "!(_S(1.0))", false);
     check_bool("A=2;", "!(A * A)", false);
+}
+
+#[test]
+fn cond_jump_float() {
+    check_bool("X=1.0;", "X < 2.0", true);
+    check_bool("X=1.0;", "X > 2.0", false);
+    check_bool("X=1.0;", "X <= 1.0", true);
+    check_bool("X=1.0;", "X >= 1.0", true);
+    check_bool("", "1.0 <= 2.0", true);
 }
 
 #[test]
