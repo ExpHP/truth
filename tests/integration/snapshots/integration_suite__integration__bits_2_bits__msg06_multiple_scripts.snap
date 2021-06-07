@@ -16,7 +16,7 @@ meta {
 
 
 script script0 {
-    enter(0, 0);
+    show(0, 0);
     face(0, 0);
     anmInterrupt(0, 1);
 +60: // 60
@@ -25,20 +25,20 @@ script script0 {
 
 
 script script1 {
-    enter(0, 0);
+    show(0, 0);
     stop();
 }
 
 
 script script10 {
-    enter(0, 0);
+    show(0, 0);
     face(0, 0);
     anmInterrupt(0, 1);
 }
 
 
 script script11 {
-    enter(0, 0);
+    show(0, 0);
     anmInterrupt(0, 1);
 }
 

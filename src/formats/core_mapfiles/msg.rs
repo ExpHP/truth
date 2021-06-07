@@ -44,7 +44,7 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
 
         (Th08, 3, Some("ssm(bs=4;mask=0x77,0,0)")),
         (Th08, 8, Some("ssm(bs=4;mask=0x77,0,0)")),
-        (Th08, 15, Some("SSSSS")),  // SnSSS
+        (Th08, 15, Some("SSSSS")),  // Snnnn
         (Th08, 16, Some("m(bs=4;mask=0x77,0,0)")),
         (Th08, 17, Some("SS")),  // Sn
         (Th08, 18, Some("S")),
