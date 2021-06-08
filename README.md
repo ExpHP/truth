@@ -67,33 +67,23 @@ You can decompile an ANM file into a script, similar to `thanm -l`.
 truanm decompile -g12 -m map/any.anmm in.anm > out.spec
 ```
 
-#### Recompilation of a decompiled ANM file
-
-To recompile an ANM file, you will likely need to supply the original ANM file as a source to copy image data from.  This can be done using the `-i`/`--image-source` flag:
+ANM files also contain images.  You can extract these using `truanm extract`:
 
 ```sh
-truanm compile -g12 edited.spec -i original.anm -o out.anm
+truanm extract -g12 in.anm -o images/
+
+# shorthand
+truanm x -g12 in.anm -o images/
 ```
 
-Alternatively, you can also put the following line in your script file, which is equivalent to `-i path/to/original.anm`:
+At this time, **image extraction is not thoroughly tested and may have some bugs.**
+
+#### Compilation and image sources
+
+ANM scripts contain `entry` blocks that each declare an image contained in the ANM file.
 
 ```C
-#pragma image_source "path/to/original.anm"
-```
-
-#### Compilation of brand new ANM files
-
-Directories containing image files are also valid image sources:
-
-```C
-#pragma image_source "path/to/directory"
-```
-
-In this case, an entry with the path `"subdir/image.png"` will try to load `path/to/directory/subdir/image.png` if it exists (unless the entry has `has_data: false`).  As long as an image can be found, all fields on an `entry` will be automatically filled with reasonable defaults.
-
-```C
-// this is all you need for a valid entry,
-// so long as the image can be located
+// there are other fields, but most will use reasonable defaults
 entry {
     path: "subdir/image.png",
     scripts: {
@@ -102,7 +92,47 @@ entry {
 }
 ```
 
-If you're using thcrap and something bothers you about the fact that both your ANM file and your thcrap patch contain copies of the same images, you can put `has_data: "generate"` on an entry (the default is `has_data: true`).  This will cause it to generate magenta dummy data in the ANM file, to be hot-swapped out by thcrap.  Note that such an entry can still automatically grab the image dimensions from an image source.
+To compile an ANM file, you will likely need to supply some source of these images.  There are two types of image sources: ANM files and image directories.
+
+##### Recompiling existing ANM files
+
+If you are recompiling a script obtained from an ANM file, the original ANM file will serve as a suitable image source:
+
+```sh
+truanm compile -g12 edited.spec -i original.anm -o out.anm
+```
+
+When using an ANM file as an image source, each `entry` in the current script will pull the image from the entry with the same filepath inside the image source.  This mechanism can also be used to copy over any missing metadata from an `entry`.  In cases where multiple entries have the same path (which can happen for virtual files like `"@"` and `"@R"`), the duplicates are matched in order of appearance.
+
+##### Creating brand new ANM files
+
+If you have a thcrap patch or a directory containing the output of `truanm extract`, that can also be used as an image source:
+
+```sh
+truanm compile -g12 cool.spec -i path/to/images -o out.anm
+```
+
+In this case, the example entry above (with the path `"subdir/image.png"`) would try to load `path/to/images/subdir/image.png` if it exists.  As long as an image can be found, all fields on an `entry` will be automatically filled with reasonable defaults.
+
+##### Mix and match
+
+You can supply multiple image sources!  For instance, if you are recompiling an ANM file *and* adding additional images, you could supply:
+
+```
+truanm compile -g12 edited.spec -i original.anm -i my/extra/images -o out.anm
+```
+
+Note that, similar to mapfiles, image sources can alternatively be defined inside the script using `#pragma image_source`:
+
+```C
+// equivalent to '-i original.anm -i my/extra/images'
+#pragma image_source "original.anm"
+#pragma image_source "my/extra/images"
+```
+
+##### Supplying dummy data
+
+If you're using thcrap and something bothers you about the fact that both your ANM file and your thcrap patch contain copies of the same images, you can put `has_data: "dummy"` on an entry (the default is `has_data: true`).  This will cause it to generate magenta dummy data in the ANM file, to be hot-swapped out by thcrap.  Note that such an entry can still automatically grab the image dimensions from an image source.
 
 ## Building and installing from source
 

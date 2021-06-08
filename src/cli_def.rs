@@ -132,14 +132,14 @@ pub mod anm_extract {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, mapfile, outdir, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, outdir, game) = cli::parse_args(version, args, CmdSpec {
             program: "truanm extract",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::mapfile(), cli::extract_outdir(), cli::game()),
+            options: (cli::input(), cli::extract_outdir(), cli::game()),
         });
 
         wrap_exit_code(|truth| {
-            run(truth, game, input.as_ref(), &outdir, mapfile)
+            run(truth, game, input.as_ref(), &outdir)
         });
     }
 
@@ -148,11 +148,7 @@ pub mod anm_extract {
         game: Game,
         path: &Path,
         outdir: &Path,
-        map_path: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
-
         let anm = truth.read_anm(game, path, true)?;
         anm.extract_images(outdir, &truth.fs())
     }
