@@ -97,7 +97,7 @@ To compile an ANM file, you will likely need to supply some source of these imag
 
 ##### Recompiling existing ANM files
 
-If you are recompiling a script obtained from an ANM file, the original ANM file will serve as a suitable image source:
+If you are recompiling a script obtained from an ANM file, the original ANM file will serve as a suitable image source, which can be provided through the `-i/--image-source` flag:
 
 ```sh
 truanm compile -g12 edited.spec -i original.anm -o out.anm
