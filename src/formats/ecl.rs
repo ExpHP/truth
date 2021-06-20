@@ -1,12 +1,12 @@
-use indexmap::{IndexSet, IndexMap};
+use indexmap::{IndexMap};
 
 use crate::ast;
-use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
+use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Emitter};
-use crate::error::{GatherErrorIteratorExt, ErrorReported};
+use crate::error::{ErrorReported};
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::context::CompilerContext;
 
 // =============================================================================
@@ -66,7 +66,7 @@ fn decompile(
     }
 
     let mut sub_raiser = llir::Raiser::new(instr_format, &ctx.emitter, decompile_options);
-    for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
+    for (ident, instrs) in ecl.subs.iter() {
         items.push(sp!(ast::Item::Func {
             qualifier: None,
             ty_keyword: sp!(ast::TypeKeyword::Void),
