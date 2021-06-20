@@ -408,7 +408,7 @@ impl BuildObject {
     ///
     /// # Example
     /// ```
-    /// use truth::meta::{Meta, BuildObject};
+    /// use truth::ast::meta::{Meta, BuildObject};
     ///
     /// fn add_options(b: &mut BuildObject) { /* ... */ }
     ///
