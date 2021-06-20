@@ -23,7 +23,7 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
             SubcommandSpec { name: "truanm", entry: truanm_main, public: true },
             SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
             SubcommandSpec { name: "trumsg", entry: trumsg_main, public: true },
-            SubcommandSpec { name: "truecl", entry: truecl_main, public: true },
+            SubcommandSpec { name: "truecl", entry: truecl_main, public: false },
             // undocumented commands used for testing purposes;
             // these are not easily discoverable, and may be removed any time
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
