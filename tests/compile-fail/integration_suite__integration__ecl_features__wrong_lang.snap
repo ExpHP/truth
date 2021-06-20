@@ -2,6 +2,6 @@
 source: tests/integration/ecl_features.rs
 expression: stderr
 ---
-thread 'main' panicked at 'not implemented', src/cli_def.rs:271:9
+thread 'main' panicked at 'not implemented', src/cli_def.rs:267:9
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
