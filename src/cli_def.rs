@@ -41,7 +41,7 @@ pub fn truecl_main(version: &str, args: &[String]) -> ! {
         program: "truecl",
         choices: &[
             SubcommandSpec { name: "decompile", entry: ecl_decompile::main, public: true },
-            // SubcommandSpec { name: "compile", entry: ecl_compile::main, public: true },
+            SubcommandSpec { name: "compile", entry: ecl_compile::main, public: true },
         ],
     })
 }
@@ -245,6 +245,30 @@ pub mod anm_redump {
     ) -> Result<(), ErrorReported> {
         let anm = truth.read_anm(game, path, true)?;
         truth.write_anm(game, outpath, &anm)
+    }
+}
+
+pub mod ecl_compile {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truecl compile",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+        });
+
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
+    }
+
+    fn run(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        outpath: &Path,
+        map_path: Option<PathBuf>,
+    ) -> Result<(), ErrorReported> {
+        unimplemented!()
     }
 }
 
