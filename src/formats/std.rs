@@ -108,7 +108,9 @@ impl StdFile {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Object {
-    pub unknown: u16,
+    /// This field determines when objects are drawn relative to 2D sprites,
+    /// as if their polygon scripts had the given `layer(n)` command.
+    pub layer: u16,
     pub pos: [f32; 3],
     pub size: [f32; 3],
     pub quads: Vec<Quad>,
@@ -117,7 +119,7 @@ pub struct Object {
 impl FromMeta<'_> for Object {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Object {
-            unknown: m.expect_field::<i32>("unknown")? as u16,
+            layer: m.expect_renamed_field::<i32>("unknown", "layer")? as u16,
             pos: m.expect_field("pos")?,
             size: m.expect_field("size")?,
             quads: m.expect_field("quads")?,
@@ -128,7 +130,7 @@ impl FromMeta<'_> for Object {
 impl ToMeta for Object {
     fn to_meta(&self) -> Meta {
         Meta::make_object()
-            .field("unknown", &(self.unknown as i32))
+            .field("layer", &(self.layer as i32))
             .field("pos", &self.pos)
             .field("size", &self.size)
             .field("quads", &self.quads)
@@ -459,19 +461,19 @@ fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) ->
         emitter.emit(warning!("object has non-sequential id (expected {}, got {})", expected_id, id)).ignore();
     }
 
-    let unknown = f.read_u16()?;
+    let layer = f.read_u16()?;
     let pos = f.read_f32s_3()?;
     let size = f.read_f32s_3()?;
     let mut quads = vec![];
     while let Some(quad) = read_quad(f, emitter)? {
         quads.push(quad);
     }
-    Ok(Object { unknown, pos, size, quads })
+    Ok(Object { layer, pos, size, quads })
 }
 
 fn write_object(f: &mut BinWriter, emitter: &impl Emitter, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
     f.write_u16(id as u16)?;
-    f.write_u16(x.unknown)?;
+    f.write_u16(x.layer)?;
     f.write_f32s(&x.pos)?;
     f.write_f32s(&x.size)?;
     for quad in &x.quads {

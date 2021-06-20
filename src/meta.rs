@@ -86,6 +86,9 @@ pub enum FromMetaError<'a> {
         fields: &'a Sp<Fields>,
         missing: &'static str,
     },
+    ConflictingFields {
+        conflict: [Sp<Ident>; 2],
+    },
     UnrecognizedField {
         invalid: &'a Sp<Ident>,
     },
@@ -118,6 +121,11 @@ impl crate::diagnostic::IntoDiagnostics for FromMetaError<'_> {
         FromMetaError::MissingField { fields, missing } => vec![error!(
             message("incomplete metadata object"),
             primary(fields, "missing field '{}'", missing),
+        )],
+        FromMetaError::ConflictingFields { ref conflict } => vec![error!(
+            message("cannot supply both '{}' and '{}'", conflict[0], conflict[1]),
+            primary(conflict[0], "conflicting field"),
+            primary(conflict[1], "conflicting field"),
         )],
         FromMetaError::UnrecognizedField { invalid } => vec![error!(
             message("unexpected field in metadata"),
@@ -287,7 +295,27 @@ impl<'a> ParseObject<'a> {
     /// it manually, try supplying `::<&Sp<Meta>>`. (this will give access to some advanced methods like
     /// [`Sp<Meta>::parse_array_with`]).
     pub fn expect_field<T: FromMeta<'a>>(&mut self, field: &'static str) -> Result<T, FromMetaError<'a>> {
-        self.get_field(field)?.ok_or(FromMetaError::MissingField { fields: &self.map, missing: field })
+        self.get_field(field)?.ok_or_else(|| self.missing_field(field))
+    }
+
+    /// `expect_field`, but for fields that have been renamed.  Both the old and new name are accepted, but it is
+    /// an error to supply both.
+    pub fn expect_renamed_field<T: FromMeta<'a>>(&mut self, old_field: &'static str, field: &'static str) -> Result<T, FromMetaError<'a>> {
+        // FIXME: generate a deprecation warning for old names once we have access to warning infrastructure from FromMeta.
+        //        Should maybe take a &Once arg to allow the warning to only be generated once.
+        let old = self.get_field_and_key(old_field)?;
+        let new = self.get_field_and_key(field)?;
+        match (old, new) {
+            (None, None) => Err(self.missing_field(field)),
+            (Some((key_1, _)), Some((key_2, _))) => Err(FromMetaError::ConflictingFields { conflict: [key_1, key_2] }),
+
+            (Some((_, value)), None) |
+            (None, Some((_, value))) => Ok(value),
+        }
+    }
+
+    fn missing_field(&self, field: &'static str) -> FromMetaError<'a> {
+        FromMetaError::MissingField { fields: &self.map, missing: field }
     }
 
     /// Mark a field as valid without attempting to parse it.

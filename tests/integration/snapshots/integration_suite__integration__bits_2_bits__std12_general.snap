@@ -9,7 +9,7 @@ meta {
     anm_path: "stage01.anm",
     objects: {
         object0: {
-            unknown: 0,
+            layer: 0,
             pos: [-2.0, 0.0, -3.0],
             size: [751.0, 512.0, 5.0],
             quads: [

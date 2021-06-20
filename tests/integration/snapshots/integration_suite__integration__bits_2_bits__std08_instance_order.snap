@@ -15,7 +15,7 @@ meta {
     ],
     objects: {
         object0: {
-            unknown: 0,
+            layer: 0,
             pos: [-320.0, -128.0, -12.0],
             size: [768.0, 384.0, 0.0],
             quads: [
@@ -27,7 +27,7 @@ meta {
             ],
         },
         object1: {
-            unknown: 1,
+            layer: 1,
             pos: [-81.602196, -140.91132, -425.6022],
             size: [531.2044, 505.268, 571.2044],
             quads: [
