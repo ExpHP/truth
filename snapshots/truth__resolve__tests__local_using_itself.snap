@@ -2,7 +2,7 @@
 source: src/resolve/tests.rs
 expression: "resolve_expect_err::<ast::Block>(r#\"{\n    int a = a;  // should fail at second `a`\n}\"#,\n                                 \"in this scope\").trim()"
 ---
-error: unknown variable 'a'
+error: unknown ECL register or variable 'a'
   ┌─ <input>:2:13
   │
 2 │     int a = a;  // should fail at second `a`

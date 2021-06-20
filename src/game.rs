@@ -106,3 +106,32 @@ impl fmt::Display for Game {
         fmt::Display::fmt(self.as_str(), f)
     }
 }
+
+/// Indicates a distinct instruction set that may appear in a game.
+///
+/// Used as part of the key for e.g. opcode signatures.
+///
+/// This does not correspond 1-1 with truth's filetypes.  For instance, [`Self::Ecl`] and [`Self::Timeline`]
+/// are two distinct instruction sets that both appear in `.ecl` files, while "mission" files (`mission.msg`)
+/// do not have any instruction sets at all.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(enum_map::Enum)]
+pub enum InstrLanguage {
+    Ecl, Anm, Msg, End, Std, Timeline,
+    Dummy, // used in unit tests
+}
+
+impl InstrLanguage {
+    /// A human-readable name for the language, in title case. (`"ECL"`, `"Stage MSG"`...)
+    pub fn descr(&self) -> &'static str {
+        match self {
+            Self::Ecl => "ECL",
+            Self::Timeline => "ECL Timeline",
+            Self::Anm => "ANM",
+            Self::Std => "STD",
+            Self::Msg => "Stage MSG",
+            Self::End => "Ending MSG",
+            Self::Dummy => "Dummy Test Language",
+        }
+    }
+}

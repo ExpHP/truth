@@ -1,7 +1,7 @@
 use super::CoreSignatures;
 use crate::Game::{self, *};
 
-pub fn core_signatures(game: Game) -> &'static CoreSignatures {
+pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
     match game {
         Th06 => {
             static OUT: &CoreSignatures = &CoreSignatures {

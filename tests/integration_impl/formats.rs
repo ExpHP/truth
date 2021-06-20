@@ -154,3 +154,18 @@ pub const MSG_17: Format = Format {
     script_head: MSG_09.script_head,
     make_main: MSG_09.make_main,
 };
+
+pub const ECL_08: Format = Format {
+    cmd: "truecl",
+    game: Game::Th08,
+    script_head: r#"
+#pragma mapfile "map/any.anmm"
+
+timeline 0 {}
+"#,
+    make_main: |body| format!(r#"
+void sub0() {{
+    {}
+}}
+"#, body),
+};

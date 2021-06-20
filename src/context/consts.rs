@@ -157,7 +157,7 @@ impl<'a> Evaluator<'a> {
             ast::Expr::LitString(ast::LitString { string, .. }) => return Ok(ScalarValue::String(string.clone())),
 
             ast::Expr::Var(var) => match var.name {
-                ast::VarName::Normal { ref ident } => {
+                ast::VarName::Normal { ref ident, .. } => {
                     let def_id = self.resolutions.expect_def(ident);
                     let inherent_value = self._get_or_compute(Some(expr.span), def_id)?;
                     let cast_value = inherent_value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked");

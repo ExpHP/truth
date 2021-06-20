@@ -283,7 +283,7 @@ impl AstVm {
 
                             let arg_values = args.iter().map(|arg| self.eval(arg, resolutions)).collect::<Vec<_>>();
                             match name.value {
-                                ast::CallableName::Ins { opcode } => self.log_instruction(opcode, &arg_values),
+                                ast::CallableName::Ins { opcode, .. } => self.log_instruction(opcode, &arg_values),
                                 ast::CallableName::Normal { .. } => unimplemented!("non-instr function in VM"),
                             }
                         },
@@ -397,8 +397,8 @@ impl AstVm {
 
     fn var_id_from_name(&self, var: &ast::VarName, resolutions: &Resolutions) -> VarId {
         match *var {
-            ast::VarName::Normal { ref ident } => VarId::Other(resolutions.expect_def(ident)),
-            ast::VarName::Reg { reg } => VarId::Reg(reg),
+            ast::VarName::Normal { ref ident, language_if_reg: _ } => VarId::Other(resolutions.expect_def(ident)),
+            ast::VarName::Reg { reg, language: _ } => VarId::Reg(reg),
         }
     }
 
@@ -441,6 +441,7 @@ impl AstVm {
 mod tests {
     use super::*;
     use crate::value::{ScalarValue::{Int, Float}, ScalarType as Ty};
+    use crate::game::InstrLanguage::Dummy;
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId, Ty)>,
@@ -459,10 +460,11 @@ mod tests {
 
             let ctx = truth.ctx();
             for &(alias, reg, ty) in &self.globals {
-                ctx.define_global_reg_alias(reg, alias.parse().unwrap());
-                ctx.set_reg_ty(reg, ty.into());
+                ctx.define_global_reg_alias(Dummy, reg, alias.parse().unwrap());
+                ctx.set_reg_ty(Dummy, reg, ty.into());
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, ctx).unwrap();
+            crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, ctx).unwrap();
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, ctx).unwrap();
             (ast.value, ctx.resolutions.clone())

@@ -12,15 +12,14 @@ pub mod pos;
 #[macro_use]
 pub mod quote;
 
+mod core_mapfiles;
+
 pub use ast::{Visit, VisitMut};
 pub mod ast;
 pub use fmt::{Format, Formatter};
 pub mod fmt;
 
 pub mod parse;
-
-// FIXME make this part of `ast`
-pub mod meta;
 
 pub use eclmap::Eclmap;
 pub mod eclmap;
@@ -37,9 +36,10 @@ pub use formats::anm::{self, AnmFile};
 pub use formats::msg::{self, MsgFile};
 pub use formats::mission::{self, MissionMsgFile};
 pub use formats::std::{self, StdFile};
+pub use formats::ecl::{self, OldeEclFile as EclFile};
 mod formats;
 
-pub use game::Game;
+pub use game::{Game, InstrLanguage};
 mod game;
 
 #[doc(hidden)]
@@ -55,8 +55,6 @@ pub mod io;
 
 pub use llir::DecompileOptions;
 pub mod llir;
-
-pub mod pseudo;
 
 pub mod vm;
 

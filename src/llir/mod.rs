@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use enum_map::EnumMap;
 
 use crate::ast;
+use crate::game::InstrLanguage;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::pos::{Span};
@@ -33,10 +34,30 @@ mod raise;
 /// * Write to a binary file using [`write_instrs`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawInstr {
+    /// The time label of the instruction.
     pub time: i32,
     pub opcode: u16,
+    /// A mask indicating which arguments are registers, in languages that support registers.
     pub param_mask: u16,
+    /// The bytes after the instruction header, exactly as they will appear in the file.
     pub args_blob: Vec<u8>,
+    /// Difficulty mask.  Only used in ECL.
+    pub difficulty: u16,
+    /// Stack change arg.  Only used in modern ECL.
+    pub pop: i16,
+    /// If an instruction format has an unusual thing in its instruction headers that we don't want
+    /// to invent new syntax for, we can put it here to have it appear as the first instruction argument.
+    ///
+    /// Used by ECL timelines.
+    pub extra_arg: Option<u16>,
+}
+
+impl RawInstr {
+    pub const DEFAULTS: RawInstr = RawInstr {
+        time: 0, opcode: 0,
+        args_blob: Vec::new(), extra_arg: None,
+        param_mask: 0, difficulty: 0, pop: 0,
+    };
 }
 
 /// A simple argument, which is either an immediate or a register reference.
@@ -358,6 +379,9 @@ pub enum ReadInstr {
 }
 
 pub trait InstrFormat {
+    /// Language key, so that signatures can be looked up for the right type of instruction (e.g. ECL vs timeline).
+    fn language(&self) -> InstrLanguage;
+
     fn intrinsic_instrs(&self) -> IntrinsicInstrs {
         IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
     }
@@ -412,15 +436,31 @@ pub trait InstrFormat {
 }
 
 /// An implementation of InstrFormat for testing the raising and lowering phases of compilation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TestFormat {
+    pub language: InstrLanguage,
     pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
     /// For simulating the existence of an instruction like ANM `ins_509`
     pub anti_scratch_opcode: Option<u16>,
 }
+
+impl Default for TestFormat {
+    fn default() -> Self {
+        TestFormat {
+            language: InstrLanguage::Dummy,
+            intrinsic_opcode_pairs: Default::default(),
+            general_use_int_regs: Default::default(),
+            general_use_float_regs: Default::default(),
+            anti_scratch_opcode: None,
+        }
+    }
+}
+
 impl InstrFormat for TestFormat {
+    fn language(&self) -> InstrLanguage { self.language }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         self.intrinsic_opcode_pairs.clone()
     }
@@ -460,6 +500,7 @@ mod test_reader {
     }
 
     impl InstrFormat for SimpleInstrReader {
+        fn language(&self) -> InstrLanguage { InstrLanguage::Dummy }
         fn instr_header_size(&self) -> usize { 0x10 }
         fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
             Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))
@@ -470,7 +511,7 @@ mod test_reader {
     }
 
     fn simple_instr(opcode: u16) -> RawInstr {
-        RawInstr { opcode, time: 0, param_mask: 0, args_blob: vec![] }
+        RawInstr { opcode, ..RawInstr::DEFAULTS }
     }
 
     struct TestInput {

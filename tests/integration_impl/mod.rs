@@ -212,7 +212,7 @@ impl TestFile {
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
-        truth.read_msg(format.game, self.as_path()).unwrap()
+        truth.read_msg(format.game, truth::InstrLanguage::Msg, self.as_path()).unwrap()
     }
 }
 
@@ -407,6 +407,14 @@ macro_rules! make_source {
     };
 }
 
+fn erase_panic_line_number_for_accepted_panics(message: &str) -> String {
+    lazy_static::lazy_static! {
+        static ref PANIC_LINE_NUMBER_RE: regex::Regex = regex::Regex::new(r#"panicked at 'not implemented', ([^:]+):[0-9]+:[0-9]+"#).unwrap();
+    }
+    PANIC_LINE_NUMBER_RE.replace(message, "panicked at 'not implemented', ${1}:???:??").into_owned()
+}
+
+
 #[track_caller]
 pub fn _check_compile_fail_output(stderr: &str, expected: &str, snapshot: impl FnOnce(&str)) {
     let stderr = make_output_deterministic(&stderr);
@@ -422,6 +430,7 @@ pub fn _check_compile_fail_output(stderr: &str, expected: &str, snapshot: impl F
     let is_bad_ice = is_ice && !allow_ice;
     assert!(!is_bad_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
 
+    let stderr = erase_panic_line_number_for_accepted_panics(&stderr);
     assert!(stderr.contains(expected), "Error did not contain expected! error: {}", stderr);
     snapshot(&stderr);
 }

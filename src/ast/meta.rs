@@ -9,7 +9,6 @@ use crate::ident::Ident;
 use crate::fmt::Formatter;
 use crate::value::ScalarValue;
 
-// FIXME: move the enum to AST but keep the traits here
 #[derive(Debug, Clone, PartialEq)]
 pub enum Meta {
     Scalar(Sp<ast::Expr>),
@@ -409,7 +408,7 @@ impl BuildObject {
     ///
     /// # Example
     /// ```
-    /// use truth::meta::{Meta, BuildObject};
+    /// use truth::ast::meta::{Meta, BuildObject};
     ///
     /// fn add_options(b: &mut BuildObject) { /* ... */ }
     ///

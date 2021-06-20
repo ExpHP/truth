@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ast::{self, Expr};
+use crate::ast::{self, pseudo};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
@@ -8,6 +8,7 @@ use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::resolve::{RegId};
 use crate::context::{self, Defs};
+use crate::game::InstrLanguage;
 use crate::llir::{ArgEncoding, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
@@ -54,8 +55,10 @@ struct UnknownArgsData {
 /// It tracks some state related to diagnostics, so that some consolidated warnings
 /// can be given at the end of decompilation.
 pub struct Raiser<'a> {
+    instr_format: &'a dyn InstrFormat,
     opcodes_without_abis: BTreeSet<u16>,
-    _emitter: &'a context::RootEmitter,
+    // Root emitter because we don't want any additional context beyond the filename.
+    emitter_for_abi_warnings: &'a context::RootEmitter,
     options: &'a DecompileOptions,
 }
 
@@ -66,10 +69,11 @@ impl Drop for Raiser<'_> {
 }
 
 impl<'a> Raiser<'a> {
-    pub fn new(emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
+    pub fn new(instr_format: &'a dyn InstrFormat, emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
         Raiser {
+            instr_format,
             opcodes_without_abis: Default::default(),
-            _emitter: emitter,
+            emitter_for_abi_warnings: emitter,
             options,
         }
     }
@@ -77,17 +81,16 @@ impl<'a> Raiser<'a> {
     pub fn raise_instrs_to_sub_ast(
         &mut self,
         emitter: &dyn Emitter,
-        instr_format: &dyn InstrFormat,
         raw_script: &[RawInstr],
         defs: &Defs,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        raise_instrs_to_sub_ast(self, &emitter, instr_format, raw_script, defs)
+        raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)
     }
 
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
-            self._emitter.emit(warning!(
-                message("instructions with unknown signatures were decompiled to byte blobs."),
+            self.emitter_for_abi_warnings.emit(warning!(
+                message("{} instructions with unknown signatures were decompiled to byte blobs.", self.instr_format.language().descr()),
                 note(
                     "The following opcodes were affected: {}",
                     self.opcodes_without_abis.iter()
@@ -103,10 +106,10 @@ impl<'a> Raiser<'a> {
 fn raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
     raw_script: &[RawInstr],
     defs: &Defs,
 ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+    let instr_format = raiser.instr_format;
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
     let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(emitter, raw_instr, defs)).collect::<Result<_, _>>()?;
@@ -267,7 +270,7 @@ fn extract_jump_args_by_signature(
         RaiseArgs::Unknown(_) => return None,
     };
 
-    let abi = defs.ins_abi(instr.opcode).expect("decoded, so abi is known");
+    let abi = defs.ins_abi(instr_format.language(), instr.opcode).expect("decoded, so abi is known");
     for (arg, encoding) in zip!(args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_immediate_int() as u32)),
@@ -290,11 +293,12 @@ fn raise_instr(
 ) -> Result<ast::StmtBody, ErrorReported> {
     match &instr.args {
         RaiseArgs::Decoded(args) => raise_decoded_instr(emitter, instr_format, instr, args, defs, intrinsic_instrs, offset_labels),
-        RaiseArgs::Unknown(args) => raise_unknown_instr(instr, args),
+        RaiseArgs::Unknown(args) => raise_unknown_instr(instr_format.language(), instr, args),
     }
 }
 
 fn raise_unknown_instr(
+    language: InstrLanguage,
     instr: &RaiseInstr,
     args: &UnknownArgsData,
 ) -> Result<ast::StmtBody, ErrorReported> {
@@ -310,11 +314,11 @@ fn raise_unknown_instr(
     pseudos.push(sp!(ast::PseudoArg {
         at_sign: sp!(()), eq_sign: sp!(()),
         kind: sp!(token![blob]),
-        value: sp!(crate::pseudo::format_blob(&args.blob).into()),
+        value: sp!(pseudo::format_blob(&args.blob).into()),
     }));
 
-    Ok(ast::StmtBody::Expr(sp!(Expr::Call {
-        name: sp!(ast::CallableName::Ins { opcode: instr.opcode }),
+    Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
+        name: sp!(ast::CallableName::Ins { opcode: instr.opcode, language: Some(language) }),
         pseudos,
         args: vec![],
     })))
@@ -329,8 +333,9 @@ fn raise_decoded_instr(
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, ErrorReported> {
+    let language = instr_format.language();
     let opcode = instr.opcode;
-    let abi = defs.ins_abi(instr.opcode).expect("decoded, so abi is known");
+    let abi = defs.ins_abi(language, instr.opcode).expect("decoded, so abi is known");
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     macro_rules! ensure {
@@ -359,8 +364,8 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::AssignOp(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
             ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_reg(emitter, &args[0], ty)?;
-            let value = raise_arg(emitter, &args[1], encodings[1])?;
+            let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
+            let value = raise_arg(language, emitter, &args[1], encodings[1])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var #op #value)))
         }),
@@ -368,9 +373,9 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::Binop(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
             ensure!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_reg(emitter, &args[0], ty)?;
-            let a = raise_arg(emitter, &args[1], encodings[1])?;
-            let b = raise_arg(emitter, &args[2], encodings[2])?;
+            let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
+            let a = raise_arg(language, emitter, &args[1], encodings[1])?;
+            let b = raise_arg(language, emitter, &args[2], encodings[2])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_binop!(#a #op #b))))
         }),
@@ -378,8 +383,8 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::Unop(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a unary '{}' operation", op), |emitter| {
             ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_reg(emitter, &args[0], ty)?;
-            let b = raise_arg(emitter, &args[1], encodings[1])?;
+            let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
+            let b = raise_arg(language, emitter, &args[1], encodings[1])?;
 
             Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_unop!(#op #b))))
         }),
@@ -396,7 +401,7 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::CountJmp) => emitter.chain("while decompiling a decrement jump", |emitter| {
             warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_reg(emitter, &args[0], ScalarType::Int)?;
+            let var = raise_arg_to_reg(language, emitter, &args[0], ScalarType::Int)?;
             let goto = raise_jump_args(&args[1], Some(&args[2]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
@@ -407,8 +412,8 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::CondJmp(op, _)) => emitter.chain("while decompiling a conditional jump", |emitter| {
             warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let a = raise_arg(emitter, &args[0], encodings[0])?;
-            let b = raise_arg(emitter, &args[1], encodings[1])?;
+            let a = raise_arg(language, emitter, &args[0], encodings[0])?;
+            let b = raise_arg(language, emitter, &args[1], encodings[1])?;
             let goto = raise_jump_args(&args[2], Some(&args[3]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
@@ -419,19 +424,19 @@ fn raise_decoded_instr(
 
         // Default behavior for general instructions
         None => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
-            let abi = expect_abi(instr, defs);
+            let abi = expect_abi(language, instr, defs);
 
-            Ok(ast::StmtBody::Expr(sp!(Expr::Call {
-                name: sp!(ast::CallableName::Ins { opcode }),
+            Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
+                name: sp!(ast::CallableName::Ins { opcode, language: Some(language) }),
                 pseudos: vec![],
-                args: raise_args(emitter, args, abi)?,
+                args: raise_args(language, emitter, args, abi)?,
             })))
         }),
     }
 }
 
 
-fn raise_args(emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<Expr>>, ErrorReported> {
+fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<ast::Expr>>, ErrorReported> {
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
@@ -440,7 +445,7 @@ fn raise_args(emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Res
 
     let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
         emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
-            Ok(sp!(raise_arg(emitter, &arg, enc)?))
+            Ok(sp!(raise_arg(language, emitter, &arg, enc)?))
         })
     }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
@@ -454,7 +459,7 @@ fn raise_args(emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Res
     Ok(out)
 }
 
-fn raise_arg(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
+fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
     if raw.is_reg {
         let ty = match enc {
             | ArgEncoding::Padding
@@ -472,13 +477,13 @@ fn raise_arg(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Resul
             | ArgEncoding::Word => return Err(emitter.emit(error!("unexpected register used as word-sized argument"))),
             | ArgEncoding::String { .. } => return Err(emitter.emit(error!("unexpected register used as string argument"))),
         };
-        Ok(Expr::Var(sp!(raise_arg_to_reg(emitter, raw, ty)?)))
+        Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, ty)?)))
     } else {
         raise_arg_to_literal(emitter, raw, enc)
     }
 }
 
-fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<Expr, ErrorReported> {
+fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
     if raw.is_reg {
         return Err(emitter.emit(error!("expected an immediate, got a register")));
     }
@@ -488,36 +493,38 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Word
         | ArgEncoding::Dword
         | ArgEncoding::JumpTime  // NOTE: might eventually want timeof(label)
-        => Ok(Expr::from(raw.expect_int())),
+        => Ok(ast::Expr::from(raw.expect_int())),
 
         | ArgEncoding::Sprite
         => match raw.expect_int() {
-            -1 => Ok(Expr::from(-1)),
-            id => Ok(Expr::Var(sp!(ast::Var {
-                name: ast::VarName::Normal { ident: ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _)) },
-                ty_sigil: None,
-            }))),
+            -1 => Ok(ast::Expr::from(-1)),
+            id => {
+                let const_ident = ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _));
+                let name = ast::VarName::new_non_reg(const_ident);
+                Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+            },
         },
 
         | ArgEncoding::Script
-        => Ok(Expr::Var(sp!(ast::Var {
-            name: ast::VarName::Normal { ident: ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _)) },
-            ty_sigil: None,
-        }))),
+        => {
+            let const_ident = ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _));
+            let name = ast::VarName::new_non_reg(const_ident);
+            Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+        },
 
         | ArgEncoding::Color
         | ArgEncoding::JumpOffset  // NOTE: might eventually want offsetof(label)
-        => Ok(Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
+        => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
 
         | ArgEncoding::Float
-        => Ok(Expr::from(raw.expect_float())),
+        => Ok(ast::Expr::from(raw.expect_float())),
 
         | ArgEncoding::String { .. }
-        => Ok(Expr::from(raw.expect_string().clone())),
+        => Ok(ast::Expr::from(raw.expect_string().clone())),
     }
 }
 
-fn raise_arg_to_reg(emitter: &impl Emitter, raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
+fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
     if !raw.is_reg {
         return Err(emitter.emit(error!("expected a variable, got an immediate")));
     }
@@ -532,7 +539,8 @@ fn raise_arg_to_reg(emitter: &impl Emitter, raw: &SimpleArg, ty: ScalarType) -> 
             RegId(float_reg as i32)
         },
     };
-    Ok(ast::Var { ty_sigil: Some(ty_sigil), name: reg.into() })
+    let name = ast::VarName::Reg { reg, language: Some(language) };
+    Ok(ast::Var { ty_sigil: Some(ty_sigil), name })
 }
 
 fn raise_jump_args(
@@ -554,7 +562,7 @@ fn raise_jump_args(
 impl Raiser<'_> {
     fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         if self.options.arguments {
-            if let Some(abi) = defs.ins_abi(instr.opcode) {
+            if let Some(abi) = defs.ins_abi(self.instr_format.language(), instr.opcode) {
                 return decode_args_with_abi(emitter, instr, abi);
             } else {
                 self.opcodes_without_abis.insert(instr.opcode);
@@ -661,10 +669,10 @@ fn decode_args_with_abi(
     })
 }
 
-fn expect_abi<'a>(instr: &RaiseInstr, defs: &'a Defs) -> &'a InstrAbi {
+fn expect_abi<'a>(language: InstrLanguage, instr: &RaiseInstr, defs: &'a Defs) -> &'a InstrAbi {
     // if we have Instr then we already must have used the signature earlier to decode the arg bytes,
     // so we can just panic
-    defs.ins_abi(instr.opcode).unwrap_or_else(|| {
+    defs.ins_abi(language, instr.opcode).unwrap_or_else(|| {
         unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
     })
 }

@@ -9,9 +9,8 @@ use crate::diagnostic::Diagnostic;
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
-use crate::ast::{self, Expr};
+use crate::ast::{self, pseudo::PseudoArgData};
 use crate::resolve::{DefId, RegId};
-use crate::pseudo::PseudoArgData;
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
 
@@ -103,10 +102,11 @@ impl Lowerer<'_, '_> {
         stmt: &Sp<ast::Stmt>,
         name: &Sp<ast::CallableName>,
         pseudos: &[Sp<ast::PseudoArg>],
-        args: &[Sp<Expr>],
+        args: &[Sp<ast::Expr>],
     ) -> Result<u16, ErrorReported> {
         // all function statements currently refer to single instructions
-        let opcode = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
+        let (lang, opcode) = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
+        assert_eq!(lang, self.instr_format.language());
 
         self.lower_instruction(stmt, opcode as _, pseudos, args)
     }
@@ -117,7 +117,7 @@ impl Lowerer<'_, '_> {
         stmt: &Sp<ast::Stmt>,
         opcode: u16,
         pseudos: &[Sp<ast::PseudoArg>],
-        args: &[Sp<Expr>],
+        args: &[Sp<ast::Expr>],
     ) -> Result<u16, ErrorReported> {
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
@@ -239,13 +239,13 @@ impl Lowerer<'_, '_> {
         // complex expressions without a cast
         match (assign_op.value, &data_rhs.tmp_expr.value) {
             // a = <expr> + <expr>;
-            (ast::AssignOpKind::Assign, Expr::Binop(a, binop, b)) => {
+            (ast::AssignOpKind::Assign, ast::Expr::Binop(a, binop, b)) => {
                 self.lower_assign_direct_binop(span, time, var, assign_op, rhs.span, a, binop, b)
             },
 
             // a = -<expr>;
             // a = sin(<expr>);
-            (ast::AssignOpKind::Assign, Expr::Unop(unop, b)) => {
+            (ast::AssignOpKind::Assign, ast::Expr::Unop(unop, b)) => {
                 self.lower_assign_direct_unop(span, time, var, assign_op, rhs.span, unop, b)
             },
 
@@ -278,9 +278,9 @@ impl Lowerer<'_, '_> {
         var: &Sp<ast::Var>,
         eq_sign: &Sp<ast::AssignOpKind>,
         rhs_span: Span,
-        a: &Sp<Expr>,
+        a: &Sp<ast::Expr>,
         binop: &Sp<ast::BinopKind>,
-        b: &Sp<Expr>,
+        b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
         // So right here, we have something like `v = <A> * <B>`. If <A> and <B> are both simple arguments (literals or
         // variables), we can emit this as one instruction. Otherwise, we need to break it up.  In the general case this
@@ -357,7 +357,7 @@ impl Lowerer<'_, '_> {
         eq_sign: &Sp<ast::AssignOpKind>,
         rhs_span: Span,
         unop: &Sp<ast::UnopKind>,
-        b: &Sp<Expr>,
+        b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
         if unop.value == token![-] {
@@ -501,19 +501,19 @@ impl Lowerer<'_, '_> {
         match &expr.value {
             // 'if (<A> <= <B>) goto label'
             // 'unless (<A> <= <B>) goto label'
-            Expr::Binop(a, binop, b) if binop.is_comparison() => {
+            ast::Expr::Binop(a, binop, b) if binop.is_comparison() => {
                 self.lower_cond_jump_comparison(stmt_span, stmt_time, keyword, a, binop, b, goto)
             },
 
             // 'if (<A> || <B>) goto label'
             // 'unless (<A> || <B>) goto label'
-            Expr::Binop(a, binop, b) if matches!(binop.value, token![&&] | token![||]) => {
+            ast::Expr::Binop(a, binop, b) if matches!(binop.value, token![&&] | token![||]) => {
                 self.lower_cond_jump_logic_binop(stmt_span, stmt_time, keyword, a, binop, b, goto)
             },
 
             // 'if (!<B>) goto label'
             // 'unless (!<B>) goto label'
-            Expr::Unop(sp_pat!(op_span => token![!]), b) => {
+            ast::Expr::Unop(sp_pat!(op_span => token![!]), b) => {
                 let negated_kw = sp!(*op_span => keyword.negate());
                 self.lower_cond_jump_expr(stmt_span, stmt_time, &negated_kw, b, goto)
             },
@@ -535,9 +535,9 @@ impl Lowerer<'_, '_> {
         stmt_span: Span,
         stmt_time: i32,
         keyword: &Sp<ast::CondKeyword>,
-        a: &Sp<Expr>,
+        a: &Sp<ast::Expr>,
         binop: &Sp<ast::BinopKind>,
-        b: &Sp<Expr>,
+        b: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported>{
         match (classify_expr(a, self.ctx)?, classify_expr(b, self.ctx)?) {
@@ -584,9 +584,9 @@ impl Lowerer<'_, '_> {
       stmt_span: Span,
       stmt_time: i32,
       keyword: &Sp<ast::CondKeyword>,
-      a: &Sp<Expr>,
+      a: &Sp<ast::Expr>,
       binop: &Sp<ast::BinopKind>,
-      b: &Sp<Expr>,
+      b: &Sp<ast::Expr>,
       goto: &ast::StmtGoto,
   ) -> Result<(), ErrorReported> {
         let is_easy_case = match (keyword.value, binop.value) {
@@ -635,7 +635,7 @@ impl Lowerer<'_, '_> {
         &mut self,
         time: i32,
         data: &TemporaryExpr<'_>,
-    ) -> Result<(DefId, Sp<Expr>), ErrorReported> {
+    ) -> Result<(DefId, Sp<ast::Expr>), ErrorReported> {
         let (def_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty)?;
         let var_as_expr = self.compute_temporary_expr(time, &var, data)?;
 
@@ -651,7 +651,7 @@ impl Lowerer<'_, '_> {
         time: i32,
         var: &Sp<ast::Var>,
         data: &TemporaryExpr<'_>,
-    ) -> Result<Sp<Expr>, ErrorReported> {
+    ) -> Result<Sp<ast::Expr>, ErrorReported> {
         let eq_sign = sp!(data.tmp_expr.span => token![=]);
         self.lower_assign_op(data.tmp_expr.span, time, var, &eq_sign, data.tmp_expr)?;
 
@@ -682,7 +682,7 @@ impl Lowerer<'_, '_> {
         let def_id = self.ctx.define_local(ident.clone(), tmp_ty.into());
         let sigil = get_temporary_read_ty(tmp_ty, span).map_err(|e| self.ctx.emitter.emit(e))?;
 
-        let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ident.value.into() });
+        let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ast::VarName::new_non_reg(ident.value) });
         self.out.push(LowerStmt::RegAlloc { def_id, cause: span });
 
         Ok((def_id, var))
@@ -725,7 +725,7 @@ struct SimpleExpr {
 struct TemporaryExpr<'a> {
     /// The part that must be stored to a temporary. Usually the whole expression, but for a cast we
     /// only store the inner part as a temporary.
-    tmp_expr: &'a Sp<Expr>,
+    tmp_expr: &'a Sp<ast::Expr>,
     tmp_ty: ScalarType,
     read_ty: ScalarType,
 }
@@ -782,7 +782,7 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<Low
     // Up to this point in compilation, register aliases use Var::Named.
     // But now, we want both registers and their aliases to be resolved to a register
     let arg = match ctx.var_reg_from_ast(&var.name) {
-        Ok(reg) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
+        Ok((_lang, reg)) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
         Err(def_id) => LowerArg::Local { def_id, read_ty },
     };
     Ok((sp!(var.span => arg), read_ty))
@@ -846,7 +846,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 let required_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
-                    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(reg));
+                    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(format.language(), reg));
 
                     let mut error = error!(
                         message("script too complex to compile"),

@@ -1,10 +1,15 @@
 use std::fmt;
 
-use crate::meta;
 use crate::resolve::{DefId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
+use crate::game::InstrLanguage;
 use crate::value;
+
+pub use meta::Meta;
+pub mod meta;
+
+pub mod pseudo;
 
 // =============================================================================
 
@@ -38,6 +43,11 @@ pub enum Item {
         ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
         code: Block,
     },
+    Timeline {
+        keyword: TokenSpan,
+        number: Sp<i32>,
+        code: Block,
+    },
     Meta {
         keyword: Sp<MetaKeyword>,
         fields: Sp<meta::Fields>,
@@ -56,6 +66,7 @@ impl Item {
         Item::Func { qualifier: Some(sp_pat![token![inline]]), .. } => "inline function definition",
         Item::Func { qualifier: None, .. } => "exported function definition",
         Item::AnmScript { .. } => "script",
+        Item::Timeline { .. } => "timeline",
         Item::Meta { .. } => "meta",
         Item::ConstVar { .. } => "const definition",
     }}
@@ -364,7 +375,7 @@ pub enum Expr {
         // note: deliberately called 'name' instead of 'ident' so that you can
         //       match both this and the inner ident without shadowing
         name: Sp<CallableName>,
-        /// Args beginning with @ that represent raw pieces of an instruction.
+        /// Args beginning with `@` that represent raw pieces of an instruction.
         pseudos: Vec<Sp<PseudoArg>>,
         args: Vec<Sp<Expr>>,
     },
@@ -416,8 +427,22 @@ impl Expr {
 /// in name resolution.  This makes it easier to use the AST VM [`crate::vm::AstVm`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallableName {
-    Normal { ident: ResIdent },
-    Ins { opcode: u16 },
+    Normal {
+        ident: ResIdent,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it may still be `None`).
+        ///
+        /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
+        /// as all useful information can be found through the resolved [`DefId`].
+        language_if_ins: Option<InstrLanguage>,
+    },
+    Ins {
+        opcode: u16,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it is guaranteed to be `Some`).
+        /// It exists to help a variety of other passes look up e.g. type info about raw registers.
+        ///
+        /// Notably, in ECL, some of these may be set to [`InstrLanguage::Timeline`] instead of [`InstrLanguage::ECL`].
+        language: Option<InstrLanguage>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -428,6 +453,20 @@ pub struct Var {
 }
 
 impl VarName {
+    /// Construct from the identifier of a local, parameter, or constant. (but NOT a register alias)
+    pub fn new_non_reg(ident: ResIdent) -> Self {
+        VarName::Normal { ident, language_if_reg: None }
+    }
+
+    /// For use internally by the parser on idents that may or may not be register aliases.
+    ///
+    /// Code outside of the parser should not use this; it should instead use [`Self::new_non_register`] if the
+    /// ident is known not to refer to a register, else it should construct one manually with the correct language.
+    pub(crate) fn from_parsed_ident(ident: ResIdent) -> Self {
+        // for the parser, it is okay to use 'language_if_reg: None' on register aliases because a later pass will fill it in.
+        VarName::Normal { ident, language_if_reg: None }
+    }
+
     pub fn is_named(&self) -> bool { match self {
         VarName::Normal { .. } => true,
         VarName::Reg { .. } => false,
@@ -436,23 +475,27 @@ impl VarName {
     /// Panic if it's not a normal ident.  This should be safe to call on vars in declarations.
     #[track_caller]
     pub fn expect_ident(&self) -> &ResIdent { match self {
-        VarName::Normal { ident } => ident,
+        VarName::Normal { ident, .. } => ident,
         VarName::Reg { .. } => panic!("unexpected register"),
     }}
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarName {
-    Normal { ident: ResIdent },
-    Reg { reg: RegId },
-}
-
-impl From<RegId> for VarName {
-    fn from(reg: RegId) -> Self { VarName::Reg { reg } }
-}
-
-impl From<ResIdent> for VarName {
-    fn from(ident: ResIdent) -> Self { VarName::Normal { ident } }
+    Normal {
+        ident: ResIdent,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it may still be `None`).
+        ///
+        /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
+        /// as all useful information can be found through the resolved [`DefId`].
+        language_if_reg: Option<InstrLanguage>,
+    },
+    Reg {
+        reg: RegId,
+        /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it is guaranteed to be `Some`).
+        /// It exists to help a variety of other passes look up e.g. type info about raw instructions.
+        language: Option<InstrLanguage>,
+    },
 }
 
 string_enum! {
@@ -643,8 +686,8 @@ impl From<&str> for LitString {
 impl std::fmt::Display for CallableName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CallableName::Normal { ident } => fmt::Display::fmt(ident, f),
-            CallableName::Ins { opcode } => write!(f, "ins_{}", opcode),
+            CallableName::Normal { ident, language_if_ins: _ } => fmt::Display::fmt(ident, f),
+            CallableName::Ins { opcode, language: _ } => write!(f, "ins_{}", opcode),
         }
     }
 }
@@ -697,6 +740,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_goto(&mut self, e: & $($mut)? StmtGoto) { walk_goto(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
+            fn visit_callable_name(&mut self, e: & $($mut)? Sp<CallableName>) { walk_callable_name(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
         }
@@ -726,6 +770,9 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
+                    v.visit_root_block(code);
+                },
+                Item::Timeline { keyword: _, number: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { keyword: _, fields } => {
@@ -875,7 +922,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(b);
                 },
                 Expr::Call { name, args, pseudos } => {
-                    walk_callable_name(v, name);
+                    v.visit_callable_name(name);
                     for sp_pat![PseudoArg { value, kind: _, at_sign: _, eq_sign: _ }] in pseudos {
                         v.visit_expr(value);
                     }
@@ -891,12 +938,12 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        fn walk_callable_name<V>(v: &mut V, x: & $($mut)? Sp<CallableName>)
+        pub fn walk_callable_name<V>(v: &mut V, x: & $($mut)? Sp<CallableName>)
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.value {
-                CallableName::Normal { ident } => v.visit_res_ident(ident),
-                CallableName::Ins { opcode: _ } => {},
+                CallableName::Normal { language_if_ins: _, ident } => v.visit_res_ident(ident),
+                CallableName::Ins { language: _, opcode: _ } => {},
             }
         }
 
@@ -905,8 +952,8 @@ macro_rules! generate_visitor_stuff {
         {
             let Var { name, ty_sigil: _ } = & $($mut)? x.value;
             match name {
-                VarName::Normal { ident } => v.visit_res_ident(ident),
-                VarName::Reg { reg: _ } => {},
+                VarName::Normal { language_if_reg: _, ident } => v.visit_res_ident(ident),
+                VarName::Reg { language: _, reg: _ } => {},
             }
         }
     };
@@ -943,6 +990,7 @@ pub use self::mut_::{
     walk_goto as walk_goto_mut,
     walk_expr as walk_expr_mut,
     walk_var as walk_var_mut,
+    walk_callable_name as walk_callable_name_mut,
 };
 mod ref_ {
     use super::*;
@@ -950,4 +998,5 @@ mod ref_ {
 }
 pub use self::ref_::{
     Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
+    walk_callable_name,
 };

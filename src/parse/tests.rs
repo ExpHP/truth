@@ -1,5 +1,4 @@
 use crate::ast;
-use crate::meta;
 use crate::parse::Parse;
 use crate::error::ErrorReported;
 
@@ -142,10 +141,14 @@ fn var_parse() {
     use ast::{Var, VarSigil};
     use crate::resolve::RegId;
 
-    assert_eq!(parse::<Var>("$REG[244]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(244).into() });
-    assert_eq!(parse::<Var>("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: RegId(-99998).into() });
-    assert_eq!(parse::<Var>("REG[244]").unwrap(), Var { ty_sigil: None, name: RegId(244).into() });
-    assert_eq!(parse::<Var>("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Float), name: RegId(-99998).into() });
+    fn reg(reg: i32) -> ast::VarName {
+        ast::VarName::Reg { reg: RegId(reg), language: None }
+    }
+
+    assert_eq!(parse::<Var>("$REG[244]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: reg(244) });
+    assert_eq!(parse::<Var>("$REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Int), name: reg(-99998) });
+    assert_eq!(parse::<Var>("REG[244]").unwrap(), Var { ty_sigil: None, name: reg(244) });
+    assert_eq!(parse::<Var>("%REG[-99998]").unwrap(), Var { ty_sigil: Some(VarSigil::Float), name: reg(-99998) });
     assert!(parse::<Var>("REG[-99998999999]").is_err());
     assert!(matches!(parse::<Var>("lmao").unwrap(), Var { ty_sigil: None, .. }));
     assert!(matches!(parse::<Var>("$lmao").unwrap(), Var { ty_sigil: Some(VarSigil::Int), .. }));
@@ -192,7 +195,7 @@ parse_error_snapshot_test!(bad_ins_identifier_2, expect("instruction"), <ast::Ex
 parse_error_snapshot_test!(bad_ins_empty, expect("instruction"), <ast::Expr> r#" ins_() "#);
 parse_error_snapshot_test!(bad_ins_overflow, expect("instruction"), <ast::Expr> r#" ins_99999999999999() "#);
 parse_error_snapshot_test!(unclosed_comment, expect("token"), <ast::ScriptFile> r#" /* comment "#);
-parse_error_snapshot_test!(duplicate_meta_key, expect("duplicate"), <meta::Meta> r#"{
+parse_error_snapshot_test!(duplicate_meta_key, expect("duplicate"), <ast::Meta> r#"{
   a: {
     thing: 100,
     another: 101,

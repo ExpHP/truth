@@ -1,7 +1,6 @@
 use thiserror::Error;
 use std::io::{self, Write};
-use crate::ast;
-use crate::meta::{self, Meta};
+use crate::ast::{self, meta, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::Sp;
 
@@ -584,6 +583,13 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
+            ast::Item::Timeline { keyword: _, number, code } => {
+                out.fmt("timeline ")?;
+                out.state.time_stack.push(0);
+                out.fmt((number, " ", code))?;
+                out.state.time_stack.pop();
+                out.next_line()
+            },
             ast::Item::Meta { keyword, fields } => {
                 out.fmt((keyword, " ", fields))?;
                 out.next_line()
@@ -852,10 +858,7 @@ impl Format for ast::Expr {
 
 impl Format for ast::CallableName {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match self {
-            ast::CallableName::Ins { opcode } => out.fmt(("ins_", *opcode as i32)),
-            ast::CallableName::Normal { ident } => out.fmt(ident),
-        }
+        out.append_display_to_line(self)
     }
 }
 
@@ -878,8 +881,8 @@ impl Format for ast::Var {
 impl Format for ast::VarName {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::VarName::Normal { ident } => out.fmt(ident),
-            ast::VarName::Reg { reg } => out.fmt(("REG[", reg.0, "]")),
+            ast::VarName::Normal { ident, language_if_reg: _ } => out.fmt(ident),
+            ast::VarName::Reg { reg, language: _ } => out.fmt(("REG[", reg.0, "]")),
         }
     }
 }
@@ -895,8 +898,7 @@ impl Format for ResIdent {
 
 impl Format for Ident {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let s: &str = self.as_ref();
-        out.fmt(s)
+        out.append_display_to_line(self)
     }
 }
 

@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use enum_map::{EnumMap, enum_map};
+
 use crate::ast;
 use crate::context::CompilerContext;
 use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
+use crate::game::InstrLanguage;
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
 use crate::eclmap::Eclmap;
@@ -24,21 +27,21 @@ use crate::llir::InstrAbi;
 /// more easily record information for name resolution.
 #[derive(Debug, Clone)]
 pub struct Defs {
-    regs: HashMap<RegId, RegData>,
-    instrs: HashMap<u16, InsData>,
+    regs: HashMap<(InstrLanguage, RegId), RegData>,
+    instrs: HashMap<(InstrLanguage, u16), InsData>,
 
     vars: HashMap<DefId, VarData>,
     funcs: HashMap<DefId, FuncData>,
 
     /// Preferred alias (i.e. the one we decompile to) for each register.
-    reg_aliases: HashMap<RegId, DefId>,
+    reg_aliases: HashMap<(InstrLanguage, RegId), DefId>,
     /// Preferred alias (i.e. the one we decompile to) for each instruction.
-    ins_aliases: HashMap<u16, DefId>,
+    ins_aliases: HashMap<(InstrLanguage, u16), DefId>,
 
-    /// One of the initial ribs for name resolution, containing register aliases from mapfiles.
-    reg_alias_rib: rib::Rib,
-    /// One of the initial ribs for name resolution, containing instruction aliases from mapfiles.
-    ins_alias_rib: rib::Rib,
+    /// Some of the initial ribs for name resolution, containing register aliases from mapfiles.
+    reg_alias_ribs: EnumMap<InstrLanguage, rib::Rib>,
+    /// Some of the initial ribs for name resolution, containing instruction aliases from mapfiles.
+    ins_alias_ribs: EnumMap<InstrLanguage, rib::Rib>,
     /// One of the initial ribs for name resolution, containing consts from meta.
     auto_const_rib: rib::Rib,
 }
@@ -56,8 +59,8 @@ impl Default for Defs {
             funcs: Default::default(),
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
-            reg_alias_rib: Rib::new(Namespace::Vars, RibKind::Mapfile),
-            ins_alias_rib: Rib::new(Namespace::Funcs, RibKind::Mapfile),
+            reg_alias_ribs: enum_map![language => Rib::new(Namespace::Vars, RibKind::Mapfile { language })],
+            ins_alias_ribs: enum_map![language => Rib::new(Namespace::Funcs, RibKind::Mapfile { language })],
             auto_const_rib: Rib::new(Namespace::Vars, RibKind::Generated),
         }
     }
@@ -70,27 +73,30 @@ impl Defs {
 /// # Definitions
 impl CompilerContext<'_> {
     /// Set the inherent type of a register.
-    pub fn set_reg_ty(&mut self, reg: RegId, ty: VarType) {
-        self.defs.regs.insert(reg, RegData { ty });
+    pub fn set_reg_ty(&mut self, language: InstrLanguage, reg: RegId, ty: VarType) {
+        self.defs.regs.insert((language, reg), RegData { ty });
     }
 
     /// Add an alias for a register from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
-    pub fn define_global_reg_alias(&mut self, reg: RegId, ident: Ident) -> DefId {
+    pub fn define_global_reg_alias(&mut self, language: InstrLanguage, reg: RegId, ident: Ident) -> DefId {
         let res_ident = self.resolutions.attach_fresh_res(ident.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
         self.defs.vars.insert(def_id, VarData {
             ty: None,
-            kind: VarKind::RegisterAlias { reg, ident: res_ident },
+            kind: VarKind::RegisterAlias { language, reg, ident: res_ident },
         });
-        self.defs.reg_aliases.insert(reg, def_id);
+        self.defs.reg_aliases.insert((language, reg), def_id);
 
-        if let Err(old) = self.defs.reg_alias_rib.insert(sp!(ident.clone()), def_id) {
-            let old_reg = self.defs.var_reg(old.def_id).unwrap();
+        if let Err(old) = self.defs.reg_alias_ribs[language].insert(sp!(ident.clone()), def_id) {
+            let old_reg = self.defs.var_reg(old.def_id).unwrap().1;
             if old_reg != reg {
-                self.emitter.emit(warning!("name '{}' used for multiple registers in mapfiles: {}, {}", ident, old_reg, reg)).ignore();
+                self.emitter.emit(warning!(
+                    "name '{}' used for multiple registers in mapfiles: {}, {}",
+                    ident, old_reg, reg,
+                )).ignore();
             }
         }
 
@@ -142,33 +148,37 @@ impl CompilerContext<'_> {
     /// Set the low-level ABI of an instruction.
     ///
     /// A high-level [`Signature`] will also be generated from the ABI.
-    pub fn set_ins_abi(&mut self, opcode: u16, abi: InstrAbi) {
+    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: u16, abi: InstrAbi) {
         // also update the high-level signature
         let sig = abi.create_signature(self);
         sig.validate(self).expect("invalid signature from InstrAbi");
 
-        self.defs.instrs.insert(opcode, InsData { abi, sig });
+        self.defs.instrs.insert((language, opcode), InsData { abi, sig });
     }
 
-    /// Add an alias for an instruction from a mapfile.  If this ident has been used previously, the old opcode
-    /// is also returned.
+    /// Add an alias for an instruction from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    pub fn define_global_ins_alias(&mut self, opcode: u16, ident: Ident) -> (DefId, Option<u16>) {
+    pub fn define_global_ins_alias(&mut self, language: InstrLanguage, opcode: u16, ident: Ident) -> DefId {
         let res_ident = self.resolutions.attach_fresh_res(ident.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
         self.defs.funcs.insert(def_id, FuncData {
             sig: None,
-            kind: FuncKind::InstructionAlias { opcode, ident: res_ident },
+            kind: FuncKind::InstructionAlias { language, opcode, ident: res_ident },
         });
-        self.defs.ins_aliases.insert(opcode, def_id);
+        self.defs.ins_aliases.insert((language, opcode), def_id);
 
-        let old_opcode = match self.defs.ins_alias_rib.insert(sp!(ident.clone()), def_id) {
-            Err(old) => Some(self.defs.func_opcode(old.def_id).unwrap()),
-            Ok(_) => None,
+        if let Err(old) = self.defs.ins_alias_ribs[language].insert(sp!(ident.clone()), def_id) {
+            let old_opcode = self.defs.func_opcode(old.def_id).unwrap().1;
+            if opcode as u16 != old_opcode {
+                self.emitter.emit(warning!(
+                    "name '{}' used for multiple opcodes in {}: {}, {}",
+                    ident, language.descr(), old_opcode, opcode,
+                )).ignore();
+            }
         };
-        (def_id, old_opcode)
+        def_id
     }
 
     /// Add a user-defined function, resolving the ident to a brand new [`DefId`]
@@ -214,9 +224,9 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_reg(&self, def_id: DefId) -> Option<RegId> {
+    pub fn var_reg(&self, def_id: DefId) -> Option<(InstrLanguage, RegId)> {
         match self.vars[&def_id] {
-            VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => Some(reg),
+            VarData { kind: VarKind::RegisterAlias { reg, language, .. }, .. } => Some((language, reg)),
             _ => None,
         }
     }
@@ -228,16 +238,16 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_opcode(&self, def_id: DefId) -> Option<u16> {
+    pub fn func_opcode(&self, def_id: DefId) -> Option<(InstrLanguage, u16)> {
         match self.funcs[&def_id] {
-            FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => Some(opcode),
+            FuncData { kind: FuncKind::InstructionAlias { opcode, language, .. }, .. } => Some((language, opcode)),
             _ => None,
         }
     }
 
     /// Recovers the ABI of an opcode, if it is known.
-    pub fn ins_abi(&self, opcode: u16) -> Option<&InstrAbi> {
-        self.instrs.get(&opcode).map(|x| &x.abi)
+    pub fn ins_abi(&self, language: InstrLanguage, opcode: u16) -> Option<&InstrAbi> {
+        self.instrs.get(&(language, opcode)).map(|x| &x.abi)
     }
 }
 
@@ -290,14 +300,16 @@ impl Defs {
     /// Panics if the ID does not correspond to a variable.
     pub fn var_inherent_ty(&self, def_id: DefId) -> VarType {
         match self.vars[&def_id] {
-            VarData { kind: VarKind::RegisterAlias { reg, .. }, .. } => self.reg_inherent_ty(reg),
+            VarData { kind: VarKind::RegisterAlias { language, reg, .. }, .. } => {
+                self.reg_inherent_ty(language, reg)
+            },
             VarData { ty, .. } => ty.expect("not alias"),
         }
     }
 
     /// Get the inherent type of a register.
-    fn reg_inherent_ty(&self, reg: RegId) -> VarType {
-        match self.regs.get(&reg) {
+    fn reg_inherent_ty(&self, language: InstrLanguage, reg: RegId) -> VarType {
+        match self.regs.get(&(language, reg)) {
             Some(&RegData { ty }) => ty,
             // This is a register whose type is not in any mapfile.
             // This is actually fine, and is expected for stack registers.
@@ -312,16 +324,18 @@ impl Defs {
     /// Panics if the ID does not correspond to a function.
     pub fn func_signature(&self, def_id: DefId) -> Result<&Signature, InsMissingSigError> {
         match self.funcs[&def_id] {
-            FuncData { kind: FuncKind::InstructionAlias { opcode, .. }, .. } => self.ins_signature(opcode),
+            FuncData { kind: FuncKind::InstructionAlias { language, opcode, .. }, .. } => {
+                self.ins_signature(language, opcode)
+            },
             FuncData { ref sig, .. } => Ok(sig.as_ref().expect("not alias")),
         }
     }
 
     /// Get the high-level signature of an instruction.
-    fn ins_signature(&self, opcode: u16) -> Result<&Signature, InsMissingSigError> {
-        match self.instrs.get(&opcode) {
+    fn ins_signature(&self, language: InstrLanguage, opcode: u16) -> Result<&Signature, InsMissingSigError> {
+        match self.instrs.get(&(language, opcode)) {
             Some(InsData { sig, .. }) => Ok(sig),
-            None => Err(InsMissingSigError { opcode }),
+            None => Err(InsMissingSigError { language, opcode }),
         }
     }
 
@@ -369,7 +383,7 @@ impl CompilerContext<'_> {
     /// Add info from an eclmap.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
-    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, eclmap: &Eclmap) -> Result<(), ErrorReported> {
+    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, mapfile: &Eclmap) -> Result<(), ErrorReported> {
         let emitter = self.emitter.get_chained(match path {
             Some(path) => path.to_string_lossy().into_owned(),
             None => format!("in mapfile"),
@@ -379,28 +393,28 @@ impl CompilerContext<'_> {
             self.mapfiles.push(path.to_owned());
         }
 
-        for (&opcode, ident) in &eclmap.ins_names {
-            let (_, old_opcode) = self.define_global_ins_alias(opcode as u16, ident.clone());
-            if let Some(old_opcode) = old_opcode {
-                if opcode as u16 != old_opcode {
-                    emitter.emit(warning!("name '{}' used for multiple opcodes: {}, {}", ident, old_opcode, opcode)).ignore();
-                }
+        for (names, signatures, language) in vec![
+            (&mapfile.ins_names, &mapfile.ins_signatures, mapfile.language),
+            (&mapfile.timeline_ins_names, &mapfile.timeline_ins_signatures, InstrLanguage::Timeline),
+        ] {
+            for (&opcode, ident) in names {
+                self.define_global_ins_alias(language, opcode as u16, ident.clone());
             }
+
+            signatures.iter().map(|(&opcode, abi_str)| {
+                emitter.chain_with(|f| write!(f, "in signature for {} opcode {}", language.descr(), opcode), |emitter| {
+                    let abi = InstrAbi::parse(abi_str, emitter)?;
+                    self.set_ins_abi(language, opcode as u16, abi);
+                    Ok::<_, ErrorReported>(())
+                })
+            }).collect_with_recovery()?;
         }
 
-        eclmap.ins_signatures.iter().map(|(&opcode, abi_str)| {
-            emitter.chain_with(|f| write!(f, "in signature for opcode {}", opcode), |emitter| {
-                let abi = InstrAbi::parse(abi_str, emitter)?;
-                self.set_ins_abi(opcode as u16, abi);
-                Ok::<_, ErrorReported>(())
-            })
-        }).collect_with_recovery()?;
-
-        for (&reg, ident) in &eclmap.gvar_names {
-            self.define_global_reg_alias(RegId(reg), ident.clone());
+        for (&reg, ident) in &mapfile.gvar_names {
+            self.define_global_reg_alias(mapfile.language, RegId(reg), ident.clone());
         }
 
-        for (&reg, value) in &eclmap.gvar_types {
+        for (&reg, value) in &mapfile.gvar_types {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
@@ -409,7 +423,7 @@ impl CompilerContext<'_> {
                     continue;
                 },
             };
-            self.set_reg_ty(RegId(reg), ty);
+            self.set_reg_ty(mapfile.language, RegId(reg), ty);
         }
         Ok(())
     }
@@ -425,11 +439,11 @@ impl CompilerContext<'_> {
 impl Defs {
     /// Get the initial ribs for name resolution.
     pub fn initial_ribs(&self) -> Vec<rib::Rib> {
-        vec![
-            self.ins_alias_rib.clone(),
-            self.reg_alias_rib.clone(),
-            self.auto_const_rib.clone(),
-        ]
+        let mut vec = vec![];
+        vec.extend(self.ins_alias_ribs.values().cloned());
+        vec.extend(self.reg_alias_ribs.values().cloned());
+        vec.push(self.auto_const_rib.clone());
+        vec
     }
 }
 
@@ -449,6 +463,7 @@ struct VarData {
 enum VarKind {
     RegisterAlias {
         ident: ResIdent,
+        language: InstrLanguage,
         reg: RegId,
         // TODO: location where alias is defined
     },
@@ -479,6 +494,7 @@ struct FuncData {
 pub enum FuncKind {
     InstructionAlias {
         ident: ResIdent,
+        language: InstrLanguage,
         opcode: u16,
         // TODO: location where alias is defined
     },
@@ -489,6 +505,10 @@ pub enum FuncKind {
 }
 
 // =============================================================================
+
+/// Error indicating that raw syntax (`ins_`, `$REG`) was used in a place not associated with any
+/// particular [`InstrLanguage`]. (e.g. a `const` definition)
+pub struct UnexpectedRawSyntaxError;
 
 impl CompilerContext<'_> {
     /// Get the effective type of a variable at a place where it is referenced.
@@ -506,10 +526,12 @@ impl CompilerContext<'_> {
 
     /// Get the innate type of a variable at a place where it is referenced, ignoring its sigils.
     ///
-    /// `None` means it has no inherent type. (is untyped, e.g. via `var` keyword)
+    /// # Panics
+    ///
+    /// Panics if there is `REG` syntax and `language` is `None`; this should be caught in an earlier pass.
     pub fn var_inherent_ty_from_ast(&self, var: &ast::Var) -> VarType {
         match var.name {
-            ast::VarName::Reg { reg, .. } => self.defs.reg_inherent_ty(reg),
+            ast::VarName::Reg { reg, language } => self.defs.reg_inherent_ty(language.expect("must run assign_languages pass!"), reg),
             ast::VarName::Normal { ref ident, .. } => self.defs.var_inherent_ty(self.resolutions.expect_def(ident)),
         }
     }
@@ -518,9 +540,11 @@ impl CompilerContext<'_> {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<RegId, DefId> {
+    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<(InstrLanguage, RegId), DefId> {
         match var {
-            &ast::VarName::Reg { reg, .. } => Ok(reg),  // register
+            &ast::VarName::Reg { reg, language, .. } => {
+                Ok((language.expect("must run assign_languages pass!"), reg)) // register
+            },
             ast::VarName::Normal { ident, .. } => {
                 let def_id = self.resolutions.expect_def(ident);
                 match self.defs.var_reg(def_id) {
@@ -535,9 +559,11 @@ impl CompilerContext<'_> {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<u16, DefId> {
+    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<(InstrLanguage, u16), DefId> {
         match name {
-            &ast::CallableName::Ins { opcode, .. } => Ok(opcode),  // instruction
+            &ast::CallableName::Ins { opcode, language, .. } => {
+                Ok((language.expect("must run assign_languages pass!"), opcode)) // instruction
+            },
             ast::CallableName::Normal { ident, .. } => {
                 let def_id = self.resolutions.expect_def(ident);
                 match self.defs.func_opcode(def_id) {
@@ -549,10 +575,14 @@ impl CompilerContext<'_> {
     }
 
     /// Get the signature of any kind of callable function. (instructions, inline and const functions...)
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is `ins_` syntax and `language` is `None`; this should be caught in an earlier pass.
     pub fn func_signature_from_ast(&self, name: &ast::CallableName) -> Result<&Signature, InsMissingSigError> {
         match *name {
-            ast::CallableName::Ins { opcode } => self.defs.ins_signature(opcode),
-            ast::CallableName::Normal { ref ident } => self.defs.func_signature(self.resolutions.expect_def(ident)),
+            ast::CallableName::Ins { opcode, language } => self.defs.ins_signature(language.expect("must run assign_languages pass!"), opcode),
+            ast::CallableName::Normal { ref ident, .. } => self.defs.func_signature(self.resolutions.expect_def(ident)),
         }
     }
 
@@ -568,19 +598,25 @@ impl CompilerContext<'_> {
 
     /// Generate an AST node with the ideal appearance for a register, automatically using
     /// an alias if one exists.
-    pub fn reg_to_ast(&self, reg: RegId) -> ast::VarName {
-        match self.defs.reg_aliases.get(&reg) {
-            None => reg.into(),
-            Some(&def_id) => self.defs.var_name(def_id).clone().into(),
+    pub fn reg_to_ast(&self, language: InstrLanguage, reg: RegId) -> ast::VarName {
+        match self.defs.reg_aliases.get(&(language, reg)) {
+            None => ast::VarName::Reg { reg, language: Some(language) },
+            Some(&def_id) => {
+                let ident = self.defs.var_name(def_id).clone();
+                ast::VarName::Normal { ident, language_if_reg: Some(language) }
+            },
         }
     }
 
     /// Generate an AST node with the ideal appearance for an instruction call,
     /// automatically using an alias if one exists.
-    pub fn ins_to_ast(&self, opcode: u16) -> ast::CallableName {
-        match self.defs.ins_aliases.get(&opcode) {
-            None => ast::CallableName::Ins { opcode },
-            Some(&def_id) => ast::CallableName::Normal { ident: self.defs.func_name(def_id).clone() },
+    pub fn ins_to_ast(&self, language: InstrLanguage, opcode: u16) -> ast::CallableName {
+        match self.defs.ins_aliases.get(&(language, opcode)) {
+            None => ast::CallableName::Ins { opcode, language: Some(language) },
+            Some(&def_id) => {
+                let ident = self.defs.func_name(def_id).clone();
+                ast::CallableName::Normal { ident, language_if_ins: Some(language) }
+            },
         }
     }
 }
@@ -593,7 +629,10 @@ impl CompilerContext<'_> {
 /// (this error can't really be caught earlier, because we only want to flag instructions that
 /// are actually used...)
 #[derive(Debug, Clone)]
-pub struct InsMissingSigError { pub opcode: u16 }
+pub struct InsMissingSigError {
+    pub language: InstrLanguage,
+    pub opcode: u16,
+}
 
 /// High-level function signature.
 ///

@@ -122,6 +122,7 @@ fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec
 
 fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
     let mut format = llir::TestFormat::default();
+    format.language = truth::InstrLanguage::Anm;
     format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, JUMP_OPCODE));
     format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, COUNT_JUMP_OPCODE));
     format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), SINE_OPCODE));
@@ -238,6 +239,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
         let ctx = truth.ctx();
+        truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx)?;
         truth::passes::resolve_names::assign_res_ids(&mut block, ctx)?;
         truth::passes::resolve_names::run(&block, ctx)?;
         truth::passes::resolve_names::aliases_to_raw(&mut block, ctx)?;
@@ -250,7 +252,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let ctx = truth.ctx();
     let old_stmts = parsed_block.0;
     let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, ctx)?;
-    let mut new_block = ast::Block(llir::Raiser::new(&ctx.emitter, &Default::default()).raise_instrs_to_sub_ast(&emitter, &instr_format, &instrs, &ctx.defs)?);
+    let mut new_block = ast::Block(llir::Raiser::new(&instr_format, &ctx.emitter, &Default::default()).raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.defs)?);
     truth::passes::resolve_names::aliases_to_raw(&mut new_block, ctx)?;
 
     let mut old_vm = base_vm.clone();
@@ -280,6 +282,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
         let ctx = truth.ctx();
+        truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx).unwrap();
         truth::passes::resolve_names::assign_res_ids(&mut block, ctx).unwrap();
         truth::passes::resolve_names::run(&block, ctx).unwrap();
         truth::passes::resolve_names::aliases_to_raw(&mut block, ctx).unwrap();

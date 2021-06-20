@@ -68,7 +68,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             ast::StmtBody::Declaration { ty_keyword: _, vars } => {
                 for pair in vars {
                     let (var, _) = &pair.value;
-                    if let ast::VarName::Normal { ident } = &var.value.name {
+                    if let ast::VarName::Normal { ident, .. } = &var.value.name {
                         let def_id = self.resolutions.expect_def(ident);
                         self.stack.last_mut().expect("(bug?) empty stack?")
                             .locals_declared_at_this_level.push(def_id);
@@ -135,7 +135,7 @@ impl Desugarer<'_, '_> {
                             let ident = self.ctx.gensym.gensym("count");
                             let ident = sp!(count.span => self.ctx.resolutions.attach_fresh_res(ident));
                             let def_id = self.ctx.define_local(ident.clone(), ScalarType::Int.into());
-                            let var = sp!(count.span => ast::Var { ty_sigil: None, name: ident.value.into() });
+                            let var = sp!(count.span => ast::Var { ty_sigil: None, name: ast::VarName::new_non_reg(ident.value) });
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
@@ -281,6 +281,7 @@ mod tests {
     use crate::resolve::RegId;
     use crate::vm::{AstVm, LoggedCall};
     use crate::value::{ScalarValue::{Int}, ScalarType as Ty};
+    use crate::game::InstrLanguage::Dummy;
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId, Ty)>,
@@ -295,10 +296,11 @@ mod tests {
 
             let mut ctx = truth.ctx();
             for &(name, reg, ty) in &self.globals {
-                ctx.define_global_reg_alias(reg, name.parse().unwrap());
-                ctx.set_reg_ty(reg, ty.into());
+                ctx.define_global_reg_alias(Dummy, reg, name.parse().unwrap());
+                ctx.set_reg_ty(Dummy, reg, ty.into());
             }
             crate::passes::resolve_names::assign_res_ids(&mut ast.value, &mut ctx).unwrap();
+            crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, &mut ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
 

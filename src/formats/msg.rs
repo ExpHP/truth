@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast;
+use crate::ast::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
-use crate::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::value::ScalarValue;
 
 use indexmap::IndexMap;
@@ -26,25 +26,25 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext<'_>, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
-        let format = game_format(game, &ctx.emitter)?;
+    pub fn decompile_to_ast(&self, game: Game, language: InstrLanguage, ctx: &mut CompilerContext<'_>, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        let format = game_format(game, language, &ctx.emitter)?;
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &format, ctx, decompile_options)
     }
 
-    pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
-        let format = game_format(game, &ctx.emitter)?;
+    pub fn compile_from_ast(game: Game, language: InstrLanguage, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
+        let format = game_format(game, language, &ctx.emitter)?;
         compile(&format, script, ctx)
     }
 
-    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
-        let format = game_format(game, &w.emitter()._root_emitter())?;
+    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game, language: InstrLanguage) -> WriteResult {
+        let format = game_format(game, language, &w.emitter()._root_emitter())?;
         let emitter = w.emitter();
         write_msg(w, &emitter, &format, self)
     }
 
-    pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
-        let format = game_format(game, &r.emitter()._root_emitter())?;
+    pub fn read_from_stream(r: &mut BinReader, game: Game, language: InstrLanguage) -> ReadResult<Self> {
+        let format = game_format(game, language, &r.emitter()._root_emitter())?;
         let emitter = r.emitter();
         read_msg(r, &emitter, &format)
     }
@@ -193,13 +193,13 @@ fn decompile(
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new(instr_format, &ctx.emitter, decompile_options);
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
     })];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
-        let code = raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)?;
+        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?;
 
         Ok(sp!(ast::Item::AnmScript {
             number: None,
@@ -274,6 +274,7 @@ fn compile(
         let mut ast = ast.clone();
 
         crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+        crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
         crate::passes::resolve_names::run(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
@@ -316,6 +317,7 @@ fn compile(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
+                ast::Item::Timeline { .. } => return Err(emit(unsupported(&item.span))),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }
@@ -545,23 +547,21 @@ fn write_msg(
 
 // =============================================================================
 
-fn game_format(game: Game, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
-    match game {
-        | Game::Th095 | Game::Th125
+fn game_format(game: Game, language: InstrLanguage, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
+    match (game, language) {
+        | (Game::Th095, InstrLanguage::Msg)
+        | (Game::Th125, InstrLanguage::Msg)
         => Err(emitter.emit(error!("{} does not have stage MSG files; maybe try 'trumsg --mission'?", game))),
 
-        _ => Ok(FileFormat { game })
+        _ => Ok(FileFormat { game, language })
     }
-}
-
-pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    super::core_mapfiles::msg::core_signatures(game).to_mapfile(game)
 }
 
 // =============================================================================
 
 struct FileFormat {
     game: Game,
+    language: InstrLanguage, // Msg or End
 }
 
 impl FileFormat {
@@ -577,7 +577,7 @@ impl FileFormat {
             | Game::Th14 | Game::Th143 | Game::Th15
             | Game::Th16 | Game::Th165 | Game::Th17
             | Game::Th18
-            => Box::new(InstrFormat06),
+            => Box::new(InstrFormat06 { language: self.language }),
 
             | Game::Th095 | Game::Th125
             => unreachable!(),
@@ -586,9 +586,11 @@ impl FileFormat {
 }
 
 /// MSG format, EoSD.
-struct InstrFormat06;
+struct InstrFormat06 { language: InstrLanguage }
 
 impl InstrFormat for InstrFormat06 {
+    fn language(&self) -> InstrLanguage { self.language }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![]  // msg is vapid
     }
@@ -605,7 +607,7 @@ impl InstrFormat for InstrFormat06 {
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
         let args_blob = f.read_byte_vec(argsize as usize)?;
-        let instr = RawInstr { time: time as i32, opcode: opcode as u16, param_mask: 0, args_blob };
+        let instr = RawInstr { time: time as i32, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS };
 
         // eprintln!("pos: {:#06x} - time: {:#06x} opcode: {:#04x} argsize: {:#04x} args: {:02x?}", pos, time as u16, opcode as u8, argsize, args_blob);
         if (time, opcode, argsize) == (0, 0, 0) {

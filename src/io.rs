@@ -308,6 +308,8 @@ pub trait BinRead {
     fn read_u32(&mut self) -> Result<u32, Self::Err> { ReadBytesExt::read_u32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
     fn read_f32(&mut self) -> Result<f32, Self::Err> { ReadBytesExt::read_f32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
 
+    fn read_u32s(&mut self, count: usize) -> Result<Vec<u32>, Self::Err> { (0..count).map(|_| self.read_u32()).collect() }
+
     fn read_i16_or_eof(&mut self) -> Result<Option<i16>, Self::Err> {
         use std::convert::TryInto;
 
@@ -383,18 +385,24 @@ pub trait BinRead {
     }
 }
 
-// Additional functions that
-
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
-    pub fn expect_magic(&mut self, emitter: &impl Emitter, magic: &str) -> ReadResult<()> {
+    pub fn expect_magic(&mut self, emitter: &impl Emitter, magic: impl AsRef<[u8]>) -> ReadResult<()> {
+        let magic = magic.as_ref();
         let mut read_bytes = vec![0; magic.len()];
         self.read_exact(&mut read_bytes)?;
 
-        if read_bytes != magic.as_bytes() {
-            return Err(emitter.emit(error!("failed to find magic: '{}'", magic)));
+        if read_bytes != magic {
+            return Err(emitter.emit(error!(
+                "failed to find magic: '{:02x?}' (got: '{:02x?}')",
+                hexify(magic), hexify(&read_bytes),
+            )));
         }
         Ok(())
     }
+}
+
+pub fn hexify(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join("")
 }
 
 /// Helper trait to simplify functions that write to Touhou's binary script files.

@@ -2,12 +2,12 @@
 source: tests/integration/anm_consts.rs
 expression: stderr
 ---
-error: const evaluation error
+error: unknown variable 'I0'
    ┌─ <input>:29:65
    │
 29 │         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
-   │         ---------                                               ^^ non-const expression
-   │         │                                                        
-   │         while evaluating this const
+   │                                                                 ^^ not found in this scope
+   │
+   = there is a 'I0' defined in ANM, which is not a const expression
 
 

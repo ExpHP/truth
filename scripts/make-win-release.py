@@ -47,16 +47,39 @@ def make_release(version, target):
     print('copying map/')
     shutil.copytree('map', os.path.join(release_dir, 'map'))
 
+    did_something = False
     for src_path in glob.glob(f'target/{target}/release/*.exe'):
-        print(f'copying {src_path}')
         filename = os.path.basename(src_path)
+        if not exe_is_public(os.path.splitext(filename)[0]):
+            print(f'skipping {src_path} (private)')
+            continue
+        print(f'copying {src_path}')
         shutil.copyfile(src_path, os.path.join(release_dir, filename))
+        did_something = True
 
-    if not len(list(glob.glob(f'{release_dir}/*.exe'))):
+    if not did_something:
         die("no executables copied!")
 
     subprocess.run(['powershell', 'Compress-Archive', '-Force', release_dir, release_zip], check=True)
 
+def exe_is_public(name):
+    import re
+    fail = lambda: die("unable to determine whether '{}' is public!")
+
+    if name == 'truth-core':
+        return True
+
+    # Find a line like:   SubcommandSpec { name: "trumsg", entry: trumsg_main, public: true },
+    subcommand_lines = [line for line in open('src/cli_def.rs') if 'SubcommandSpec' in line]
+    matching_lines = [line for line in subcommand_lines if f'"{name}"' in line]
+    for line in matching_lines:
+        matches = re.findall('public: (true|false)', line)
+        if len(matches) != 1:
+            fail()
+        assert matches[0] in ('true', 'false'), matches[0]
+        return matches[0] == 'true'
+    else:
+        fail()
 
 # ------------------------------------------------------
 

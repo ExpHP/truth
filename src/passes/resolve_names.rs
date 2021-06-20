@@ -1,7 +1,8 @@
 use crate::ast;
 use crate::pos::Sp;
 use crate::context::CompilerContext;
-use crate::error::ErrorReported;
+use crate::error::{ErrorReported, ErrorFlag};
+use crate::game::InstrLanguage;
 use crate::ident::ResIdent;
 
 /// Assign [`ResId`]s to names in a script parsed from text.
@@ -12,6 +13,31 @@ pub fn assign_res_ids<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<
     let mut v = AssignResIdsVisitor { ctx };
     ast.visit_mut_with(&mut v);
     Ok(())
+}
+
+/// Assign [`InstrLanguage`]s to called functions and variables in a script parsed from text.
+///
+/// Basically, there are a number of passes that need to know what language each sub compiles to, and it is not easy
+/// to factor out the logic that decides this in a way reusable by multiple `Visit` impls.  Therefore, places were added
+/// to the AST that store language tags where useful, and this early pass is responsible for filling those tags.
+///
+/// The logic is:
+/// * Tokens within `script`s and non-`const` functions will be painted with the given [`InstrLanguage`].
+/// * Tokens inside `timeline` items will be painted with [`InstrLanguage::Timeline`] instead.
+/// * Tokens inside `const` exprs and `const` functions will not be painted with any language.
+///   Any raw syntax (`ins_23`, `REG[10004]`) in these locations will produce errors.
+///
+/// If called directly on [`ast::Block`] instead of a script file, it is assumed to be the body of a `script` and thus paints
+/// with the specified language.  (this behavior is for use by tests)
+pub fn assign_languages<A: ast::Visitable>(ast: &mut A, primary_language: InstrLanguage, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = AssignLanguagesVisitor {
+        ctx,
+        primary_language,
+        language_stack: vec![Some(primary_language)],
+        errors: ErrorFlag::new(),
+    };
+    ast.visit_mut_with(&mut v);
+    v.errors.into_result(())
 }
 
 /// Resolve names in a script parsed from text.
@@ -82,16 +108,16 @@ struct AliasesToRawVisitor<'a, 'ctx> {
 impl ast::VisitMut for AliasesToRawVisitor<'_, '_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
         if let ast::VarName::Normal { .. } = &var.name {
-            if let Ok(reg) = self.ctx.var_reg_from_ast(&var.name) {
-                var.name = reg.into();
+            if let Ok((language, reg)) = self.ctx.var_reg_from_ast(&var.name) {
+                var.name = ast::VarName::Reg { reg, language: Some(language) };
             }
         }
     }
 
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
         if let ast::Expr::Call { name, .. } = &mut expr.value {
-            if let Ok(opcode) = self.ctx.func_opcode_from_ast(name) {
-                name.value = ast::CallableName::Ins { opcode };
+            if let Ok((language, opcode)) = self.ctx.func_opcode_from_ast(name) {
+                name.value = ast::CallableName::Ins { opcode, language: Some(language) };
             }
         }
         ast::walk_expr_mut(self, expr);
@@ -104,8 +130,9 @@ struct RawToAliasesVisitor<'a, 'ctx> {
 
 impl ast::VisitMut for RawToAliasesVisitor<'_, '_> {
     fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
-        if let ast::VarName::Reg { reg } = var.name {
-            var.name = self.ctx.reg_to_ast(reg);
+        if let ast::VarName::Reg { reg, language, .. } = var.name {
+            let language = language.expect("must run assign_languages pass!");
+            var.name = self.ctx.reg_to_ast(language, reg);
 
             // did it succeed?
             if var.name.is_named() {
@@ -116,10 +143,76 @@ impl ast::VisitMut for RawToAliasesVisitor<'_, '_> {
 
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
         if let ast::Expr::Call { name, .. } = &mut expr.value {
-            if let ast::CallableName::Ins { opcode, .. } = name.value {
-                name.value = self.ctx.ins_to_ast(opcode);
+            if let ast::CallableName::Ins { opcode, language, .. } = name.value {
+                let language = language.expect("must run assign_languages pass!");
+                name.value = self.ctx.ins_to_ast(language, opcode);
             }
         }
         ast::walk_expr_mut(self, expr);
+    }
+}
+
+struct AssignLanguagesVisitor<'a, 'ctx> {
+    ctx: &'a CompilerContext<'ctx>,
+    primary_language: InstrLanguage,
+    language_stack: Vec<Option<InstrLanguage>>,
+    errors: ErrorFlag,
+}
+
+impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
+    fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
+        let language_dest = match &mut var.name {
+            ast::VarName::Reg { language, .. } => language,
+            ast::VarName::Normal { language_if_reg, .. } => language_if_reg,
+        };
+        *language_dest = self.language_stack.last().expect("empty stack?!").clone();
+
+        if let ast::VarName::Reg { language: None, .. } = var.name {
+            self.errors.set(self.ctx.emitter.emit(error!(
+                message("raw register in const context"),
+                primary(var, "forbidden in this context"),
+            )));
+        }
+    }
+
+    fn visit_callable_name(&mut self, name: &mut Sp<ast::CallableName>) {
+        let language_dest = match &mut name.value {
+            ast::CallableName::Ins { language, .. } => language,
+            ast::CallableName::Normal { language_if_ins, .. } => language_if_ins,
+        };
+        *language_dest = self.language_stack.last().expect("empty stack?!").clone();
+
+        if let ast::CallableName::Ins { language: None, .. } = name.value {
+            self.errors.set(self.ctx.emitter.emit(error!(
+                message("raw instruction in const context"),
+                primary(name, "forbidden in this context"),
+            )));
+        }
+    }
+
+    fn visit_item(&mut self, item: &mut Sp<ast::Item>) {
+        match &mut item.value {
+            | ast::Item::Func { qualifier: Some(sp_pat![token![const]]), .. }
+            | ast::Item::ConstVar { .. }
+            | ast::Item::Meta { .. }
+            => {
+                self.language_stack.push(None);
+                ast::walk_item_mut(self, item);
+                assert_eq!(self.language_stack.pop().unwrap(), None, "unbalanced stack usage!");
+            },
+
+            | ast::Item::Timeline { .. }
+            => {
+                self.language_stack.push(Some(InstrLanguage::Timeline));
+                ast::walk_item_mut(self, item);
+                assert_eq!(self.language_stack.pop().unwrap(), Some(InstrLanguage::Timeline), "unbalanced stack usage!");
+            },
+
+            _ => {
+                self.language_stack.push(Some(self.primary_language));
+                ast::walk_item_mut(self, item);
+                assert_eq!(self.language_stack.pop().unwrap(), Some(self.primary_language), "unbalanced stack usage!");
+            },
+        }
     }
 }

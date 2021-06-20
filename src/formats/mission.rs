@@ -1,12 +1,12 @@
 use std::convert::TryInto;
 
 use crate::ast;
+use crate::ast::meta::{self, FromMetaError, Meta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::game::Game;
 use crate::llir::AcceleratingByteMask;
-use crate::meta::{self, FromMetaError, Meta};
 use crate::pos::{Sp};
 use crate::context::CompilerContext;
 

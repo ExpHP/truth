@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::io;
+use crate::ast::ScriptFile;
 use crate::api::Truth;
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::error::ErrorReported;
 use crate::llir::DecompileOptions;
 
@@ -23,9 +24,25 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
             SubcommandSpec { name: "truanm", entry: truanm_main, public: true },
             SubcommandSpec { name: "trustd", entry: trustd_main, public: true },
             SubcommandSpec { name: "trumsg", entry: trumsg_main, public: true },
+            SubcommandSpec { name: "truecl", entry: truecl_main, public: false },
+            // undocumented commands used for testing purposes;
+            // these are not easily discoverable, and may be removed any time
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
-            SubcommandSpec { name: "ecl-reformat", entry: ecl_reformat::main, public: false },
+            SubcommandSpec { name: "text-reformat", entry: text_reformat::main, public: false },
             SubcommandSpec { name: "msg-redump", entry: msg_redump::main, public: false },
+            SubcommandSpec { name: "ecl-redump", entry: ecl_redump::main, public: false },
+        ],
+    })
+}
+
+
+pub fn truecl_main(version: &str, args: &[String]) -> ! {
+    cli::parse_subcommand(version, &args, Subcommands {
+        abbreviations: cli::Abbreviations::Allow,
+        program: "truecl",
+        choices: &[
+            SubcommandSpec { name: "decompile", entry: ecl_decompile::main, public: true },
+            SubcommandSpec { name: "compile", entry: ecl_compile::main, public: true },
         ],
     })
 }
@@ -69,12 +86,12 @@ pub fn trumsg_main(version: &str, args: &[String]) -> ! {
 }
 
 
-pub mod ecl_reformat {
+pub mod text_reformat {
     use super::*;
 
     pub fn main(version: &str, argv: &[String]) -> ! {
         let (input,) = cli::parse_args(version, argv, CmdSpec {
-            program: "truth-core ecl-reformat",
+            program: "truth-core text-reformat",
             usage_args: "FILE [OPTIONS...]",
             options: (cli::input(),),
         });
@@ -96,35 +113,29 @@ pub mod anm_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truanm decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::decompile_options()),
         });
 
-        let stdout = io::stdout();
-        wrap_exit_code(|truth| {
-            let fmt_config = crate::fmt::Config::new().max_columns(max_columns);
-            let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-            run(truth, &mut f, game, input.as_ref(), mapfile, &decompile_options)
+        wrap_decompile_to_stdout(fmt_config, |truth| {
+            decompile(truth, game, input.as_ref(), mapfile, &decompile_options)
         });
     }
 
-    pub(super) fn run(
+    pub(super) fn decompile(
         truth: &mut Truth,
-        stdout: &mut crate::Formatter<impl io::Write>,
         game: Game,
         path: &Path,
         map_path: Option<PathBuf>,
         decompile_options: &DecompileOptions,
-    ) -> Result<(), ErrorReported> {
+    ) -> Result<ScriptFile, ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Anm, map_path)?;
 
         let anm = truth.read_anm(game, path, false)?;
-        let ast = truth.decompile_anm(game, &anm, decompile_options)?;
-        stdout.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
-        Ok(())
+        truth.decompile_anm(game, &anm, decompile_options)
     }
 }
 
@@ -180,7 +191,7 @@ pub mod anm_compile {
         map_path: Option<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, map_path, crate::anm::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Anm, map_path)?;
 
         let ast = truth.read_script(&script_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -232,6 +243,85 @@ pub mod anm_redump {
     }
 }
 
+pub mod ecl_compile {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truecl compile",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+        });
+
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
+    }
+
+    fn run(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        outpath: &Path,
+        map_path: Option<PathBuf>,
+    ) -> Result<(), ErrorReported> {
+        let _ = (truth, game, path, outpath, map_path);
+        unimplemented!()
+    }
+}
+
+pub mod ecl_decompile {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, fmt_config, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+            program: "truecl decompile",
+            usage_args: "FILE -g GAME [OPTIONS...]",
+            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::decompile_options()),
+        });
+
+        wrap_decompile_to_stdout(fmt_config, |truth| {
+            decompile(truth, game, input.as_ref(), mapfile, &decompile_options)
+        });
+    }
+
+    pub(super) fn decompile(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        map_path: Option<PathBuf>,
+        decompile_options: &DecompileOptions,
+    ) -> Result<ScriptFile, ErrorReported> {
+        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".eclm");
+        load_mapfiles(truth, game, InstrLanguage::Ecl, map_path)?;
+
+        let anm = truth.read_ecl(game, path)?;
+        truth.decompile_ecl(game, &anm, decompile_options)
+    }
+}
+
+pub mod ecl_redump {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (input, output, game) = cli::parse_args(version, args, CmdSpec {
+            program: "truth-core ecl-redump",
+            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            options: (cli::input(), cli::required_output(), cli::game()),
+        });
+
+        wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
+    }
+
+    fn run(
+        truth: &mut Truth,
+        game: Game,
+        path: &Path,
+        outpath: &Path,
+    ) -> Result<(), ErrorReported> {
+        let ecl = truth.read_ecl(game, path)?;
+        truth.write_ecl(game, outpath, &ecl)
+    }
+}
+
 pub mod anm_benchmark {
     use super::*;
 
@@ -259,11 +349,13 @@ pub mod anm_benchmark {
     ) -> Result<(), ErrorReported> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
+            let ast = super::anm_decompile::decompile(truth, game, anm_path, map_path.clone(), &decompile_options)?;
+            
             let fmt_config = crate::fmt::Config::new().max_columns(100);
             let mut script_out_utf8 = vec![];
             let mut f = crate::Formatter::with_config(&mut script_out_utf8, fmt_config);
-            super::anm_decompile::run(truth, &mut f, game, anm_path, map_path.clone(), &decompile_options)?;
-            drop(f);
+            f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
+            drop(f); // flush
 
             truth.fs().write(script_path, &script_out_utf8)?;
 
@@ -292,7 +384,7 @@ pub mod std_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Std, map_path)?;
 
         let ast = truth.read_script(&path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -308,33 +400,26 @@ pub mod std_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trustd decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::decompile_options()),
         });
-        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile, &decompile_options))
+        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfile, &decompile_options))
     }
 
-    fn run(
+    fn decompile(
         truth: &mut Truth,
         game: Game,
         path: &Path,
-        ncol: usize,
         map_path: Option<PathBuf>,
         decompile_options: &DecompileOptions,
-    ) -> Result<(), ErrorReported> {
+    ) -> Result<ScriptFile, ErrorReported> {
         let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
-        load_mapfiles(truth, game, map_path, crate::std::game_core_mapfile(game))?;
+        load_mapfiles(truth, game, InstrLanguage::Std, map_path)?;
 
         let std = truth.read_std(game, path)?;
-        let ast = truth.decompile_std(game, &std, decompile_options)?;
-
-        let stdout = io::stdout();
-        let fmt_config = crate::fmt::Config::new().max_columns(ncol);
-        let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-        f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
-        Ok(())
+        truth.decompile_std(game, &std, decompile_options)
     }
 }
 
@@ -357,8 +442,8 @@ pub mod msg_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), ErrorReported> {
-        let msg = truth.read_msg(game, path)?;
-        truth.write_msg(game, outpath, &msg)?;
+        let msg = truth.read_msg(game, InstrLanguage::Msg, path)?;
+        truth.write_msg(game, InstrLanguage::Msg, outpath, &msg)?;
         Ok(())
     }
 }
@@ -389,11 +474,11 @@ pub mod msg_compile {
 
         match msg_mode {
             MsgMode::Stage => {
-                load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
+                load_mapfiles(truth, game, InstrLanguage::Msg, map_path)?;
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
 
-                let msg = truth.compile_msg(game, &ast)?;
-                truth.write_msg(game, outpath, &msg)?;
+                let msg = truth.compile_msg(game, InstrLanguage::Msg, &ast)?;
+                truth.write_msg(game, InstrLanguage::Msg, outpath, &msg)?;
             },
             MsgMode::Mission => {
                 let msg = truth.compile_mission(game, &ast)?;
@@ -409,43 +494,36 @@ pub mod msg_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, max_columns, mapfile, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfile, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::max_columns(), cli::mapfile(), cli::game(), cli::msg_mode(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::msg_mode(), cli::decompile_options()),
         });
-        wrap_exit_code(|truth| run(truth, game, &input, max_columns, mapfile, msg_mode, &decompile_options))
+        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfile, msg_mode, &decompile_options))
     }
 
-    fn run(
+    fn decompile(
         truth: &mut Truth,
         game: Game,
         path: &Path,
-        ncol: usize,
         map_path: Option<PathBuf>,
         msg_mode: MsgMode,
         decompile_options: &DecompileOptions,
-    ) -> Result<(), ErrorReported> {
-        let ast = match msg_mode {
+    ) -> Result<ScriptFile, ErrorReported> {
+        match msg_mode {
             MsgMode::Stage => {
                 let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-                load_mapfiles(truth, game, map_path, crate::msg::game_core_mapfile(game))?;
+                load_mapfiles(truth, game, InstrLanguage::Msg, map_path)?;
 
-                let msg = truth.read_msg(game, path)?;
-                truth.decompile_msg(game, &msg, decompile_options)?
+                let msg = truth.read_msg(game, InstrLanguage::Msg, path)?;
+                truth.decompile_msg(game, InstrLanguage::Msg, &msg, decompile_options)
             },
             MsgMode::Mission => {
                 let msg = truth.read_mission(game, path)?;
-                truth.decompile_mission(game, &msg)?
+                truth.decompile_mission(game, &msg)
             },
             MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
-        };
-
-        let stdout = io::stdout();
-        let fmt_config = crate::fmt::Config::new().max_columns(ncol);
-        let mut f = crate::Formatter::with_config(io::BufWriter::new(stdout.lock()), fmt_config);
-        f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
-        Ok(())
+        }
     }
 }
 
@@ -463,9 +541,10 @@ fn maybe_use_default_mapfile_for_decomp(
 fn load_mapfiles(
     truth: &mut Truth,
     game: Game,
+    language: InstrLanguage,
     mapfile_arg: Option<PathBuf>,
-    core_mapfile: crate::Eclmap,
 ) -> Result<(), ErrorReported> {
+    let core_mapfile = crate::core_mapfiles::core_mapfile(game, language);
     truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
@@ -476,6 +555,7 @@ fn load_mapfiles(
 
 // =============================================================================
 
+/// Basic wrapper for entry points that constructs an instance of the compiler API and converts Result into exit codes.
 fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) -> ! {
     let mut scope = crate::Builder::new().build();
     let mut truth = scope.truth();
@@ -484,6 +564,21 @@ fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) ->
         Ok(()) => std::process::exit(0),
         Err(ErrorReported) => std::process::exit(1),
     }
+}
+
+/// Wraps a function that decompiles into one that writes to STDOUT and uses exit codes.
+fn wrap_decompile_to_stdout(
+    fmt_config: crate::fmt::Config,
+    func: impl FnOnce(&mut Truth) -> Result<ScriptFile, ErrorReported>,
+) -> ! {
+    let stdout = io::stdout();
+    let stdout = io::BufWriter::new(stdout.lock());
+    wrap_exit_code(|truth| {
+        let ast = func(truth)?;
+
+        crate::Formatter::with_config(stdout, fmt_config)
+            .fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))
+    })
 }
 
 // =============================================================================
@@ -523,7 +618,11 @@ mod cli {
         }).and_then(|s| s.parse())
     }
 
-    pub fn max_columns() -> impl CliArg<Value=usize> {
+    pub fn fmt_config() -> impl CliArg<Value=crate::fmt::Config> {
+        fmt_max_columns().map(|ncol| crate::fmt::Config::new().max_columns(ncol))
+    }
+
+    fn fmt_max_columns() -> impl CliArg<Value=usize> {
         opts::Opt {
             short: "", long: "max-columns", metavar: "NUM",
             help: "where possible, will attempt to break lines for < NUM columns",

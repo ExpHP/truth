@@ -1,13 +1,13 @@
 use indexmap::IndexMap;
 
 use crate::ast;
+use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
-use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 
@@ -244,8 +244,8 @@ fn decompile_std(
     let script = &std.script;
 
     let code = {
-        llir::Raiser::new(&ctx.emitter, decompile_options)
-            .raise_instrs_to_sub_ast(emitter, instr_format, script, &ctx.defs)?
+        llir::Raiser::new(instr_format, &ctx.emitter, decompile_options)
+            .raise_instrs_to_sub_ast(emitter, script, &ctx.defs)?
     };
 
     let mut script = ast::ScriptFile {
@@ -284,6 +284,7 @@ fn compile_std(
         let mut script = script.clone();
 
         crate::passes::resolve_names::assign_res_ids(&mut script, ctx)?;
+        crate::passes::resolve_names::assign_languages(&mut script, format.instr_format().language(), ctx)?;
         crate::passes::resolve_names::run(&script, ctx)?;
         crate::passes::type_check::run(&script, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
@@ -331,6 +332,7 @@ fn compile_std(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
+                ast::Item::Timeline { .. } => return Err(emit(unsupported(&item.span))),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }
@@ -358,7 +360,7 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
     let unknown = reader.read_u32()?;
     let extra = format.read_extra(reader, emitter)?;
 
-    let object_offsets = (0..num_objects).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
+    let object_offsets = reader.read_u32s(num_objects)?;
     let objects = (0..num_objects)
         .map(|i| {
             let key = sp!(format!("object{}", i).parse::<Ident>().unwrap());
@@ -600,10 +602,6 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
     }
 }
 
-pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    super::core_mapfiles::std::core_signatures(game).to_mapfile(game)
-}
-
 // =============================================================================
 
 /// STD format, EoSD to PoFV.
@@ -707,6 +705,8 @@ pub struct InstrFormat06 { game: Game }
 pub struct InstrFormat10 { game: Game }
 
 impl InstrFormat for InstrFormat06 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         if Game::Th07 <= self.game && self.game <= Game::Th09 {
             vec![
@@ -730,7 +730,7 @@ impl InstrFormat for InstrFormat06 {
         assert_eq!(argsize, 12);  // FIXME make error if < 12, warning if > 12
 
         let args_blob = f.read_byte_vec(12)?;
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
@@ -759,6 +759,8 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat10 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         let mut out = vec![(llir::IntrinsicInstrKind::Jmp, 1)];
 
@@ -780,7 +782,7 @@ impl InstrFormat for InstrFormat10 {
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {

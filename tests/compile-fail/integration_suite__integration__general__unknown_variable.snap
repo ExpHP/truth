@@ -2,7 +2,7 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: unknown variable 'y'
+error: unknown ANM register or variable 'y'
    ┌─ <input>:27:15
    │
 27 │       int x = y;  

@@ -7,14 +7,14 @@ use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
 use crate::ast;
+use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
-use crate::game::Game;
+use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
-use crate::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
@@ -342,8 +342,9 @@ impl Entry {
 fn format_to_meta(format_num: u32) -> Meta {
     for known_format in ColorFormat::get_all() {
         if format_num == known_format as u32 {
+            let ident = ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap());
             return Meta::Scalar(sp!(ast::Expr::Var(sp!(ast::Var {
-                name: ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap()).into(),
+                name: ast::VarName::new_non_reg(ident),
                 ty_sigil: None,
             }))));
         }
@@ -456,7 +457,7 @@ fn decompile(
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new(&*instr_format, &ctx.emitter, decompile_options);
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -465,7 +466,7 @@ fn decompile(
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
             let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
-                raiser.raise_instrs_to_sub_ast(emitter, instr_format, instrs, &ctx.defs)
+                raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)
             })?;
 
             items.push(sp!(ast::Item::AnmScript {
@@ -812,6 +813,7 @@ fn compile(
 
     let mut ast = ast.clone();
     crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     define_color_format_consts(ctx);
 
@@ -1080,7 +1082,7 @@ fn read_entry(
         Ok(header_data)
     })?;
 
-    let sprite_offsets = (0..header_data.num_sprites).map(|_| reader.read_u32()).collect::<ReadResult<Vec<_>>>()?;
+    let sprite_offsets = reader.read_u32s(header_data.num_sprites as usize)?;
     let script_ids_and_offsets = (0..header_data.num_scripts).map(|_| {
         Ok((reader.read_i32()?, reader.read_u32()? as u64))
     }).collect::<ReadResult<Vec<_>>>()?;
@@ -1515,10 +1517,6 @@ fn game_format(game: Game) -> FileFormat {
     FileFormat { version, game, instr_format }
 }
 
-pub fn game_core_mapfile(game: Game) -> crate::Eclmap {
-    super::core_mapfiles::anm::core_signatures(game).to_mapfile(game)
-}
-
 /// Type responsible for dealing with version differences in the format.
 struct FileFormat {
     version: Version,
@@ -1675,6 +1673,8 @@ impl FileFormat {
 }
 
 impl InstrFormat for InstrFormat06 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         vec![
             (IntrinsicInstrKind::Jmp, 5),
@@ -1694,7 +1694,7 @@ impl InstrFormat for InstrFormat06 {
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()? as usize;
         let args_blob = f.read_byte_vec(argsize)?;
-        let instr = RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob };
+        let instr = RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS };
 
         if (time, opcode, argsize) == (0, 0, 0) {
             Ok(ReadInstr::MaybeTerminal(instr))
@@ -1725,6 +1725,8 @@ impl InstrFormat for InstrFormat06 {
 }
 
 impl InstrFormat for InstrFormat07 {
+    fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         use IntrinsicInstrKind as I;
 
@@ -1807,7 +1809,7 @@ impl InstrFormat for InstrFormat07 {
         let param_mask = f.read_u16()?;
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask, args_blob }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
