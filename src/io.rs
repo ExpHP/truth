@@ -383,8 +383,6 @@ pub trait BinRead {
     }
 }
 
-// Additional functions that
-
 impl<'a, R: Read + Seek + ?Sized + 'a> BinReader<'a, R> {
     pub fn expect_magic(&mut self, emitter: &impl Emitter, magic: &str) -> ReadResult<()> {
         let mut read_bytes = vec![0; magic.len()];
