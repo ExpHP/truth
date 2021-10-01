@@ -36,6 +36,7 @@ def main():
     parser.add_argument('--ssd', action='store_true')
     parser.add_argument('--nobuild', action='store_false', dest='build')
     parser.add_argument('--noverify', action='store_false', dest='verify')
+    parser.add_argument('--update-known-bad', action='store_true')
     parser.add_argument('-j', type=int, default=1)
     args = parser.parse_args()
 
@@ -74,7 +75,13 @@ def main():
     with ThreadPool(args.j) as p:
         p.starmap(process_file, all_files)
 
-    known_bad = set(x.strip() for x in open(f'{DUMP_DIR}/known-bad'))
+    known_bad_path = f'{DUMP_DIR}/known-bad'
+    update_known_bad = args.update_known_bad
+    if os.path.exists(known_bad_path):
+        known_bad = set(x.strip() for x in open(known_bad_path))
+    else:
+        update_known_bad = True
+        known_bad = set()
 
     if badfiles:
         print()
@@ -100,6 +107,12 @@ def main():
     print('TIMINGS:')
     for key in sorted(timelog):
         print(f'{key:14} {timelog[key]:>7.3f}')
+
+    if update_known_bad:
+        print()
+        print(f'Updating {known_bad_path}')
+        with open(known_bad_path, 'w') as f:
+            f.writelines([line + '\n' for line in badfiles])
 
 MSG_GLOBS = {
     '06': 'msg*',
