@@ -24,15 +24,21 @@ def main():
     global INPUT_DIR
     global DUMP_DIR
 
-    ALL_FORMATS = ['anm', 'std', 'msg']
+    ALL_FORMATS = ['anm', 'std', 'msg', 'mission', 'ecl']
+    DEFAULT_FORMATS = ['anm', 'std', 'msg', 'mission']  # ECL not ready
+    ALL_MODES = ['decompile', 'compile']
     parser = argparse.ArgumentParser(
         description='Script used to test recompilation of all files in all games.',
     )
-    parser.set_defaults(what='all', game=[])
+    parser.set_defaults(formats=[], modes=[], game=[])
     parser.add_argument('-g', '--game', action='append', type=parse_game)
-    parser.add_argument('--anm', action='store_const', dest='what', const='anm')
-    parser.add_argument('--std', action='store_const', dest='what', const='std')
-    parser.add_argument('--msg', action='store_const', dest='what', const='msg')
+    parser.add_argument('--compile', action='append_const', dest='modes', const='compile')
+    parser.add_argument('--decompile', action='append_const', dest='modes', const='decompile')
+    parser.add_argument('--anm', action='append_const', dest='formats', const='anm')
+    parser.add_argument('--std', action='append_const', dest='formats', const='std')
+    parser.add_argument('--msg', action='append_const', dest='formats', const='msg')
+    parser.add_argument('--ecl', action='append_const', dest='formats', const='ecl')
+    parser.add_argument('--mission', action='append_const', dest='formats', const='mission')
     parser.add_argument('--ssd', action='store_true')
     parser.add_argument('--nobuild', action='store_false', dest='build')
     parser.add_argument('--noverify', action='store_false', dest='verify')
@@ -40,13 +46,16 @@ def main():
     parser.add_argument('-j', type=int, default=1)
     args = parser.parse_args()
 
+    # if custom filters were given then we won't end up iterating over all files
+    badfiles_is_comprehensive = args.verify and not any([args.game, args.formats, args.modes])
+
     if not args.game:
         args.game = [('06', '99')]
 
-    if args.what == 'all':
-        args.what = list(ALL_FORMATS)
-    else:
-        args.what = [args.what]  # one format
+    if not args.formats:
+        args.formats = list(DEFAULT_FORMATS)
+    if not args.modes:
+        args.modes = list(ALL_MODES)
 
     if args.ssd:
         INPUT_DIR = SSD_INPUT_DIR
@@ -56,19 +65,16 @@ def main():
     all_files = []
     badfiles = [] if args.verify else None
     timelog = {
-        'anm-compile': 0.0,
-        'anm-decompile': 0.0,
-        'std-compile': 0.0,
-        'std-decompile': 0.0,
-        'msg-compile': 0.0,
-        'msg-decompile': 0.0,
+        f'{fmt}-{mode}': 0.0
+        for fmt in ALL_FORMATS
+        for mode in ['compile', 'decompile']
     }
     for game in games:
         if not any(lo <= game <= hi for (lo, hi) in args.game):
             continue
         for filename in os.listdir(f'{INPUT_DIR}/{INPUT_SUBDIR_PREFIX}{game}'):
-            if get_format(game, filename) in args.what:
-                all_files.append((game, filename, timelog, badfiles))
+            if get_format(game, filename) in args.formats:
+                all_files.append((game, filename, timelog, badfiles, args.modes))
 
     if args.build:
         subprocess.run(['cargo', 'build', '--release'], check=True)
@@ -83,6 +89,7 @@ def main():
         update_known_bad = True
         known_bad = set()
 
+    # Report files that did not roundtrip properly.
     if badfiles:
         print()
         print("BAD FILES:")
@@ -94,8 +101,10 @@ def main():
         if regressions:
             print('regressions:', regressions)
 
-        badfiles_set = set(badfiles)
-        fixedfiles = sorted(set(known_bad) - badfiles_set)
+    # Report files that were fixed.
+    if badfiles_is_comprehensive:  # (custom filters would cause badfiles to be incomplete)
+        assert badfiles is not None
+        fixedfiles = sorted(set(known_bad) - set(badfiles))
         if fixedfiles:
             print()
             print("FIXED FILES:")
@@ -108,11 +117,14 @@ def main():
     for key in sorted(timelog):
         print(f'{key:14} {timelog[key]:>7.3f}')
 
-    if update_known_bad:
+    if update_known_bad and badfiles_is_comprehensive:
         print()
         print(f'Updating {known_bad_path}')
         with open(known_bad_path, 'w') as f:
             f.writelines([line + '\n' for line in badfiles])
+    elif update_known_bad:
+        print()
+        print(f'Refusing to update {known_bad_path} due to custom filters')
 
 MSG_GLOBS = {
     '06': 'msg*',
@@ -136,16 +148,22 @@ MSG_GLOBS = {
 }
 
 def get_format(game, path):
+    name = os.path.basename(path)
+
     if path.endswith('.std'):
         return 'std'
     elif path.endswith('.anm'):
         return 'anm'
-    elif fnmatch.fnmatch(os.path.basename(path), MSG_GLOBS[game]):
+    elif path.endswith('.ecl'):
+        return 'ecl'
+    elif fnmatch.fnmatch(name, MSG_GLOBS[game]):
         return 'msg'
+    elif name == 'mission.msg':
+        return 'mission'
     return None
 
 # ABORT = 0
-def process_file(game, file, timelog, badfiles):
+def process_file(game, file, timelog, badfiles, modes):
     # global ABORT
 
     input = f'{INPUT_DIR}/{INPUT_SUBDIR_PREFIX}{game}/{file}'
@@ -162,29 +180,35 @@ def process_file(game, file, timelog, badfiles):
     elif format == 'msg':
         decompile_args = ['target/release/trumsg', 'decompile', '-g', game, input]
         compile_args = ['target/release/trumsg', 'compile', '-g', game, outspec, '-o', outfile]
+    elif format == 'mission':
+        decompile_args = ['target/release/trumsg', 'decompile', '--mission', '-g', game, input]
+        compile_args = ['target/release/trumsg', 'compile', '--mission', '-g', game, outspec, '-o', outfile]
+    elif format == 'ecl':
+        decompile_args = ['target/release/truecl', 'decompile', '-g', game, input]
+        compile_args = ['target/release/truecl', 'compile', '-g', game, outspec, '-o', outfile]
     else:
         assert False, file
 
     os.makedirs(os.path.dirname(outspec), exist_ok=True)
 
     # try:
-    with open(outspec, 'w') as f:
-        print(' '.join(map(shlex.quote, decompile_args)))
+    if 'decompile' in modes:
+        with open(outspec, 'w') as f:
+            print(' '.join(map(shlex.quote, decompile_args)))
+            start_time = time.time()
+            subprocess.run(decompile_args, stdout=f, check=True)
+            timelog[f'{format}-decompile'] += time.time() - start_time
+
+    if 'compile' in modes:
+        print(' '.join(map(shlex.quote, compile_args)))
         start_time = time.time()
-        subprocess.run(decompile_args, stdout=f, check=True)
-        decompile_time = time.time() - start_time
+        subprocess.run(compile_args, check=True)
+        timelog[f'{format}-compile'] += time.time() - start_time
 
-    print(' '.join(map(shlex.quote, compile_args)))
-    start_time = time.time()
-    subprocess.run(compile_args, check=True)
-    compile_time = time.time() - start_time
+        if badfiles is not None and open(input, 'rb').read() != open(outfile, 'rb').read():
+            print('!!!', outspec)
+            badfiles.append(outspec)
 
-    if badfiles is not None and open(input, 'rb').read() != open(outfile, 'rb').read():
-        print('!!!', outspec)
-        badfiles.append(outspec)
-
-    timelog[f'{format}-decompile'] += decompile_time
-    timelog[f'{format}-compile'] += compile_time
     # except subprocess.CalledProcessError:
     #     ABORT = 1
     #     raise
