@@ -62,6 +62,27 @@ pub enum ArgEncoding {
         mask: AcceleratingByteMask,
         furibug: bool,
     },
+    /// `T`. Extra argument for timeline.
+    ///
+    /// Such an argument may only appear as the first argument in the AST form.
+    /// Effectively it makes the first argument sugar for `@arg0=`.
+    ///
+    /// In the binary encoding, it is stored in the instruction header rather than the args blob.
+    TimelineArg(TimelineArgKind),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TimelineArgKind {
+    /// `T(_)`.  Unused timeline argument that won't appear in the AST signature.
+    ///
+    /// It can still be explicitly set via `@arg0=`.
+    Unused,
+    /// `T(e)`.  Timeline argument that is an ECL sub index.
+    ///
+    /// This mostly impacts decompilation, as it will try to decompile this arg to a symbol name.
+    EclSub,
+    /// `T(m)`.  Timeline argument that is a MSG script index.
+    MsgSub,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -118,6 +139,7 @@ impl ArgEncoding {
             | ArgEncoding::Sprite
             | ArgEncoding::Script
             | ArgEncoding::Dword
+            | ArgEncoding::TimelineArg { .. }
             => ScalarType::Int,
 
             | ArgEncoding::Float
@@ -143,6 +165,10 @@ fn validate(encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
         return Err(error!("signature has a 't' arg without an 'o' arg"));
     }
 
+    if encodings.iter().skip(1).any(|c| matches!(c, Enc::TimelineArg { .. })) {
+        return Err(error!("'T()' arguments may only appear at the beginning of a signature"));
+    }
+
     if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { .. })) {
         return Err(error!("'z' or 'm' arguments can only appear at the very end"));
     }
@@ -159,7 +185,7 @@ fn validate(encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
 fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Signature {
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
-        params: abi.encodings.iter().enumerate().map(|(index, &enc)| {
+        params: abi.encodings.iter().enumerate().flat_map(|(index, &enc)| {
             let (ty, default) = match enc {
                 | ArgEncoding::Dword
                 | ArgEncoding::Word
@@ -168,7 +194,12 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
                 | ArgEncoding::JumpTime
                 | ArgEncoding::Sprite
                 | ArgEncoding::Script
+                | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
+                | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
                 => (ScalarType::Int, None),
+
+                | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
+                => return None,
 
                 | ArgEncoding::Padding
                 => (ScalarType::Int, Some(sp!(0.into()))),
@@ -183,7 +214,7 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
             let var_ty = value::VarType::Typed(ty);
             ctx.define_local(name.clone(), var_ty);
 
-            defs::SignatureParam { default, name, ty: sp!(var_ty) }
+            Some(defs::SignatureParam { default, name, ty: sp!(var_ty) })
         }).collect(),
     }
 }
@@ -219,5 +250,12 @@ mod tests {
         assert!(parse("SSm(bs=4;mask=0,0,0)").is_ok());
         assert!(parse("Sz(bs=4)S").is_err());
         assert!(parse("Sm(bs=4;mask=0,0,0)S").is_err());
+    }
+
+    #[test]
+    fn timeline_must_be_at_beginning() {
+        assert!(parse("T(_)S").is_ok());
+        assert!(parse("T(e)").is_ok());
+        assert!(parse("ST(e)").is_err());
     }
 }

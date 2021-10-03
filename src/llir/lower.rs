@@ -1,7 +1,7 @@
 use std::collections::{HashMap};
 
 use super::{unsupported, SimpleArg};
-use crate::llir::{RawInstr, InstrFormat, ArgEncoding, ScalarType};
+use crate::llir::{RawInstr, InstrFormat, ArgEncoding, TimelineArgKind, ScalarType};
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
@@ -35,6 +35,8 @@ enum LowerStmt {
 struct LowerInstr {
     time: i32,
     opcode: u16,
+    /// Value provided by user via an explicit `@arg0=`.
+    extra_arg: Option<i16>,
     /// Value provided by user via `@mask=`, which will override the automatically-computed param mask.
     user_param_mask: Option<u16>,
     args: LowerArgs,
@@ -224,7 +226,7 @@ fn encode_labels(
 ///
 /// This preserves the number of bytes in the written instruction.
 fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
-    let &LowerInstr { time, opcode, user_param_mask, ref args } = instr;
+    let &LowerInstr { time, opcode, user_param_mask, extra_arg, ref args } = instr;
     let new_args = match args {
         LowerArgs::Unknown(blob) => LowerArgs::Unknown(blob.clone()),
         LowerArgs::Known(args) => LowerArgs::Known(args.iter().map(|arg| match arg.value {
@@ -238,7 +240,7 @@ fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
             | LowerArg::Raw(_) => arg.clone(),
         }).collect())
     };
-    LowerInstr { time, opcode, user_param_mask, args: new_args }
+    LowerInstr { time, opcode, user_param_mask, extra_arg, args: new_args }
 }
 
 // =============================================================================
@@ -274,8 +276,9 @@ fn encode_args(
                 opcode: instr.opcode,
                 param_mask: instr.user_param_mask.unwrap_or(0),
                 args_blob: blob.value.clone(),
-                // TODO
-                difficulty: 0, pop: 0, extra_arg: None,
+                extra_arg: instr.extra_arg,
+                // TODO: ECL pseudo-args whose semantics are not yet implemented
+                difficulty: 0, pop: 0,
             });
         },
     };
@@ -285,9 +288,41 @@ fn encode_args(
             .expect("(bug!) we already checked sigs for known args")
     };
 
+    let mut arg_encodings_iter = abi.arg_encodings().peekable();
+    let mut args_iter = args.iter().peekable();
+
+    // handle timeline first argument; this may come from @arg0 or the first standard argument
+    let mut extra_arg = instr.extra_arg;
+    match arg_encodings_iter.peek() {
+        Some(&ArgEncoding::TimelineArg(TimelineArgKind::Unused)) => {
+            arg_encodings_iter.next(); // consume it
+            extra_arg.get_or_insert(0);
+        }
+        Some(&ArgEncoding::TimelineArg(_)) => {
+            arg_encodings_iter.next(); // consume it
+            let first_normal_arg = args_iter.next().expect("type checker already checked arity");
+            let first_normal_arg_value = first_normal_arg.expect_raw().expect_int();
+            if extra_arg.is_none() {
+                extra_arg = Some(first_normal_arg_value as _);
+            } else {
+                // Explicit @arg0, but also drawn from args.
+                // To keep the type checker's job simpler, we took an argument from the argument list anyways,
+                // but it was "overridden" by the explicit @arg0.
+                emitter.emit(warning!(
+                    message("explicit @arg0 overrides value supplied naturally"),
+                    primary(first_normal_arg, "this value will be ignored"),
+                )).ignore();
+            }
+        }
+        _ => {},
+    }
+
     let mut args_blob = std::io::Cursor::new(vec![]);
-    for (arg, enc) in zip!(args, abi.arg_encodings()) {
+    for (arg, enc) in zip!(args_iter, arg_encodings_iter) {
         match enc {
+            | ArgEncoding::TimelineArg { .. }
+            => unreachable!(),
+
             | ArgEncoding::Dword
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
@@ -345,8 +380,9 @@ fn encode_args(
             None => compute_param_mask(&args, emitter)?,
         },
         args_blob: args_blob.into_inner(),
-        // TODO
-        difficulty: 0, pop: 0, extra_arg: None,
+        extra_arg,
+        // TODO: ECL pseudo-args whose semantics are not yet implemented
+        difficulty: 0, pop: 0,
     })
 }
 

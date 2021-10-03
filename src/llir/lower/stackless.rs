@@ -55,6 +55,7 @@ impl Lowerer<'_, '_> {
                     self.out.push(LowerStmt::Instr(LowerInstr {
                         time: stmt.time,
                         opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
+                        extra_arg: None,
                         user_param_mask: None,
                         args: LowerArgs::Known(vec![sp!(interrupt_id.span => LowerArg::Raw(interrupt_id.value.into()))]),
                     }));
@@ -121,7 +122,7 @@ impl Lowerer<'_, '_> {
     ) -> Result<u16, ErrorReported> {
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
-            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask,
+            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask, extra_arg: pseudo_extra_arg,
         } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.emitter.emit(e))?;
 
         if let Some(pop) = pseudo_pop {
@@ -162,6 +163,7 @@ impl Lowerer<'_, '_> {
             time: stmt.time,
             opcode: opcode as _,
             user_param_mask: pseudo_param_mask.map(|x| x.value),
+            extra_arg: pseudo_extra_arg.map(|x| x.value),
             args: low_level_args,
         }));
 
@@ -217,6 +219,7 @@ impl Lowerer<'_, '_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time,
                     opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?,
+                    extra_arg: None,
                     user_param_mask: None,
                     args: LowerArgs::Known(vec![lowered_var, lowered_rhs]),
                 }));
@@ -342,6 +345,7 @@ impl Lowerer<'_, '_> {
         self.out.push(LowerStmt::Instr(LowerInstr {
             time,
             opcode: self.get_opcode(IKind::Binop(binop.value, ty_var), span, "this binary operation")?,
+            extra_arg: None,
             user_param_mask: None,
             args: LowerArgs::Known(vec![lowered_var, simple_a.lowered, simple_b.lowered]),
         }));
@@ -406,6 +410,7 @@ impl Lowerer<'_, '_> {
                     token![sqrt] => self.out.push(LowerStmt::Instr(LowerInstr {
                         time,
                         opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
+                        extra_arg: None,
                         user_param_mask: None,
                         args: LowerArgs::Known(vec![lowered_var, data_b.lowered]),
                     })),
@@ -425,6 +430,7 @@ impl Lowerer<'_, '_> {
         self.out.push(LowerStmt::Instr(LowerInstr {
             time: stmt_time,
             opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
+            extra_arg: None,
             user_param_mask: None,
             args: LowerArgs::Known(vec![label_arg, time_arg]),
         }));
@@ -464,6 +470,7 @@ impl Lowerer<'_, '_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?,
+                    extra_arg: None,
                     user_param_mask: None,
                     args: LowerArgs::Known(vec![arg_var, arg_label, arg_time]),
                 }));
@@ -570,6 +577,7 @@ impl Lowerer<'_, '_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
+                    extra_arg: None,
                     user_param_mask: None,
                     args: LowerArgs::Known(vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time]),
                 }));

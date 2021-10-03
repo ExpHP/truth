@@ -1,5 +1,5 @@
 use crate::diagnostic::Emitter;
-use crate::llir::{ArgEncoding, AcceleratingByteMask};
+use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind};
 use crate::parse::lalrparser_util as util;
 
 grammar<'st>(emitter: &'st dyn Emitter);
@@ -22,6 +22,7 @@ ArgEncoding: ArgEncoding = {
     "N" => ArgEncoding::Script,
     ZString,
     MString,
+    TArg,
 };
 
 ZString: ArgEncoding = {
@@ -60,6 +61,12 @@ BlockSizeArg: usize = "bs" "=" <x:UnsignedInt> => x as _;
 MaskArg: AcceleratingByteMask = {
     "mask" "=" <mask:UnsignedInt> "," <vel:UnsignedInt> "," <accel:UnsignedInt>
     => AcceleratingByteMask { mask: mask as u8, vel: vel as u8, accel: accel as u8 }
+};
+
+TArg: ArgEncoding = {
+    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::MsgSub),
+    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::EclSub),
+    "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),
 };
 
 UnsignedInt: u32 = {

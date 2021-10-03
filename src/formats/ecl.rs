@@ -25,10 +25,10 @@ impl OldeEclFile {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &game_format(game)?, ctx, decompile_options)
     }
-    //
-    // pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
-    //     compile(&game_format(game), ast, ctx)
-    // }
+
+    pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
+        compile(&game_format(game)?, ast, ctx)
+    }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
         let emitter = w.emitter();
@@ -89,43 +89,39 @@ fn decompile(
 
 // =============================================================================
 
-#[cfg(nope)]
 fn compile(
     format: &OldeFileFormat,
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<OldeEclFile, ErrorReported> {
-    let instr_format = &*format.instr_format();
-    let timeline_format = &*format.timeline_format();
+    // let instr_format = &*format.instr_format();
+    // let timeline_format = &*format.timeline_format();
 
-    let mut ast = ast.clone();
-    crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
-    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
+    // let mut ast = ast.clone();
+    // crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+    // crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
-    // group scripts by entry
-    let mut groups = vec![];
-    let mut script_names = vec![];
-    for item in &ast.items {
-        match &item.value {
-            ast::Item::Timeline { number, ref code, .. } => {
-                let instrs = llir::lower_sub_ast_to_instrs(timeline_format, &code.0, ctx)?;
-            },
-            ast::Item::Func { .. } => {
-                // if let Some(prev_entry) = cur_entry.take() {
-                //     groups.push((prev_entry, cur_group));
-                // }
-                // cur_entry = Some(Entry::from_fields(fields).map_err(|e| ctx.emitter.emit(e))?);
-                // cur_group = vec![];
-            },
-            ast::Item::ConstVar { .. } => {},
-            _ => return Err(ctx.emitter.emit(error!(
-                message("feature not supported by format"),
-                primary(item, "not supported by ECL files"),
-            ))),
-        }
-    }
+    // // group scripts by entry
+    // let mut groups = vec![];
+    // let mut script_names = vec![];
+    // for item in &ast.items {
+    //     match &item.value {
+    //         ast::Item::Timeline { number, ref code, .. } => {
+    //             let instrs = llir::lower_sub_ast_to_instrs(timeline_format, &code.0, ctx)?;
+    //         },
+    //         ast::Item::Func { .. } => {
 
-    Ok(OldeEclFile { subs, timelines, binary_filename: None })
+    //         },
+    //         ast::Item::ConstVar { .. } => {},
+    //         _ => return Err(ctx.emitter.emit(error!(
+    //             message("feature not supported by format"),
+    //             primary(item, "not supported by ECL files"),
+    //         ))),
+    //     }
+    // }
+
+    // Ok(OldeEclFile { subs, timelines, binary_filename: None })
+    unimplemented!()
 }
 
 // =============================================================================
@@ -373,7 +369,7 @@ impl InstrFormat for InstrFormat06 {
         let opcode = f.read_u16()?;
         let size = f.read_u16()? as usize;
         let difficulty = f.read_u16()?;
-        let param_mask = f.read_u16()?;
+        let param_mask = f.read_u16()?;  // NOTE: Even in EoSD there is space for this, but it's always 0xFFFF.
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
 

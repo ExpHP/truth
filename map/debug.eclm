@@ -1,9 +1,19 @@
 !eclmap
+
 !ins_names
 10 eclOnly
+
 !ins_signatures
 10 SS
+
 !timeline_ins_names
 10 timelineOnly
+11 hasSubArg0
+12 hasMsgArg0
+13 hasUnusedArg0
+
 !timeline_ins_signatures
-10 ff
+10 T(_)ff
+11 T(e)SS
+12 T(m)SS
+13 T(_)SS

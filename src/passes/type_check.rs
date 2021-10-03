@@ -345,7 +345,7 @@ impl ExprTypeChecker<'_, '_> {
                 let left_ty = self.check_expr_as_value(left, question.span);
                 let right_ty = self.check_expr_as_value(right, colon.span);
                 let cond_ty = self.check_expr_as_value(cond, colon.span);
-                
+
                 self.require_int(cond_ty?, question.span, cond.span)?;
                 self.require_same((left_ty?, right_ty?), colon.span, (left.span, right.span))?;
                 ExprType::Value(left_ty?)
@@ -610,6 +610,7 @@ impl ExprTypeChecker<'_, '_> {
     fn pseudo_check(&self, kind: Sp<ast::PseudoArgKind>, value_ty: ScalarType, value_span: Span) -> ImplResult {
         match kind.value {
             token![pop] |
+            token![arg0] |
             token![mask] => self.require_int(value_ty, kind.span, value_span),
             token![blob] => self.require_string(value_ty, kind.span, value_span),
         }

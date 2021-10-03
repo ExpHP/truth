@@ -137,9 +137,9 @@ impl Truth<'_> {
     pub fn compile_std(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::StdFile, ErrorReported> {
         crate::StdFile::compile_from_ast(game, ast, &mut self.ctx)
     }
-    // pub fn compile_ecl(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::EclFile, ErrorReported> {
-    //     crate::EclFile::compile_from_ast(game, ast, &mut self.ctx)
-    // }
+    pub fn compile_ecl(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::EclFile, ErrorReported> {
+        crate::EclFile::compile_from_ast(game, ast, &mut self.ctx)
+    }
 
     pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
@@ -179,7 +179,7 @@ impl<'ctx> Truth<'ctx> {
     }
     pub fn read_image_source(&mut self, game: Game, path: &Path) -> Result<crate::anm::ImageSource, ErrorReported> {
         let metadata = self.fs().metadata(path).map_err(|e| self.emit(e))?;
-        
+
         if metadata.is_file() {
             let with_images = true;
             self.read_anm(game, path, with_images).map(crate::anm::ImageSource::Anm)

@@ -9,7 +9,7 @@ use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, Si
 use crate::resolve::{RegId};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;
-use crate::llir::{ArgEncoding, InstrAbi};
+use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
@@ -476,6 +476,7 @@ fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, e
             | ArgEncoding::JumpOffset => return Err(emitter.emit(error!("unexpected register used as jump offset"))),
             | ArgEncoding::Word => return Err(emitter.emit(error!("unexpected register used as word-sized argument"))),
             | ArgEncoding::String { .. } => return Err(emitter.emit(error!("unexpected register used as string argument"))),
+            | ArgEncoding::TimelineArg { .. } => return Err(emitter.emit(error!("unexpected register used as timeline ex arg"))),
         };
         Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, ty)?)))
     } else {
@@ -493,6 +494,7 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Word
         | ArgEncoding::Dword
         | ArgEncoding::JumpTime  // NOTE: might eventually want timeof(label)
+        | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
         => Ok(ast::Expr::from(raw.expect_int())),
 
         | ArgEncoding::Sprite
@@ -512,6 +514,13 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
             Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
         },
 
+        | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
+        => {
+            let const_ident = ResIdent::new_null(crate::formats::ecl::auto_sub_name(raw.expect_int() as _));
+            let name = ast::VarName::new_non_reg(const_ident);
+            Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+        }
+
         | ArgEncoding::Color
         | ArgEncoding::JumpOffset  // NOTE: might eventually want offsetof(label)
         => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
@@ -521,6 +530,9 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
 
         | ArgEncoding::String { .. }
         => Ok(ast::Expr::from(raw.expect_string().clone())),
+
+        | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
+        => unreachable!(), // we shouldn't be called in this case
     }
 }
 
@@ -605,48 +617,54 @@ fn decode_args_with_abi(
         let is_reg = param_mask % 2 == 1;
         param_mask /= 2;
 
-        let value = emitter.chain_with(|f| write!(f, "in argument {} of ins_{}", arg_index + 1, instr.opcode), |emitter| match enc {
-            | ArgEncoding::Dword
-            | ArgEncoding::Color
-            | ArgEncoding::JumpOffset
-            | ArgEncoding::JumpTime
-            | ArgEncoding::Padding
-            | ArgEncoding::Sprite
-            | ArgEncoding::Script
-            => {
-                decrease_len(emitter, &mut remaining_len, 4)?;
-                Ok(ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32))
-            },
+        emitter.chain_with(|f| write!(f, "in argument {} of ins_{}", arg_index + 1, instr.opcode), |emitter| {
+            let value = match enc {
+                | ArgEncoding::Dword
+                | ArgEncoding::Color
+                | ArgEncoding::JumpOffset
+                | ArgEncoding::JumpTime
+                | ArgEncoding::Padding
+                | ArgEncoding::Sprite
+                | ArgEncoding::Script
+                => {
+                    decrease_len(emitter, &mut remaining_len, 4)?;
+                    ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+                },
 
-            | ArgEncoding::Float
-            => {
-                decrease_len(emitter, &mut remaining_len, 4)?;
-                Ok(ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len"))))
-            },
+                | ArgEncoding::Float
+                => {
+                    decrease_len(emitter, &mut remaining_len, 4)?;
+                    ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
+                },
 
-            | ArgEncoding::Word
-            => {
-                decrease_len(emitter, &mut remaining_len, 2)?;
-                Ok(ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32))
-            },
+                | ArgEncoding::Word
+                => {
+                    decrease_len(emitter, &mut remaining_len, 2)?;
+                    ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+                },
 
-            | ArgEncoding::String { block_size: _, mask, furibug: _ }
-            => {
-                // read to end
-                let read_len = remaining_len;
-                decrease_len(emitter, &mut remaining_len, read_len)?;
+                | ArgEncoding::String { block_size: _, mask, furibug: _ }
+                => {
+                    // read to end
+                    let read_len = remaining_len;
+                    decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
-                encoded.apply_xor_mask(mask);
-                encoded.trim_first_nul(emitter);
+                    let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
+                    encoded.apply_xor_mask(mask);
+                    encoded.trim_first_nul(emitter);
 
-                let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
-                Ok(ScalarValue::String(string))
-            },
+                    let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
+                    ScalarValue::String(string)
+                },
+
+                | ArgEncoding::TimelineArg { .. }
+                => return Ok(()),  // no value for this arg
+            };
+            args.push(SimpleArg { value, is_reg });
+            Ok(())
         })?;
-
-        args.push(SimpleArg { value, is_reg })
     }
+
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
         emitter.emit(warning!(

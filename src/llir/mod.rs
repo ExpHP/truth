@@ -10,7 +10,7 @@ use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
 
-pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask};
+pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind};
 mod abi;
 
 pub use lower::lower_sub_ast_to_instrs;
@@ -49,7 +49,7 @@ pub struct RawInstr {
     /// to invent new syntax for, we can put it here to have it appear as the first instruction argument.
     ///
     /// Used by ECL timelines.
-    pub extra_arg: Option<u16>,
+    pub extra_arg: Option<i16>,
 }
 
 impl RawInstr {
@@ -378,6 +378,22 @@ pub enum ReadInstr {
     EndOfFile,
 }
 
+/// The trait that handles most differences between languages in their instruction formats.
+///
+/// It is responsible for:
+///
+/// * Parsing instruction headers from bytestreams (or similarly, writing them).
+/// * Extracting the blob of bytes for the args of an instruction.
+/// * Mapping language features to instruction opcodes and vice versa.
+/// * Declaratively describing the availability of language features like the stack, jumps, and stack registers.
+///   (this information gets used by the `lower` and `raise` modules to determine how to compile/decompile things)
+///
+/// It is expressly NOT responsible for:
+///
+/// * Parsing the headers of the files themselves, or any other data that isn't instruction-related.
+///   That is all done in e.g. `format/anm`.
+/// * The actual implementation of the check for where a script ends.
+/// * Parsing the actual instruction args from the byte blobs.
 pub trait InstrFormat {
     /// Language key, so that signatures can be looked up for the right type of instruction (e.g. ECL vs timeline).
     fn language(&self) -> InstrLanguage;

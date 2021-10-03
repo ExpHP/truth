@@ -263,8 +263,16 @@ pub mod ecl_compile {
         outpath: &Path,
         map_path: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        let _ = (truth, game, path, outpath, map_path);
-        unimplemented!()
+        load_mapfiles(truth, game, InstrLanguage::Ecl, map_path.clone())?;
+        load_mapfiles(truth, game, InstrLanguage::Timeline, map_path)?;
+
+        let ast = truth.read_script(&path)?;
+        truth.load_mapfiles_from_pragmas(game, &ast)?;
+        truth.expect_no_image_sources(&ast)?;
+
+        let ecl = truth.compile_ecl(game, &ast)?;
+        truth.write_ecl(game, outpath, &ecl)?;
+        Ok(())
     }
 }
 
@@ -350,7 +358,7 @@ pub mod anm_benchmark {
         let image_source_paths = [anm_path.to_owned()];
         loop {
             let ast = super::anm_decompile::decompile(truth, game, anm_path, map_path.clone(), &decompile_options)?;
-            
+
             let fmt_config = crate::fmt::Config::new().max_columns(100);
             let mut script_out_utf8 = vec![];
             let mut f = crate::Formatter::with_config(&mut script_out_utf8, fmt_config);

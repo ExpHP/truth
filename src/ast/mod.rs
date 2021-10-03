@@ -576,6 +576,7 @@ string_enum! {
         #[str = "mask"] Mask,
         #[str = "pop"] Pop,
         #[str = "blob"] Blob,
+        #[str = "arg0"] ExtraArg,
     }
 }
 

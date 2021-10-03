@@ -8,6 +8,6 @@ error: invalid pseudo-arg
 28 │         wait(@blobloblob="0f000000");
    │               ^^^^^^^^^^ not a pseudo-arg
    │
-   = valid pseudo-args are: pop, mask, blob
+   = valid pseudo-args are: pop, mask, blob, arg0
 
 
