@@ -78,7 +78,7 @@ meta {
 script script0 {}
 script script0 {}
 "#,
-    expect_fail: "redefinition",
+    expect_error: "redefinition",
 );
 
 
@@ -142,7 +142,7 @@ meta {
 
 script script0 {}
 "#,
-    expect_fail: "duplicate",
+    expect_error: "duplicate",
 );
 
 source_test!(
@@ -175,7 +175,7 @@ meta {
 script script0 {}
 script theDefault {}
 "#,
-    expect_no_warning: (),
+    // we're mostly checking that there's no warning
     check_compiled: |_, _| {},
 );
 
@@ -197,6 +197,6 @@ script theDefault {}
     //
     // However, users might want an "error" script as a default, and so it
     // shouldn't matter that the default is never used.
-    expect_no_warning: (),
+    // Hence we're mostly just checking that there's no warning here.
     check_compiled: |_, _| {},
 );

@@ -6,25 +6,25 @@ source_test!(
     items: r#"
         #pragma mapfile "this/is/a/bad/path"
     "#,
-    expect_fail: "while resolving",
+    expect_error: "while resolving",
 );
 
 source_test!(
     ANM_10, unknown_instr_signature,
     main_body: r#"  ins_6000(0, 0, 0);  "#,
-    expect_fail: "signature",
+    expect_error: "signature",
 );
 
 source_test!(
     ANM_10, unknown_instr_name,
     main_body: r#"  iMadeThisUpYesterday(0, 0, 0);  "#,
-    expect_fail: "instruction or function",
+    expect_error: "instruction or function",
 );
 
 source_test!(
     ANM_10, unknown_variable,
     main_body: r#"  int x = y;  "#,
-    expect_fail: "register or variable",
+    expect_error: "register or variable",
 );
 
 source_test!(
@@ -34,7 +34,7 @@ source_test!(
         var x;
         $x = 4;
     "#,
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -42,7 +42,7 @@ source_test!(
     main_body: r#"
         I0 = I0 | I1;
     "#,
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -50,7 +50,7 @@ source_test!(
     items: r#"
         #pragma mapfile "tests/integration/resources/mapfile-with-bad-signature.anmm"
     "#,
-    expect_fail: "opcode 1000",
+    expect_error: "opcode 1000",
 );
 
 source_test!(
@@ -58,7 +58,7 @@ source_test!(
     main_body: r#"
         goto label;
     "#,
-    expect_fail: "undefined label",
+    expect_error: "undefined label",
 );
 
 source_test!(
@@ -67,7 +67,7 @@ source_test!(
     label:
     label:
     "#,
-    expect_fail: "duplicate label",
+    expect_error: "duplicate label",
 );
 
 source_test!(
@@ -75,7 +75,7 @@ source_test!(
     main_body: r#"
         int x = 4;
     "#,
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -83,7 +83,7 @@ source_test!(
     main_body: r#"
         string x = "hi";
     "#,
-    expect_fail: "non-const",
+    expect_error: "non-const",
 );
 
 source_test!(
@@ -91,7 +91,7 @@ source_test!(
     main_body: r#"
         void x = delete();
     "#,
-    expect_fail: "must have a value",
+    expect_error: "must have a value",
 );
 
 source_test!(
@@ -99,7 +99,7 @@ source_test!(
     items: r#"
         const void x = delete();
     "#,
-    expect_fail: "must have a value",
+    expect_error: "must have a value",
 );
 
 source_test!(
@@ -107,7 +107,7 @@ source_test!(
     items: r#"
         const var x = 3;
     "#,
-    expect_fail: "untyped",
+    expect_error: "untyped",
 );
 
 source_test!(
@@ -115,7 +115,7 @@ source_test!(
     items: r#"
         const int y = $REG[10000];
     "#,
-    expect_fail: "const context",
+    expect_error: "const context",
 );
 
 source_test!(
@@ -123,7 +123,7 @@ source_test!(
     items: r#"
         var foo() { return 1; }
     "#,
-    expect_fail: "var-typed",
+    expect_error: "var-typed",
 );
 
 // FIXME: change this test to ECL once that is available
@@ -134,7 +134,7 @@ source_test!(
     items: r#"
         string foo() { return "hi"; }
     "#,
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -142,7 +142,7 @@ source_test!(
     items: r#"
         inline const int foo() { return 1; }
     "#,
-    expect_fail: "extra qualifier",
+    expect_error: "extra qualifier",
 );
 
 source_test!(
@@ -153,7 +153,7 @@ source_test!(
             return x;
         }
     "#,
-    expect_fail: "const context",
+    expect_error: "const context",
 );
 
 source_test!(
@@ -164,7 +164,7 @@ source_test!(
             return 5;
         }
     "#,
-    expect_fail: "const context",
+    expect_error: "const context",
 );
 
 source_test!(
@@ -174,7 +174,7 @@ source_test!(
     main_body: r#"
         int REG[100] = 3;
     "#,
-    expect_fail: expected::PARSE_ERROR,
+    expect_error: expected::PARSE_ERROR,
 );
 
 source_test!(
@@ -184,7 +184,7 @@ source_test!(
     items: r#"
         void foo(int REG[100]) {}
     "#,
-    expect_fail: expected::PARSE_ERROR,
+    expect_error: expected::PARSE_ERROR,
 );
 
 source_test!(
@@ -193,7 +193,7 @@ source_test!(
         const string x = "hi";
         const int y = $x;
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -201,7 +201,7 @@ source_test!(
     items: r#"
         const int y = 3, z, w = 4;
     "#,
-    expect_fail: "uninitialized const",
+    expect_error: "uninitialized const",
 );
 
 source_test!(
@@ -212,7 +212,7 @@ source_test!(
         const int UMMMM = HALP;
         const int HALP = UH_OH;
     "#,
-    expect_fail: "depends on its own value",
+    expect_error: "depends on its own value",
 );
 
 source_test!(
@@ -221,7 +221,7 @@ source_test!(
         ins_0();
         pos(0f, 0f, 0f);
     "#,
-    expect_fail: "after end",
+    expect_error: "after end",
 );
 
 source_test!(
@@ -245,7 +245,7 @@ source_test!(
     main_body: r#"
         ins_2();
     "#,
-    expect_fail: "expects 1 to 3 arguments",
+    expect_error: "expects 1 to 3 arguments",
 );
 
 source_test!(
@@ -253,7 +253,7 @@ source_test!(
     main_body: r#"
         posKeyframe(0f, 0f, 0f, 0f);
     "#,
-    expect_fail: "expects 3 arguments",
+    expect_error: "expects 3 arguments",
 );
 
 // TODO: STD script requirements (single sub called main...)
@@ -290,7 +290,7 @@ source_test!(
         int x = foo(@mask=0b1, 12);
     "#,
     // FIXME: Eventually, const funcs in anm will be supported.
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -302,7 +302,7 @@ source_test!(
         foo(@mask=0b1, 12);
     "#,
     // FIXME: Eventually, inline funcs in anm will be supported.
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -310,7 +310,7 @@ source_test!(
     main_body: r#"
         wait(12, @mask=0b1);
     "#,
-    expect_fail: "before",
+    expect_error: "before",
 );
 
 source_test!(
@@ -318,7 +318,7 @@ source_test!(
     main_body: r#"
         wait(@blob="0f000000", 15);
     "#,
-    expect_fail: "redundant",
+    expect_error: "redundant",
 );
 
 source_test!(
@@ -326,7 +326,7 @@ source_test!(
     main_body: r#"
         wait(@blobloblob="0f000000");
     "#,
-    expect_fail: "pseudo",
+    expect_error: "pseudo",
 );
 
 source_test!(
@@ -334,7 +334,7 @@ source_test!(
     main_body: r#"
         wait(@blob="0f0000");
     "#,
-    expect_fail: "by 4",
+    expect_error: "by 4",
 );
 
 source_test!(
@@ -342,7 +342,7 @@ source_test!(
     main_body: r#"
         wait(@blob="0f000000", @blob="0f000000");
     "#,
-    expect_fail: "duplicate",
+    expect_error: "duplicate",
 );
 
 source_test!(
@@ -351,7 +351,7 @@ source_test!(
         I0 = 1;
         wait(@mask=I0, @blob="10270000");
     "#,
-    expect_fail: "const",
+    expect_error: "const",
 );
 
 // A snippet to try decompiling with several decreasing levels of features.
@@ -428,13 +428,13 @@ sub main() {}
     "#.bytes());
         text
     },
-    expect_fail: "UTF-8",
+    expect_error: "UTF-8",
 );
 
 source_test!(
     MSG_06, encoding_error_in_arg,
     main_body: r#"  textSet(0, 0, "⏄");  "#,  // character not available in SJIS
-    expect_fail: "JIS",
+    expect_error: "JIS",
 );
 
 source_test!(
@@ -457,7 +457,7 @@ meta {
 
 script main {}
     "#,
-    expect_fail: "JIS",
+    expect_error: "JIS",
 );
 
 source_test!(
@@ -487,5 +487,5 @@ meta {
 
 script main {}
     "#,
-    expect_fail: "too long",
+    expect_error: "too long",
 );

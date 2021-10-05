@@ -11,7 +11,7 @@ use crate::integration_impl::expected;
 source_test!(
     ANM_10, bad_declaration,
     main_body: r#"  int %x;  "#,
-    expect_fail: expected::PARSE_ERROR,  // currently 'int $x' is invalid too, but never say never...
+    expect_error: expected::PARSE_ERROR,  // currently 'int $x' is invalid too, but never say never...
 );
 
 // =========================
@@ -20,91 +20,91 @@ source_test!(
 source_test!(
     ANM_10, stackless__assign_literal,
     main_body: r#"  I0 = 4.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__assign_var,
     main_body: r#"  I0 = F0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__assign_var_sigil,
     main_body: r#"  I0 = %I1;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__binop_arg,
     main_body: r#"  F0 = F1 + 4;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__binop_out,
     main_body: r#"  I0 = F1 + 2.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     MSG_06, stackless__binop_two_strings,
     main_body: r#"  textSet(0, 0, "F1" - "2.0");  "#,
-    expect_fail: "string",
+    expect_error: "string",
 );
 
 source_test!(
     ANM_10, const__binop,
     main_body: r#"  I0 = 1 + 2.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__sine_arg,
     main_body: r#"  float x = sin(I0);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__sine_out,
     main_body: r#"  int x = sin(F0);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, const__sine,
     main_body: r#"  F0 = sin(1);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, const__sprite,
     main_body: r#"  F0 = sprite0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__ternary_cond,
     main_body: r#"  F0 = F2 ? 1.0 : 2.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__ternary_arg,
     main_body: r#"  F0 = I1 ? F1 : I0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__ternary_out,
     main_body: r#"  I0 = I0 ? F0 : F1;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, const__ternary_cond,
     main_body: r#"  F0 = 1.5 ? 1.0 : 2.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 // for ternary branch type mismatch in a const context, see the "short-circuit" tests below
@@ -112,27 +112,27 @@ source_test!(
 source_test!(
     ANM_10, stackless__binop_str,
     main_body: r#"  int x = I0 + "abc";  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__neg_str,
     main_body: r#"  int x = -"abc";  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     // ...hang on, should casting int to int really be an error?
     ANM_10, stackless__cast,
     main_body: r#"  int x = _S(I2);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     // ...hang on, should casting int to int really be an error?
     ANM_10, const__cast,
     main_body: r#"  int x = _S(2);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 // =========================
@@ -144,7 +144,7 @@ source_test!(
         if (2 == 3.0) goto label;
       label:
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -153,7 +153,7 @@ source_test!(
         if (3.0) goto label;
       label:
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -162,7 +162,7 @@ source_test!(
         if (2 && 3.0) goto label;
       label:
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -171,7 +171,7 @@ source_test!(
         if (2.0 && 3.0) goto label;
       label:
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -180,7 +180,7 @@ source_test!(
         if (--F0) goto label;
       label:
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -189,7 +189,7 @@ source_test!(
         if (2 == 2) goto label @ 2.4;
       label:
     "#,
-    expect_fail: expected::PARSE_ERROR,
+    expect_error: expected::PARSE_ERROR,
 );
 
 // =========================
@@ -198,13 +198,13 @@ source_test!(
 source_test!(
     ANM_10, stackless__times_count,
     main_body: r#"  times(F0) {}  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__times_clobber,
     main_body: r#"  times(F0 = 4) {}  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 // =========================
@@ -213,31 +213,31 @@ source_test!(
 source_test!(
     ANM_10, stackless__ins_arg_var,
     main_body: r#"  pos(0.0, I0, 3.0);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__ins_arg_literal,
     main_body: r#"  pos(0.0, 5, 3.0);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, stackless__ins_arg_complex,
     main_body: r#"  pos(0.0, I0 + I2, 3.0);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     MSG_06, stackless__func_arg_neg_str,
     main_body: r#"  textSet(0, 0, -"abc");  "#,
-    expect_fail: "string",
+    expect_error: "string",
 );
 
 source_test!(
     ANM_10, stackless__pseudo,
     main_body: r#"  pos(@blob=12);  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 // =========================
@@ -246,7 +246,7 @@ source_test!(
 source_test!(
     ANM_10, stackless__non_void_expr_statement,
     main_body: r#"  3.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 // FIXME: Once we have ECL we should try `I0 ? "abc" : "def"` as an argument;
@@ -263,25 +263,25 @@ source_test!(
 source_test!(
     ANM_10, const__short_circuit__ternary_left,
     main_body: r#"  F0 = 5 ? 1.0 : 0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, const__short_circuit__ternary_right,
     main_body: r#"  F0 = 0 ? "lol" : 1.0;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, const__short_circuit__and,
     main_body: r#"  I0 = 1 && "lmao";  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, const__short_circuit__or,
     main_body: r#"  I0 = 0.0 || 1;  "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 // =========================
@@ -292,7 +292,7 @@ source_test!(
     items: r#"
         inline void foo() { return 0; }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -302,7 +302,7 @@ source_test!(
     "#,
     // FIXME: Inline funcs should be supported eventually.
     //        Once they are, this should become a compile-succeed test.
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 // (if we want to allow this to compile, then each lowerer will need tests to check that this
@@ -312,7 +312,7 @@ source_test!(
     items: r#"
         inline void foo() { return sprite(0); }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -320,7 +320,7 @@ source_test!(
     items: r#"
         inline float foo() { return 0; }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -328,7 +328,7 @@ source_test!(
     items: r#"
         inline float foo() { return; }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -336,7 +336,7 @@ source_test!(
     items: r#"
         inline float foo() { return sprite(0); }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -344,7 +344,7 @@ source_test!(
     items: r#"
         inline int foo() { }
     "#,
-    expect_fail: "has no return",
+    expect_error: "has no return",
 );
 
 source_test!(
@@ -354,5 +354,5 @@ source_test!(
     "#,
     // FIXME: Inline funcs should be supported eventually.
     //        Once they are, this should become a compile-succeed test.
-    expect_fail: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );

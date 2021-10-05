@@ -57,7 +57,7 @@ entry {
     },
 }
     "#,
-    expect_fail: "depends on its own value",
+    expect_error: "depends on its own value",
 );
 
 source_test!(
@@ -75,7 +75,7 @@ entry {
     "#,
     // NOTE: be careful changing this.  If the new error complains about missing fields
     // or missing image data, fix the test input instead.
-    expect_fail: "const",
+    expect_error: "const",
 );
 
 // It is okay for two sprites to have the same name (this occurs in decompiled output),
@@ -171,7 +171,7 @@ script script0 {
     ins_1();
 }
     "#,
-    expect_fail: "ambiguous"
+    expect_error: "ambiguous"
 );
 
 // Same but one's implicit.
@@ -196,7 +196,7 @@ script script0 {
     ins_1();
 }
     "#,
-    expect_fail: "ambiguous"
+    expect_error: "ambiguous"
 );
 
 // Type-checking/const-checking sprite IDs is actually a bit annoying.
@@ -211,7 +211,7 @@ entry {
     },
 }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -225,7 +225,7 @@ entry {
     },
 }
     "#,
-    expect_fail: "const",
+    expect_error: "const",
 );
 
 // Dupes may follow different code paths for type checking and const checking since
@@ -248,7 +248,7 @@ entry {
     },
 }
     "#,
-    expect_fail: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -269,7 +269,7 @@ entry {
     },
 }
     "#,
-    expect_fail: "const",
+    expect_error: "const",
 );
 
 source_test!(
@@ -403,7 +403,7 @@ script wild {  // should have ID 1
     ins_3(-1);
 }
     "#,
-    expect_fail: "ambiguous",
+    expect_error: "ambiguous",
 );
 
 source_test!(

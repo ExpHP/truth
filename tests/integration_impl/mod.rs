@@ -8,6 +8,10 @@ use truth::Game;
 
 use assert_cmd::prelude::*;
 
+macro_rules! snapshot_path {
+    () => { concat!(env!("CARGO_MANIFEST_DIR"), "/tests/compile-fail") }
+}
+
 pub mod formats;
 
 pub struct Format {
@@ -236,6 +240,7 @@ lazy_static::lazy_static! {
 }
 
 impl Format {
+    /// Attempt to compile but expect failure and extract stderr.
     pub fn compile_fail_stderr(&self, source: &TestFile) -> String {
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
@@ -258,161 +263,6 @@ fn make_output_deterministic(stderr: &str) -> String {
     )
 }
 
-macro_rules! snapshot_path {
-    () => { concat!(env!("CARGO_MANIFEST_DIR"), "/tests/compile-fail") }
-}
-
-// used to implement defaults for some optional macro parts by writing `first_token!( $($thing)?  "" )`
-macro_rules! first_token {
-    ($tok:tt $($rest:tt)*) => { $tok };
-}
-
-/// Generates a test that does *something* to a source script.
-///
-/// The purpose of this is to reduce the friction to writing tests as much as possible.
-/// It reduces noise by allowing things not relevant to a given test to be left out.  It also
-/// reduces the amount of busywork in converting a test back and forth between a compile-succeed
-/// test and a compile-fail test. (you just replace a `check:` closure with an `expect_fail:` string)
-macro_rules! source_test {
-    (
-        $format:expr, $test_name:ident
-
-        // -------------------------
-        // args to make_source!
-        $(, items: $items:expr)?
-        $(, main_body: $main_body:expr)?
-        $(, full_source: $full_source:expr)?
-
-        // -------------------------
-        // Test details
-        //
-        // You must supply one of the following things:
-
-        // Compile the code and run the given closure on the compiled TestFile.
-        $(
-            // Modifier that checks for empty stderr.  (write as: 'check_no_warning: ()')
-            $(, expect_no_warning: $check_no_warning_unit:expr)?
-
-            , check_compiled: $check_fn:expr
-        )?
-
-        // Does an "SBSB" test to test decompilation of a file compiled from simple source.
-        //
-        // IMPORTANT: Please see the documentation of Format::sbsb_test for more information.
-        $(
-            $(, decompile_args: $sbsb_decompile_args:expr)?
-            , sbsb: $sbsb_check_fn:expr
-        )?
-
-        // Do a compile-fail snapshot test.
-        //
-        // Requires a string to search for in the STDERR output.
-        // (This helps ensure that compilation is failing for a legitimate reason.)
-        //
-        // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
-        // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
-        // Whenever this occurs, just review the new outputs and make sure that the new errors are still
-        // related to what they were originally testing.
-        // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
-        $(, expect_fail: $expect_fail_msg:expr)?
-
-        // Compile the code and expect success, but snapshot stderr and check for a substring.
-        $(, expect_warning: $expect_warning_msg:expr)?
-
-        $(,)?
-    ) => {
-        #[test]
-        fn $test_name() {
-            // make it error if there's no `check:` or `expect_fail:`
-            #![deny(unused)]
-
-            truth::setup_for_test_harness();
-
-            let source = make_source!(
-                $format
-                $(, items: $items)?
-                $(, main_body: $main_body)?
-                $(, full_source: $full_source)?
-            );
-
-            $(
-                let (outfile, output) = $format.compile_and_capture(&source);
-                $(
-                    let () = $check_no_warning_unit;
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    assert_eq!(stderr, "");
-                )?
-                drop(output);
-
-                // annotate closure so that method lookup works
-                let check_fn: fn(&crate::integration_impl::TestFile, &crate::integration_impl::Format) = $check_fn;
-                check_fn(&outfile, &$format);
-                return;
-            )?
-
-            $(
-                let (_, output) = $format.compile_and_capture(&source);
-                _check_compile_fail_output!(String::from_utf8_lossy(&output.stderr), expected: $expect_warning_msg);
-                return;
-            )?
-
-            $(
-                let decompile_args = first_token!( $( (& $sbsb_decompile_args) )?  (&[] as &[&str]) );
-                $format.sbsb_test(&source, decompile_args, $sbsb_check_fn);
-                return;
-            )?
-
-            $(
-                let stderr = $format.compile_fail_stderr(&source);
-                _check_compile_fail_output!(stderr, expected: $expect_fail_msg);
-                return;
-            )?
-        }
-    };
-}
-
-macro_rules! make_source {
-    (
-        $format:expr
-
-        // (optional) other items you want in the script
-        $(, items: $items:expr)?
-
-        // the statements to compile into a function body
-        $(, main_body: $main_body:expr)?
-
-        // (optional) check that the STDERR text contains a substring.
-        // This helps ensure that compilation is failing for a legitimate reason.
-        //
-        // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
-        // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
-        // Whenever this occurs, just review the new outputs and make sure that the new errors are still
-        // related to what they were originally testing.
-        // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
-        $(, expected: $expected:expr)?
-        $(,)?
-    ) => {
-        $format.make_source("original.spec", crate::integration_impl::ScriptParts {
-            items: first_token!( $($items)? "" ),
-            main_body: first_token!( $($main_body)? "" ),
-        })
-    };
-
-    (
-        // Alternative that takes full source.  It is recommended to only use this when necessary
-        // (namely when testing things in meta), as there's a greater likelihood that the tests
-        // will be broken by innocent changes.
-        $format:expr
-
-        , full_source: $main_body:expr
-
-        $(, expected: $expected:expr)?
-        $(,)?
-    ) => {
-        crate::integration_impl::TestFile::from_content("original.spec", $main_body)
-    };
-}
-
 fn erase_panic_line_number_for_accepted_panics(message: &str) -> String {
     lazy_static::lazy_static! {
         static ref PANIC_LINE_NUMBER_RE: regex::Regex = regex::Regex::new(r#"panicked at 'not implemented', ([^:]+):[0-9]+:[0-9]+"#).unwrap();
@@ -420,9 +270,17 @@ fn erase_panic_line_number_for_accepted_panics(message: &str) -> String {
     PANIC_LINE_NUMBER_RE.replace(message, "panicked at 'not implemented', ${1}:???:??").into_owned()
 }
 
-
+// Implementation of the check_compile_fail_output macro.
 #[track_caller]
-pub fn _check_compile_fail_output(stderr: &str, expected: &str, snapshot: impl FnOnce(&str)) {
+pub fn _check_compile_fail_output(
+    stderr: &str,
+    expected: &str,
+    // we can't put the snapshot test code in this function because then we wouldn't be able to
+    // automatically get the test name and path into the snapshot name.
+    //
+    // So it's taken via closure, and the macro automates the writing of this closure.
+    perform_snapshot_test: impl FnOnce(&str),
+) {
     let stderr = make_output_deterministic(&stderr);
 
     // we don't want internal compiler errors.
@@ -434,15 +292,22 @@ pub fn _check_compile_fail_output(stderr: &str, expected: &str, snapshot: impl F
 
     // hitting `unimplemented!` macro is okay if that's the expected error
     let is_bad_ice = is_ice && !allow_ice;
+    let is_good_ice = is_ice && allow_ice;
     assert!(!is_bad_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
+    if is_good_ice {
+        return; // don't do snapshot test; this test might be changed to succeed later
+    }
 
     let stderr = erase_panic_line_number_for_accepted_panics(&stderr);
     assert!(stderr.contains(expected), "Error did not contain expected! error: {}", stderr);
-    snapshot(&stderr);
+    perform_snapshot_test(&stderr);
 }
 
-macro_rules! _check_compile_fail_output {
-    ($stderr:expr, expected: $expected:expr) => {{
+/// Performs a snapshot test of stderr while also verifying that it contains a certain substring.
+///
+/// Certain unreliable parts of the stderr will be made deterministic before performing the snapshot check.
+macro_rules! check_compile_fail_output {
+    ($stderr:expr, $expected:expr) => {{
         crate::integration_impl::_check_compile_fail_output(&$stderr, $expected, |stderr| {
             insta::with_settings!{{snapshot_path => snapshot_path!()}, {
                 insta::assert_snapshot!{stderr};
@@ -458,3 +323,6 @@ pub mod expected {
     pub const UNIMPLEMENTED: &'static str = "not implemented";
     pub const NOT_SUPPORTED_BY_FORMAT: &'static str = "not supported";
 }
+
+#[macro_use]
+pub mod source_test;

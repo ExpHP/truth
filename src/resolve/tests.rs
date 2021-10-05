@@ -42,7 +42,7 @@ macro_rules! test {
 
     (
         // Create a compile-fail snapshot test
-        [expect_fail($expected:expr)]
+        [expect_error($expected:expr)]
         $name:ident = <$ty:ty> $source:literal
     ) => {
         #[test]
@@ -213,7 +213,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_error("in this scope")]
     local_after_scope_end = <ast::Block> r#"{
     if (true) {
         int a = 4;
@@ -223,7 +223,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_error("in this scope")]
     const_after_scope_end = <ast::Block> r#"{
     if (true) {
         const int a = 4;
@@ -233,7 +233,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_error("in this scope")]
     func_after_scope_end = <ast::Block> r#"{
     if (true) {
         int foo() { return 4; }
@@ -243,7 +243,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("in this scope")]
+    [expect_error("in this scope")]
     local_using_itself = <ast::Block> r#"{
     int a = a;  // should fail at second `a`
 }"#);
@@ -280,14 +280,14 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("nested const")]
+    [expect_error("nested const")]
     const_scoped_using_local = <ast::Block> r#"{
     int x = 2;
     const int foo = x;  // should fail at `x`
 }"#);
 
 test!(
-    [expect_fail("nested function")]
+    [expect_error("nested function")]
     func_scoped_using_local = <ast::Block> r#"{
     int x = 2;
     int foo() {
@@ -296,7 +296,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("nested function")]
+    [expect_error("nested function")]
     func_scoped_using_outer_shadowed_const = <ast::Block> r#"{
     const int x = 2;
     if (true) {
@@ -308,7 +308,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("nested const")]
+    [expect_error("nested const")]
     const_scoped_using_outer_local = <ast::Block> r#"{
     int x = 2;
     if (true) {
@@ -317,7 +317,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("nested function")]
+    [expect_error("nested function")]
     func_scoped_using_outer_param = <ast::Block> r#"{
     void foo(int a) {
         int bar() {
@@ -352,7 +352,7 @@ test!(
 test!(
     // FIXME: Remove the [disable] tag once default arguments are implemented
     [disable]  // known test failure
-    [expect_fail("in this scope")]
+    [expect_error("in this scope")]
     param_using_outer_local = <ast::Block> r#"{
     int a = 3;
     int bar(int z = a) {  // should fail at `a`
@@ -424,7 +424,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("redefinition")]
+    [expect_error("redefinition")]
     local_redefinition = <ast::Block> r#"{
     if (true) {
         int a = 4;
@@ -433,7 +433,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("redefinition")]
+    [expect_error("redefinition")]
     func_redefinition = <ast::ScriptFile> r#"
 int foo(int x) {
     return x;
@@ -445,7 +445,7 @@ int foo(float y) {
 "#);
 
 test!(
-    [expect_fail("redefinition")]
+    [expect_error("redefinition")]
     const_redefinition = <ast::ScriptFile> r#"
 const int BLUE = 1;
 const int RED = 3;
@@ -453,7 +453,7 @@ const int BLUE = RED;
 "#);
 
 test!(
-    [expect_fail("redefinition")]
+    [expect_error("redefinition")]
     func_scoped_redefinition = <ast::Block> r#"{
     if (true) {
         int foo(int x) {
@@ -467,7 +467,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("redefinition")]
+    [expect_error("redefinition")]
     const_scoped_redefinition = <ast::Block> r#"{
     if (true) {
         const int BLUE = 1;
@@ -477,7 +477,7 @@ test!(
 }"#);
 
 test!(
-    [expect_fail("redefinition")]
+    [expect_error("redefinition")]
     param_redefinition = <ast::Block> r#"{
     void foo(int a, int b, float a) {  // should fail at second `a`
     }

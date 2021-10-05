@@ -41,7 +41,7 @@ meta {
 
 script main {}
 "#,
-    expect_fail: "no object named",
+    expect_error: "no object named",
 );
 
 source_test!(
@@ -122,7 +122,7 @@ meta {
 
 script main {}
 "#,
-    expect_fail: "'layer'",
+    expect_error: "'layer'",
 );
 
 source_test!(
@@ -147,5 +147,5 @@ meta {
 
 script main {}
 "#,
-    expect_fail: "both 'unknown' and 'layer'",
+    expect_error: "both 'unknown' and 'layer'",
 );

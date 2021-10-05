@@ -11,7 +11,7 @@ source_test!(
     items: r#"
         #pragma image_source "this/is/a/bad/path"
     "#,
-    expect_fail: "while resolving",
+    expect_error: "while resolving",
 );
 
 // Tests that copy an embedded image
@@ -208,7 +208,7 @@ entry {
     has_data: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }"#,
-        expect_fail: "required field",
+        expect_error: "required field",
     );
 
     // This input is identical to 'okay' except with 'has_data: true', so it will fail.
@@ -230,7 +230,7 @@ entry {
     low_res_scale: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }"#,
-        expect_fail: "no bitmap data",
+        expect_error: "no bitmap data",
     );
 }
 
@@ -350,7 +350,6 @@ entry {
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }
         "#,
-        expect_no_warning: (),
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
             assert_eq!(anm.entries[0].specs.img_format, Some(sp!(8)));
@@ -389,7 +388,7 @@ entry {
     img_format: FORMAT_GRAY_8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_fail: "from unknown color format",
+        expect_error: "from unknown color format",
     );
 
     source_test!(
@@ -404,7 +403,7 @@ entry {
     img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_fail: "into unknown color format",
+        expect_error: "into unknown color format",
     );
 
     source_test!(
@@ -437,7 +436,7 @@ entry {
     img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_fail: "unknown color format",
+        expect_error: "unknown color format",
     );
 
     source_test!(
@@ -469,7 +468,7 @@ entry {
     img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_fail: "into unknown color format",
+        expect_error: "into unknown color format",
     );
 }
 
@@ -479,14 +478,14 @@ source_test!(
     items: r#"
         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
     "#,
-    expect_fail: "unexpected image_source",
+    expect_error: "unexpected image_source",
 );
 source_test!(
     MSG_06, image_source_in_msg,
     items: r#"
         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
     "#,
-    expect_fail: "unexpected image_source",
+    expect_error: "unexpected image_source",
 );
 // FIXME: ECL test when ECL exists
 
@@ -761,7 +760,7 @@ entry {
     img_height: 32,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_fail: "wrong image dimensions",
+    expect_error: "wrong image dimensions",
 );
 
 source_test!(
@@ -776,7 +775,7 @@ entry {
     has_data: true,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_fail: "image too small",
+    expect_error: "image too small",
 );
 
 source_test!(
