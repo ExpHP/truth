@@ -1,11 +1,13 @@
 use indexmap::{IndexMap};
 
 use crate::ast;
+use crate::pos::Sp;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
-use crate::diagnostic::{Emitter};
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported};
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
+use crate::value::{ScalarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::context::CompilerContext;
 
@@ -51,7 +53,7 @@ fn decompile(
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let instr_format = &*format.instr_format();
-    let timeline_format = &*format.instr_format();
+    let timeline_format = &*format.timeline_format();
 
     let mut items = vec![];
     let mut timeline_raiser = llir::Raiser::new(timeline_format, &ctx.emitter, decompile_options);
@@ -94,34 +96,130 @@ fn compile(
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<OldeEclFile, ErrorReported> {
-    // let instr_format = &*format.instr_format();
-    // let timeline_format = &*format.timeline_format();
+    let instr_format = format.instr_format();
+    let timeline_format = format.timeline_format();
 
-    // let mut ast = ast.clone();
-    // crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
-    // crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
+    let mut ast = ast.clone();
+    crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
+    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
-    // // group scripts by entry
-    // let mut groups = vec![];
-    // let mut script_names = vec![];
-    // for item in &ast.items {
-    //     match &item.value {
-    //         ast::Item::Timeline { number, ref code, .. } => {
-    //             let instrs = llir::lower_sub_ast_to_instrs(timeline_format, &code.0, ctx)?;
-    //         },
-    //         ast::Item::Func { .. } => {
+    // an early pass to define global constants for sub names
+    let sub_ids = gather_sub_ids(&ast, ctx)?;
+    for (index, sub_name) in sub_ids.values().enumerate() {
+        let const_value: Sp<ast::Expr> = sp!(sub_name.span => (index as i32).into());
+        ctx.define_auto_const_var(sub_name.clone(), ScalarType::Int, const_value);
+    }
 
-    //         },
-    //         ast::Item::ConstVar { .. } => {},
-    //         _ => return Err(ctx.emitter.emit(error!(
-    //             message("feature not supported by format"),
-    //             primary(item, "not supported by ECL files"),
-    //         ))),
-    //     }
-    // }
+    // preprocess
+    let ast = {
+        let mut ast = ast;
+        crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::type_check::run(&ast, ctx)?;
+        crate::passes::evaluate_const_vars::run(ctx)?;
+        crate::passes::const_simplify::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
+        ast
+    };
 
-    // Ok(OldeEclFile { subs, timelines, binary_filename: None })
-    unimplemented!()
+    // Compilation pass
+    let emitter = ctx.emitter;
+    let emit = |e| emitter.emit(e);
+    let mut subs = IndexMap::new();
+    let mut timelines = vec![];
+    for item in ast.items.iter() {
+        match &item.value {
+            ast::Item::Meta { keyword, .. } => return Err(emit(error!(
+                message("unexpected '{}' in old ECL format file", keyword),
+                primary(keyword, "not valid in old format ECL files"),
+            ))),
+            ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
+                message("unexpected numbered script in STD file"),
+                primary(number, "unexpected number"),
+            ))),
+            ast::Item::ConstVar { .. } => {},
+            ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
+            ast::Item::Timeline { code, .. } => {
+                let instrs = llir::lower_sub_ast_to_instrs(&*timeline_format, &code.0, ctx)?;
+                timelines.push(instrs)
+            },
+            ast::Item::Func { qualifier: None, code: None, .. } => {
+                emit(warning!(
+                    message("function declarations have no effect in old-style ECL file"),
+                    primary(item, "meaningless declaration"),
+                )).ignore();
+            },
+
+            ast::Item::Func { qualifier: None, code: Some(code), ref ident, ref params, ty_keyword } => {
+                // make double sure that the order of the subs we're compiling matches the numbers we assigned them
+                assert_eq!(sub_ids.get_index_of(ident.as_raw()).unwrap(), subs.len());
+
+                if params.len() > 0 {
+                    let (_, first_param_name) = &params[0];
+                    return Err(ctx.emitter.emit(error!(
+                        message("parameters are not supported in old-style ECL subs like '{}'", ident),
+                        primary(first_param_name, "unsupported parameter"),
+                    )));
+                }
+
+                if ty_keyword.value != ast::TypeKeyword::Void {
+                    return Err(ctx.emitter.emit(error!(
+                        message("return types are not supported in old-style ECL subs like '{}'", ident),
+                        primary(ty_keyword, "unsupported return type"),
+                    )));
+                }
+
+                let instrs = llir::lower_sub_ast_to_instrs(&*instr_format, &code.0, ctx)?;
+                subs.insert(ident.value.as_raw().clone(), instrs);
+            }
+
+            // TODO: support inline and const
+            ast::Item::Func { qualifier: Some(_), .. } => return Err(emit(unsupported(&item.span))),
+        } // match item
+    }; // for item in script
+
+    Ok(OldeEclFile { subs, timelines, binary_filename: None })
+}
+
+fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
+    let mut script_ids = IndexMap::new();
+    for item in sub_items(&ast.items) {
+        match &item.value {
+            &ast::Item::Func { qualifier: None, ref ident, .. } => {
+                // give a better error on redefinitions than the generic "ambiguous auto const" message
+                match script_ids.entry(ident.value.as_raw().clone()) {
+                    indexmap::map::Entry::Vacant(e) => {
+                        e.insert(ident.clone());
+                    },
+                    indexmap::map::Entry::Occupied(e) => {
+                        let prev_ident = e.get();
+                        return Err(ctx.emitter.emit(error!(
+                            message("duplicate script '{}'", ident),
+                            primary(ident, "redefined here"),
+                            secondary(prev_ident, "originally defined here"),
+                        )));
+                    },
+                }
+            },
+            _ => unreachable!("should've been filtered by sub_items"),
+        }
+    }
+    Ok(script_ids)
+}
+
+/// Produces an iterator over just the ECL subs in a list of items.
+///
+/// Even if this doesn't help with factoring out the match pattern for the items,
+/// it helps prevent bugs where different pieces of code differ on which items they consider
+/// as "subs".  (as this could lead to using the wrong indices in compilation)
+fn sub_items(items: &[Sp<ast::Item>]) -> impl Iterator<Item=&Sp<ast::Item>> {
+    items.iter().filter(|item| matches!(item.value, ast::Item::Func { qualifier: None, .. }))
+}
+
+fn unsupported(span: &crate::pos::Span) -> Diagnostic {
+    error!(
+        message("feature not supported by format"),
+        primary(span, "not supported by old-format ECL files"),
+    )
 }
 
 // =============================================================================

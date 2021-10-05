@@ -11,8 +11,7 @@ void sub0() {
     timelineOnly(0, 3, 3);
 }
 "#,
-    expect_error: expected::UNIMPLEMENTED,
-    // expect_error: "there is a ECL Timeline",
+    expect_error: "there is a ECL Timeline",
 );
 
 source_test!(
@@ -28,14 +27,13 @@ timeline 0 {
 void sub0() {}
 void sub1() {}
 "#,
-    // check_compiled: |output, format| {
-    //     let ecl = output.read_ecl(format);
-    //     assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
-    //     assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));  // 3
-    //     assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
-    //     assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
-    // },
-    expect_error: expected::UNIMPLEMENTED,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
+        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));  // 3
+        assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
+        assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
+    },
 );
 
 source_test!(
@@ -46,8 +44,7 @@ timeline 0 {
     hasMsgArg0(@arg0=10, 3, 3);
 }
 "#,
-    // expect_error: expected::TYPE_ERROR,
-    expect_error: expected::UNIMPLEMENTED,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -57,13 +54,11 @@ timeline 0 {
     hasMsgArg0(@arg0=10, 5, 3, 3);
 }
 "#,
-    // FIXME: why doesn't this work
-    // check_compiled: |output, format| {
-    //     let ecl = output.read_ecl(format);
-    //     assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));
-    // },
-    // expect_warning: "overrides value supplied naturally",
-    expect_error: expected::UNIMPLEMENTED,
+    expect_warning: "overrides value supplied naturally",
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));
+    },
 );
 
 source_test!(
@@ -73,8 +68,7 @@ timeline 0 {
     hasUnusedArg0(@arg0=5.5, 3, 3);
 }
 "#,
-    expect_error: expected::UNIMPLEMENTED,
-    // expect_error: expected::TYPE_ERROR,
+    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -87,14 +81,13 @@ timeline 0 {
 void sub0() {}
 void sub1() {}
 "#,
-    // check_compiled: |output, format| {
-    //     let ecl = output.read_ecl(format);
-    //     assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
-    //     assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));  // 3
-    //     assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
-    //     assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
-    // },
-    expect_error: expected::UNIMPLEMENTED,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
+        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));  // 3
+        assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
+        assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
+    },
 );
 
 source_test!(
@@ -106,11 +99,10 @@ timeline 0 {
 
 void sub0() {}
 "#,
-    // check_compiled: |output, format| {
-    //     let ecl = output.read_ecl(format);
-    //     assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
-    // },
-    expect_error: expected::UNIMPLEMENTED,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
+    },
 );
 
 source_test!(
@@ -125,4 +117,36 @@ void sub1() {}
 "#,
     // expect_error: "TODO: what message lol",
     expect_error: expected::UNIMPLEMENTED,
+);
+
+source_test!(
+    ECL_08, olde_unsupported_param,
+    full_source: r#"
+timeline 0 {}
+
+void sub0(int x) {}
+"#,
+    expect_error: "parameters are not supported",
+);
+
+source_test!(
+    ECL_08, olde_unsupported_return_type,
+    full_source: r#"
+timeline 0 {}
+
+int sub0() {}
+"#,
+    expect_error: "return types are not supported",
+);
+
+source_test!(
+    ECL_08, olde_meaningless_declaration,
+    full_source: r#"
+timeline 0 {}
+
+int sub0();
+int sub0() {}
+int sub1() {}
+"#,
+    expect_warning: "meaningless declaration",
 );
