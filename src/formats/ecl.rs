@@ -126,7 +126,7 @@ fn compile(
     let emit = |e| emitter.emit(e);
     let mut subs = IndexMap::new();
     let mut timelines = vec![];
-    for item in ast.items.iter() {
+    for item in &ast.items {
         match &item.value {
             ast::Item::Meta { keyword, .. } => return Err(emit(error!(
                 message("unexpected '{}' in old ECL format file", keyword),
@@ -182,7 +182,7 @@ fn compile(
 
 fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
     let mut script_ids = IndexMap::new();
-    for item in sub_items(&ast.items) {
+    for item in &ast.items {
         match &item.value {
             &ast::Item::Func { qualifier: None, ref ident, .. } => {
                 // give a better error on redefinitions than the generic "ambiguous auto const" message
@@ -200,19 +200,10 @@ fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<In
                     },
                 }
             },
-            _ => unreachable!("should've been filtered by sub_items"),
+            _ => {},
         }
     }
     Ok(script_ids)
-}
-
-/// Produces an iterator over just the ECL subs in a list of items.
-///
-/// Even if this doesn't help with factoring out the match pattern for the items,
-/// it helps prevent bugs where different pieces of code differ on which items they consider
-/// as "subs".  (as this could lead to using the wrong indices in compilation)
-fn sub_items(items: &[Sp<ast::Item>]) -> impl Iterator<Item=&Sp<ast::Item>> {
-    items.iter().filter(|item| matches!(item.value, ast::Item::Func { qualifier: None, .. }))
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
