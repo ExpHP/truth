@@ -17,26 +17,42 @@ void bouba() {
 );
 
 source_test!(
-    ECL_08, successful_arg0s,
-    full_source: r#"
-#pragma mapfile "map/debug.eclm"
-
-timeline 0 {
+    ECL_TIMELINE_08, successful_sub_arg0s,
+    items: r#"
+    void bouba() {}
+    void kiki() {}
+"#,
+    main_body: r#"
     hasSubArg0(kiki, 3, 3);
     hasMsgArg0(10, 3, 3);
-    hasUnusedArg0(3, 3);
-    hasUnusedArg0(@arg0=5, 3, 3);
-}
-
-void bouba() {}
-void kiki() {}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
-        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));
-        assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
-        assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
+    },
+);
+
+source_test!(
+    ECL_TIMELINE_08, successful_msg_arg0s,
+    main_body: r#"
+    hasMsgArg0(10, 3, 3);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));
+    },
+);
+
+source_test!(
+    ECL_TIMELINE_08, successful_unused_arg0s,
+    main_body: r#"
+    hasUnusedArg0(3, 3);
+    hasUnusedArg0(@arg0=5, 3, 3);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
+        assert_eq!(ecl.timelines[0][1].extra_arg, Some(5));
     },
 );
 
@@ -120,7 +136,7 @@ source_test!(
     items: r#"
 void externFunc();
 "#,
-    expect_warning: "unsupported extern functions",
+    expect_error: "unsupported extern function",
 );
 
 

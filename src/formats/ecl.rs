@@ -143,10 +143,10 @@ fn compile(
                 timelines.push(instrs)
             },
             ast::Item::Func { qualifier: None, code: None, .. } => {
-                emit(error!(
+                return Err(emit(error!(
                     message("extern functions are not supported in old-style ECL file"),
                     primary(item, "unsupported extern function"),
-                )).ignore();
+                )));
             },
 
             ast::Item::Func { qualifier: None, code: Some(code), ref ident, ref params, ty_keyword } => {
@@ -155,14 +155,14 @@ fn compile(
 
                 if params.len() > 0 {
                     let (_, first_param_name) = &params[0];
-                    return Err(ctx.emitter.emit(error!(
+                    return Err(emit(error!(
                         message("parameters are not supported in old-style ECL subs like '{}'", ident),
                         primary(first_param_name, "unsupported parameter"),
                     )));
                 }
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
-                    return Err(ctx.emitter.emit(error!(
+                    return Err(emit(error!(
                         message("return types are not supported in old-style ECL subs like '{}'", ident),
                         primary(ty_keyword, "unsupported return type"),
                     )));

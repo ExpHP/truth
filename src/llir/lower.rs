@@ -317,8 +317,13 @@ fn encode_args(
         _ => {},
     }
 
+    // The remaining args go into the argument byte blob.
     let mut args_blob = std::io::Cursor::new(vec![]);
-    for (arg, enc) in zip!(args_iter, arg_encodings_iter) {
+
+    // Important: we put the shortest iterator (args_iter) first in the zip list
+    //            to ensure that this loop reads an equal number of items from all iters.
+    assert!(args_iter.len() <= arg_encodings_iter.len());
+    for (arg, enc) in zip!(args_iter, arg_encodings_iter.by_ref()) {
         match enc {
             | ArgEncoding::TimelineArg { .. }
             => unreachable!(),
@@ -367,7 +372,7 @@ fn encode_args(
         }
     }
 
-    for enc in abi.arg_encodings().skip(args.len()) {
+    for enc in arg_encodings_iter {
         assert_eq!(enc, ArgEncoding::Padding);
         args_blob.write_u32(0).expect("Cursor<Vec> failed?!");
     }
