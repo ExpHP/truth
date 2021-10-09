@@ -9,11 +9,11 @@ timeline 0 {
     eclOnly(0, 3, 3);
 }
 
-void sub0() {
+void bouba() {
     timelineOnly(0, 3, 3);
 }
 "#,
-    expect_error: "there is a ECL Timeline",
+    expect_error: "defined in ECL Timeline",
 );
 
 source_test!(
@@ -22,19 +22,19 @@ source_test!(
 #pragma mapfile "map/debug.eclm"
 
 timeline 0 {
-    hasSubArg0(sub1, 3, 3);
+    hasSubArg0(kiki, 3, 3);
     hasMsgArg0(10, 3, 3);
     hasUnusedArg0(3, 3);
     hasUnusedArg0(@arg0=5, 3, 3);
 }
 
-void sub0() {}
-void sub1() {}
+void bouba() {}
+void kiki() {}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
-        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));  // 3
+        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));
         assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
         assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
     },
@@ -65,7 +65,7 @@ timeline 0 {
     expect_warning: "overrides value supplied naturally",
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
-        assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));  // i.e. not 5
     },
 );
 
@@ -90,13 +90,13 @@ timeline 0 {
     hasSubArg0(@blob="FFFFFFFF FFFFFFFF");
 }
 
-void sub0() {}
-void sub1() {}
+void bouba() {}
+void kiki() {}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
-        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));  // 3
+        assert_eq!(ecl.timelines[0][1].extra_arg, Some(10));
         assert_eq!(ecl.timelines[0][2].extra_arg, Some(0));
         assert_eq!(ecl.timelines[0][3].extra_arg, Some(5));
     },
@@ -111,7 +111,7 @@ timeline 0 {
     hasUnusedArg0(@blob="FFFFFFFF FFFFFFFF");
 }
 
-void sub0() {}
+void bouba() {}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
@@ -128,8 +128,8 @@ timeline 0 {
     hasMsgArg0($REG[20], 3, 3);
 }
 
-void sub0() {}
-void sub1() {}
+void bouba() {}
+void kiki() {}
 "#,
     // expect_error: "TODO: what message lol",
     expect_error: expected::UNIMPLEMENTED,
@@ -138,7 +138,7 @@ void sub1() {}
 source_test!(
     ECL_08, olde_unsupported_param,
     items: r#"
-void sub0(int x) {}
+void bouba(int x) {}
 "#,
     expect_error: "parameters are not supported",
 );
@@ -146,7 +146,7 @@ void sub0(int x) {}
 source_test!(
     ECL_08, olde_unsupported_return_type,
     items: r#"
-int sub0() {
+int bouba() {
     return 0;
 }
 "#,
@@ -158,7 +158,7 @@ source_test!(
     items: r#"
 void externFunc();
 "#,
-    expect_warning: "extern functions are not supported",
+    expect_warning: "unsupported extern functions",
 );
 
 

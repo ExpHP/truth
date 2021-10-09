@@ -145,7 +145,7 @@ fn compile(
             ast::Item::Func { qualifier: None, code: None, .. } => {
                 emit(error!(
                     message("extern functions are not supported in old-style ECL file"),
-                    primary(item, "meaningless declaration"),
+                    primary(item, "unsupported extern function"),
                 )).ignore();
             },
 

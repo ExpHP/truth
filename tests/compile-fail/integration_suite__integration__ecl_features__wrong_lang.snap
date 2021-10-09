@@ -2,6 +2,20 @@
 source: tests/integration/ecl_features.rs
 expression: stderr
 ---
-thread 'main' panicked at 'not implemented', src/cli_def.rs:???:??
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: unknown ECL Timeline instruction or function 'eclOnly'
+  ┌─ <input>:5:5
+  │
+5 │     eclOnly(0, 3, 3);
+  │     ^^^^^^^ not found in this scope
+  │
+  = there is a 'eclOnly' defined in ECL
+
+error: unknown ECL instruction or function 'timelineOnly'
+  ┌─ <input>:9:5
+  │
+9 │     timelineOnly(0, 3, 3);
+  │     ^^^^^^^^^^^^ not found in this scope
+  │
+  = there is a 'timelineOnly' defined in ECL Timeline
+
 
