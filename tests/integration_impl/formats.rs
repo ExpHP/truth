@@ -169,3 +169,19 @@ void sub0() {{
 }}
 "#, body),
 };
+
+/// Variant of ECL_08 where main_body is inserted into a timeline instead.
+pub const ECL_TIMELINE_08: Format = Format {
+    cmd: "truecl",
+    game: Game::Th08,
+    script_head: r#"
+#pragma mapfile "map/debug.eclm"
+
+void sub0() {}
+"#,
+    make_main: |body| format!(r#"
+timeline 0 {{
+    {}
+}}
+"#, body),
+};
