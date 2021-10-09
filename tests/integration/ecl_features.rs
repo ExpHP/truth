@@ -134,19 +134,47 @@ source_test!(
     full_source: r#"
 timeline 0 {}
 
-int sub0() {}
+int sub0() {
+    return 0;
+}
 "#,
     expect_error: "return types are not supported",
 );
 
 source_test!(
-    ECL_08, olde_meaningless_declaration,
+    ECL_08, olde_unsupported_extern,
     full_source: r#"
 timeline 0 {}
 
-int sub0();
-int sub0() {}
-int sub1() {}
+void externFunc();
+void lol() {}
 "#,
-    expect_warning: "meaningless declaration",
+    expect_warning: "extern functions are not supported",
 );
+
+
+// source_test!(
+//     ECL_10, extern_conflict,
+//     full_source: r#"
+// timeline 0 {}
+
+// void sub0();
+// void sub0() {}
+// void sub1() {}
+// "#,
+//     expect_warning: "conflicting extern definition",
+// );
+
+// source_test!(
+//     ECL_10, double_extern_okay,
+//     full_source: r#"
+// timeline 0 {}
+
+// void externFunc();
+// void externFunc();
+// void main() {}
+// "#,
+//     check_compiled: |_| {
+//         panic!("TODO: add a call to externFunc and check it here")
+//     },
+// );

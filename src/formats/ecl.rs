@@ -143,8 +143,8 @@ fn compile(
                 timelines.push(instrs)
             },
             ast::Item::Func { qualifier: None, code: None, .. } => {
-                emit(warning!(
-                    message("function declarations have no effect in old-style ECL file"),
+                emit(error!(
+                    message("extern functions are not supported in old-style ECL file"),
                     primary(item, "meaningless declaration"),
                 )).ignore();
             },
