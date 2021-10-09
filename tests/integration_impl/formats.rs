@@ -159,7 +159,7 @@ pub const ECL_08: Format = Format {
     cmd: "truecl",
     game: Game::Th08,
     script_head: r#"
-#pragma mapfile "map/any.anmm"
+#pragma mapfile "map/debug.eclm"
 
 timeline 0 {}
 "#,

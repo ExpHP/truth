@@ -3,6 +3,8 @@ use crate::integration_impl::{expected, formats::*};
 source_test!(
     ECL_08, wrong_lang,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     eclOnly(0, 3, 3);
 }
@@ -17,6 +19,8 @@ void sub0() {
 source_test!(
     ECL_08, successful_arg0s,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     hasSubArg0(sub1, 3, 3);
     hasMsgArg0(10, 3, 3);
@@ -39,17 +43,21 @@ void sub1() {}
 source_test!(
     ECL_08, bad_arity_with_required_arg0,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     // arg0 cannot stand in for a positional arg, even if that positional arg technically serves the role of arg0
     hasMsgArg0(@arg0=10, 3, 3);
 }
 "#,
-    expect_error: expected::TYPE_ERROR,
+    expect_error: "expects 3 arguments, got 2",
 );
 
 source_test!(
     ECL_08, warn_arg0_collision,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     hasMsgArg0(@arg0=10, 5, 3, 3);
 }
@@ -64,6 +72,8 @@ timeline 0 {
 source_test!(
     ECL_08, bad_type_for_optional_arg0,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     hasUnusedArg0(@arg0=5.5, 3, 3);
 }
@@ -74,6 +84,8 @@ timeline 0 {
 source_test!(
     ECL_08, blob_without_required_arg0,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     hasSubArg0(@blob="FFFFFFFF FFFFFFFF");
 }
@@ -93,6 +105,8 @@ void sub1() {}
 source_test!(
     ECL_08, blob_without_optional_arg0,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     hasUnusedArg0(@blob="FFFFFFFF FFFFFFFF");
 }
@@ -108,6 +122,8 @@ void sub0() {}
 source_test!(
     ECL_08, reg_as_positional_arg0,
     full_source: r#"
+#pragma mapfile "map/debug.eclm"
+
 timeline 0 {
     hasMsgArg0($REG[20], 3, 3);
 }
@@ -121,9 +137,7 @@ void sub1() {}
 
 source_test!(
     ECL_08, olde_unsupported_param,
-    full_source: r#"
-timeline 0 {}
-
+    items: r#"
 void sub0(int x) {}
 "#,
     expect_error: "parameters are not supported",
@@ -131,9 +145,7 @@ void sub0(int x) {}
 
 source_test!(
     ECL_08, olde_unsupported_return_type,
-    full_source: r#"
-timeline 0 {}
-
+    items: r#"
 int sub0() {
     return 0;
 }
@@ -143,11 +155,8 @@ int sub0() {
 
 source_test!(
     ECL_08, olde_unsupported_extern,
-    full_source: r#"
-timeline 0 {}
-
+    items: r#"
 void externFunc();
-void lol() {}
 "#,
     expect_warning: "extern functions are not supported",
 );
