@@ -9,7 +9,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::game::InstrLanguage;
 use crate::ident::{Ident, ResIdent};
-use crate::resolve::{RegId, Namespace, DefId, ResId, rib};
+use crate::resolve::{RegId, Namespace, DefId, rib};
 use crate::eclmap::Eclmap;
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::llir::InstrAbi;
@@ -200,14 +200,7 @@ impl CompilerContext<'_> {
     /// Create a [`DefId`] for the name in a declaration, and automatically resolve the input
     /// ident to that ID.
     fn create_new_def_id(&mut self, ident: &ResIdent) -> DefId {
-        let def_id = Self::synthesize_def_id_from_res_id(ident.expect_res());
-        self.resolutions.record_resolution(ident, def_id);
-        def_id
-    }
-
-    fn synthesize_def_id_from_res_id(res: ResId) -> DefId {
-        // no need to invent new numbers
-        DefId(res.0)
+        self.resolutions.record_self_resolution(ident)
     }
 }
 

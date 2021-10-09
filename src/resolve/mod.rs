@@ -598,9 +598,23 @@ impl Resolutions {
         ResIdent::new(ident, self.fresh_res())
     }
 
+    /// Record that the given [`ResIdent`] resolves to itself and return its new [`DefId`].
+    pub fn record_self_resolution(&mut self, ident: &ResIdent) -> DefId {
+        let res = ident.expect_res();
+        let def = Self::synthesize_def_id_from_res_id(res);
+        self._record_resolution(ident, def, true);
+        def
+    }
+
     pub fn record_resolution(&mut self, ident: &ResIdent, def: DefId) {
+        self._record_resolution(ident, def, false);
+    }
+
+    fn _record_resolution(&mut self, ident: &ResIdent, def: DefId, is_self_resolution: bool) {
         let res = ident.expect_res();
         let dest = &mut self.map[res.0.get() as usize];
+
+        let already_has_matching_definition = *dest == Some(def);
 
         // (This is to protect against bugs where an ident was cloned prior to name resolution,
         //  creating a situation where name resolution could have different results depending
@@ -609,7 +623,14 @@ impl Resolutions {
         //  The existence of this check is documented on `ResId`.  If you want to remove this check
         //  in order to e.g. make name resolution idempotent, please consider replacing it with some
         //  other form of check that all ResIds in the AST are unique prior to name resolution)
-        assert!(dest.is_none(), "(bug!) ident resolved multiple times: {:?}", res);
+        //
+        // (because such bugs can be so subtle, we will fail even if the existing definition matches.
+        //  BUT!  We make a small exception for self-resolutions (definitions) because we might get
+        //  called multiple times when adding the same name to multiple namespaces)
+        assert!(
+            dest.is_none() || (already_has_matching_definition && is_self_resolution),
+            "(bug!) ident resolved multiple times: {:?}", res,
+        );
 
         *dest = Some(def);
     }
@@ -618,5 +639,10 @@ impl Resolutions {
         let res = ident.expect_res();
         self.map[res.0.get() as usize]
             .unwrap_or_else(|| panic!("(bug!) name '{}' has not yet been resolved!", ident))
+    }
+
+    fn synthesize_def_id_from_res_id(res: ResId) -> DefId {
+        // no need to invent new numbers
+        DefId(res.0)
     }
 }
