@@ -397,6 +397,7 @@ impl CompilerContext<'_> {
             signatures.iter().map(|(&opcode, abi_str)| {
                 emitter.chain_with(|f| write!(f, "in signature for {} opcode {}", language.descr(), opcode), |emitter| {
                     let abi = InstrAbi::parse(abi_str, emitter)?;
+                    abi.validate_against_language(language, emitter)?;
                     self.set_ins_abi(language, opcode as u16, abi);
                     Ok::<_, ErrorReported>(())
                 })

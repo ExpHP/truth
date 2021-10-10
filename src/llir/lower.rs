@@ -301,9 +301,15 @@ fn encode_args(
         Some(&ArgEncoding::TimelineArg(_)) => {
             arg_encodings_iter.next(); // consume it
             let first_normal_arg = args_iter.next().expect("type checker already checked arity");
-            let first_normal_arg_value = first_normal_arg.expect_raw().expect_int();
+            if first_normal_arg.expect_raw().is_reg {
+                return Err(emitter.emit(error!(
+                    message("timeline first argument must be a literal"),
+                    primary(first_normal_arg, "non-const timeline argument"),
+                )));
+            }
+
             if extra_arg.is_none() {
-                extra_arg = Some(first_normal_arg_value as _);
+                extra_arg = Some(first_normal_arg.expect_raw().expect_int() as _);
             } else {
                 // Explicit @arg0, but also drawn from args.
                 // To keep the type checker's job simpler, we took an argument from the argument list anyways,

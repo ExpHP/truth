@@ -109,8 +109,15 @@ source_test!(
     main_body: r#"
     hasMsgArg0($REG[20], 3, 3);
 "#,
-    // expect_error: "TODO: what message lol",
-    expect_error: expected::UNIMPLEMENTED,
+    expect_error: "non-const timeline argument",
+);
+
+source_test!(
+    ECL_TIMELINE_08, reg_as_other_timeline_arg,
+    main_body: r#"
+    hasMsgArg0(3, $REG[20], 3);
+"#,
+    expect_error: "non-const timeline argument",
 );
 
 source_test!(

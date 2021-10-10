@@ -54,6 +54,22 @@ source_test!(
 );
 
 source_test!(
+    ECL_08, signature_without_arg0_in_timeline,
+    items: r#"
+        #pragma mapfile "tests/integration/resources/bad-timeline-in-timeline.eclm"
+    "#,
+    expect_error: "opcode 1000",
+);
+
+source_test!(
+    ECL_08, signature_with_arg0_in_not_timeline,
+    items: r#"
+        #pragma mapfile "tests/integration/resources/bad-timeline-in-ecl.eclm"
+    "#,
+    expect_error: "opcode 1000",
+);
+
+source_test!(
     STD_08, jump_missing_label,
     main_body: r#"
         goto label;
