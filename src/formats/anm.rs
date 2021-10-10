@@ -1675,6 +1675,8 @@ impl FileFormat {
 impl InstrFormat for InstrFormat06 {
     fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
 
+    fn has_registers(&self) -> bool { false }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         vec![
             (IntrinsicInstrKind::Jmp, 5),
@@ -1726,6 +1728,8 @@ impl InstrFormat for InstrFormat06 {
 
 impl InstrFormat for InstrFormat07 {
     fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+
+    fn has_registers(&self) -> bool { true }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
         use IntrinsicInstrKind as I;

@@ -447,6 +447,8 @@ struct InstrFormat06;
 impl InstrFormat for InstrFormat06 {
     fn language(&self) -> InstrLanguage { InstrLanguage::Ecl }
 
+    fn has_registers(&self) -> bool { true }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![] // TODO
     }
@@ -503,6 +505,8 @@ impl TimelineInstrFormat {
 
 impl InstrFormat for TimelineInstrFormat {
     fn language(&self) -> InstrLanguage { InstrLanguage::Timeline }
+
+    fn has_registers(&self) -> bool { false }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![] // TODO

@@ -398,6 +398,8 @@ pub trait InstrFormat {
     /// Language key, so that signatures can be looked up for the right type of instruction (e.g. ECL vs timeline).
     fn language(&self) -> InstrLanguage;
 
+    fn has_registers(&self) -> bool;
+
     fn intrinsic_instrs(&self) -> IntrinsicInstrs {
         IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
     }
@@ -490,6 +492,8 @@ impl InstrFormat for TestFormat {
         self.anti_scratch_opcode == Some(opcode)
     }
 
+    fn has_registers(&self) -> bool { true }
+
     fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
         enum_map::enum_map!{
             ScalarType::Int => self.general_use_int_regs.clone(),
@@ -517,6 +521,7 @@ mod test_reader {
 
     impl InstrFormat for SimpleInstrReader {
         fn language(&self) -> InstrLanguage { InstrLanguage::Dummy }
+        fn has_registers(&self) -> bool { true }
         fn instr_header_size(&self) -> usize { 0x10 }
         fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
             Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))

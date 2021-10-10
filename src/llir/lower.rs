@@ -271,6 +271,7 @@ fn encode_args(
     let args = match &instr.args {
         LowerArgs::Known(args) => args,
         LowerArgs::Unknown(blob) => {
+            // Trivial case; a @blob was provided so there's nothing for this function to do.
             return Ok(RawInstr {
                 time: instr.time,
                 opcode: instr.opcode,
@@ -282,6 +283,17 @@ fn encode_args(
             });
         },
     };
+
+    // From this point onwards, we are working with a standard list of arguments and
+    // now need to convert these into a blob of bytes.
+    if !instr_format.has_registers() {
+        if let Some(arg_that_is_reg) = args.iter().find(|arg| arg.expect_raw().is_reg) {
+            return Err(emitter.emit(error!(
+                message("non-constant expression in language without registers"),
+                primary(arg_that_is_reg, "non-const expression"),
+            )));
+        }
+    }
 
     let abi = {
         defs.ins_abi(instr_format.language(), instr.opcode)
@@ -301,14 +313,9 @@ fn encode_args(
         Some(&ArgEncoding::TimelineArg(_)) => {
             arg_encodings_iter.next(); // consume it
             let first_normal_arg = args_iter.next().expect("type checker already checked arity");
-            if first_normal_arg.expect_raw().is_reg {
-                return Err(emitter.emit(error!(
-                    message("timeline first argument must be a literal"),
-                    primary(first_normal_arg, "non-const timeline argument"),
-                )));
-            }
 
             if extra_arg.is_none() {
+                assert!(!first_normal_arg.expect_raw().is_reg, "checked above");
                 extra_arg = Some(first_normal_arg.expect_raw().expect_int() as _);
             } else {
                 // Explicit @arg0, but also drawn from args.

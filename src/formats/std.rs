@@ -707,6 +707,8 @@ pub struct InstrFormat10 { game: Game }
 impl InstrFormat for InstrFormat06 {
     fn language(&self) -> InstrLanguage { InstrLanguage::Std }
 
+    fn has_registers(&self) -> bool { false }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         if Game::Th07 <= self.game && self.game <= Game::Th09 {
             vec![
@@ -760,6 +762,8 @@ impl InstrFormat for InstrFormat06 {
 
 impl InstrFormat for InstrFormat10 {
     fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+
+    fn has_registers(&self) -> bool { false }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         let mut out = vec![(llir::IntrinsicInstrKind::Jmp, 1)];

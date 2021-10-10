@@ -272,6 +272,12 @@ source_test!(
     expect_error: "expects 3 arguments",
 );
 
+source_test!(
+    MSG_06, reg_in_unsupported_lang,
+    main_body: r#"  textSet(0, $REG[0], "cheese");  "#,
+    expect_error: "register",
+);
+
 // TODO: STD script requirements (single sub called main...)
 
 source_test!(

@@ -591,6 +591,8 @@ struct InstrFormat06 { language: InstrLanguage }
 impl InstrFormat for InstrFormat06 {
     fn language(&self) -> InstrLanguage { self.language }
 
+    fn has_registers(&self) -> bool { false }
+
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
         vec![]  // msg is vapid
     }

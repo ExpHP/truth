@@ -86,14 +86,6 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_08, blob_without_required_arg0,
-    main_body: r#"
-    hasSubArg0(@blob="FFFFFFFF FFFFFFFF");
-"#,
-    expect_error: "requires @arg0",
-);
-
-source_test!(
     ECL_TIMELINE_08, blob_without_optional_arg0,
     main_body: r#"
     hasUnusedArg0(@blob="FFFFFFFF FFFFFFFF");
@@ -105,11 +97,35 @@ source_test!(
 );
 
 source_test!(
+    ECL_TIMELINE_08, blob_without_required_arg0,
+    main_body: r#"
+    hasSubArg0(@blob="FFFFFFFF FFFFFFFF");
+"#,
+    // even though arg0 is required in the signature here, code using @blob should
+    // be compiled as if the signature is unknown, so it's allowed to be omitted here as well.
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
+    },
+);
+
+source_test!(
+    ECL_TIMELINE_08, expr_as_positional_arg0,
+    main_body: r#"
+    hasMsgArg0(10 + 5, 3, 3);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.timelines[0][0].extra_arg, Some(15));
+    },
+);
+
+source_test!(
     ECL_TIMELINE_08, reg_as_positional_arg0,
     main_body: r#"
     hasMsgArg0($REG[20], 3, 3);
 "#,
-    expect_error: "non-const timeline argument",
+    expect_error: "non-const",
 );
 
 source_test!(
@@ -117,7 +133,7 @@ source_test!(
     main_body: r#"
     hasMsgArg0(3, $REG[20], 3);
 "#,
-    expect_error: "non-const timeline argument",
+    expect_error: "non-const",
 );
 
 source_test!(
