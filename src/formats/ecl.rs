@@ -547,7 +547,7 @@ impl InstrFormat for TimelineInstrFormat {
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i16(instr.time as _)?;
-        f.write_i16(instr.extra_arg.expect("missing extra_arg on timeline?!") as _)?;
+        f.write_i16(instr.extra_arg.unwrap_or(0) as _)?;
         f.write_u16(instr.opcode)?;
         f.write_u8(self.instr_size(instr) as _)?;
         f.write_u8(instr.difficulty as _)?;
