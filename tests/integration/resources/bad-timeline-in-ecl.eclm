@@ -1,0 +1,4 @@
+!eclmap
+
+!ins_signatures
+1000 T(m)  # invalid because T is only allowed in timeline

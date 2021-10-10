@@ -1,0 +1,4 @@
+!eclmap
+
+!timeline_ins_signatures
+1000 SS  # invalid because T is missing
