@@ -47,6 +47,7 @@ enum RaiseArgs {
 
 struct UnknownArgsData {
     param_mask: u16,
+    extra_arg: Option<i16>,
     blob: Vec<u8>,
 }
 
@@ -308,6 +309,14 @@ fn raise_unknown_instr(
             at_sign: sp!(()), eq_sign: sp!(()),
             kind: sp!(token![mask]),
             value: sp!(ast::Expr::LitInt { value: args.param_mask as i32, radix: ast::IntRadix::Bin }),
+        }));
+    }
+
+    if let Some(extra_arg) = args.extra_arg {
+        pseudos.push(sp!(ast::PseudoArg {
+            at_sign: sp!(()), eq_sign: sp!(()),
+            kind: sp!(token![arg0]),
+            value: sp!((extra_arg as i32).into()),
         }));
     }
 
@@ -587,6 +596,7 @@ impl Raiser<'_> {
             opcode: instr.opcode,
             args: RaiseArgs::Unknown(UnknownArgsData {
                 param_mask: instr.param_mask,
+                extra_arg: instr.extra_arg,
                 blob: instr.args_blob.to_vec(),
             }),
         })
