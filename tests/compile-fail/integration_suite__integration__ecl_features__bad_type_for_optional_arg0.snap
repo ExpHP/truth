@@ -1,0 +1,13 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: type error
+  ┌─ <input>:9:25
+  │
+9 │     hasUnusedArg0(@arg0=5.5, 3, 3);
+  │                    ---- ^^^ a float
+  │                    │     
+  │                    expects an integer
+
+

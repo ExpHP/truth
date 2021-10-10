@@ -1,6 +1,6 @@
 ---
 source: src/resolve/tests.rs
-expression: "resolve_expect_err::<ast::Script>(r#\"\nconst int BLUE = 1;\nconst int RED = 3;\nconst int BLUE = RED;\n\"#,\n                                  \"redefinition\").trim()"
+expression: "resolve_expect_err::<ast::ScriptFile>(r#\"\nconst int BLUE = 1;\nconst int RED = 3;\nconst int BLUE = RED;\n\"#,\n                                      \"redefinition\").trim()"
 ---
 error: redefinition of const 'BLUE'
   ┌─ <input>:4:11

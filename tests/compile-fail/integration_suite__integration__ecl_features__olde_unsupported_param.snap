@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: parameters are not supported in old-style ECL subs like 'bouba'
+  ┌─ <input>:7:16
+  │
+7 │ void bouba(int x) {}
+  │                ^ unsupported parameter
+
+

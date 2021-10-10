@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: return types are not supported in old-style ECL subs like 'bouba'
+  ┌─ <input>:7:1
+  │
+7 │ int bouba() {
+  │ ^^^ unsupported return type
+
+

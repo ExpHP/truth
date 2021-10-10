@@ -1,6 +1,6 @@
 ---
 source: src/parse/tests.rs
-expression: "expect_parse_error::<ast::Script>(\"token\", r#\" /* comment \"#).trim()"
+expression: "expect_parse_error::<ast::ScriptFile>(\"token\", r#\" /* comment \"#).trim()"
 ---
 error: invalid token
   ┌─ <input>:1:2

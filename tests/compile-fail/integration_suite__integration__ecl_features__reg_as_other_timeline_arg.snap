@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: non-constant expression in language without registers
+  ┌─ <input>:9:19
+  │
+9 │     hasMsgArg0(3, $REG[20], 3);
+  │                   ^^^^^^^^ non-const expression
+
+

@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+warning: explicit @arg0 overrides value supplied naturally
+  ┌─ <input>:9:26
+  │
+9 │     hasMsgArg0(@arg0=10, 5, 3, 3);
+  │                          ^ this value will be ignored
+
+

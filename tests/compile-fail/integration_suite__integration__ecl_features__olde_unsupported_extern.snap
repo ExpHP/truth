@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: extern functions are not supported in old-style ECL file
+  ┌─ <input>:7:1
+  │
+7 │ void externFunc();
+  │ ^^^^^^^^^^^^^^^^^^ unsupported extern function
+
+

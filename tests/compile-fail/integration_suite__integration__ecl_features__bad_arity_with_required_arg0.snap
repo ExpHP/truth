@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: wrong number of arguments to 'hasMsgArg0'
+   ┌─ <input>:10:5
+   │
+10 │     hasMsgArg0(@arg0=10, 3, 3);
+   │     ^^^^^^^^^^ expects 3 arguments, got 2
+
+
