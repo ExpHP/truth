@@ -98,16 +98,6 @@ pub struct Stmt {
     pub body: StmtBody,
 }
 
-// FIXME: awkward now that `label:` is implemented as a statement instead
-#[derive(Debug, Clone, PartialEq)]
-pub enum StmtLabel {
-    Difficulty {
-        /// If `true`, the difficulty reverts to `"*"` after the next statement.
-        temporary: bool,
-        flags: DifficultyLabel,
-    },
-}
-
 /// Represents a statement, including the ';' if required, but
 /// without any labels.
 #[derive(Debug, Clone, PartialEq)]
@@ -190,6 +180,9 @@ pub enum StmtBody {
     /// An interrupt label: `interrupt[2]:`.
     InterruptLabel(Sp<i32>),
 
+    /// A difficulty label: `difficulty[0b11111111]:`.  (syntax WIP)
+    RawDifficultyLabel(Sp<i32>),
+
     /// A label `label:` that can be jumped to.
     Label(Sp<Ident>),
 
@@ -229,6 +222,7 @@ impl StmtBody {
         StmtBody::Declaration { .. } => "var declaration",
         StmtBody::CallSub { .. } => "sub call",
         StmtBody::InterruptLabel { .. } => "interrupt label",
+        StmtBody::RawDifficultyLabel { .. } => "difficulty label",
         StmtBody::Label { .. } => "label",
         StmtBody::ScopeEnd { .. } => "<ScopeEnd>",
         StmtBody::NoInstruction { .. } => "<NoInstruction>",
@@ -890,6 +884,7 @@ macro_rules! generate_visitor_stuff {
                 },
                 StmtBody::Label(_) => {},
                 StmtBody::InterruptLabel(_) => {},
+                StmtBody::RawDifficultyLabel(_) => {},
                 StmtBody::ScopeEnd(_) => {},
                 StmtBody::NoInstruction => {},
             }

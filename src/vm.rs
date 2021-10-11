@@ -324,6 +324,8 @@ impl AstVm {
 
                 ast::StmtBody::InterruptLabel(_) => {},
 
+                ast::StmtBody::RawDifficultyLabel(_) => {},
+
                 ast::StmtBody::ScopeEnd(_) => {},
 
                 ast::StmtBody::NoInstruction => {},

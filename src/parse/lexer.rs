@@ -128,6 +128,7 @@ define_token_enum! {
         #[token("case")] Case,
         #[token("default")] Default,
         #[token("interrupt")] Interrupt,
+        #[token("difficulty")] Difficulty, // FIXME: I don't want this to be a keyword... :/
         #[token("async")] Async,
         #[token("global")] Global,
         #[token("false")] False,
@@ -148,7 +149,7 @@ define_token_enum! {
         #[regex(r##"[0-9]+"##)] LitIntDec(&'a str),
         #[regex(r##"0[xX][0-9a-fA-F]+"##)] LitIntHex(&'a str),
         #[regex(r##"0[bB][0-1]+"##)] LitIntBin(&'a str),
-        #[regex(r##"![-*ENHLWXYZO4567]+"##)] Difficulty(&'a str),
+        #[regex(r##"![-*ENHLWXYZO4567]+"##)] DifficultyStr(&'a str),
         #[regex(r##"ins_[a-zA-Z0-9_]*"##)] Instr(&'a str),
         #[regex(r##"[a-zA-Z_][a-zA-Z0-9_]*"##)] Ident(&'a str),
 

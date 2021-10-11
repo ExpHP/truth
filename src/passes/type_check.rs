@@ -163,6 +163,7 @@ impl ast::Visit for Visitor<'_, '_> {
             ast::StmtBody::CallSub { .. } => unimplemented!("need to check arg types against signature"),
 
             ast::StmtBody::InterruptLabel { .. } => {},
+            ast::StmtBody::RawDifficultyLabel { .. } => {},
             ast::StmtBody::Label { .. } => {},
             ast::StmtBody::ScopeEnd { .. } => {},
             ast::StmtBody::NoInstruction { .. } => {},

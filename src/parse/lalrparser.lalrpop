@@ -19,7 +19,7 @@ extern {
         INT => Token::LitIntDec(<&'input str>),
         INT_HEX => Token::LitIntHex(<&'input str>),
         INT_BIN => Token::LitIntBin(<&'input str>),
-        DIFFICULTY => Token::Difficulty(<&'input str>),
+        DIFFICULTY => Token::DifficultyStr(<&'input str>),
         INSTR => Token::Instr(<&'input str>),
         IDENT => Token::Ident(<&'input str>),
         "," => Token::Comma,
@@ -93,6 +93,7 @@ extern {
         "case" => Token::Case,
         "default" => Token::Default,
         "interrupt" => Token::Interrupt,
+        "difficulty" => Token::Difficulty,
         "async" => Token::Async,
         "global" => Token::Global,
         "false" => Token::False,
@@ -300,8 +301,8 @@ PossiblyNumericIdent: Ident = {
 // Statements
 
 Stmt: ast::Stmt = {
-    <stuff:StmtLabelsWithTime> <body:StmtBody>
-        => ast::Stmt { time: stuff.1, body },
+    <time:StmtLabelsWithTime> <body:StmtBody>
+        => ast::Stmt { time, body },
 };
 
 StmtBody: ast::StmtBody = {
@@ -342,6 +343,9 @@ StmtBody: ast::StmtBody = {
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
         => ast::StmtBody::InterruptLabel(arg),
 
+    "difficulty" "[" <arg:Sp<LitIntSigned>> "]" ":"
+        => ast::StmtBody::RawDifficultyLabel(arg),
+
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
         => ast::StmtBody::Assignment { var, op, value },
 
@@ -361,19 +365,13 @@ StmtTimeLabel: () = {
 /// This exists because it is obscenely difficult to make unambiguous while getting the time read correctly.
 /// (though in retrospect, it does kind of make sense that the parser would have to speculatively check the
 ///  time after every label it parses)
-StmtLabelsWithTime: (Vec<Sp<ast::StmtLabel>>, i32) = {
-    <time: _TimeGetInline> => (vec![], time),
-    <out:StmtLabels> StmtTimeLabel <time: _TimeGetInline> => (out, time),
-    <out:StmtLabels> <label:Sp<StmtLabel>> <time: _TimeGetInline> => (util::push(out, label), time),
+StmtLabelsWithTime: i32 = {
+    <time: _TimeGetInline> => time,
+    StmtLabels StmtTimeLabel <time: _TimeGetInline> => time,
 };
 
 #[inline]
-StmtLabels: Vec<Sp<ast::StmtLabel>> = <out:StmtLabelsWithTime> => out.0;
-
-StmtLabel: ast::StmtLabel = {
-    <flags:DifficultyLabel> => ast::StmtLabel::Difficulty { flags, temporary: false },
-    <flags:DifficultyLabel> ":" => ast::StmtLabel::Difficulty { flags, temporary: true },
-};
+StmtLabels: () = <out:StmtLabelsWithTime> => ();
 
 StmtGoto: ast::StmtGoto = {
     "goto" <destination:Sp<Ident>> <time:("@" <Sp<LitIntSigned>>)?>
@@ -448,14 +446,6 @@ StmtOrBlock: ast::Block = {
 CondKeyword: ast::CondKeyword = {
     "if" => token![if],
     "unless" => token![unless],
-};
-
-DifficultyLabel: ast::DifficultyLabel = {
-    // TODO: Actually parse
-    <l: @L> <s:DIFFICULTY> <r: @R> =>? Err(error!(
-        message("unsupported syntax"),
-        primary(Span::from_locs(l, r), "difficulty flags not yet implemented"),
-    ).into()),
 };
 
 Block: ast::Block = "{" <BlockInnards> "}";

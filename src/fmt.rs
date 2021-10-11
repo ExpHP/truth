@@ -634,17 +634,6 @@ impl Format for ast::Stmt {
     }
 }
 
-impl Format for ast::StmtLabel {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match *self {
-            ast::StmtLabel::Difficulty { temporary, ref flags } => {
-                let colon = if temporary { ":" } else { "" };
-                out.fmt_label(("!", flags, colon))
-            },
-        }
-    }
-}
-
 impl Format for ast::StmtBody {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
@@ -740,6 +729,12 @@ impl Format for ast::StmtBody {
                 out.fmt_label(("interrupt[", id, "]:"))?;
                 out.suppress_blank_line();
                 out.state.prev_line_was_interrupt = true;
+                Ok(())
+            },
+
+            ast::StmtBody::RawDifficultyLabel(value) => {
+                out.fmt_label(("difficulty[", value, "]:"))?;
+                out.suppress_blank_line();
                 Ok(())
             },
 
