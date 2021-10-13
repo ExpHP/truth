@@ -738,6 +738,19 @@ impl Format for ast::StmtBody {
                 Ok(())
             },
 
+            ast::StmtBody::AbsTimeLabel(value) => {
+                out.fmt_label((value, ":"))?;
+                out.suppress_blank_line();
+                Ok(())
+            },
+
+            ast::StmtBody::RelTimeLabel(value) => {
+                assert!(value.value >= 0);
+                out.fmt_label(("+", value, ":"))?;
+                out.suppress_blank_line();
+                Ok(())
+            },
+
             ast::StmtBody::ScopeEnd(_) |
             ast::StmtBody::NoInstruction => {
                 out.suppress_blank_line();

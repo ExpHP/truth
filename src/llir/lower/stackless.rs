@@ -86,7 +86,11 @@ impl Lowerer<'_, '_> {
 
                 &ast::StmtBody::ScopeEnd(def_id) => self.out.push(LowerStmt::RegFree { def_id }),
 
-                ast::StmtBody::NoInstruction => {}
+                ast::StmtBody::NoInstruction => {},
+
+                // handled by helper
+                ast::StmtBody::AbsTimeLabel { .. } => {},
+                ast::StmtBody::RelTimeLabel { .. } => {},
 
                 _ => return Err(self.unsupported(&stmt.span, stmt.body.descr())),
             }

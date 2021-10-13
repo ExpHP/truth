@@ -180,6 +180,12 @@ pub enum StmtBody {
     /// An interrupt label: `interrupt[2]:`.
     InterruptLabel(Sp<i32>),
 
+    /// An absolute time label: `30:` or `-30:`.
+    AbsTimeLabel(Sp<i32>),
+
+    /// A relative time label: `+30:`.  This value cannot be negative.
+    RelTimeLabel(Sp<i32>),
+
     /// A difficulty label: `difficulty[0b11111111]:`.  (syntax WIP)
     RawDifficultyLabel(Sp<i32>),
 
@@ -223,6 +229,8 @@ impl StmtBody {
         StmtBody::CallSub { .. } => "sub call",
         StmtBody::InterruptLabel { .. } => "interrupt label",
         StmtBody::RawDifficultyLabel { .. } => "difficulty label",
+        StmtBody::AbsTimeLabel { .. } => "time label",
+        StmtBody::RelTimeLabel { .. } => "time label",
         StmtBody::Label { .. } => "label",
         StmtBody::ScopeEnd { .. } => "<ScopeEnd>",
         StmtBody::NoInstruction { .. } => "<NoInstruction>",
@@ -884,6 +892,8 @@ macro_rules! generate_visitor_stuff {
                 },
                 StmtBody::Label(_) => {},
                 StmtBody::InterruptLabel(_) => {},
+                StmtBody::AbsTimeLabel(_) => {},
+                StmtBody::RelTimeLabel(_) => {},
                 StmtBody::RawDifficultyLabel(_) => {},
                 StmtBody::ScopeEnd(_) => {},
                 StmtBody::NoInstruction => {},

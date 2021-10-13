@@ -164,6 +164,8 @@ impl ast::Visit for Visitor<'_, '_> {
 
             ast::StmtBody::InterruptLabel { .. } => {},
             ast::StmtBody::RawDifficultyLabel { .. } => {},
+            ast::StmtBody::AbsTimeLabel { .. } => {},
+            ast::StmtBody::RelTimeLabel { .. } => {},
             ast::StmtBody::Label { .. } => {},
             ast::StmtBody::ScopeEnd { .. } => {},
             ast::StmtBody::NoInstruction { .. } => {},
