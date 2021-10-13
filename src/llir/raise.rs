@@ -85,7 +85,7 @@ impl<'a> Raiser<'a> {
         raw_script: &[RawInstr],
         defs: &Defs,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)
+        Ok(ast::add_time_labels_from_time_fields(0, raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?))
     }
 
     pub fn generate_warnings(&mut self) {

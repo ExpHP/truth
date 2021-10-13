@@ -611,26 +611,7 @@ impl Format for ast::Item {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Stmt { time, body } = self;
-
-        let top_time = out.state.time_stack.last_mut().expect("empty time stack?! (bug!)");
-        let prev_time = *top_time;
-        *top_time = *time;
-
-        // Nice time label display
-        if *time != prev_time {
-            if prev_time < 0 {
-                out.fmt_label("0:")?;
-                if *time > 0 {
-                    out.fmt_label(("+", *time, ": // ", *time))?;
-                }
-            } else if *time < prev_time {
-                out.fmt_label((*time, ":"))?;
-            } else if prev_time < *time {
-                out.fmt_label(("+", *time - prev_time, ": // ", *time))?;
-            }
-        };
-        out.fmt(body)
+        out.fmt(&self.body)
     }
 }
 
@@ -744,9 +725,14 @@ impl Format for ast::StmtBody {
                 Ok(())
             },
 
-            ast::StmtBody::RelTimeLabel(value) => {
-                assert!(value.value >= 0);
-                out.fmt_label(("+", value, ":"))?;
+            ast::StmtBody::RelTimeLabel { delta, _absolute_time_comment } => {
+                assert!(delta.value >= 0);
+                if let Some(time) = _absolute_time_comment {
+                    out.fmt_label(("+", delta, ": // ", time))?;
+                } else {
+                    out.fmt_label(("+", delta, ":"))?;
+                }
+
                 out.suppress_blank_line();
                 Ok(())
             },

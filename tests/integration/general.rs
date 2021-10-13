@@ -511,3 +511,15 @@ script main {}
     "#,
     expect_error: "too long",
 );
+
+#[test]
+fn remember_to_try_removing_bookends() {
+    // a failing test as a bit of a super-strong TODO
+    panic!("try removing bookend statements from blocks");
+}
+
+#[test]
+fn remember_to_remove_parser_workarounds() {
+    // a failing test as a bit of a super-strong TODO
+    panic!("plz delete leftover jank from the parser");
+}

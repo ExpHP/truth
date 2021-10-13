@@ -326,8 +326,8 @@ impl AstVm {
 
                 ast::StmtBody::RawDifficultyLabel(_) => {},
 
-                ast::StmtBody::AbsTimeLabel(_) => { /* FIXME: switch VM to use these labels */ },
-                ast::StmtBody::RelTimeLabel(_) => { /* FIXME: switch VM to use these labels */ },
+                ast::StmtBody::AbsTimeLabel { .. } => { /* FIXME: switch VM to use these labels */ },
+                ast::StmtBody::RelTimeLabel { .. } => { /* FIXME: switch VM to use these labels */ },
 
                 ast::StmtBody::ScopeEnd(_) => {},
 

@@ -464,7 +464,7 @@ BlockInnards: ast::Block = {
             time: end_time,
             body: ast::StmtBody::NoInstruction,
         }));
-        ast::Block(code)
+        ast::Block(ast::add_time_labels_from_time_fields(start_time, code))
     },
 };
 

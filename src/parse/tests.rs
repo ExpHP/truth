@@ -92,7 +92,7 @@ fn time_labels() {
     2:  a();  // absolute label
     -1: a();  // should also be absolute (t=-1), not relative (t=1)
               // another "super no-op" with the end time
-    }"#, vec![0, 0, 2, 2, 5, 2, -1, -1])
+    }"#, vec![0, 0, 2, 2, 2, 5, 5, 2, 2, -1, -1, -1])
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn bookend_time_label() {
               // "super no-op" is still t=0 despite starting with a label
     1:  a();  // t=1 as labeled
     2:        // "super no-op" at end here is t=2
-    }"#, vec![0, 1, 2]);
+    }"#, vec![0, 1, 1, 2, 2]);
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn block_outer_time_label() {
             +10: loop { +2: a(); +3: }
         }"#,
         // if you get [0, 15, 15] then something in the parser is #[inline] when it shouldn't be
-        vec![0, 10, 15],
+        vec![0, 10, 10, 15, 15],
     );
 }
 

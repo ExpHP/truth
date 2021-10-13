@@ -184,7 +184,13 @@ pub enum StmtBody {
     AbsTimeLabel(Sp<i32>),
 
     /// A relative time label: `+30:`.  This value cannot be negative.
-    RelTimeLabel(Sp<i32>),
+    RelTimeLabel {
+        delta: Sp<i32>,
+        // This is used during decompilation ONLY, in order to allow the code formatter to
+        // write `//` comments with the total time on these labels without having to perform
+        // its own semantic analysis.
+        _absolute_time_comment: Option<i32>,
+    },
 
     /// A difficulty label: `difficulty[0b11111111]:`.  (syntax WIP)
     RawDifficultyLabel(Sp<i32>),
@@ -892,9 +898,9 @@ macro_rules! generate_visitor_stuff {
                 },
                 StmtBody::Label(_) => {},
                 StmtBody::InterruptLabel(_) => {},
-                StmtBody::AbsTimeLabel(_) => {},
-                StmtBody::RelTimeLabel(_) => {},
-                StmtBody::RawDifficultyLabel(_) => {},
+                StmtBody::AbsTimeLabel { .. } => {},
+                StmtBody::RelTimeLabel { .. } => {},
+                StmtBody::RawDifficultyLabel { .. } => {},
                 StmtBody::ScopeEnd(_) => {},
                 StmtBody::NoInstruction => {},
             }
@@ -1006,3 +1012,32 @@ pub use self::ref_::{
     Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
     walk_callable_name,
 };
+
+// XXX: will be removed when Stmt.time field is removed
+pub fn add_time_labels_from_time_fields(init_time: i32, stmts: Vec<Sp<Stmt>>) -> Vec<Sp<Stmt>> {
+    let mut out = vec![];
+    let mut prev_time = init_time;
+    for stmt in stmts {
+        if stmt.time != prev_time {
+            if prev_time < 0 {
+                out.push(sp!(Stmt { time: 0, body: StmtBody::AbsTimeLabel(sp!(0)) }));
+                if stmt.time > 0 {
+                    out.push(sp!(Stmt { time: stmt.time, body: StmtBody::RelTimeLabel {
+                        delta: sp!(stmt.time),
+                        _absolute_time_comment: Some(stmt.time),
+                    }}));
+                }
+            } else if stmt.time < prev_time {
+                out.push(sp!(Stmt { time: stmt.time, body: StmtBody::AbsTimeLabel(sp!(stmt.time)) }));
+            } else if prev_time < stmt.time {
+                out.push(sp!(Stmt { time: stmt.time, body: StmtBody::RelTimeLabel {
+                    delta: sp!(stmt.time - prev_time),
+                    _absolute_time_comment: Some(stmt.time),
+                }}));
+            }
+        }
+        prev_time = stmt.time;
+        out.push(stmt);
+    }
+    out
+}
