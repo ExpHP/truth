@@ -58,6 +58,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             let span = x.last_stmt().span.end_span();
             x.0.push(sp!(span => ast::Stmt {
                 time: x.end_time(),
+                node_id: None,
                 body: ast::StmtBody::ScopeEnd(def_id),
             }));
         }
@@ -139,6 +140,7 @@ impl Desugarer<'_, '_> {
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
+                                node_id: None,
                                 body: ast::StmtBody::Declaration {
                                     ty_keyword: sp!(count.span => token![int]),
                                     vars: vec![sp!(count.span => (var.clone(), None))]
@@ -155,6 +157,7 @@ impl Desugarer<'_, '_> {
                     if let Some(def_id) = temp_def {
                         self.out.push(sp!(end_span => ast::Stmt {
                             time: end_time,
+                            node_id: None,
                             body: ast::StmtBody::ScopeEnd(def_id),
                         }));
                     }

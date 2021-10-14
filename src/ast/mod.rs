@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::resolve::{DefId, RegId};
+use crate::resolve::{DefId, RegId, NodeId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::game::InstrLanguage;
@@ -95,6 +95,7 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub time: i32,
+    pub node_id: Option<NodeId>,
     pub body: StmtBody,
 }
 
@@ -752,6 +753,7 @@ macro_rules! generate_visitor_stuff {
             fn visit_callable_name(&mut self, e: & $($mut)? Sp<CallableName>) { walk_callable_name(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
+            fn visit_node_id(&mut self, _: & $($mut)? Option<NodeId>) { }
         }
 
         pub fn walk_file<V>(v: &mut V, x: & $($mut)? ScriptFile)
@@ -836,6 +838,8 @@ macro_rules! generate_visitor_stuff {
         pub fn walk_stmt<V>(v: &mut V, x: & $($mut)? Sp<Stmt>)
         where V: ?Sized + $Visit,
         {
+            v.visit_node_id(& $($mut)? x.node_id);
+
             match & $($mut)? x.body {
                 StmtBody::Item(item) => v.visit_item(item),
                 StmtBody::Goto(goto) => {
@@ -1020,17 +1024,17 @@ pub fn add_time_labels_from_time_fields(init_time: i32, stmts: Vec<Sp<Stmt>>) ->
     for stmt in stmts {
         if stmt.time != prev_time {
             if prev_time < 0 {
-                out.push(sp!(Stmt { time: 0, body: StmtBody::AbsTimeLabel(sp!(0)) }));
+                out.push(sp!(Stmt { time: 0, node_id: None, body: StmtBody::AbsTimeLabel(sp!(0)) }));
                 if stmt.time > 0 {
-                    out.push(sp!(Stmt { time: stmt.time, body: StmtBody::RelTimeLabel {
+                    out.push(sp!(Stmt { time: stmt.time, node_id: None, body: StmtBody::RelTimeLabel {
                         delta: sp!(stmt.time),
                         _absolute_time_comment: Some(stmt.time),
                     }}));
                 }
             } else if stmt.time < prev_time {
-                out.push(sp!(Stmt { time: stmt.time, body: StmtBody::AbsTimeLabel(sp!(stmt.time)) }));
+                out.push(sp!(Stmt { time: stmt.time, node_id: None, body: StmtBody::AbsTimeLabel(sp!(stmt.time)) }));
             } else if prev_time < stmt.time {
-                out.push(sp!(Stmt { time: stmt.time, body: StmtBody::RelTimeLabel {
+                out.push(sp!(Stmt { time: stmt.time, node_id: None, body: StmtBody::RelTimeLabel {
                     delta: sp!(stmt.time - prev_time),
                     _absolute_time_comment: Some(stmt.time),
                 }}));

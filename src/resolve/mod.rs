@@ -1,5 +1,5 @@
 use std::fmt;
-use std::num::NonZeroU64;
+use std::num::NonZeroU32;
 use std::collections::HashMap;
 
 use crate::game::InstrLanguage;
@@ -9,6 +9,29 @@ use crate::context::CompilerContext;
 #[cfg(test)]
 mod tests;
 
+pub type IdMap<K, V> = HashMap<K, V>; // probably want to get FxHashMap
+
+/// Identifies a node in the AST that may be interesting to semantic analysis.
+///
+/// Semantic analysis passes typically return data indexed by [`NodeId`], bypassing the need
+/// to store this information inside the AST or a similarly-shaped structure.
+///
+/// # Uniqueness and freshening
+///
+/// [`NodeId`]s must generally be unique within any AST node that [any semantic analysis pass][`crate::passes`]
+/// is called on.  This requirement is typically checked; otherwise, if a duplicate ID were to exist in the AST
+/// (due to e.g. an ill-advised clone), then the stored analysis result on that ID could end up different
+/// depending on the order in which the two duplicates are visited.
+///
+/// All [`NodeId`]s in the AST are [`Option`]s.  These can be set to `None` during the initial construction of
+/// an AST fragment (e.g. during parsing), but should be reassigned as soon as the fragment is complete by calling
+/// either [`CompilerContext::fill_missing_node_ids`] or [`CompilerContext::refresh_node_ids`].
+///
+/// When duplicating an AST node (for instance, inlining a function body or unrolling a loop), the copy should be
+/// reassigned new [`NodeId`]s using [`CompilerContext::refresh_node_ids`].
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeId(pub NonZeroU32);
+
 /// A "resolvable ID."  Identifies a instance in the source code of an identifier that *can*
 /// be resolved to something.
 ///
@@ -17,20 +40,13 @@ mod tests;
 /// # Uniqueness
 ///
 /// [`ResId`]s must be unique within any AST node that the [name resolution pass][`crate::passes::resolve_names::run`]
-/// is called on.  This requirement is checked; otherwise, if a duplicate ID were to exist in the AST (due to e.g.
-/// an ill-advised clone), then the resolution of that ID could end up depending on the order in which the two
-/// duplicates are visited.
+/// is called on, but after that, they can be freely copied around; all copies will continue referring to the
+/// same definition.
 ///
-/// This does not mean that [`ResId`]s are always unique, however:
-///
-/// * Once the name resolution pass has finished, anything goes!  Clone nodes and move them around however
-///   you like; they will continue referring to the same definitions.
-/// * Clones of nodes may even be made before name resolution, so long as the clone isn't inserted anywhere
-///   back into the AST.  For instance, in dealing with `const` variables, we may wish to record their expressions
-///   upfront on some global evaluation context.  This is perfectly safe, and keeping the same [`ResId`]s in the
-///   clones allows them to reap the benefits of performing name resolution on the original AST.
+/// There is not necessarily any association between the value of a [`ResId`] and a [`NodeId`].
+/// [`CompilerContext::refresh_node_ids`] will reassign the latter, but not the former.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ResId(pub NonZeroU64);
+pub struct ResId(pub NonZeroU32);
 
 /// Represents some sort of definition; a unique thing (an item, a local variable, a globally-defined
 /// register alias, etc.) that an identifier can possibly be resolved to.
@@ -38,7 +54,7 @@ pub struct ResId(pub NonZeroU64);
 /// [`DefId`]s are created by the methods on [`CompilerContext`], and can be obtained after creation
 /// from [`Resolutions`].
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DefId(pub NonZeroU64);
+pub struct DefId(pub NonZeroU32);
 
 /// The number used to access a register as an instruction argument.  This uniquely identifies a register.
 ///
@@ -520,6 +536,18 @@ pub mod rib {
 
 // =============================================================================
 
+impl fmt::Debug for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
 impl fmt::Display for RegId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
@@ -591,7 +619,7 @@ impl Resolutions {
     pub fn fresh_res(&mut self) -> ResId {
         let res = self.map.len();
         self.map.push(None);
-        ResId(NonZeroU64::new(res as u64).unwrap())
+        ResId(NonZeroU32::new(res as u32).unwrap())
     }
 
     pub fn attach_fresh_res(&mut self, ident: Ident) -> ResIdent {

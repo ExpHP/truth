@@ -11,6 +11,7 @@ pub fn gen_ast_macros() -> String {
             FinalCasesType::Regular(r#"
                 $crate::ast::Stmt {
                     time: $time,
+                    node_id: None,
                     body: $body,
                 }
             "#),
@@ -322,6 +323,7 @@ impl FinalCasesType {
                     result: format!(r#"
                         $crate::ast::Stmt {{
                             time: ${},
+                            node_id: None,
                             body: {},
                         }}
                     "#, time_name, body_expr),

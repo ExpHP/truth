@@ -119,6 +119,7 @@ fn raise_instrs_to_sub_ast(
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
     let mut out = vec![sp!(ast::Stmt {
         time: script.get(0).map(|x| x.time).unwrap_or(0),
+        node_id: None,
         body: ast::StmtBody::NoInstruction,
     })];
 
@@ -144,6 +145,7 @@ fn raise_instrs_to_sub_ast(
     }
     out.push(sp!(ast::Stmt {
         time: end_time,
+        node_id: None,
         body: ast::StmtBody::NoInstruction,
     }));
     Ok(out)

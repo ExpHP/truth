@@ -103,6 +103,7 @@ impl VisitMut for IfElseVisitor {
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
                     new_stmts.push(sp!(span => ast::Stmt {
                         time: cond_chain.cond_blocks[0].block.0[0].time,
+                        node_id: None,
                         body: ast::StmtBody::CondChain(cond_chain),
                     }));
                 },
@@ -359,6 +360,7 @@ fn maybe_decompile_jump(
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
         time: new_block.start_time(),
+        node_id: None,
         body: jmp_kind.make_loop(new_block),
     }));
     // suppress the default behavior of popping the next item
@@ -396,7 +398,7 @@ impl JmpInfo {
             dest: label_entry.stmt_index,
             dest_refcount: label_entry.refcount,
             time_arg: goto.time.filter(|&x| x != label_entry.time),
-            kind
+            kind,
         })
     }
 

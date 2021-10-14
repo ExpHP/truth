@@ -236,11 +236,6 @@ FuncParam: (Sp<ast::TypeKeyword>, Sp<ResIdent>) = {
     <Sp<LocalVarTypeKeyword>> <Sp<ResIdent>>,
 };
 
-FuncBodyOrSemicolon: Option<ast::Block> = {
-    ";" => None,
-    <code:Block> => Some(code),
-};
-
 MetaKeyword: ast::MetaKeyword = {
     "entry" => ast::MetaKeyword::Entry,
     "meta" => ast::MetaKeyword::Meta,
@@ -302,7 +297,7 @@ PossiblyNumericIdent: Ident = {
 
 Stmt: ast::Stmt = {
     <time:StmtLabelsWithTime> <body:StmtBody>
-        => ast::Stmt { time, body },
+        => ast::Stmt { time, body, node_id: None },
 };
 
 StmtBody: ast::StmtBody = {
@@ -458,10 +453,12 @@ BlockInnards: ast::Block = {
         // bookend with empty statements to simplify time and jump logic
         code.insert(0, sp!(start_span => ast::Stmt {
             time: start_time,
+            node_id: None,
             body: ast::StmtBody::NoInstruction,
         }));
         code.push(sp!(end_labels.span => ast::Stmt {
             time: end_time,
+            node_id: None,
             body: ast::StmtBody::NoInstruction,
         }));
         ast::Block(ast::add_time_labels_from_time_fields(start_time, code))
