@@ -308,12 +308,12 @@ mod tests {
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
-            vm_before.run(&ast.0, &ctx.resolutions);
+            vm_before.run(&ast.0, &ctx);
 
             crate::passes::desugar_blocks::run(&mut ast.value, &mut ctx).unwrap();
 
             let mut vm_after = AstVm::new().with_max_iterations(1000);
-            vm_after.run(&ast.0, &ctx.resolutions);
+            vm_after.run(&ast.0, &ctx);
 
             assert_eq!(vm_before.time, vm_after.time, "{}\n{}", vm_before, vm_after);
             assert_eq!(vm_before.real_time, vm_after.real_time, "{}\n{}", vm_before, vm_after);

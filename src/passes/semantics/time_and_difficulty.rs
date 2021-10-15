@@ -14,7 +14,7 @@ pub const DEFAULT_DIFFICULTY_MASK: u8 = 0xFF;
 /// to compute the values for each statement.  It has been decided that this is preferable
 /// to having the information encoded directly within each Stmt, as it saves us the trouble
 /// of micromanaging this info during AST manipulations.
-pub fn run<V: ast::Visitable>(ast: &V, ctx: &CompilerContext<'_>) -> Result<IdMap<NodeId, TimeAndDifficulty>, ErrorReported> {
+pub fn run<V: ast::Visitable + ?Sized>(ast: &V, ctx: &CompilerContext<'_>) -> Result<IdMap<NodeId, TimeAndDifficulty>, ErrorReported> {
     let mut visitor = Visitor::new(ctx);
     // start out as if we are just entering a function body, so that the visitor can run on
     // individual blocks during unit tests

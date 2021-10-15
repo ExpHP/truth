@@ -258,8 +258,8 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
     eprintln!("{}", truth::fmt::stringify(&new_block));
-    old_vm.run(&old_stmts, &ctx.resolutions);
-    new_vm.run(&new_block.0, &ctx.resolutions);
+    old_vm.run(&old_stmts, &ctx);
+    new_vm.run(&new_block.0, &ctx);
 
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");

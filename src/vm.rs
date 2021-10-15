@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::fmt;
 use crate::ast;
 use crate::pos::Sp;
-use crate::resolve::{DefId, RegId, Resolutions};
+use crate::context::CompilerContext;
+use crate::resolve::{DefId, RegId, Resolutions, NodeId, IdMap};
+use crate::passes::semantics::time_and_difficulty::{self, TimeAndDifficulty};
 use crate::value::ScalarValue;
 
 /// A VM that runs on the AST, which can be used to help verify the validity of AST transforms
@@ -121,8 +123,9 @@ impl AstVm {
     ///
     /// **Important reminder:** Please be certain that name resolution has been performed, and that
     /// additionally all register aliases have been [converted to raw registers](`crate::passes::resolve_names::aliases_to_regs`).
-    pub fn run(&mut self, stmts: &[Sp<ast::Stmt>], resolutions: &Resolutions) -> Option<ScalarValue> {
-        match self._run(stmts, resolutions) {
+    pub fn run(&mut self, stmts: &[Sp<ast::Stmt>], ctx: &CompilerContext<'_>) -> Option<ScalarValue> {
+        let stmt_data = time_and_difficulty::run(stmts, ctx).expect("unexpected analysis failure");
+        match self._run(stmts, &ctx.resolutions, &stmt_data) {
             RunResult::Nominal => None,
             RunResult::Return(value) => value,
             RunResult::IsJumping(goto) => panic!(
@@ -133,7 +136,7 @@ impl AstVm {
         }
     }
 
-    fn _run(&mut self, stmts: &[Sp<ast::Stmt>], resolutions: &Resolutions) -> RunResult {
+    fn _run(&mut self, stmts: &[Sp<ast::Stmt>], resolutions: &Resolutions, stmt_data: &IdMap<NodeId, TimeAndDifficulty>) -> RunResult {
         let mut stmt_index = 0;
 
         'stmt: while stmt_index < stmts.len() {
@@ -158,7 +161,7 @@ impl AstVm {
 
             macro_rules! handle_block {
                 ($block:expr) => {
-                    match self._run($block, resolutions) {
+                    match self._run($block, resolutions, stmt_data) {
                         RunResult::Nominal => {},
                         RunResult::Return(value) => return RunResult::Return(value),
                         RunResult::IsJumping(goto) => handle_goto!(&goto),
@@ -166,11 +169,16 @@ impl AstVm {
                 };
             }
 
-            if self.time < stmts[stmt_index].time {
-                let time_diff = stmts[stmt_index].time - self.time;
+            let stmt_node_id = stmts[stmt_index].node_id.unwrap();
+            let stmt_time = stmt_data[&stmt_node_id].time;
+            if self.time < stmt_time {
+                let time_diff = stmt_time - self.time;
                 self.time += time_diff;
                 self.real_time += time_diff;
             }
+
+            let start_time = |block: &ast::Block| stmt_data[&block.start_node_id()].time;
+            let end_time = |block: &ast::Block| stmt_data[&block.end_node_id()].time;
 
             // N.B. this can't easily be factored out into a method because it would require
             //      some way of storing or communicating a "instruction pointer", which
@@ -197,7 +205,7 @@ impl AstVm {
                     for ast::CondBlock { keyword, cond, block } in cond_blocks {
                         if self.eval_cond(cond, resolutions) == (keyword == &token![if]) {
                             branch_taken = true;
-                            self.time = block.start_time();
+                            self.time = start_time(&block);
                             handle_block!(&block.0);
                             break;
                         }
@@ -205,17 +213,17 @@ impl AstVm {
 
                     if !branch_taken {
                         if let Some(else_block) = else_block {
-                            self.time = else_block.start_time();
+                            self.time = start_time(else_block);
                             handle_block!(&else_block.0);
                         }
                     }
-                    self.time = chain.last_block().end_time();
+                    self.time = end_time(chain.last_block());
                 },
 
                 ast::StmtBody::Loop { block, .. } => {
                     loop {
                         handle_block!(&block.0);
-                        self.time = block.start_time();
+                        self.time = start_time(block);
                     }
                 },
 
@@ -224,7 +232,7 @@ impl AstVm {
                         loop {
                             handle_block!(&block.0);
                             if self.eval_cond(cond, resolutions) {
-                                self.time = block.start_time();
+                                self.time = start_time(block);
                                 continue;
                             }
                             break;
@@ -232,17 +240,17 @@ impl AstVm {
                     } else {
                         // nasty: in the zero-iterations case only, we jump over the loop
                         //    and therefore need to fix the time!
-                        self.time = block.end_time();
+                        self.time = end_time(block);
                     }
                 },
 
                 ast::StmtBody::Times { clobber: None, count, block, .. } => {
-                    self.time = block.end_time();
+                    self.time = end_time(block);
                     match self.eval_int(count, resolutions) {
                         0 => {},
                         count => {
                             for _ in 0..count {
-                                self.time = block.start_time();
+                                self.time = start_time(block);
                                 handle_block!(&block.0);
                             }
                         },
@@ -255,10 +263,10 @@ impl AstVm {
                     let count = self.eval_int(count, resolutions);
                     self.set_var_by_ast(clobber, ScalarValue::Int(count), resolutions);
 
-                    self.time = block.end_time();
+                    self.time = end_time(block);
                     if count != 0 {
                         loop {
-                            self.time = block.start_time();
+                            self.time = start_time(block);
                             handle_block!(&block.0);
 
                             match self.read_var_by_ast(clobber, resolutions) {
@@ -458,7 +466,7 @@ mod tests {
     }
 
     impl<S: AsRef<[u8]>> TestSpec<S> {
-        fn prepare(&self) -> (ast::Block, Resolutions) {
+        fn check(&self, test: impl Fn(&ast::Block, &CompilerContext<'_>)) {
             let mut scope = crate::Builder::new().build();
             let mut truth = scope.truth();
             let mut ast = truth.parse::<ast::Block>("<input>", self.source.as_ref()).unwrap();
@@ -472,52 +480,52 @@ mod tests {
             crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, ctx).unwrap();
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, ctx).unwrap();
-            (ast.value, ctx.resolutions.clone())
+            test(&ast.value, &ctx)
         }
     }
 
     #[test]
     fn basic_variables() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("Y", RegId(-999), Ty::Int)],
             source: r#"{
                 int x = 3;
                 x = 2 + 3 * x + $Y;
                 return x + 1;
             }"#,
-        }.prepare();
-
-        let mut vm = new_test_vm();
-        vm.set_reg(RegId(-999), Int(7));
-
-        assert_eq!(vm.run(&ast.0, &resolutions), Some(Int(19)));
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.set_reg(RegId(-999), Int(7));
+    
+            assert_eq!(vm.run(&ast.0, &ctx), Some(Int(19)));
+        });
     }
 
     #[test]
     fn basic_instrs_and_time() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Float)],
             source: r#"{
                 ins_345(0, 6);
             +10:
                 ins_12(X, Y + 1.0);
             }"#,
-        }.prepare();
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.set_reg(RegId(100), Int(3));
+            vm.set_reg(RegId(101), Float(7.0));
+            vm.run(&ast.0, &ctx);
 
-        let mut vm = new_test_vm();
-        vm.set_reg(RegId(100), Int(3));
-        vm.set_reg(RegId(101), Float(7.0));
-        vm.run(&ast.0, &resolutions);
-
-        assert_eq!(vm.instr_log, vec![
-            LoggedCall { real_time: 0, opcode: 345, args: vec![Int(0), Int(6)] },
-            LoggedCall { real_time: 10, opcode: 12, args: vec![Int(3), Float(8.0)] },
-        ]);
+            assert_eq!(vm.instr_log, vec![
+                LoggedCall { real_time: 0, opcode: 345, args: vec![Int(0), Int(6)] },
+                LoggedCall { real_time: 10, opcode: 12, args: vec![Int(3), Float(8.0)] },
+            ]);
+        });
     }
 
     #[test]
     fn while_do_while() {
-        let (while_ast, while_resolutions) = TestSpec {
+        let while_test = TestSpec {
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
@@ -530,9 +538,9 @@ mod tests {
               +4:
                 ins_44();
             }"#,
-        }.prepare();
+        };
 
-        let (do_while_ast, do_while_resolutions) = TestSpec {
+        let do_while_test = TestSpec {
             globals: vec![("X", RegId(100), Ty::Int), ("Y", RegId(101), Ty::Int)],
             source: r#"{
                 X = 0;
@@ -545,39 +553,43 @@ mod tests {
               +4:
                 ins_44();
             }"#,
-        }.prepare();
-        dbg!(&do_while_ast);
+        };
+        do_while_test.check(|ast, _| { dbg!(&ast); });
 
-        for (ast, resolutions) in vec![(&while_ast, &while_resolutions), (&do_while_ast, &do_while_resolutions)] {
-            let mut vm = new_test_vm();
-            vm.set_reg(RegId(101), Int(3));
-            vm.run(&ast.0, resolutions);
+        for test in vec![&while_test, &do_while_test] {
+            test.check(|ast, ctx| {
+                let mut vm = new_test_vm();
+                vm.set_reg(RegId(101), Int(3));
+                vm.run(&ast.0, &ctx);
 
-            assert_eq!(vm.instr_log, vec![
-                LoggedCall { real_time: 2, opcode: 1, args: vec![] },
-                LoggedCall { real_time: 7, opcode: 1, args: vec![] },
-                LoggedCall { real_time: 12, opcode: 1, args: vec![] },
-                LoggedCall { real_time: 19, opcode: 44, args: vec![] },
-            ]);
+                assert_eq!(vm.instr_log, vec![
+                    LoggedCall { real_time: 2, opcode: 1, args: vec![] },
+                    LoggedCall { real_time: 7, opcode: 1, args: vec![] },
+                    LoggedCall { real_time: 12, opcode: 1, args: vec![] },
+                    LoggedCall { real_time: 19, opcode: 44, args: vec![] },
+                ]);
+            });
         }
 
         // now let Y = 0 so we can see the difference between 'do' and 'do while'
-        for (ast, resolutions, expected_iters) in vec![
-            (&while_ast, &while_resolutions, 0),
-            (&do_while_ast, &do_while_resolutions, 1),
+        for (test, expected_iters) in vec![
+            (&while_test, 0),
+            (&do_while_test, 1),
         ] {
-            let mut vm = new_test_vm();
-            vm.set_reg(RegId(101), Int(0));
-            vm.run(&ast.0, resolutions);
+            test.check(|ast, ctx| {
+                let mut vm = new_test_vm();
+                vm.set_reg(RegId(101), Int(0));
+                vm.run(&ast.0, &ctx);
 
-            assert_eq!(vm.instr_log.len(), expected_iters + 1);
-            assert_eq!(vm.real_time, (5 * expected_iters + 4) as i32);
+                assert_eq!(vm.instr_log.len(), expected_iters + 1);
+                assert_eq!(vm.real_time, (5 * expected_iters + 4) as i32);
+            });
         }
     }
 
     #[test]
     fn goto() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("X", RegId(100), Ty::Int)],
             source: r#"{
                 X = 0;
@@ -594,23 +606,23 @@ mod tests {
             exited:
                 ins_40();
             }"#,
-        }.prepare();
-
-        let mut vm = new_test_vm();
-        vm.run(&ast.0, &resolutions);
-        assert_eq!(vm.instr_log, vec![
-            LoggedCall { real_time: 0, opcode: 10, args: vec![] },
-            LoggedCall { real_time: 0, opcode: 20, args: vec![] },
-            LoggedCall { real_time: 0, opcode: 20, args: vec![] },
-            LoggedCall { real_time: 15, opcode: 30, args: vec![] },
-            LoggedCall { real_time: 15, opcode: 40, args: vec![] },
-        ]);
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
+            assert_eq!(vm.instr_log, vec![
+                LoggedCall { real_time: 0, opcode: 10, args: vec![] },
+                LoggedCall { real_time: 0, opcode: 20, args: vec![] },
+                LoggedCall { real_time: 0, opcode: 20, args: vec![] },
+                LoggedCall { real_time: 15, opcode: 30, args: vec![] },
+                LoggedCall { real_time: 15, opcode: 40, args: vec![] },
+            ]);
+        });
     }
 
     #[test]
     fn times() {
         for possible_clobber in vec!["", "C = "] {
-            let (ast, resolutions) = TestSpec {
+            TestSpec {
                 globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
                 source: format!(r#"{{
                     times({}X) {{
@@ -619,23 +631,23 @@ mod tests {
                     }}
                     +5:
                 }}"#, possible_clobber),
-            }.prepare();
+            }.check(|ast, ctx| {
+                for count in (0..3).rev() {
+                    let mut vm = new_test_vm();
+                    vm.set_reg(RegId(100), Int(count));
+                    vm.run(&ast.0, &ctx);
 
-            for count in (0..3).rev() {
-                let mut vm = new_test_vm();
-                vm.set_reg(RegId(100), Int(count));
-                vm.run(&ast.0, &resolutions);
-
-                assert_eq!(vm.instr_log.len(), count as usize);
-                assert_eq!(vm.real_time, count * 10 + 5);
-                assert_eq!(vm.time, 15);
-            }
+                    assert_eq!(vm.instr_log.len(), count as usize);
+                    assert_eq!(vm.real_time, count * 10 + 5);
+                    assert_eq!(vm.time, 15);
+                }
+            });
         }
     }
 
     #[test]
     fn predecrement_jmp() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("C", RegId(101), Ty::Int)],
             source: r#"{
                 C = 2;
@@ -644,22 +656,22 @@ mod tests {
                 +10:
                 if (--C) goto label;
             }"#,
-        }.prepare();
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
 
-        let mut vm = new_test_vm();
-        vm.run(&ast.0, &resolutions);
-
-        assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
-        assert_eq!(vm.instr_log, vec![
-            LoggedCall { real_time: 0, opcode: 11, args: vec![Int(2)] },
-            LoggedCall { real_time: 10, opcode: 11, args: vec![Int(1)] },
-        ]);
-        assert_eq!(vm.real_time, 20);
+            assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
+            assert_eq!(vm.instr_log, vec![
+                LoggedCall { real_time: 0, opcode: 11, args: vec![Int(2)] },
+                LoggedCall { real_time: 10, opcode: 11, args: vec![Int(1)] },
+            ]);
+            assert_eq!(vm.real_time, 20);
+        });
     }
 
     #[test]
     fn times_clobber_nice() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 2;
@@ -668,22 +680,22 @@ mod tests {
                 +10:
                 }
             }"#,
-        }.prepare();
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
 
-        let mut vm = new_test_vm();
-        vm.run(&ast.0, &resolutions);
-
-        assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
-        assert_eq!(vm.instr_log, vec![
-            LoggedCall { real_time: 0, opcode: 11, args: vec![Int(2)] },
-            LoggedCall { real_time: 10, opcode: 11, args: vec![Int(1)] },
-        ]);
-        assert_eq!(vm.real_time, 20);
+            assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
+            assert_eq!(vm.instr_log, vec![
+                LoggedCall { real_time: 0, opcode: 11, args: vec![Int(2)] },
+                LoggedCall { real_time: 10, opcode: 11, args: vec![Int(1)] },
+            ]);
+            assert_eq!(vm.real_time, 20);
+        });
     }
 
     #[test]
     fn times_clobber_naughty() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("X", RegId(100), Ty::Int), ("C", RegId(101), Ty::Int)],
             source: r#"{
                 X = 4;
@@ -693,17 +705,17 @@ mod tests {
                 +10:
                 }
             }"#,
-        }.prepare();
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
 
-        let mut vm = new_test_vm();
-        vm.run(&ast.0, &resolutions);
-
-        assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
-        assert_eq!(vm.instr_log, vec![
-            LoggedCall { real_time: 0, opcode: 11, args: vec![Int(4)] },
-            LoggedCall { real_time: 10, opcode: 11, args: vec![Int(2)] },
-        ]);
-        assert_eq!(vm.real_time, 20);
+            assert_eq!(vm.get_reg(RegId(101)).unwrap(), Int(0));
+            assert_eq!(vm.instr_log, vec![
+                LoggedCall { real_time: 0, opcode: 11, args: vec![Int(4)] },
+                LoggedCall { real_time: 10, opcode: 11, args: vec![Int(2)] },
+            ]);
+            assert_eq!(vm.real_time, 20);
+        });
     }
 
     #[test]
@@ -728,58 +740,61 @@ mod tests {
                 }
             };
         }
-        let (with_else, with_resolutions) = gen_spec!("else").prepare();
-        let (without_else, without_resolutions) = gen_spec!("else if (X == 3)").prepare();
+        let with_test = gen_spec!("else");
+        let without_test = gen_spec!("else if (X == 3)");
 
         // both of these should have the same results for X in [1, 2, 3]
-        for (ast, resolutions) in vec![(&with_else, &with_resolutions), (&without_else, &without_resolutions)] {
-            for x in vec![1, 2, 3] {
-                let mut vm = new_test_vm();
-                vm.set_reg(RegId(100), Int(x));
-                vm.run(&ast.0, &resolutions);
+        for test in vec![&with_test, &without_test] {
+            test.check(|ast, ctx| {
+                for x in vec![1, 2, 3] {
+                    let mut vm = new_test_vm();
+                    vm.set_reg(RegId(100), Int(x));
+                    vm.run(&ast.0, &ctx);
 
-                assert_eq!(vm.instr_log, vec![
-                    LoggedCall { real_time: 0, opcode: 11, args: vec![Int(x)] },
-                    LoggedCall { real_time: 10, opcode: 200, args: vec![] },
-                ]);
-                assert_eq!(vm.time, 30);
-                assert_eq!(vm.real_time, 10);
-            }
+                    assert_eq!(vm.instr_log, vec![
+                        LoggedCall { real_time: 0, opcode: 11, args: vec![Int(x)] },
+                        LoggedCall { real_time: 10, opcode: 200, args: vec![] },
+                    ]);
+                    assert_eq!(vm.time, 30);
+                    assert_eq!(vm.real_time, 10);
+                }
+            });
         }
     }
 
     #[test]
     fn type_cast() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![("X", RegId(30), Ty::Int), ("Y", RegId(31), Ty::Int)],
             source: r#"{
                 Y = 6.78;
                 X = $Y * 2;
             }"#,
-        }.prepare();
-
-        let mut vm = new_test_vm();
-        vm.run(&ast.0, &resolutions);
-        assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(6.78));
-        assert_eq!(vm.get_reg(RegId(30)).unwrap(), Int(12));
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
+            assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(6.78));
+            assert_eq!(vm.get_reg(RegId(30)).unwrap(), Int(12));
+        });
     }
 
     #[test]
     #[should_panic(expected = "iteration limit")]
     fn iteration_limit() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![],
             source: r#"{
                 loop {}
             }"#,
-        }.prepare();
-        let mut vm = new_test_vm().with_max_iterations(1000);
-        vm.run(&ast.0, &resolutions);
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm().with_max_iterations(1000);
+            vm.run(&ast.0, &ctx);
+        });
     }
 
     #[test]
     fn math_funcs() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![
                 ("X", RegId(30), Ty::Float),
                 ("SIN", RegId(31), Ty::Float), ("COS", RegId(32), Ty::Float), ("SQRT", RegId(33), Ty::Float),
@@ -789,21 +804,22 @@ mod tests {
                 COS = cos(X);
                 SQRT = sqrt(X + 3.0);
             }"#,
-        }.prepare();
-        let x = 5.2405;
+        }.check(|ast, ctx| {
+            let x = 5.2405;
 
-        let mut vm = new_test_vm();
-        vm.set_reg(RegId(30), Float(x));
-        vm.run(&ast.0, &resolutions);
+            let mut vm = new_test_vm();
+            vm.set_reg(RegId(30), Float(x));
+            vm.run(&ast.0, &ctx);
 
-        assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(x.sin()));
-        assert_eq!(vm.get_reg(RegId(32)).unwrap(), Float(x.cos()));
-        assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((x + 3.0).sqrt()));
+            assert_eq!(vm.get_reg(RegId(31)).unwrap(), Float(x.sin()));
+            assert_eq!(vm.get_reg(RegId(32)).unwrap(), Float(x.cos()));
+            assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((x + 3.0).sqrt()));
+        });
     }
 
     #[test]
     fn cast() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![
                 ("I", RegId(30), Ty::Int), ("F", RegId(31), Ty::Float),
                 ("F_TO_I", RegId(32), Ty::Int), ("I_TO_F", RegId(33), Ty::Float),
@@ -812,31 +828,32 @@ mod tests {
                 F_TO_I = _S(F * 7.0) - 2;
                 I_TO_F = _f(I + 3) + 0.5;
             }"#,
-        }.prepare();
-        let f = 5.2405;
-        let i = 12;
+        }.check(|ast, ctx| {
+            let f = 5.2405;
+            let i = 12;
 
-        let mut vm = new_test_vm();
-        vm.set_reg(RegId(30), Int(i));
-        vm.set_reg(RegId(31), Float(f));
-        vm.run(&ast.0, &resolutions);
+            let mut vm = new_test_vm();
+            vm.set_reg(RegId(30), Int(i));
+            vm.set_reg(RegId(31), Float(f));
+            vm.run(&ast.0, &ctx);
 
-        assert_eq!(vm.get_reg(RegId(32)).unwrap(), Int((f * 7.0) as i32 - 2));
-        assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((i + 3) as f32 + 0.5));
+            assert_eq!(vm.get_reg(RegId(32)).unwrap(), Int((f * 7.0) as i32 - 2));
+            assert_eq!(vm.get_reg(RegId(33)).unwrap(), Float((i + 3) as f32 + 0.5));
+        });
     }
 
     #[test]
     fn string_arg() {
-        let (ast, resolutions) = TestSpec {
+        TestSpec {
             globals: vec![],
             source: r#"{
                 ins_11(3, 2, "seashells");
             }"#,
-        }.prepare();
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
 
-        let mut vm = new_test_vm();
-        vm.run(&ast.0, &resolutions);
-
-        assert_eq!(vm.instr_log[0].args.last().unwrap(), &ScalarValue::String("seashells".into()));
+            assert_eq!(vm.instr_log[0].args.last().unwrap(), &ScalarValue::String("seashells".into()));
+        });
     }
 }

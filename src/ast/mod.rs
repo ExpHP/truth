@@ -353,6 +353,12 @@ impl Block {
     /// Effective time label after the final statement in the loop body.
     pub fn end_time(&self) -> i32 { self.last_stmt().time }
 
+    /// Node ID for looking up e.g. the time label before the first statement in the loop body.
+    pub fn start_node_id(&self) -> NodeId { self.first_stmt().node_id.unwrap() }
+
+    /// Node ID for looking up e.g. the time label after the final statement in the loop body.
+    pub fn end_node_id(&self) -> NodeId { self.last_stmt().node_id.unwrap() }
+
     /// Zero-length span at beginning of block interior.
     pub fn start_span(&self) -> Span { self.first_stmt().span.start_span() }
 
@@ -991,6 +997,16 @@ impl_visitable!(Sp<Stmt>, visit_stmt);
 impl_visitable!(Sp<Expr>, visit_expr);
 impl_visitable!(StmtGoto, visit_goto);
 impl_visitable!(Sp<Var>, visit_var);
+
+// used by AstVm to gather time labels
+impl Visitable for [Sp<Stmt>] {
+    fn visit_with<V: Visit>(&self, v: &mut V) {
+        self.iter().for_each(|stmt| <V as Visit>::visit_stmt(v, stmt))
+    }
+    fn visit_mut_with<V: VisitMut>(&mut self, v: &mut V) {
+        self.iter_mut().for_each(|stmt| <V as VisitMut>::visit_stmt(v, stmt))
+    }
+}
 
 mod mut_ {
     use super::*;
