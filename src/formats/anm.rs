@@ -812,7 +812,6 @@ fn compile(
     let instr_format = format.instr_format();
 
     let mut ast = ast.clone();
-    crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
     crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     define_color_format_consts(ctx);

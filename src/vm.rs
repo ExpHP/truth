@@ -476,7 +476,6 @@ mod tests {
                 ctx.define_global_reg_alias(Dummy, reg, alias.parse().unwrap());
                 ctx.set_reg_ty(Dummy, reg, ty.into());
             }
-            crate::passes::resolve_names::assign_res_ids(&mut ast.value, ctx).unwrap();
             crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, ctx).unwrap();
             crate::passes::resolve_names::run(&ast.value, ctx).unwrap();
             crate::passes::resolve_names::aliases_to_raw(&mut ast.value, ctx).unwrap();

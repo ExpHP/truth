@@ -72,19 +72,21 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parse::Parse;
 
-    fn strip_unused_labels<A: ast::Visitable + Parse>(text: &str) -> A {
+    fn strip_unused_labels<A>(text: &str) -> A
+    where
+        A: crate::parse::Parse,
+        Sp<A>: crate::ast::Visitable,
+    {
         let mut scope = crate::Builder::new().build();
         let mut truth = scope.truth();
 
-        let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
+        let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap();
         let ctx = truth.ctx();
-        crate::passes::resolve_names::assign_res_ids(&mut parsed, ctx).unwrap();
         crate::passes::resolve_names::run(&parsed, ctx).unwrap();
         crate::passes::unused_labels::run(&mut parsed).unwrap();
 
-        parsed
+        parsed.value
     }
 
     struct CountIdentVisitor {

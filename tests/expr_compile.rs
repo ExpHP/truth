@@ -240,7 +240,6 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
 
         let ctx = truth.ctx();
         truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx)?;
-        truth::passes::resolve_names::assign_res_ids(&mut block, ctx)?;
         truth::passes::resolve_names::run(&block, ctx)?;
         truth::passes::resolve_names::aliases_to_raw(&mut block, ctx)?;
         truth::passes::desugar_blocks::run(&mut block, ctx)?;
@@ -283,7 +282,6 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
 
         let ctx = truth.ctx();
         truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx).unwrap();
-        truth::passes::resolve_names::assign_res_ids(&mut block, ctx).unwrap();
         truth::passes::resolve_names::run(&block, ctx).unwrap();
         truth::passes::resolve_names::aliases_to_raw(&mut block, ctx).unwrap();
         truth::passes::desugar_blocks::run(&mut block, ctx).unwrap();

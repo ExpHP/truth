@@ -163,11 +163,15 @@ fn string_escape() {
 }
 
 #[track_caller]
-fn expect_parse_error<T: Parse>(expected: &str, source: &str) -> String {
+fn expect_parse_error<A>(expected: &str, source: &str) -> String
+where
+    A: Parse,
+    crate::pos::Sp<A>: crate::ast::Visitable,
+{
     let mut scope = crate::Builder::new().capture_diagnostics(true).build();
     let mut truth = scope.truth();
 
-    let _ = truth.parse::<T>("<input>", source.as_bytes()).err().unwrap();
+    let _ = truth.parse::<A>("<input>", source.as_bytes()).err().unwrap();
     let err_str = truth.get_captured_diagnostics().unwrap();
 
     if !err_str.contains(expected) {

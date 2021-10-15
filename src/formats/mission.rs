@@ -246,7 +246,6 @@ fn compile<E: Entry>(
         let mut ast = ast.clone();
 
         // reduced set of passes because only compile-time stuff is possible
-        crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
         crate::passes::resolve_names::run(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;

@@ -989,14 +989,22 @@ macro_rules! impl_visitable {
         }
     }
 }
+
+// * Sp<A> always has an impl so that `A: Parse, Sp<A>: Visitable` bounds work
+// * If A's Visit method takes no span then `A` also implements Visitable,
+//   as it will probably be needed.  (since this suggests that A can appear
+//   in the AST with no span)
+// * Some types might not implement this despite having a visit method,
+//   if it seems unlikely that they'd ever be used as a top-level AST construct.
 impl_visitable!(ScriptFile, visit_file);
+impl_visitable!(Sp<ScriptFile>, visit_file);
 impl_visitable!(Sp<Item>, visit_item);
+impl_visitable!(Sp<Meta>, visit_meta);
 impl_visitable!(Block, visit_root_block);
+impl_visitable!(Sp<Block>, visit_root_block);
 impl_visitable!(Sp<Cond>, visit_cond);
 impl_visitable!(Sp<Stmt>, visit_stmt);
 impl_visitable!(Sp<Expr>, visit_expr);
-impl_visitable!(StmtGoto, visit_goto);
-impl_visitable!(Sp<Var>, visit_var);
 
 // used by AstVm to gather time labels
 impl Visitable for [Sp<Stmt>] {

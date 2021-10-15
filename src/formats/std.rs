@@ -283,7 +283,6 @@ fn compile_std(
     let script = {
         let mut script = script.clone();
 
-        crate::passes::resolve_names::assign_res_ids(&mut script, ctx)?;
         crate::passes::resolve_names::assign_languages(&mut script, format.instr_format().language(), ctx)?;
         crate::passes::resolve_names::run(&script, ctx)?;
         crate::passes::type_check::run(&script, ctx)?;

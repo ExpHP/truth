@@ -100,7 +100,6 @@ fn compile(
     let timeline_format = format.timeline_format();
 
     let mut ast = ast.clone();
-    crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
     crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     // an early pass to define global constants for sub names

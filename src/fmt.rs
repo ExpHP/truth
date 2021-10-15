@@ -942,17 +942,25 @@ mod tests {
     use super::*;
 
     // Parse and dump back out, with some max columns.
-    fn reformat_bytes<T: crate::parse::Parse + Format>(ncol: usize, text: &[u8]) -> Vec<u8> {
+    fn reformat_bytes<A>(ncol: usize, text: &[u8]) -> Vec<u8>
+    where
+        A: crate::parse::Parse + Format,
+        Sp<A>: crate::ast::Visitable,
+    {
         let mut scope = crate::Builder::new().build();
         let mut truth = scope.truth();
         let mut f = Formatter::with_config(vec![], Config::new().max_columns(ncol));
-        let value = truth.parse::<T>("<input>", text).unwrap();
+        let value = truth.parse::<A>("<input>", text).unwrap();
         f.fmt(&value).unwrap();
         f.into_inner().unwrap()
     }
 
-    fn reformat<T: crate::parse::Parse + Format>(ncol: usize, meta_text: &str) -> String {
-        String::from_utf8(reformat_bytes::<T>(ncol, meta_text.as_bytes())).unwrap()
+    fn reformat<A>(ncol: usize, meta_text: &str) -> String
+    where
+        A: crate::parse::Parse + Format,
+        Sp<A>: crate::ast::Visitable,
+    {
+        String::from_utf8(reformat_bytes::<A>(ncol, meta_text.as_bytes())).unwrap()
     }
 
     #[test]

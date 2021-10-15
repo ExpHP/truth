@@ -273,7 +273,6 @@ fn compile(
     let ast = {
         let mut ast = ast.clone();
 
-        crate::passes::resolve_names::assign_res_ids(&mut ast, ctx)?;
         crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
         crate::passes::resolve_names::run(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::ast;
+use crate::pos::Sp;
 use crate::game::{Game, InstrLanguage};
 use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
@@ -89,14 +90,25 @@ impl Truth<'_> {
 
     /// Parse a piece of text into any parse-able AST node.
     ///
+    /// This will automatically fill NodeIds and ResIds.
+    ///
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
-    pub fn parse<A: crate::parse::Parse>(&mut self, display_name: &str, text: &[u8]) -> Result<crate::pos::Sp<A>, ErrorReported> {
+    pub fn parse<A>(&mut self, display_name: &str, text: &[u8]) -> Result<Sp<A>, ErrorReported>
+    where
+        A: crate::parse::Parse,
+        Sp<A>: crate::ast::Visitable,
+    {
         let (file_id, source_str) = self.ctx.emitter.files.add(display_name, text).map_err(|e| self.emit(e))?;
         let mut state = crate::parse::State::new();
 
         A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
             .map_err(|e| self.emit(e))
+            .and_then(|mut ast| {
+                self.ctx.fill_missing_node_ids(&mut ast);
+                crate::passes::resolve_names::assign_res_ids(&mut ast, &mut self.ctx)?;
+                Ok(ast)
+            })
     }
 }
 

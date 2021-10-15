@@ -1,5 +1,6 @@
 use crate::api::Truth;
 use crate::parse::Parse;
+use crate::pos::Sp;
 use crate::fmt::Format;
 use crate::game::InstrLanguage;
 use crate::ast;
@@ -56,14 +57,17 @@ macro_rules! test {
     ) => {};
 }
 
-fn resolve<A: ast::Visitable + Parse>(truth: &mut Truth, text: &str) -> Result<A, String> {
+fn resolve<A>(truth: &mut Truth, text: &str) -> Result<Sp<A>, String>
+where
+    A: Parse,
+    Sp<A>: ast::Visitable,
+{
     truth.apply_mapfile_str(ECLMAP).unwrap();
 
-    let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap().value;
+    let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap();
 
     let ctx = truth.ctx();
     crate::passes::resolve_names::assign_languages(&mut parsed, InstrLanguage::Ecl, ctx).unwrap();
-    crate::passes::resolve_names::assign_res_ids(&mut parsed, ctx).unwrap();
     match crate::passes::resolve_names::run(&parsed, ctx) {
         Ok(()) => Ok(parsed),
         Err(e) => {
@@ -73,7 +77,11 @@ fn resolve<A: ast::Visitable + Parse>(truth: &mut Truth, text: &str) -> Result<A
     }
 }
 
-fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
+fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String
+where
+    A: Format + Parse,
+    Sp<A>: ast::Visitable,
+{
     let mut scope = crate::Builder::new().capture_diagnostics(true).build();
     let mut truth = scope.truth();
 
@@ -85,7 +93,11 @@ fn resolve_reformat<A: ast::Visitable + Format + Parse>(text: &str) -> String {
     crate::fmt::stringify(&parsed)
 }
 
-fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
+fn check_names_unique<A>(text: &str)
+where
+    A: Format + Parse,
+    Sp<A>: ast::Visitable,
+{
     let mut scope = crate::Builder::new().capture_diagnostics(true).build();
     let mut truth = scope.truth();
 
@@ -102,7 +114,11 @@ fn check_names_unique<A: ast::Visitable + Format + Parse>(text: &str) {
     }
 }
 
-fn resolve_expect_err<A: ast::Visitable + Parse>(text: &str, expected: &str) -> String {
+fn resolve_expect_err<A>(text: &str, expected: &str) -> String
+where
+    A: Parse,
+    Sp<A>: ast::Visitable,
+{
     let mut scope = crate::Builder::new().capture_diagnostics(true).build();
     let mut truth = scope.truth();
 
@@ -537,13 +553,10 @@ fn panics_on_cloned_res() {
     let mut truth = scope.truth();
     truth.apply_mapfile_str(ECLMAP).unwrap();
 
-    let mut def = truth.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
-    let mut cloned = truth.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
+    let def = truth.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
+    let cloned = truth.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();
 
     let ctx = truth.ctx();
-    crate::passes::resolve_names::assign_res_ids(&mut def, ctx).unwrap();
-    crate::passes::resolve_names::assign_res_ids(&mut cloned, ctx).unwrap();
-
     let block = ast::Block(vec![def, cloned.clone(), cloned]);
 
     crate::passes::resolve_names::run(&block, ctx).unwrap();
