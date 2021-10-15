@@ -141,6 +141,12 @@ macro_rules! _diagnostic_muncher {
     }};
 }
 
+/// Generates a [`crate::diagnostic::Diagnostic`] of severity `bug`.
+#[macro_export]
+macro_rules! bug {
+    ($($arg:tt)+) => { $crate::_diagnostic!(@bug, $($arg)+) };
+}
+
 /// Generates a [`crate::diagnostic::Diagnostic`] of severity `error`.
 ///
 /// See `error_macro_examples` near its definition for an example of usage.

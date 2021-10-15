@@ -18,7 +18,7 @@ pub type IdMap<K, V> = HashMap<K, V>; // probably want to get FxHashMap
 ///
 /// # Uniqueness and freshening
 ///
-/// [`NodeId`]s must generally be unique within any AST node that [any semantic analysis pass][`crate::passes`]
+/// [`NodeId`]s must generally be unique within any AST node that [any semantic analysis pass][`crate::passes::semantics`]
 /// is called on.  This requirement is typically checked; otherwise, if a duplicate ID were to exist in the AST
 /// (due to e.g. an ill-advised clone), then the stored analysis result on that ID could end up different
 /// depending on the order in which the two duplicates are visited.
@@ -88,6 +88,45 @@ impl Namespace {
             (Namespace::Vars, None) => format!("variable"),
             (Namespace::Funcs, None) => format!("function"),
         }
+    }
+}
+
+pub mod node_id_helpers {
+    //! Helper functions for use by semantic analysis passes to deal with [`NodeId`] bugs.
+    use super::*;
+    use crate::error::ErrorReported;
+    use crate::diagnostic::Emitter;
+    use crate::pos::{Sp, Span};
+
+    /// Report a bug if an AST node doesn't have a [`NodeId`].
+    pub fn expect_node_id<A>(emitter: &impl Emitter, node: &Sp<A>, node_id: Option<NodeId>) -> Result<NodeId, ErrorReported> {
+        node_id.ok_or_else(|| bug_missing_node_id(emitter, node.span))
+    }
+
+    /// Insert into an [`IdMap`] and report a bug if the key is already present.
+    pub fn id_map_insert<A, V>(emitter: &impl Emitter, id_map: &mut IdMap<NodeId, V>, node: &Sp<A>, node_id: Option<NodeId>, value: V) -> Result<(), ErrorReported> {
+        let node_id = expect_node_id(emitter, node, node_id)?;
+        if let Some(_prev_value) = id_map.insert(node_id, value) {
+            return Err(bug_duplicate_node_id(emitter, node.span));
+        }
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn bug_missing_node_id(emitter: &dyn Emitter, span: Span) -> ErrorReported {
+        emitter.as_sized().emit(bug!(
+            message("AST node missing node ID!"),
+            primary(span, "related to this code"),
+        ))
+    }
+
+    #[inline(never)]
+    fn bug_duplicate_node_id(emitter: &dyn Emitter, span: Span) -> ErrorReported {
+        emitter.as_sized().emit(bug!(
+            message("AST node has duplicate node ID!"),
+            primary(span, "has a duplicate node id"),
+            note("it was probably cloned without refreshing ids"),
+        ))
     }
 }
 

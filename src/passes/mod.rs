@@ -13,6 +13,10 @@ pub mod debug {
     //! Passes that exist for **debugging/testing purposes only.**
     pub mod make_idents_unique;
 }
+pub mod semantics {
+    //! Passes that run over the AST to produce a map of information about each node.
+    pub mod time_and_difficulty;
+}
 pub mod evaluate_const_vars {
     //! Pass for checking and computing all const vars.
 

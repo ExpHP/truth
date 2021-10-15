@@ -23,6 +23,8 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// Construct with bug severity.  Generally you use the [`bug!`] macro instead.
+    pub fn bug() -> Self { Diagnostic { imp: CsDiagnostic::bug(), unspanned_prefix: String::new() } }
     /// Construct with error severity.  Generally you use the [`error!`] macro instead.
     pub fn error() -> Self { Diagnostic { imp: CsDiagnostic::error(), unspanned_prefix: String::new() } }
     /// Construct with warning severity.  Generally you use the [`warning!`] macro instead.
