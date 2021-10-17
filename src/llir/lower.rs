@@ -92,6 +92,7 @@ pub fn lower_sub_ast_to_instrs(
     let mut lowerer = Lowerer {
         out: vec![],
         intrinsic_instrs: instr_format.intrinsic_instrs(),
+        stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
         ctx,
         instr_format,
     };

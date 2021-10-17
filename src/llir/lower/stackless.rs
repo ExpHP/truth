@@ -10,9 +10,10 @@ use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
-use crate::resolve::{DefId, RegId};
+use crate::resolve::{DefId, RegId, NodeId, IdMap};
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
+use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 
 use IntrinsicInstrKind as IKind;
 
@@ -22,6 +23,7 @@ pub (in crate::llir::lower) struct Lowerer<'a, 'ctx> {
     pub intrinsic_instrs: IntrinsicInstrs,
     pub instr_format: &'a dyn InstrFormat,
     pub ctx: &'a mut CompilerContext<'ctx>,
+    pub stmt_data: IdMap<NodeId, TimeAndDifficulty>,
 }
 
 impl Lowerer<'_, '_> {
@@ -40,20 +42,22 @@ impl Lowerer<'_, '_> {
                 )))}
             }
 
+            let time = self.stmt_data[&stmt.node_id.expect("stmt_data would've failed if missing")].time;
+
             match &stmt.body {
                 ast::StmtBody::Goto(goto) => {
-                    self.lower_uncond_jump(stmt.span, stmt.time, goto)?;
+                    self.lower_uncond_jump(stmt.span, time, goto)?;
                 },
 
 
                 ast::StmtBody::Assignment { var, op, value } => {
-                    self.lower_assign_op(stmt.span, stmt.time, var, op, value)?;
+                    self.lower_assign_op(stmt.span, time, var, op, value)?;
                 },
 
 
                 ast::StmtBody::InterruptLabel(interrupt_id) => {
                     self.out.push(LowerStmt::Instr(LowerInstr {
-                        time: stmt.time,
+                        time,
                         opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
                         extra_arg: None,
                         user_param_mask: None,
@@ -63,12 +67,12 @@ impl Lowerer<'_, '_> {
 
 
                 ast::StmtBody::CondGoto { keyword, cond, goto } => {
-                    self.lower_cond_jump(stmt.span, stmt.time, keyword, cond, goto)?;
+                    self.lower_cond_jump(stmt.span, time, keyword, cond, goto)?;
                 },
 
 
                 ast::StmtBody::Declaration { ty_keyword, vars } => {
-                    self.lower_var_declaration(stmt.span, stmt.time, ty_keyword, vars)?;
+                    self.lower_var_declaration(stmt.span, time, ty_keyword, vars)?;
                 },
 
 
@@ -82,7 +86,7 @@ impl Lowerer<'_, '_> {
                     _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
                 }, // match expr
 
-                ast::StmtBody::Label(ident) => self.out.push(LowerStmt::Label { time: stmt.time, label: ident.clone() }),
+                ast::StmtBody::Label(ident) => self.out.push(LowerStmt::Label { time, label: ident.clone() }),
 
                 &ast::StmtBody::ScopeEnd(def_id) => self.out.push(LowerStmt::RegFree { def_id }),
 
@@ -124,6 +128,8 @@ impl Lowerer<'_, '_> {
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<ast::Expr>],
     ) -> Result<u16, ErrorReported> {
+        let time = self.stmt_data[&stmt.node_id.expect("stmt_data would've failed if missing")].time;
+
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
             pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask, extra_arg: pseudo_extra_arg,
@@ -151,7 +157,7 @@ impl Lowerer<'_, '_> {
                         ExprClass::Simple(data) => data.lowered,
                         ExprClass::NeedsTemp(data) => {
                             // Save this expression to a temporary
-                            let (def_id, _) = self.define_temporary(stmt.time, &data)?;
+                            let (def_id, _) = self.define_temporary(time, &data)?;
                             let lowered = sp!(expr.span => LowerArg::Local { def_id, read_ty: data.read_ty });
 
                             temp_def_ids.push(def_id); // so we can free the register later
@@ -164,7 +170,7 @@ impl Lowerer<'_, '_> {
         };
 
         self.out.push(LowerStmt::Instr(LowerInstr {
-            time: stmt.time,
+            time,
             opcode: opcode as _,
             user_param_mask: pseudo_param_mask.map(|x| x.value),
             extra_arg: pseudo_extra_arg.map(|x| x.value),
