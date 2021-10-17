@@ -13,6 +13,8 @@ use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
+const DUMMY_TIME: i32 = 1234321; // XXX
+
 #[derive(Debug, Clone)]
 pub struct DecompileOptions {
     pub arguments: bool,
@@ -34,6 +36,7 @@ impl Default for DecompileOptions {
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
     time: i32,
+    difficulty_mask: u8,
     opcode: u16,
     args: RaiseArgs,
 }
@@ -86,9 +89,9 @@ impl<'a> Raiser<'a> {
         defs: &Defs,
         unused_node_ids: &UnusedNodeIds,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        let stmts = raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?;
-        let mut stmts = ast::add_time_labels_from_time_fields(0, stmts);
+        let mut stmts = _raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?;
         crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &unused_node_ids)?;
+        crate::passes::semantics::time_and_difficulty::xxx_set_time_fields(&mut stmts[..], emitter)?;
         Ok(stmts)
     }
 
@@ -108,7 +111,7 @@ impl<'a> Raiser<'a> {
     }
 }
 
-fn raise_instrs_to_sub_ast(
+fn _raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
     emitter: &impl Emitter,
     raw_script: &[RawInstr],
@@ -117,15 +120,18 @@ fn raise_instrs_to_sub_ast(
     let instr_format = raiser.instr_format;
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
+    // Preprocess by using mapfile signatures to parse arguments
     let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(emitter, raw_instr, defs)).collect::<Result<_, _>>()?;
 
     let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
-    let mut out = vec![sp!(ast::Stmt {
-        time: script.get(0).map(|x| x.time).unwrap_or(0),
-        node_id: None,
-        body: ast::StmtBody::NoInstruction,
-    })];
+    // XXX Bookend seems unnecessary maybe now that we have time label statements?
+    // let mut out = vec![sp!(ast::Stmt {
+    //     time: script.get(0).map(|x| x.time).unwrap_or(0),
+    //     node_id: None,
+    //     body: ast::StmtBody::NoInstruction,
+    // })];
+    let mut out = vec![];
 
     // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
     let intrinsic_instrs = match raiser.options.intrinsics {
@@ -133,25 +139,25 @@ fn raise_instrs_to_sub_ast(
         false => Default::default(),
     };
 
+    // main loop
+    let mut label_gen = LabelEmitter::new(&offset_labels);
     for (&offset, instr) in zip!(&instr_offsets, &script) {
-        if let Some(label) = offset_labels.get(&offset) {
-            out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
-        }
+        label_gen.emit_labels(&mut out, offset, instr.time, instr.difficulty_mask);
 
         let body = raise_instr(emitter, instr_format, instr, defs, &intrinsic_instrs, &offset_labels)?;
-        out.push(rec_sp!(Span::NULL => stmt!(at #(instr.time), #body)));
+        out.push(rec_sp!(Span::NULL => stmt!(at #(DUMMY_TIME), #body)));
     }
 
     // possible label after last instruction
-    let end_time = out.last().expect("there must be at least the other bookend!").time;
     if let Some(label) = offset_labels.get(instr_offsets.last().expect("n + 1 offsets so there's always at least one")) {
-        out.push(rec_sp!(Span::NULL => stmt_label!(at #(label.time_label), #(label.label.clone()))));
+        out.push(rec_sp!(Span::NULL => stmt_label!(at #(DUMMY_TIME), #(label.label.clone()))));
     }
-    out.push(sp!(ast::Stmt {
-        time: end_time,
-        node_id: None,
-        body: ast::StmtBody::NoInstruction,
-    }));
+    // XXX Bookend seems unnecessary maybe now that we have time label statements?
+    // out.push(sp!(ast::Stmt {
+    //     time: end_time,
+    //     node_id: None,
+    //     body: ast::StmtBody::NoInstruction,
+    // }));
 
     Ok(out)
 }
@@ -601,6 +607,7 @@ impl Raiser<'_> {
         Ok(RaiseInstr {
             time: instr.time,
             opcode: instr.opcode,
+            difficulty_mask: std::convert::TryInto::try_into(instr.difficulty).unwrap(),  // FIXME type disagreement
             args: RaiseArgs::Unknown(UnknownArgsData {
                 param_mask: instr.param_mask,
                 extra_arg: instr.extra_arg,
@@ -700,6 +707,7 @@ fn decode_args_with_abi(
     Ok(RaiseInstr {
         time: instr.time,
         opcode: instr.opcode,
+        difficulty_mask: std::convert::TryInto::try_into(instr.difficulty).unwrap(),  // FIXME type disagreement
         args: RaiseArgs::Decoded(args),
     })
 }
@@ -710,4 +718,92 @@ fn expect_abi<'a>(language: InstrLanguage, instr: &RaiseInstr, defs: &'a Defs) -
     defs.ins_abi(language, instr.opcode).unwrap_or_else(|| {
         unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
     })
+}
+
+// =============================================================================
+
+const DEFAULT_DIFFICULTY: u8 = 0xFF;
+
+/// Emits time and difficulty labels from an instruction stream.
+struct LabelEmitter<'a> {
+    prev_time: i32,
+    prev_difficulty: u8,
+    offset_labels: &'a BTreeMap<u64, Label>,
+}
+
+impl<'a> LabelEmitter<'a> {
+    fn new(offset_labels: &'a BTreeMap<u64, Label>) -> Self {
+        LabelEmitter {
+            prev_time: 0,
+            prev_difficulty: DEFAULT_DIFFICULTY,
+            offset_labels,
+        }
+    }
+
+    fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: u64, time: i32, difficulty: u8) {
+        // self.emit_difficulty_labels(out, difficulty);  // FIXME uncomment
+        self.emit_offset_and_time_labels(out, offset, time);
+    }
+
+    // emit both labels like "label_354:" and "+24:"
+    fn emit_offset_and_time_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: u64, time: i32) {
+        // FIXME needs cleanup.  I feel like an arbitrary number of labels at a given offset should be allowed
+        //       (for all times >= prev_time and <= next_time) and this may lead to simpler logic.
+
+        // in the current implementation there is at most one regular label at this offset, which
+        // may be before or after a relative time jump.
+        let mut offset_label = self.offset_labels.get(&offset);
+
+        // FIXME part of kludge:  check for label before time increase
+        if let Some(label) = &offset_label {
+            if label.time_label == self.prev_time {
+                out.push(rec_sp!(Span::NULL => stmt_label!(at #(DUMMY_TIME), #(label.label.clone()))));
+                offset_label = None;
+            }
+        }
+
+        // add time labels
+        let prev_time = self.prev_time;
+        if time != prev_time {
+            if prev_time < 0 {
+                // Include an intermediate 0: between negative and positive.
+                out.push(sp!(ast::Stmt { time: 0, node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(0)) }));
+                if time > 0 {
+                    out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::RelTimeLabel {
+                        delta: sp!(time),
+                        _absolute_time_comment: Some(time),
+                    }}));
+                }
+            } else if time < prev_time {
+                out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(time)) }));
+            } else if prev_time < time {
+                out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::RelTimeLabel {
+                    delta: sp!(time - prev_time),
+                    _absolute_time_comment: Some(time),
+                }}));
+            }
+        }
+
+        // FIXME part of kludge:  check for label after time increase
+        if let Some(label) = &offset_label {
+            if label.time_label == time {
+                out.push(rec_sp!(Span::NULL => stmt_label!(at #(DUMMY_TIME), #(label.label.clone()))));
+                offset_label = None;
+            }
+        }
+
+        // FIXME part of kludge:  expect no other possible time for label
+        if let Some(label) = &offset_label {
+            panic!("impossible time for label: (times: {} -> {}) {:?}", self.prev_time, time, label);
+        }
+
+        self.prev_time = time;
+    }
+
+    fn emit_difficulty_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, difficulty: u8) {
+        if difficulty != self.prev_difficulty {
+            out.push(sp!(ast::Stmt { time: 0, node_id: None, body: ast::StmtBody::RawDifficultyLabel(sp!(difficulty as _)) }));
+        }
+        self.prev_difficulty = difficulty;
+    }
 }

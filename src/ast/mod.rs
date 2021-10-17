@@ -1040,32 +1040,3 @@ pub use self::ref_::{
     Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
     walk_callable_name,
 };
-
-// XXX: will be removed when Stmt.time field is removed
-pub fn add_time_labels_from_time_fields(init_time: i32, stmts: Vec<Sp<Stmt>>) -> Vec<Sp<Stmt>> {
-    let mut out = vec![];
-    let mut prev_time = init_time;
-    for stmt in stmts {
-        if stmt.time != prev_time {
-            if prev_time < 0 {
-                out.push(sp!(Stmt { time: 0, node_id: None, body: StmtBody::AbsTimeLabel(sp!(0)) }));
-                if stmt.time > 0 {
-                    out.push(sp!(Stmt { time: stmt.time, node_id: None, body: StmtBody::RelTimeLabel {
-                        delta: sp!(stmt.time),
-                        _absolute_time_comment: Some(stmt.time),
-                    }}));
-                }
-            } else if stmt.time < prev_time {
-                out.push(sp!(Stmt { time: stmt.time, node_id: None, body: StmtBody::AbsTimeLabel(sp!(stmt.time)) }));
-            } else if prev_time < stmt.time {
-                out.push(sp!(Stmt { time: stmt.time, node_id: None, body: StmtBody::RelTimeLabel {
-                    delta: sp!(stmt.time - prev_time),
-                    _absolute_time_comment: Some(stmt.time),
-                }}));
-            }
-        }
-        prev_time = stmt.time;
-        out.push(stmt);
-    }
-    out
-}

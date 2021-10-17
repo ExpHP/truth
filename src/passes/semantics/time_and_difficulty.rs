@@ -3,8 +3,8 @@
 use crate::ast;
 use crate::pos::Sp;
 use crate::error::{ErrorReported, ErrorFlag};
+use crate::diagnostic::Emitter;
 use crate::resolve::{NodeId, IdMap, node_id_helpers};
-use crate::context::CompilerContext;
 
 pub const DEFAULT_DIFFICULTY_MASK: u8 = 0xFF;
 
@@ -14,8 +14,8 @@ pub const DEFAULT_DIFFICULTY_MASK: u8 = 0xFF;
 /// to compute the values for each statement.  It has been decided that this is preferable
 /// to having the information encoded directly within each Stmt, as it saves us the trouble
 /// of micromanaging this info during AST manipulations.
-pub fn run<V: ast::Visitable + ?Sized>(ast: &V, ctx: &CompilerContext<'_>) -> Result<IdMap<NodeId, TimeAndDifficulty>, ErrorReported> {
-    let mut visitor = Visitor::new(ctx);
+pub fn run<V: ast::Visitable + ?Sized>(ast: &V, emitter: &dyn Emitter) -> Result<IdMap<NodeId, TimeAndDifficulty>, ErrorReported> {
+    let mut visitor = Visitor::new(emitter);
     // start out as if we are just entering a function body, so that the visitor can run on
     // individual blocks during unit tests
     visitor.enter_root_block();
@@ -24,8 +24,8 @@ pub fn run<V: ast::Visitable + ?Sized>(ast: &V, ctx: &CompilerContext<'_>) -> Re
     visitor.errors.into_result(visitor.output)
 }
 
-pub fn xxx_set_time_fields<V: ast::Visitable + ?Sized>(ast: &mut V, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
-    let map = run(ast, ctx)?;
+pub fn xxx_set_time_fields<V: ast::Visitable + ?Sized>(ast: &mut V, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
+    let map = run(ast, emitter)?;
     let mut visitor = FieldUpdatingVisitor { map: &map };
     ast.visit_mut_with(&mut visitor);
     Ok(())
@@ -37,18 +37,18 @@ pub struct TimeAndDifficulty {
     pub difficulty_mask: u8,
 }
 
-struct Visitor<'a, 'ctx> {
-    ctx: &'a CompilerContext<'ctx>,
+struct Visitor<'a> {
+    emitter: &'a dyn Emitter,
     errors: ErrorFlag,
     difficulty_stack: Vec<u8>,
     time_stack: Vec<i32>,
     output: IdMap<NodeId, TimeAndDifficulty>,
 }
 
-impl<'a, 'ctx> Visitor<'a, 'ctx> {
-    pub fn new(ctx: &'a CompilerContext<'ctx>) -> Self {
+impl<'a> Visitor<'a> {
+    pub fn new(emitter: &'a dyn Emitter) -> Self {
         Visitor {
-            ctx,
+            emitter,
             errors: ErrorFlag::new(),
             difficulty_stack: vec![],
             time_stack: vec![],
@@ -85,7 +85,7 @@ impl<'a, 'ctx> Visitor<'a, 'ctx> {
     }
 }
 
-impl ast::Visit for Visitor<'_, '_> {
+impl ast::Visit for Visitor<'_> {
     fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
         // time/difficulty labels should affect their own attributes,
         // so perform a shallow visit before storing data.
@@ -93,7 +93,7 @@ impl ast::Visit for Visitor<'_, '_> {
 
         // record data for this statement
         let data = TimeAndDifficulty { time: self.time(), difficulty_mask: self.difficulty_mask() };
-        if let Err(e) = node_id_helpers::id_map_insert(&self.ctx.emitter, &mut self.output, stmt, stmt.node_id, data) {
+        if let Err(e) = node_id_helpers::id_map_insert(&self.emitter, &mut self.output, stmt, stmt.node_id, data) {
             self.errors.set(e);
         }
 
@@ -108,7 +108,7 @@ impl ast::Visit for Visitor<'_, '_> {
     }
 }
 
-
+// =============================================================================
 
 // XXX
 struct FieldUpdatingVisitor<'a> {

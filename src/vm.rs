@@ -124,7 +124,7 @@ impl AstVm {
     /// **Important reminder:** Please be certain that name resolution has been performed, and that
     /// additionally all register aliases have been [converted to raw registers](`crate::passes::resolution::aliases_to_regs`).
     pub fn run(&mut self, stmts: &[Sp<ast::Stmt>], ctx: &CompilerContext<'_>) -> Option<ScalarValue> {
-        let stmt_data = time_and_difficulty::run(stmts, ctx).expect("unexpected analysis failure");
+        let stmt_data = time_and_difficulty::run(stmts, &ctx.emitter).expect("unexpected analysis failure");
         match self._run(stmts, &ctx.resolutions, &stmt_data) {
             RunResult::Nominal => None,
             RunResult::Return(value) => value,
