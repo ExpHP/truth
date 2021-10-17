@@ -523,3 +523,9 @@ fn remember_to_remove_parser_workarounds() {
     // a failing test as a bit of a super-strong TODO
     panic!("plz delete leftover jank from the parser");
 }
+
+#[test]
+fn fix_u8_u16_difficulty_disagreement() {
+    // a failing test as a bit of a super-strong TODO
+    panic!("find that TryInto conversion and kill it");
+}

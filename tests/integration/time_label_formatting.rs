@@ -47,6 +47,19 @@ source_test!(
 );
 
 source_test!(
+    ECL_08, neg_neg,
+    // increasing or decreasing negative labels
+    main_body: r#"
+    -1: dummy();
+    -2: dummy();
+    -1: dummy();
+"#,
+    sbsb: |_decompiled| {
+        // mostly just care that the output is correct, this never shows up in practice
+    },
+);
+
+source_test!(
     ECL_08, compression,
     // compression of identical time labels, regardless of sign
     main_body: r#"

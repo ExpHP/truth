@@ -765,8 +765,9 @@ impl<'a> LabelEmitter<'a> {
         // add time labels
         let prev_time = self.prev_time;
         if time != prev_time {
-            if prev_time < 0 {
+            if prev_time < 0 && 0 <= time {
                 // Include an intermediate 0: between negative and positive.
+                // This is because ANM scripts can start with instrs at -1: that have special properties.
                 out.push(sp!(ast::Stmt { time: 0, node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(0)) }));
                 if time > 0 {
                     out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::RelTimeLabel {
