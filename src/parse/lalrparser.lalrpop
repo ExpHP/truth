@@ -3,6 +3,7 @@ use crate::parse::lexer::{Token};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, meta, Meta};
+use crate::parse::DUMMY_TIME;
 use super::lalrparser_util as util;
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
@@ -184,12 +185,12 @@ Item: ast::Item = {
 
 ItemAnmScript: ast::Item = {
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>>
-        <code:FuncRootBlock>
+        <code:Block>
         => ast::Item::AnmScript { keyword, number, ident, code },
 };
 
 ItemTimeline: ast::Item = {
-    <keyword:TokenSpan<"timeline">> <number:Sp<LitIntSigned>> <code:FuncRootBlock>
+    <keyword:TokenSpan<"timeline">> <number:Sp<LitIntSigned>> <code:Block>
         => ast::Item::Timeline { keyword, number, code },
 };
 
@@ -206,7 +207,7 @@ ItemConstVar: ast::Item = {
 ItemFunc: ast::Item = {
     <item:ItemFuncHeader> ";" => item,
 
-    <item:ItemFuncHeader> <code:FuncRootBlock> => {
+    <item:ItemFuncHeader> <code:Block> => {
         match item {
             ast::Item::Func { qualifier, ty_keyword, ident, params, code: _ }
                 => ast::Item::Func { qualifier, ty_keyword, ident, params, code: Some(code) },
@@ -240,23 +241,6 @@ MetaKeyword: ast::MetaKeyword = {
     "entry" => ast::MetaKeyword::Entry,
     "meta" => ast::MetaKeyword::Meta,
 };
-
-// NOTE: Working with state in LALRPOP is tricky as there are no midrules like bison.
-//
-// When working with state, you should generally prefer these non-inline versions, as the actions
-// will intuitively take place at the location they appear in the grammar.
-_TimeStackEnter: () = _TimeStackEnterInline;
-_TimeStackPop: () = _TimeStackPopInline;
-_TimeGet: i32 = _TimeGetInline;
-
-// Sometimes, unfortunately, the above rules lead to parsing ambiguities and you may need to
-// resort to these inline versions.
-//
-// The inline versions are only executed after the whole rule has been parsed. Thus, you should only
-// ever use them at the END OF A RULE; this may require breaking a rule in half.
-#[inline] _TimeStackEnterInline: () = => { state.time_stack.push(0); };
-#[inline] _TimeStackPopInline: () = => { state.time_stack.pop(); };
-#[inline] _TimeGetInline: i32 = => *state.time_stack.last().unwrap();
 
 // ==================================================
 // Metadata in a JSON-ish format, used by ANM
@@ -296,8 +280,7 @@ PossiblyNumericIdent: Ident = {
 // Statements
 
 Stmt: ast::Stmt = {
-    <time:StmtLabelsWithTime> <body:StmtBody>
-        => ast::Stmt { time, body, node_id: None },
+    <body:StmtBody> => ast::Stmt { time: DUMMY_TIME, body, node_id: None },
 };
 
 StmtBody: ast::StmtBody = {
@@ -341,6 +324,12 @@ StmtBody: ast::StmtBody = {
     "difficulty" "[" <arg:Sp<LitIntSigned>> "]" ":"
         => ast::StmtBody::RawDifficultyLabel(arg),
 
+    <delta:Sp<("+" <LitIntUnsigned>)>> ":"
+        => ast::StmtBody::RelTimeLabel { delta, _absolute_time_comment: None },
+
+    <t:Sp<LitIntSigned>> ":"
+        => ast::StmtBody::AbsTimeLabel(t),
+
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
         => ast::StmtBody::Assignment { var, op, value },
 
@@ -349,24 +338,6 @@ StmtBody: ast::StmtBody = {
 
     StmtSpecialCall,
 }
-
-StmtTimeLabel: () = {
-    "+" <dt:LitIntUnsigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") += dt; },
-    <t:LitIntSigned> ":" => { *state.time_stack.last_mut().expect("empty time stack?! (bug)") = t; },
-};
-
-/// Read all statement labels and then get the time at the end of them.
-///
-/// This exists because it is obscenely difficult to make unambiguous while getting the time read correctly.
-/// (though in retrospect, it does kind of make sense that the parser would have to speculatively check the
-///  time after every label it parses)
-StmtLabelsWithTime: i32 = {
-    <time: _TimeGetInline> => time,
-    StmtLabels StmtTimeLabel <time: _TimeGetInline> => time,
-};
-
-#[inline]
-StmtLabels: () = <out:StmtLabelsWithTime> => ();
 
 StmtGoto: ast::StmtGoto = {
     "goto" <destination:Sp<Ident>> <time:("@" <Sp<LitIntSigned>>)?>
@@ -447,34 +418,22 @@ Block: ast::Block = "{" <BlockInnards> "}";
 
 #[inline]
 BlockInnards: ast::Block = {
-    <start_span:Span> <start_time:_TimeGet> <mut code:Sp<Stmt>*>
-        <end_labels:Sp<StmtLabels>> <end_time:_TimeGet> <end_span:Span>
+    <start_span:Span> <mut code:Sp<Stmt>*> <end_span:Span>
         => {
         // bookend with empty statements to simplify time and jump logic
         code.insert(0, sp!(start_span => ast::Stmt {
-            time: start_time,
+            time: DUMMY_TIME,
             node_id: None,
             body: ast::StmtBody::NoInstruction,
         }));
-        code.push(sp!(end_labels.span => ast::Stmt {
-            time: end_time,
+        code.push(sp!(end_span => ast::Stmt {
+            time: DUMMY_TIME,
             node_id: None,
             body: ast::StmtBody::NoInstruction,
         }));
-        ast::Block(ast::add_time_labels_from_time_fields(start_time, code))
+        ast::Block(code)
     },
 };
-
-/// Same as a block but it pushes a new time context. (so time starts at 0 inside and resets outside)
-//
-// We have to split this rule up very carefully to make sure that all of the changes to mutable
-// state happen at exactly the right times.  This is the price we must pay for mutable state.
-FuncRootBlock_1: () = "{" _TimeStackEnterInline;
-FuncRootBlock_2: ast::Block = FuncRootBlock_1 <BlockInnards>;
-FuncRootBlock: ast::Block =
-    // Inline pop is important. The non-inline version will scan to the next token and make the span too large.
-    // (see https://github.com/ExpHP/truth/issues/18)
-    <FuncRootBlock_2> "}" _TimeStackPopInline;
 
 // ==================================================
 // Expressions

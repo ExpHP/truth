@@ -14,6 +14,7 @@ mod integration {
     mod bits_2_bits;
     mod type_check;
     mod decompile_loop;
+    mod time_label_formatting;
 }
 
 // a dumb test to make sure that we don't just dump files in the input directory and

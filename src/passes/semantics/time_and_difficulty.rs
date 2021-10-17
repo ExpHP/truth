@@ -24,6 +24,14 @@ pub fn run<V: ast::Visitable + ?Sized>(ast: &V, ctx: &CompilerContext<'_>) -> Re
     visitor.errors.into_result(visitor.output)
 }
 
+pub fn xxx_set_time_fields<V: ast::Visitable + ?Sized>(ast: &mut V, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let map = run(ast, ctx)?;
+    let mut visitor = FieldUpdatingVisitor { map: &map };
+    ast.visit_mut_with(&mut visitor);
+    Ok(())
+}
+
+#[derive(Debug)]
 pub struct TimeAndDifficulty {
     pub time: i32,
     pub difficulty_mask: u8,
@@ -97,5 +105,24 @@ impl ast::Visit for Visitor<'_, '_> {
         self.enter_root_block();
         ast::walk_block(self, block);
         self.exit_root_block();
+    }
+}
+
+
+
+// XXX
+struct FieldUpdatingVisitor<'a> {
+    map: &'a IdMap<NodeId, TimeAndDifficulty>,
+}
+
+impl ast::VisitMut for FieldUpdatingVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &mut Sp<ast::Stmt>) {
+        let time = self.map[&stmt.node_id.unwrap()].time;
+        stmt.time = time;
+        if let ast::StmtBody::RelTimeLabel { _absolute_time_comment, .. } = &mut stmt.body {
+            *_absolute_time_comment = Some(time);
+        }
+
+        ast::walk_stmt_mut(self, stmt);
     }
 }

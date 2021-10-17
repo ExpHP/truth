@@ -68,54 +68,6 @@ fn parse_color() {
     );
 }
 
-fn time_label_test(text: &'static str, expected_times: Vec<i32>) {
-    let item = parse::<ast::Item>(text).unwrap();
-    let parsed_times = {
-        let block = match item {
-            ast::Item::Func { code: Some(block), .. } => block,
-            _ => unreachable!(),
-        };
-        block.0.iter().map(|s| s.time).collect::<Vec<_>>()
-    };
-
-    assert_eq!(parsed_times, expected_times);
-}
-
-#[test]
-fn time_labels() {
-    time_label_test(r#"void main() {
-              // before all is a "super no-op" at t=0
-        a();  // should start at t=0
-    +2: a();  // relative label
-        a();  // check this is still at t=2
-    +3: a();  // should now be t=5
-    2:  a();  // absolute label
-    -1: a();  // should also be absolute (t=-1), not relative (t=1)
-              // another "super no-op" with the end time
-    }"#, vec![0, 0, 2, 2, 2, 5, 5, 2, 2, -1, -1, -1])
-}
-
-#[test]
-fn bookend_time_label() {
-    time_label_test(r#"void main() {
-              // "super no-op" is still t=0 despite starting with a label
-    1:  a();  // t=1 as labeled
-    2:        // "super no-op" at end here is t=2
-    }"#, vec![0, 1, 1, 2, 2]);
-}
-
-#[test]
-fn block_outer_time_label() {
-    // this checks the madness that is StmtLabelsWithTime
-    time_label_test(
-        r#"void main() {
-            +10: loop { +2: a(); +3: }
-        }"#,
-        // if you get [0, 15, 15] then something in the parser is #[inline] when it shouldn't be
-        vec![0, 10, 10, 15, 15],
-    );
-}
-
 #[test]
 fn parse_trailing_comma() {
     assert!(parse::<ast::Expr>("foo(1)").is_ok());

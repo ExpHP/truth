@@ -25,6 +25,8 @@ pub mod lexer;
 #[cfg(test)]
 mod tests;
 
+pub const DUMMY_TIME: i32 = 1234321;
+
 pub trait Parse: Sized {
     /// Parse a string into an AST node.
     ///
@@ -50,19 +52,12 @@ pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 pub struct State {
     mapfiles: Vec<Sp<ast::LitString>>,
     image_sources: Vec<Sp<ast::LitString>>,
-
-    /// When we are parsing instructions, tracks the last time label so that we can produce an
-    /// AST with time fields instead of explicit labels.
-    ///
-    /// It is a stack in order to support nested function definitions.
-    time_stack: Vec<i32>,
 }
 
 impl State {
     pub fn new() -> State { State {
         mapfiles: vec![],
         image_sources: vec![],
-        time_stack: vec![0],
     }}
 }
 

@@ -309,10 +309,17 @@ pub fn _check_compile_fail_output(
 macro_rules! check_compile_fail_output {
     ($stderr:expr, $expected:expr) => {{
         crate::integration_impl::_check_compile_fail_output(&$stderr, $expected, |stderr| {
-            insta::with_settings!{{snapshot_path => snapshot_path!()}, {
-                insta::assert_snapshot!{stderr};
-            }}
+            assert_snapshot!{stderr};
         });
+    }}
+}
+
+/// Perform a snapshot test of something.
+macro_rules! assert_snapshot {
+    ($stderr:expr) => {{
+        insta::with_settings!{{snapshot_path => snapshot_path!()}, {
+            insta::assert_snapshot!{$stderr};
+        }}
     }}
 }
 

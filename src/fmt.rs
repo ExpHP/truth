@@ -1008,24 +1008,6 @@ mod tests {
     }
 
     #[test]
-    fn time_formatting() {
-        let f = reformat::<ast::Item>;
-        prefix_snapshot_names!{"time_formatting", {
-            // * suppress initial 0 label
-            // * prefer relative labels
-            assert_snapshot!("general_1", f(9999, r#"void main() { 0: a(); 2: a(); 5: a(); }"#).trim());
-            // * nonzero beginning
-            // * absolute labels during decrease
-            // * explicit 0 label
-            assert_snapshot!("general_2", f(9999, r#"void main() { 5: a(); 3: a(); 0: a(); }"#).trim());
-            // negative label followed by zero or positive
-            assert_snapshot!("after_neg", f(9999, r#"void main() { -1: a(); 0: c(); -1: e(); 6: g(); }"#).trim());
-            // compression of identical time labels, regardless of sign
-            assert_snapshot!("compression", f(9999, r#"void main() { a(); b(); 6: c(); d(); -1: e(); f(); }"#).trim());
-        }}
-    }
-
-    #[test]
     fn goto() {
         let f = reformat::<ast::Stmt>;
         prefix_snapshot_names!{"goto", {

@@ -106,6 +106,7 @@ impl Truth<'_> {
             .map_err(|e| self.emit(e))
             .and_then(|mut ast| {
                 crate::passes::resolution::fill_missing_node_ids(&mut ast, &self.ctx.unused_node_ids)?;
+                crate::passes::semantics::time_and_difficulty::xxx_set_time_fields(&mut ast, &self.ctx)?;
                 crate::passes::resolution::assign_res_ids(&mut ast, &mut self.ctx)?;
                 Ok(ast)
             })
