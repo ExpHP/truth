@@ -100,7 +100,6 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                     let cond_chain = ast::StmtCondChain { cond_blocks: cond_block_asts, else_block };
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
                     new_stmts.push(sp!(span => ast::Stmt {
-                        time: 1234321,  // XXX DUMMY VALUE
                         node_id: Some(self.ctx.next_node_id()),
                         body: ast::StmtBody::CondChain(cond_chain),
                     }));
@@ -348,7 +347,6 @@ fn maybe_decompile_jump(
     let inner_span = new_block.start_span().merge(new_block.end_span());
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
-        time: new_block.start_time(),
         node_id: Some(ctx.next_node_id()),
         body: jmp_kind.make_loop(new_block),
     }));

@@ -63,7 +63,6 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
         for def_id in popped.locals_declared_at_this_level {
             let span = x.last_stmt().span.end_span();
             x.0.push(sp!(span => ast::Stmt {
-                time: x.end_time(),
                 node_id: Some(self.unused_node_ids.next()),
                 body: ast::StmtBody::ScopeEnd(def_id),
             }));
@@ -117,7 +116,6 @@ struct Desugarer<'a, 'ctx> {
 impl Desugarer<'_, '_> {
     pub fn desugar_block(&mut self, mut outer_block: ast::Block) {
         for outer_stmt in outer_block.0.drain(..) {
-            let outer_time = outer_stmt.time;
             match outer_stmt.value.body {
                 ast::StmtBody::Loop { block, .. } => {
                     self.desugar_loop_body(block, None)
@@ -130,7 +128,7 @@ impl Desugarer<'_, '_> {
 
                 ast::StmtBody::While { do_keyword: None, while_keyword, cond, block } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
-                    self.desugar_conditional_region(cond.span, outer_time, if_keyword, cond.clone(), |self_| {
+                    self.desugar_conditional_region(cond.span, if_keyword, cond.clone(), |self_| {
                         self_.desugar_loop_body(block, Some((if_keyword, cond.value)));
                     });
                 },
@@ -145,7 +143,6 @@ impl Desugarer<'_, '_> {
                             let var = sp!(count.span => ast::Var { ty_sigil: None, name: ast::VarName::new_non_reg(ident.value) });
 
                             self.out.push(sp!(count.span => ast::Stmt {
-                                time: outer_time,
                                 node_id: Some(self.ctx.next_node_id()),
                                 body: ast::StmtBody::Declaration {
                                     ty_keyword: sp!(count.span => token![int]),
@@ -156,13 +153,12 @@ impl Desugarer<'_, '_> {
                             (var, Some(def_id))
                         },
                     };
-                    let (end_span, end_time) = (block.end_span(), block.end_time());
+                    let end_span = block.end_span();
 
-                    self.desugar_times(outer_time, clobber, count, block);
+                    self.desugar_times(clobber, count, block);
 
                     if let Some(def_id) = temp_def {
                         self.out.push(sp!(end_span => ast::Stmt {
-                            time: end_time,
                             node_id: Some(self.ctx.next_node_id()),
                             body: ast::StmtBody::ScopeEnd(def_id),
                         }));
@@ -172,15 +168,12 @@ impl Desugarer<'_, '_> {
                 ast::StmtBody::CondChain(chain) => {
                     let veryend = self.ctx.gensym.gensym("@cond_veryend#");
 
-                    let mut prev_end_time = outer_time;
                     for ast::CondBlock { keyword, cond, block } in chain.cond_blocks {
-                        let (end_span, end_time) = (block.end_span(), block.end_time());
-                        self.desugar_conditional_region(cond.span, prev_end_time, keyword, cond, |self_| {
+                        let end_span = block.end_span();
+                        self.desugar_conditional_region(cond.span, keyword, cond, |self_| {
                             self_.desugar_block(block);
-                            self_.make_goto(end_span, end_time, None, veryend.clone());
+                            self_.make_goto(end_span, None, veryend.clone());
                         });
-
-                        prev_end_time = end_time;
                     }
                     if let Some(block) = chain.else_block {
                         self.desugar_block(block);
@@ -204,14 +197,13 @@ impl Desugarer<'_, '_> {
     fn desugar_conditional_region(
         &mut self,
         condjmp_span: Span,
-        condjmp_time: i32,
         keyword: Sp<ast::CondKeyword>,
         cond: Sp<ast::Cond>,
         inner: impl FnOnce(&mut Self),
     ) {
         let skip_label = self.ctx.gensym.gensym("@cond#");
         self.out.push(rec_sp!(condjmp_span =>
-            stmt_cond_goto!(at #condjmp_time, #(keyword.negate()) #cond goto #(skip_label.clone()))
+            stmt_cond_goto!(at #(1234321), #(keyword.negate()) #cond goto #(skip_label.clone()))
         ));
 
         inner(self);
@@ -219,7 +211,7 @@ impl Desugarer<'_, '_> {
         self.make_label_after_block(skip_label);
     }
 
-    fn desugar_times(&mut self, init_time: i32, clobber: Sp<ast::Var>, count: Sp<ast::Expr>, block: ast::Block) {
+    fn desugar_times(&mut self, clobber: Sp<ast::Var>, count: Sp<ast::Expr>, block: ast::Block) {
         let span = count.span;
         let count_as_const = count.as_const_int();
 
@@ -245,16 +237,16 @@ impl Desugarer<'_, '_> {
     // desugars a `loop { .. }` or `do { ... } while (<cond>);`
     fn desugar_loop_body(&mut self, block: ast::Block, cond: JumpInfo) {
         let label = self.ctx.gensym.gensym("@loop#");
-        self.make_label(block.start_span(), block.start_time(), label.clone());
+        self.make_label(block.start_span(), label.clone());
         self.desugar_block(block);
         self.make_goto_after_block(cond, label);
     }
 
-    fn make_label(&mut self, span: Span, time: i32, ident: Ident) {
+    fn make_label(&mut self, span: Span, ident: Ident) {
         self.out.push(rec_sp!(span => stmt_label!(at #(1234321), #ident)));
     }
 
-    fn make_goto(&mut self, span: Span, time: i32, cond: JumpInfo, ident: Ident) {
+    fn make_goto(&mut self, span: Span, cond: JumpInfo, ident: Ident) {
         self.out.push(match cond {
             None => rec_sp!(span => stmt_goto!(at #(1234321), goto #ident)),
             Some((kw, cond))
@@ -266,18 +258,18 @@ impl Desugarer<'_, '_> {
     // (this exists for convenience since the block will be destroyed and you can't call block.end_span())
     fn make_label_after_block(&mut self, ident: Ident) {
         let last_written_stmt = self.out.last().expect("no written statements?!");
-        let (last_span, last_time) = (last_written_stmt.span.end_span(), last_written_stmt.time);
+        let last_span = last_written_stmt.span.end_span();
 
-        self.make_label(last_span, last_time, ident);
+        self.make_label(last_span, ident);
     }
 
     // Make a goto after desugaring a block.
     // (this exists for convenience since the block will be destroyed and you can't call block.end_span())
     fn make_goto_after_block(&mut self, cond: JumpInfo, label: Ident) {
         let last_written_stmt = self.out.last().expect("no written statements?!");
-        let (last_span, last_time) = (last_written_stmt.span.end_span(), last_written_stmt.time);
+        let last_span = last_written_stmt.span.end_span();
 
-        self.make_goto(last_span, last_time, cond, label);
+        self.make_goto(last_span, cond, label);
     }
 }
 

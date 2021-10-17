@@ -94,7 +94,6 @@ string_enum! {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
-    pub time: i32,
     pub node_id: Option<NodeId>,
     pub body: StmtBody,
 }
@@ -347,12 +346,6 @@ impl AssignOpKind {
 pub struct Block(pub Vec<Sp<Stmt>>);
 
 impl Block {
-    /// Effective time label before the first statement in the loop body.
-    pub fn start_time(&self) -> i32 { self.first_stmt().time }
-
-    /// Effective time label after the final statement in the loop body.
-    pub fn end_time(&self) -> i32 { self.last_stmt().time }
-
     /// Node ID for looking up e.g. the time label before the first statement in the loop body.
     pub fn start_node_id(&self) -> NodeId { self.first_stmt().node_id.unwrap() }
 

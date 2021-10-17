@@ -768,17 +768,17 @@ impl<'a> LabelEmitter<'a> {
             if prev_time < 0 && 0 <= time {
                 // Include an intermediate 0: between negative and positive.
                 // This is because ANM scripts can start with instrs at -1: that have special properties.
-                out.push(sp!(ast::Stmt { time: 0, node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(0)) }));
+                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(0)) }));
                 if time > 0 {
-                    out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::RelTimeLabel {
+                    out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RelTimeLabel {
                         delta: sp!(time),
                         _absolute_time_comment: Some(time),
                     }}));
                 }
             } else if time < prev_time {
-                out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(time)) }));
+                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(time)) }));
             } else if prev_time < time {
-                out.push(sp!(ast::Stmt { time, node_id: None, body: ast::StmtBody::RelTimeLabel {
+                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RelTimeLabel {
                     delta: sp!(time - prev_time),
                     _absolute_time_comment: Some(time),
                 }}));
@@ -803,7 +803,7 @@ impl<'a> LabelEmitter<'a> {
 
     fn emit_difficulty_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, difficulty: u8) {
         if difficulty != self.prev_difficulty {
-            out.push(sp!(ast::Stmt { time: 0, node_id: None, body: ast::StmtBody::RawDifficultyLabel(sp!(difficulty as _)) }));
+            out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RawDifficultyLabel(sp!(difficulty as _)) }));
         }
         self.prev_difficulty = difficulty;
     }

@@ -118,7 +118,6 @@ struct FieldUpdatingVisitor<'a> {
 impl ast::VisitMut for FieldUpdatingVisitor<'_> {
     fn visit_stmt(&mut self, stmt: &mut Sp<ast::Stmt>) {
         let time = self.map[&stmt.node_id.unwrap()].time;
-        stmt.time = time;
         if let ast::StmtBody::RelTimeLabel { _absolute_time_comment, .. } = &mut stmt.body {
             *_absolute_time_comment = Some(time);
         }

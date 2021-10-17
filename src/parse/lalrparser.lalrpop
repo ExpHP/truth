@@ -280,7 +280,7 @@ PossiblyNumericIdent: Ident = {
 // Statements
 
 Stmt: ast::Stmt = {
-    <body:StmtBody> => ast::Stmt { time: DUMMY_TIME, body, node_id: None },
+    <body:StmtBody> => ast::Stmt { body, node_id: None },
 };
 
 StmtBody: ast::StmtBody = {
@@ -421,13 +421,14 @@ BlockInnards: ast::Block = {
     <start_span:Span> <mut code:Sp<Stmt>*> <end_span:Span>
         => {
         // bookend with empty statements to simplify time and jump logic
+        // NOTE: currently not necessary (?) now that time labels are stmts but we may soon want
+        //       to replace these with matching BlockStart and BlockEnd(NodeId) stmts to allow
+        //       block scoping of difficulty semantics, so I left them here.
         code.insert(0, sp!(start_span => ast::Stmt {
-            time: DUMMY_TIME,
             node_id: None,
             body: ast::StmtBody::NoInstruction,
         }));
         code.push(sp!(end_span => ast::Stmt {
-            time: DUMMY_TIME,
             node_id: None,
             body: ast::StmtBody::NoInstruction,
         }));

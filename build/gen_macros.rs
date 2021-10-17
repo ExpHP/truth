@@ -10,7 +10,6 @@ pub fn gen_ast_macros() -> String {
             ],
             FinalCasesType::Regular(r#"
                 $crate::ast::Stmt {
-                    time: $time,
                     node_id: None,
                     body: $body,
                 }
@@ -322,11 +321,10 @@ impl FinalCasesType {
                     pattern: format!("@finish[has_time] [] [] [${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!(r#"
                         $crate::ast::Stmt {{
-                            time: ${},
                             node_id: None,
                             body: {},
                         }}
-                    "#, time_name, body_expr),
+                    "#, body_expr),
                 });
                 out.push(Rule {
                     pattern: format!("@finish[] [] [] [$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
