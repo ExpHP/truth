@@ -159,18 +159,18 @@ fn make_case(mac: &str, cur_step: &str, next_step: &str, to_parse: &str, to_save
     };
     Rule {
         pattern: format!(
-            "@{cur_step} [$($flags:ident)*] [{to_parse} $($rest:tt)*] $($done:tt)*",
+            "@{cur_step} flags#[$($flags:ident)*] input#[{to_parse} $($rest:tt)*] $($done:tt)*",
             cur_step=cur_step, to_parse=to_parse,
         ),
         result: format!(
-            "_{mac}_impl!{{ @{next_step} [$($flags)*{new_flags}] [$($rest)*] $($done)* [{to_save}] }}",
+            "_{mac}_impl!{{ @{next_step} flags#[$($flags)*{new_flags}] input#[$($rest)*] $($done)* arg#[{to_save}] }}",
             mac=mac, next_step=next_step, to_save=to_save, new_flags=new_flags,
         ),
     }
 }
 
-fn make_err_case_expected_after(pattern_prefix: &str, cur_step: &str, expected: &str) -> Rule {
-    make_err_case(pattern_prefix, cur_step, &format!(r#"
+fn make_err_case_expected_after(cur_step: &str, pattern_prefix: &str, expected: &str) -> Rule {
+    make_err_case(cur_step, pattern_prefix, &format!(r#"
         _truth__concat!(
             "in {cur_step}: expected {expected}",
             $(", got '", _truth__stringify!($first), "'")?
@@ -179,12 +179,12 @@ fn make_err_case_expected_after(pattern_prefix: &str, cur_step: &str, expected: 
 }
 
 fn make_err_case_expected(cur_step: &str, expected: &str) -> Rule {
-    make_err_case_expected_after("", cur_step, expected)
+    make_err_case_expected_after(cur_step, "", expected)
 }
 
 fn make_err_case(cur_step: &str, pattern_prefix: &str, msg: &str) -> Rule {
     let pattern = format!(
-        "@{cur_step} [$($flags:ident)*] [{prefix} $($first:tt $($rest:tt)*)?] $span:tt $($first_done:tt $($done:tt)*)?",
+        "@{cur_step} flags#[$($flags:ident)*] input#[{prefix} $($first:tt $($rest:tt)*)?] span#$span:tt $($first_done:tt $($done:tt)*)?",
         cur_step=cur_step, prefix=pattern_prefix,
     );
     let debug_heading = "\n Things parsed so far:  ";
@@ -205,7 +205,7 @@ impl ArgKind {
         let case = |to_parse: &str, to_save: &str, flag: Option<&str>| make_case(mac, cur_step, next_step, to_parse, to_save, flag);
         let expected = |msg: &str| make_err_case_expected(cur_step, msg);
         let expected_after = |prefix: &str, msg: &str| make_err_case_expected_after(cur_step, prefix, msg);
-        let err = |msg: &str| make_err_case("", cur_step, msg);
+        let err = |msg: &str| make_err_case(cur_step, "", msg);
         match self {
             ArgKind::Node |
             ArgKind::SpTransparent => {
@@ -304,21 +304,21 @@ enum FinalCasesType {
 impl FinalCasesType {
     fn gen_final_rules(&self, out: &mut Vec<Rule>, steps: &[(&str, ArgKind)]) {
         let get_steps_as_exprs = |steps: &[(&str, ArgKind)]| {
-            steps.iter().map(|(name, _)| format!("[${}:expr]", name))
+            steps.iter().map(|(name, _)| format!("arg#[${}:expr]", name))
                 .collect::<Vec<_>>()
                 .join(" ")
         };
         match self {
             FinalCasesType::Regular(final_expr) => {
                 out.push(Rule {
-                    pattern: format!("@finish[] [] [] {}", get_steps_as_exprs(steps)),
+                    pattern: format!("@finish flags#[] input#[] span#[] {}", get_steps_as_exprs(steps)),
                     result: final_expr.to_string(),
                 });
             },
             FinalCasesType::Stmt { body: body_expr } => {
                 let time_name = steps[0].0;
                 out.push(Rule {
-                    pattern: format!("@finish[has_time] [] [] [${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    pattern: format!("@finish flags#[has_time] input#[] span#[] arg#[${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!(r#"
                         $crate::ast::Stmt {{
                             node_id: None,
@@ -327,7 +327,7 @@ impl FinalCasesType {
                     "#, body_expr),
                 });
                 out.push(Rule {
-                    pattern: format!("@finish[] [] [] [$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    pattern: format!("@finish flags#[] input#[] span#[] arg#[$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!("{}", body_expr),
                 });
             }
@@ -343,12 +343,12 @@ fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_case: FinalCasesTyp
             // A rule that sets aside the span from rec_sp! so it can be recursively applied to arguments.
             Rule {
                 pattern: format!("rec_sp!($span:expr => $($input:tt)+)"),
-                result: format!("_{}_impl!{{ @parse_{} [] [$($input)+] [$span] }}", mac, first_step_name),
+                result: format!("_{}_impl!{{ @parse_{} flags#[] input#[$($input)+] span#[$span] }}", mac, first_step_name),
             },
             // Rule with no span
             Rule {
                 pattern: format!("$($input:tt)+"),
-                result: format!("_{}_impl!{{ @parse_{} [] [$($input)+] [] }}", mac, first_step_name),
+                result: format!("_{}_impl!{{ @parse_{} flags#[] input#[$($input)+] span#[] }}", mac, first_step_name),
             },
         ]
     };
@@ -376,15 +376,15 @@ fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_case: FinalCasesTyp
     let mut parts_out = String::new();
     for (name, arg_kind) in steps {
         let (pat, out) = arg_kind.rec_sp_step_pieces(name);
-        parts_in.push_str(&format!("[{}] ", pat));
-        parts_out.push_str(&format!("[{}] ", out));
+        parts_in.push_str(&format!("arg#[{}] ", pat));
+        parts_out.push_str(&format!("arg#[{}] ", out));
     }
 
     impl_macro.rules.push(Rule {
-        pattern: format!("@finish [$($flags:ident)*] [] [$span:expr] {}", parts_in),
+        pattern: format!("@finish flags#[$($flags:ident)*] input#[] span#[$span:expr] {}", parts_in),
         result: format!(r#"
             match $span {{
-                _span => _{mac}_impl!{{ @finish [$($flags)*] [] [] {parts_out} }},
+                _span => _{mac}_impl!{{ @finish flags#[$($flags)*] input#[] span#[] {parts_out} }},
             }}
         "#, mac=mac, parts_out=parts_out),
     });
