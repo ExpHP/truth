@@ -495,7 +495,7 @@ mod tests {
         }.check(|ast, ctx| {
             let mut vm = new_test_vm();
             vm.set_reg(RegId(-999), Int(7));
-    
+
             assert_eq!(vm.run(&ast.0, &ctx), Some(Int(19)));
         });
     }

@@ -3,7 +3,6 @@ use crate::parse::lexer::{Token};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, meta, Meta};
-use crate::parse::DUMMY_TIME;
 use super::lalrparser_util as util;
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);

@@ -25,8 +25,6 @@ pub mod lexer;
 #[cfg(test)]
 mod tests;
 
-pub const DUMMY_TIME: i32 = 1234321;
-
 pub trait Parse: Sized {
     /// Parse a string into an AST node.
     ///

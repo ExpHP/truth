@@ -13,8 +13,6 @@ use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
-const DUMMY_TIME: i32 = 1234321; // XXX
-
 #[derive(Debug, Clone)]
 pub struct DecompileOptions {
     pub arguments: bool,
@@ -91,7 +89,6 @@ impl<'a> Raiser<'a> {
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut stmts = _raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?;
         crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &unused_node_ids)?;
-        crate::passes::semantics::time_and_difficulty::xxx_set_time_fields(&mut stmts[..], emitter)?;
         Ok(stmts)
     }
 
@@ -125,12 +122,6 @@ fn _raise_instrs_to_sub_ast(
 
     let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
-    // XXX Bookend seems unnecessary maybe now that we have time label statements?
-    // let mut out = vec![sp!(ast::Stmt {
-    //     time: script.get(0).map(|x| x.time).unwrap_or(0),
-    //     node_id: None,
-    //     body: ast::StmtBody::NoInstruction,
-    // })];
     let mut out = vec![];
 
     // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
@@ -152,12 +143,6 @@ fn _raise_instrs_to_sub_ast(
     if let Some(label) = offset_labels.get(instr_offsets.last().expect("n + 1 offsets so there's always at least one")) {
         out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
     }
-    // XXX Bookend seems unnecessary maybe now that we have time label statements?
-    // out.push(sp!(ast::Stmt {
-    //     time: end_time,
-    //     node_id: None,
-    //     body: ast::StmtBody::NoInstruction,
-    // }));
 
     Ok(out)
 }
@@ -747,20 +732,21 @@ impl<'a> LabelEmitter<'a> {
 
     // emit both labels like "label_354:" and "+24:"
     fn emit_offset_and_time_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: u64, time: i32) {
-        // FIXME needs cleanup.  I feel like an arbitrary number of labels at a given offset should be allowed
-        //       (for all times >= prev_time and <= next_time) and this may lead to simpler logic.
-
         // in the current implementation there is at most one regular label at this offset, which
         // may be before or after a relative time jump.
         let mut offset_label = self.offset_labels.get(&offset);
-
-        // FIXME part of kludge:  check for label before time increase
-        if let Some(label) = &offset_label {
-            if label.time_label == self.prev_time {
-                out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
-                offset_label = None;
-            }
+        macro_rules! put_label_here_if_it_has_time {
+            ($time:expr) => {
+                if let Some(label) = &offset_label {
+                    if label.time_label == $time {
+                        out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
+                        offset_label = None;
+                    }
+                }
+            };
         }
+
+        put_label_here_if_it_has_time!(self.prev_time);
 
         // add time labels
         let prev_time = self.prev_time;
@@ -785,15 +771,9 @@ impl<'a> LabelEmitter<'a> {
             }
         }
 
-        // FIXME part of kludge:  check for label after time increase
-        if let Some(label) = &offset_label {
-            if label.time_label == time {
-                out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
-                offset_label = None;
-            }
-        }
+        put_label_here_if_it_has_time!(time);
 
-        // FIXME part of kludge:  expect no other possible time for label
+        // do we have a label we never placed?
         if let Some(label) = &offset_label {
             panic!("impossible time for label: (times: {} -> {}) {:?}", self.prev_time, time, label);
         }
