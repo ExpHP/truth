@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, BTreeSet};
 
+use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
@@ -59,7 +60,7 @@ impl Lowerer<'_, '_> {
                     self.out.push(LowerStmt::Instr(LowerInstr {
                         time,
                         opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
-                        extra_arg: None,
+                        explicit_extra_arg: None,
                         user_param_mask: None,
                         args: LowerArgs::Known(vec![sp!(interrupt_id.span => LowerArg::Raw(interrupt_id.value.into()))]),
                     }));
@@ -112,7 +113,7 @@ impl Lowerer<'_, '_> {
         name: &Sp<ast::CallableName>,
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<ast::Expr>],
-    ) -> Result<u16, ErrorReported> {
+    ) -> Result<raw::Opcode, ErrorReported> {
         // all function statements currently refer to single instructions
         let (lang, opcode) = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
         assert_eq!(lang, self.instr_format.language());
@@ -124,10 +125,10 @@ impl Lowerer<'_, '_> {
     fn lower_instruction(
         &mut self,
         stmt: &Sp<ast::Stmt>,
-        opcode: u16,
+        opcode: raw::Opcode,
         pseudos: &[Sp<ast::PseudoArg>],
         args: &[Sp<ast::Expr>],
-    ) -> Result<u16, ErrorReported> {
+    ) -> Result<raw::Opcode, ErrorReported> {
         let time = self.stmt_data[&stmt.node_id.expect("stmt_data would've failed if missing")].time;
 
         let PseudoArgData {
@@ -173,7 +174,7 @@ impl Lowerer<'_, '_> {
             time,
             opcode: opcode as _,
             user_param_mask: pseudo_param_mask.map(|x| x.value),
-            extra_arg: pseudo_extra_arg.map(|x| x.value),
+            explicit_extra_arg: pseudo_extra_arg.map(|x| x.value),
             args: low_level_args,
         }));
 
@@ -188,7 +189,7 @@ impl Lowerer<'_, '_> {
     fn lower_var_declaration(
         &mut self,
         _stmt_span: Span,
-        stmt_time: i32,
+        stmt_time: raw::Time,
         keyword: &Sp<ast::TypeKeyword>,
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), ErrorReported>{
@@ -214,7 +215,7 @@ impl Lowerer<'_, '_> {
     fn lower_assign_op(
         &mut self,
         span: Span,
-        time: i32,
+        time: raw::Time,
         var: &Sp<ast::Var>,
         assign_op: &Sp<ast::AssignOpKind>,
         rhs: &Sp<ast::Expr>,
@@ -229,7 +230,7 @@ impl Lowerer<'_, '_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time,
                     opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?,
-                    extra_arg: None,
+                    explicit_extra_arg: None,
                     user_param_mask: None,
                     args: LowerArgs::Known(vec![lowered_var, lowered_rhs]),
                 }));
@@ -287,7 +288,7 @@ impl Lowerer<'_, '_> {
     fn lower_assign_direct_binop(
         &mut self,
         span: Span,
-        time: i32,
+        time: raw::Time,
         var: &Sp<ast::Var>,
         eq_sign: &Sp<ast::AssignOpKind>,
         rhs_span: Span,
@@ -355,7 +356,7 @@ impl Lowerer<'_, '_> {
         self.out.push(LowerStmt::Instr(LowerInstr {
             time,
             opcode: self.get_opcode(IKind::Binop(binop.value, ty_var), span, "this binary operation")?,
-            extra_arg: None,
+            explicit_extra_arg: None,
             user_param_mask: None,
             args: LowerArgs::Known(vec![lowered_var, simple_a.lowered, simple_b.lowered]),
         }));
@@ -366,7 +367,7 @@ impl Lowerer<'_, '_> {
     fn lower_assign_direct_unop(
         &mut self,
         span: Span,
-        time: i32,
+        time: raw::Time,
         var: &Sp<ast::Var>,
         eq_sign: &Sp<ast::AssignOpKind>,
         rhs_span: Span,
@@ -420,7 +421,7 @@ impl Lowerer<'_, '_> {
                     token![sqrt] => self.out.push(LowerStmt::Instr(LowerInstr {
                         time,
                         opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
-                        extra_arg: None,
+                        explicit_extra_arg: None,
                         user_param_mask: None,
                         args: LowerArgs::Known(vec![lowered_var, data_b.lowered]),
                     })),
@@ -430,7 +431,7 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_time: i32, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
+    fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_time: raw::Time, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
         if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
             return Err(self.unsupported(&stmt_span, "goto @ time"));
         }
@@ -440,7 +441,7 @@ impl Lowerer<'_, '_> {
         self.out.push(LowerStmt::Instr(LowerInstr {
             time: stmt_time,
             opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
-            extra_arg: None,
+            explicit_extra_arg: None,
             user_param_mask: None,
             args: LowerArgs::Known(vec![label_arg, time_arg]),
         }));
@@ -451,7 +452,7 @@ impl Lowerer<'_, '_> {
     fn lower_cond_jump(
         &mut self,
         stmt_span: Span,
-        stmt_time: i32,
+        stmt_time: raw::Time,
         keyword: &Sp<ast::CondKeyword>,
         cond: &Sp<ast::Cond>,
         goto: &ast::StmtGoto,
@@ -465,7 +466,7 @@ impl Lowerer<'_, '_> {
     fn lower_cond_jump_predecrement(
         &mut self,
         stmt_span: Span,
-        stmt_time: i32,
+        stmt_time: raw::Time,
         keyword: &Sp<ast::CondKeyword>,
         var: &Sp<ast::Var>,
         goto: &ast::StmtGoto,
@@ -480,7 +481,7 @@ impl Lowerer<'_, '_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?,
-                    extra_arg: None,
+                    explicit_extra_arg: None,
                     user_param_mask: None,
                     args: LowerArgs::Known(vec![arg_var, arg_label, arg_time]),
                 }));
@@ -510,7 +511,7 @@ impl Lowerer<'_, '_> {
     fn lower_cond_jump_expr(
         &mut self,
         stmt_span: Span,
-        stmt_time: i32,
+        stmt_time: raw::Time,
         keyword: &Sp<ast::CondKeyword>,
         expr: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
@@ -550,7 +551,7 @@ impl Lowerer<'_, '_> {
     fn lower_cond_jump_comparison(
         &mut self,
         stmt_span: Span,
-        stmt_time: i32,
+        stmt_time: raw::Time,
         keyword: &Sp<ast::CondKeyword>,
         a: &Sp<ast::Expr>,
         binop: &Sp<ast::BinopKind>,
@@ -587,7 +588,7 @@ impl Lowerer<'_, '_> {
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     time: stmt_time,
                     opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
-                    extra_arg: None,
+                    explicit_extra_arg: None,
                     user_param_mask: None,
                     args: LowerArgs::Known(vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time]),
                 }));
@@ -600,7 +601,7 @@ impl Lowerer<'_, '_> {
   fn lower_cond_jump_logic_binop(
       &mut self,
       stmt_span: Span,
-      stmt_time: i32,
+      stmt_time: raw::Time,
       keyword: &Sp<ast::CondKeyword>,
       a: &Sp<ast::Expr>,
       binop: &Sp<ast::BinopKind>,
@@ -651,7 +652,7 @@ impl Lowerer<'_, '_> {
     /// When done emitting instructions that use the temporary, one should call [`Self::undefine_temporary`].
     fn define_temporary(
         &mut self,
-        time: i32,
+        time: raw::Time,
         data: &TemporaryExpr<'_>,
     ) -> Result<(DefId, Sp<ast::Expr>), ErrorReported> {
         let (def_id, var) = self.allocate_temporary(data.tmp_expr.span, data.tmp_ty)?;
@@ -666,7 +667,7 @@ impl Lowerer<'_, '_> {
     /// have a reason for storing this value there. (the read type is allowed to differ from the expression's type)
     fn compute_temporary_expr(
         &mut self,
-        time: i32,
+        time: raw::Time,
         var: &Sp<ast::Var>,
         data: &TemporaryExpr<'_>,
     ) -> Result<Sp<ast::Expr>, ErrorReported> {

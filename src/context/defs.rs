@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use enum_map::{EnumMap, enum_map};
 
+use crate::raw;
 use crate::ast;
 use crate::context::CompilerContext;
 use crate::diagnostic::{Emitter};
@@ -28,7 +29,7 @@ use crate::llir::InstrAbi;
 #[derive(Debug, Clone)]
 pub struct Defs {
     regs: HashMap<(InstrLanguage, RegId), RegData>,
-    instrs: HashMap<(InstrLanguage, u16), InsData>,
+    instrs: HashMap<(InstrLanguage, raw::Opcode), InsData>,
 
     vars: HashMap<DefId, VarData>,
     funcs: HashMap<DefId, FuncData>,
@@ -36,7 +37,7 @@ pub struct Defs {
     /// Preferred alias (i.e. the one we decompile to) for each register.
     reg_aliases: HashMap<(InstrLanguage, RegId), DefId>,
     /// Preferred alias (i.e. the one we decompile to) for each instruction.
-    ins_aliases: HashMap<(InstrLanguage, u16), DefId>,
+    ins_aliases: HashMap<(InstrLanguage, raw::Opcode), DefId>,
 
     /// Some of the initial ribs for name resolution, containing register aliases from mapfiles.
     reg_alias_ribs: EnumMap<InstrLanguage, rib::Rib>,
@@ -148,7 +149,7 @@ impl CompilerContext<'_> {
     /// Set the low-level ABI of an instruction.
     ///
     /// A high-level [`Signature`] will also be generated from the ABI.
-    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: u16, abi: InstrAbi) {
+    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: raw::Opcode, abi: InstrAbi) {
         // also update the high-level signature
         let sig = abi.create_signature(self);
         sig.validate(self).expect("invalid signature from InstrAbi");
@@ -159,7 +160,7 @@ impl CompilerContext<'_> {
     /// Add an alias for an instruction from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    pub fn define_global_ins_alias(&mut self, language: InstrLanguage, opcode: u16, ident: Ident) -> DefId {
+    pub fn define_global_ins_alias(&mut self, language: InstrLanguage, opcode: raw::Opcode, ident: Ident) -> DefId {
         let res_ident = self.resolutions.attach_fresh_res(ident.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
@@ -239,7 +240,7 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_opcode(&self, def_id: DefId) -> Option<(InstrLanguage, u16)> {
+    pub fn func_opcode(&self, def_id: DefId) -> Option<(InstrLanguage, raw::Opcode)> {
         match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, language, .. }, .. } => Some((language, opcode)),
             _ => None,
@@ -247,7 +248,7 @@ impl Defs {
     }
 
     /// Recovers the ABI of an opcode, if it is known.
-    pub fn ins_abi(&self, language: InstrLanguage, opcode: u16) -> Option<&InstrAbi> {
+    pub fn ins_abi(&self, language: InstrLanguage, opcode: raw::Opcode) -> Option<&InstrAbi> {
         self.instrs.get(&(language, opcode)).map(|x| &x.abi)
     }
 }
@@ -333,7 +334,7 @@ impl Defs {
     }
 
     /// Get the high-level signature of an instruction.
-    fn ins_signature(&self, language: InstrLanguage, opcode: u16) -> Result<&Signature, InsMissingSigError> {
+    fn ins_signature(&self, language: InstrLanguage, opcode: raw::Opcode) -> Result<&Signature, InsMissingSigError> {
         match self.instrs.get(&(language, opcode)) {
             Some(InsData { sig, .. }) => Ok(sig),
             None => Err(InsMissingSigError { language, opcode }),
@@ -497,7 +498,7 @@ pub enum FuncKind {
     InstructionAlias {
         ident: ResIdent,
         language: InstrLanguage,
-        opcode: u16,
+        opcode: raw::Opcode,
         // TODO: location where alias is defined
     },
     User {
@@ -612,7 +613,7 @@ impl CompilerContext<'_> {
 
     /// Generate an AST node with the ideal appearance for an instruction call,
     /// automatically using an alias if one exists.
-    pub fn ins_to_ast(&self, language: InstrLanguage, opcode: u16) -> ast::CallableName {
+    pub fn ins_to_ast(&self, language: InstrLanguage, opcode: raw::Opcode) -> ast::CallableName {
         match self.defs.ins_aliases.get(&(language, opcode)) {
             None => ast::CallableName::Ins { opcode, language: Some(language) },
             Some(&def_id) => {
@@ -633,7 +634,7 @@ impl CompilerContext<'_> {
 #[derive(Debug, Clone)]
 pub struct InsMissingSigError {
     pub language: InstrLanguage,
-    pub opcode: u16,
+    pub opcode: raw::Opcode,
 }
 
 /// High-level function signature.

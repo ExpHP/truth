@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use enum_map::EnumMap;
 
+use crate::raw;
 use crate::ast;
 use crate::game::InstrLanguage;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
@@ -35,21 +36,21 @@ mod raise;
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawInstr {
     /// The time label of the instruction.
-    pub time: i32,
-    pub opcode: u16,
+    pub time: raw::Time,
+    pub opcode: raw::Opcode,
     /// A mask indicating which arguments are registers, in languages that support registers.
-    pub param_mask: u16,
+    pub param_mask: raw::ParamMask,
     /// The bytes after the instruction header, exactly as they will appear in the file.
     pub args_blob: Vec<u8>,
     /// Difficulty mask.  Only used in ECL.
-    pub difficulty: u16,
+    pub difficulty: raw::DifficultyMask,
     /// Stack change arg.  Only used in modern ECL.
-    pub pop: i16,
+    pub pop: raw::StackPop,
     /// If an instruction format has an unusual thing in its instruction headers that we don't want
     /// to invent new syntax for, we can put it here to have it appear as the first instruction argument.
     ///
     /// Used by ECL timelines.
-    pub extra_arg: Option<i16>,
+    pub extra_arg: Option<raw::ExtraArg>,
 }
 
 impl RawInstr {
@@ -71,13 +72,13 @@ pub struct SimpleArg {
 
 impl SimpleArg {
     #[track_caller]
-    pub fn expect_immediate_int(&self) -> i32 {
+    pub fn expect_immediate_int(&self) -> raw::LangInt {
         assert!(!self.is_reg);
         self.expect_int()
     }
 
     #[track_caller]
-    pub fn expect_int(&self) -> i32 {
+    pub fn expect_int(&self) -> raw::LangInt {
         match self.value {
             ScalarValue::Int(x) => x,
             _ => panic!("{:?}", self),
@@ -85,7 +86,7 @@ impl SimpleArg {
     }
 
     #[track_caller]
-    pub fn expect_float(&self) -> f32 {
+    pub fn expect_float(&self) -> raw::LangFloat {
         match self.value {
             ScalarValue::Float(x) => x,
             _ => panic!("{:?}", self),
@@ -125,12 +126,12 @@ impl SimpleArg {
     }
 }
 
-impl From<i32> for SimpleArg {
-    fn from(x: i32) -> SimpleArg { SimpleArg { value: ScalarValue::Int(x), is_reg: false } }
+impl From<raw::LangInt> for SimpleArg {
+    fn from(x: raw::LangInt) -> SimpleArg { SimpleArg { value: ScalarValue::Int(x), is_reg: false } }
 }
 
-impl From<f32> for SimpleArg {
-    fn from(x: f32) -> SimpleArg { SimpleArg { value: ScalarValue::Float(x), is_reg: false } }
+impl From<raw::LangFloat> for SimpleArg {
+    fn from(x: raw::LangFloat) -> SimpleArg { SimpleArg { value: ScalarValue::Float(x), is_reg: false } }
 }
 
 impl From<String> for SimpleArg {
@@ -162,8 +163,8 @@ pub fn read_instrs(
     r: &mut BinReader,
     emitter: &impl Emitter,
     format: &dyn InstrFormat,
-    starting_offset: u64,
-    end_offset: Option<u64>,
+    starting_offset: raw::BytePos,
+    end_offset: Option<raw::BytePos>,
 ) -> ReadResult<Vec<RawInstr>> {
     let mut possible_terminal = None;
     let mut cur_offset = starting_offset;
@@ -213,7 +214,7 @@ pub fn read_instrs(
                     // since we read another instr, this previous one wasn't the terminal
                     instrs.push(prev_instr);
                 }
-                cur_offset += format.instr_size(&instr) as u64;
+                cur_offset += format.instr_size(&instr) as raw::BytePos;
 
                 if is_maybe_terminal {
                     possible_terminal = Some(instr);
@@ -285,17 +286,17 @@ pub enum IntrinsicInstrKind {
 
 #[derive(Default)]
 pub struct IntrinsicInstrs {
-    intrinsic_opcodes: HashMap<IntrinsicInstrKind, u16>,
-    opcode_intrinsics: HashMap<u16, IntrinsicInstrKind>,
+    intrinsic_opcodes: HashMap<IntrinsicInstrKind, raw::Opcode>,
+    opcode_intrinsics: HashMap<raw::Opcode, IntrinsicInstrKind>,
 }
 impl IntrinsicInstrs {
-    pub fn from_pairs(pairs: impl IntoIterator<Item=(IntrinsicInstrKind, u16)>) -> Self {
+    pub fn from_pairs(pairs: impl IntoIterator<Item=(IntrinsicInstrKind, raw::Opcode)>) -> Self {
         let intrinsic_opcodes: HashMap<_, _> = pairs.into_iter().collect();
         let opcode_intrinsics = intrinsic_opcodes.iter().map(|(&k, &v)| (v, k)).collect();
         IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes }
     }
 
-    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, Diagnostic> {
+    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<raw::Opcode, Diagnostic> {
         match self.intrinsic_opcodes.get(&intrinsic) {
             Some(&opcode) => Ok(opcode),
             None => Err(error!(
@@ -305,14 +306,14 @@ impl IntrinsicInstrs {
         }
     }
 
-    pub fn get_intrinsic(&self, opcode: u16) -> Option<IntrinsicInstrKind> {
+    pub fn get_intrinsic(&self, opcode: raw::Opcode) -> Option<IntrinsicInstrKind> {
         self.opcode_intrinsics.get(&opcode).copied()
     }
 }
 
 /// Add intrinsic pairs for binary operations in `a = b op c` form in their canonical order,
 /// which is `+, -, *, /, %`, with each operator having an int version and a float version.
-pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u16) {
+pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
     use ast::BinopKind as B;
 
     let mut opcode = start;
@@ -326,7 +327,7 @@ pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u1
 
 /// Add intrinsic pairs for assign ops in their cannonical order: `=, +=, -=, *=, /=, %=`,
 /// with each operator having an int version and a float version.
-pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u16) {
+pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
     use ast::AssignOpKind as As;
 
     let mut opcode = start;
@@ -340,7 +341,7 @@ pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u1
 
 /// Add intrinsic pairs for conditional jumps in their cannonical order: `==, !=, <, <=, >, >=`,
 /// with each operator having an int version and a float version.
-pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, u16)>, start: u16) {
+pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
     use ast::BinopKind as B;
 
     let mut opcode = start;
@@ -404,7 +405,7 @@ pub trait InstrFormat {
         IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
     }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)>;
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)>;
 
     /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).
     fn instr_header_size(&self) -> usize;
@@ -432,7 +433,7 @@ pub trait InstrFormat {
     /// This is used for ANM ins_509 which copies all variables from the parent.  (basically,
     /// a script in the middle of a `grandparent->parent->child` ancestry could be using it to
     /// communicate registers it doesn't even mention, if both `parent` and `child` are using it!)
-    fn instr_disables_scratch_regs(&self, _opcode: u16) -> bool { false }
+    fn instr_disables_scratch_regs(&self, _opcode: raw::Opcode) -> bool { false }
 
     /// Indicates that [`IntrinsicInstrKind::Jmp`] takes two arguments, where the second is time.
     ///
@@ -440,13 +441,13 @@ pub trait InstrFormat {
     fn jump_has_time_arg(&self) -> bool { true }
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
-    fn is_th06_anm_terminating_instr(&self, _opcode: u16) -> bool { false }
+    fn is_th06_anm_terminating_instr(&self, _opcode: raw::Opcode) -> bool { false }
 
     // Most formats encode labels as offsets from the beginning of the script (in which case
     // these functions are trivial), but early STD is a special snowflake that writes the
     // instruction *index* instead.
-    fn encode_label(&self, offset: u64) -> u32 { offset as _ }
-    fn decode_label(&self, bits: u32) -> u64 { bits as _ }
+    fn encode_label(&self, offset: raw::BytePos) -> u32 { offset as _ }
+    fn decode_label(&self, bits: u32) -> raw::BytePos { bits as _ }
 
     /// Helper method that returns the total instruction size, including the arguments.
     /// There should be no need to override this.
@@ -457,11 +458,11 @@ pub trait InstrFormat {
 #[derive(Debug, Clone)]
 pub struct TestFormat {
     pub language: InstrLanguage,
-    pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, u16)>,
+    pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, raw::Opcode)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
     /// For simulating the existence of an instruction like ANM `ins_509`
-    pub anti_scratch_opcode: Option<u16>,
+    pub anti_scratch_opcode: Option<raw::Opcode>,
 }
 
 impl Default for TestFormat {
@@ -479,7 +480,7 @@ impl Default for TestFormat {
 impl InstrFormat for TestFormat {
     fn language(&self) -> InstrLanguage { self.language }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
         self.intrinsic_opcode_pairs.clone()
     }
 
@@ -488,7 +489,7 @@ impl InstrFormat for TestFormat {
     fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
-    fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
+    fn instr_disables_scratch_regs(&self, opcode: raw::Opcode) -> bool {
         self.anti_scratch_opcode == Some(opcode)
     }
 
@@ -526,12 +527,12 @@ mod test_reader {
         fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
             Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))
         }
-        fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> { vec![] }
+        fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> { vec![] }
         fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("SimpleInstrReader does not implement reading or writing") }
         fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("SimpleInstrReader does not implement reading or writing")  }
     }
 
-    fn simple_instr(opcode: u16) -> RawInstr {
+    fn simple_instr(opcode: raw::Opcode) -> RawInstr {
         RawInstr { opcode, ..RawInstr::DEFAULTS }
     }
 

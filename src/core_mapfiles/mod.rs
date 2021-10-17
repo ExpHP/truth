@@ -1,5 +1,6 @@
 use ::std::collections::BTreeMap;
 
+use crate::raw;
 use crate::game::{Game, InstrLanguage};
 use crate::eclmap::Eclmap;
 
@@ -54,10 +55,10 @@ struct CoreSignatures {
     /// When converted to a mapfile, the program will run down this list and apply each item
     /// from the current game or earlier.  The presence of these "minimum game" fields allows
     /// a single [`CoreSignatures`] to be easily applied to an entire range of games.
-    ins: &'static [(Game, u16, Option<&'static str>)],
+    ins: &'static [(Game, raw::Opcode, Option<&'static str>)],
 
     /// Like [`Self::ins`] but for registers.
-    var: &'static [(Game, i32, Option<&'static str>)],
+    var: &'static [(Game, raw::Register, Option<&'static str>)],
 }
 
 impl CoreSignatures {

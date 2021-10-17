@@ -1,5 +1,6 @@
 use indexmap::{IndexMap};
 
+use crate::raw;
 use crate::ast;
 use crate::pos::Sp;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
@@ -448,7 +449,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn has_registers(&self) -> bool { true }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
         vec![] // TODO
     }
 
@@ -458,7 +459,7 @@ impl InstrFormat for InstrFormat06 {
         let time = f.read_i32()?;
         let opcode = f.read_u16()?;
         let size = f.read_u16()? as usize;
-        let difficulty = f.read_u16()?;
+        let difficulty = f.read_u16()? as raw::DifficultyMask;
         let param_mask = f.read_u16()?;  // NOTE: Even in EoSD there is space for this, but it's always 0xFFFF.
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
@@ -476,7 +477,7 @@ impl InstrFormat for InstrFormat06 {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as _)?;
-        f.write_u16(instr.difficulty)?;
+        f.write_u16(instr.difficulty as _)?;
         f.write_u16(instr.param_mask)?;
         f.write_all(&instr.args_blob)?;
         Ok(())
@@ -507,7 +508,7 @@ impl InstrFormat for TimelineInstrFormat {
 
     fn has_registers(&self) -> bool { false }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
         vec![] // TODO
     }
 
@@ -526,7 +527,7 @@ impl InstrFormat for TimelineInstrFormat {
 
         let opcode = f.read_u16()?;
         let size = f.read_u8()? as usize;
-        let difficulty = f.read_u8()? as u16;
+        let difficulty = f.read_u8()? as _;
 
         // in games with the normal-sized terminal, the size is incorrectly 0, so check before reading args
         if !self.has_short_terminal() && (time, arg_0, opcode, size, difficulty) == (-1, -1, 0, 0, 0) {

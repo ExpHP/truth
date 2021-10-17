@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::raw;
 use crate::resolve::{DefId, RegId, NodeId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
@@ -39,13 +40,13 @@ pub enum Item {
     },
     AnmScript {
         keyword: TokenSpan,
-        number: Option<Sp<i32>>,
+        number: Option<Sp<raw::LangInt>>,
         ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
         code: Block,
     },
     Timeline {
         keyword: TokenSpan,
-        number: Sp<i32>,
+        number: Sp<raw::LangInt>,
         code: Block,
     },
     Meta {
@@ -178,22 +179,22 @@ pub enum StmtBody {
     },
 
     /// An interrupt label: `interrupt[2]:`.
-    InterruptLabel(Sp<i32>),
+    InterruptLabel(Sp<raw::LangInt>),
 
     /// An absolute time label: `30:` or `-30:`.
-    AbsTimeLabel(Sp<i32>),
+    AbsTimeLabel(Sp<raw::LangInt>),
 
     /// A relative time label: `+30:`.  This value cannot be negative.
     RelTimeLabel {
-        delta: Sp<i32>,
+        delta: Sp<raw::LangInt>,
         // This is used during decompilation ONLY, in order to allow the code formatter to
         // write `//` comments with the total time on these labels without having to perform
         // its own semantic analysis.
-        _absolute_time_comment: Option<i32>,
+        _absolute_time_comment: Option<raw::LangInt>,
     },
 
     /// A difficulty label: `difficulty[0b11111111]:`.  (syntax WIP)
-    RawDifficultyLabel(Sp<i32>),
+    RawDifficultyLabel(Sp<raw::LangInt>),
 
     /// A label `label:` that can be jumped to.
     Label(Sp<Ident>),
@@ -247,7 +248,7 @@ impl StmtBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtGoto {
     pub destination: Sp<Ident>,
-    pub time: Option<Sp<i32>>,
+    pub time: Option<Sp<raw::LangInt>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -389,12 +390,12 @@ pub enum Expr {
     },
     Unop(Sp<UnopKind>, Box<Sp<Expr>>),
     LitInt {
-        value: i32,
+        value: raw::LangInt,
         /// A hint to the formatter on how it should write the integer.
         /// (may not necessarily represent the original radix of a parsed token)
         radix: IntRadix,
     },
-    LitFloat { value: f32 },
+    LitFloat { value: raw::LangFloat },
     LitString(LitString),
     Var(Sp<Var>),
 }
@@ -588,21 +589,21 @@ string_enum! {
     }
 }
 
-impl From<i32> for Expr {
-    fn from(value: i32) -> Expr { Expr::LitInt { value, radix: IntRadix::Dec } }
+impl From<raw::LangInt> for Expr {
+    fn from(value: raw::LangInt) -> Expr { Expr::LitInt { value, radix: IntRadix::Dec } }
 }
-impl From<f32> for Expr {
-    fn from(value: f32) -> Expr { Expr::LitFloat { value } }
+impl From<raw::LangFloat> for Expr {
+    fn from(value: raw::LangFloat) -> Expr { Expr::LitFloat { value } }
 }
 impl From<String> for Expr {
     fn from(string: String) -> Expr { Expr::LitString(LitString { string }) }
 }
 
-impl From<Sp<i32>> for Sp<Expr> {
-    fn from(num: Sp<i32>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
+impl From<Sp<raw::LangInt>> for Sp<Expr> {
+    fn from(num: Sp<raw::LangInt>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
 }
-impl From<Sp<f32>> for Sp<Expr> {
-    fn from(num: Sp<f32>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
+impl From<Sp<raw::LangFloat>> for Sp<Expr> {
+    fn from(num: Sp<raw::LangFloat>) -> Sp<Expr> { sp!(num.span => Expr::from(num.value)) }
 }
 impl From<Sp<Var>> for Sp<Expr> {
     fn from(var: Sp<Var>) -> Sp<Expr> { sp!(var.span => Expr::Var(var)) }

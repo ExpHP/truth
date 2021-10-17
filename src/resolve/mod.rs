@@ -2,6 +2,7 @@ use std::fmt;
 use std::num::NonZeroU32;
 use std::collections::HashMap;
 
+use crate::raw;
 use crate::game::InstrLanguage;
 use crate::ident::{Ident, ResIdent};
 use crate::context::CompilerContext;
@@ -60,10 +61,10 @@ pub struct DefId(pub NonZeroU32);
 ///
 /// For instance, in TH17 ECL, the `TIME` register has an id of `-9988`.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RegId(pub i32);
+pub struct RegId(pub raw::Register);
 
-impl From<i32> for RegId {
-    fn from(x: i32) -> Self { RegId(x) }
+impl From<raw::Register> for RegId {
+    fn from(x: raw::Register) -> Self { RegId(x) }
 }
 
 /// Identifies a scope in which a set of names are visible.

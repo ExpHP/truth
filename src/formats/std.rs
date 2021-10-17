@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 
+use crate::raw;
 use crate::ast;
 use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
@@ -708,7 +709,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn has_registers(&self) -> bool { false }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
         if Game::Th07 <= self.game && self.game <= Game::Th09 {
             vec![
                 (llir::IntrinsicInstrKind::Jmp, 4),
@@ -731,7 +732,7 @@ impl InstrFormat for InstrFormat06 {
         assert_eq!(argsize, 12);  // FIXME make error if < 12, warning if > 12
 
         let args_blob = f.read_byte_vec(12)?;
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as _, param_mask: 0, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {

@@ -1,5 +1,6 @@
 use std::collections::{HashMap};
 
+use crate::raw;
 use super::{unsupported, SimpleArg};
 use crate::llir::{RawInstr, InstrFormat, ArgEncoding, TimelineArgKind, ScalarType};
 use crate::diagnostic::Emitter;
@@ -23,7 +24,7 @@ enum LowerStmt {
     /// Represents a single instruction in the compiled file.
     Instr(LowerInstr),
     /// An intrinsic that represents a label that can be jumped to.
-    Label { time: i32, label: Sp<Ident> },
+    Label { time: raw::Time, label: Sp<Ident> },
     /// An intrinsic that begins the scope of a register-allocated local.
     RegAlloc { def_id: DefId, cause: Span },
     /// An intrinsic that ends the scope of a register-allocated local.
@@ -33,12 +34,12 @@ enum LowerStmt {
 /// An instruction that needs just a bit more postprocessing to convert it into a [`RawInstr`].
 #[derive(Debug, Clone, PartialEq)]
 struct LowerInstr {
-    time: i32,
-    opcode: u16,
+    time: raw::Time,
+    opcode: raw::Opcode,
     /// Value provided by user via an explicit `@arg0=`.
-    extra_arg: Option<i16>,
+    explicit_extra_arg: Option<raw::ExtraArg>,
     /// Value provided by user via `@mask=`, which will override the automatically-computed param mask.
-    user_param_mask: Option<u16>,
+    user_param_mask: Option<raw::ParamMask>,
     /// Mask of enabled difficulties.
     // difficulty_mask: u8,
     args: LowerArgs,
@@ -123,14 +124,14 @@ pub fn lower_sub_ast_to_instrs(
 
 type LabelInfoMap = HashMap<Sp<Ident>, RawLabelInfo>;
 struct RawLabelInfo {
-    time: i32,
-    offset: u64,
+    time: raw::Time,
+    offset: raw::BytePos,
 }
 
 /// A quick pass near the end of a subroutine's compilation that collects the offsets of all labels.
 fn gather_label_info(
     format: &dyn InstrFormat,
-    initial_offset: u64,
+    initial_offset: raw::BytePos,
     code: &[LowerStmt],
     defs: &context::Defs,
     emitter: &context::RootEmitter,
@@ -229,7 +230,7 @@ fn encode_labels(
 ///
 /// This preserves the number of bytes in the written instruction.
 fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
-    let &LowerInstr { time, opcode, user_param_mask, extra_arg, ref args } = instr;
+    let &LowerInstr { time, opcode, user_param_mask, explicit_extra_arg: extra_arg, ref args } = instr;
     let new_args = match args {
         LowerArgs::Unknown(blob) => LowerArgs::Unknown(blob.clone()),
         LowerArgs::Known(args) => LowerArgs::Known(args.iter().map(|arg| match arg.value {
@@ -243,7 +244,7 @@ fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
             | LowerArg::Raw(_) => arg.clone(),
         }).collect())
     };
-    LowerInstr { time, opcode, user_param_mask, extra_arg, args: new_args }
+    LowerInstr { time, opcode, user_param_mask, explicit_extra_arg: extra_arg, args: new_args }
 }
 
 // =============================================================================
@@ -280,7 +281,7 @@ fn encode_args(
                 opcode: instr.opcode,
                 param_mask: instr.user_param_mask.unwrap_or(0),
                 args_blob: blob.value.clone(),
-                extra_arg: instr.extra_arg,
+                extra_arg: instr.explicit_extra_arg,
                 // TODO: ECL pseudo-args whose semantics are not yet implemented
                 difficulty: 0, pop: 0,
             });
@@ -307,7 +308,7 @@ fn encode_args(
     let mut args_iter = args.iter().peekable();
 
     // handle timeline first argument; this may come from @arg0 or the first standard argument
-    let mut extra_arg = instr.extra_arg;
+    let mut extra_arg = instr.explicit_extra_arg;
     match arg_encodings_iter.peek() {
         Some(&ArgEncoding::TimelineArg(TimelineArgKind::Unused)) => {
             arg_encodings_iter.next(); // consume it
@@ -407,17 +408,17 @@ fn encode_args(
     })
 }
 
-fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &impl Emitter) -> Result<u16, ErrorReported> {
-    if args.len() > 16 {
+fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &impl Emitter) -> Result<raw::ParamMask, ErrorReported> {
+    if args.len() > raw::ParamMask::BITS as _ {
         return Err(emitter.emit(error!(
             message("too many arguments in instruction!"),
-            primary(args[16], "too many arguments"),
+            primary(args[raw::ParamMask::BITS as usize], "too many arguments"),
         )));
     }
     let mut mask = 0;
     for arg in args.iter().rev(){
         let bit = match &arg.value {
-            LowerArg::Raw(raw) => raw.is_reg as u16,
+            LowerArg::Raw(raw) => raw.is_reg as raw::ParamMask,
             LowerArg::TimeOf { .. } |
             LowerArg::Label { .. } => 0,
             LowerArg::Local { .. } => 1,

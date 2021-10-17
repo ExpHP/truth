@@ -32,6 +32,8 @@ pub mod passes;
 pub use ident::{Ident, ParseIdentError};
 pub mod ident;
 
+pub mod raw;
+
 pub use formats::anm::{self, AnmFile};
 pub use formats::msg::{self, MsgFile};
 pub use formats::mission::{self, MissionMsgFile};

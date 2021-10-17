@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use enum_map::EnumMap;
 use indexmap::{IndexSet, IndexMap};
 
+use crate::raw;
 use crate::ast;
 use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
@@ -1676,7 +1677,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn has_registers(&self) -> bool { false }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
         vec![
             (IntrinsicInstrKind::Jmp, 5),
             (IntrinsicInstrKind::InterruptLabel, 22),
@@ -1714,7 +1715,7 @@ impl InstrFormat for InstrFormat06 {
 
     fn jump_has_time_arg(&self) -> bool { false }
 
-    fn is_th06_anm_terminating_instr(&self, opcode: u16) -> bool {
+    fn is_th06_anm_terminating_instr(&self, opcode: raw::Opcode) -> bool {
         // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
         // Basically, the first `delete` or `static` marks the end of the script.
         opcode == 0 || opcode == 15
@@ -1730,7 +1731,7 @@ impl InstrFormat for InstrFormat07 {
 
     fn has_registers(&self) -> bool { true }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, u16)> {
+    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
         use IntrinsicInstrKind as I;
 
         match self.version {
@@ -1808,18 +1809,18 @@ impl InstrFormat for InstrFormat07 {
             return Ok(ReadInstr::Terminal);
         }
 
-        let time = f.read_i16()? as i32;
+        let time = f.read_i16()? as _;
         let param_mask = f.read_u16()?;
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
-        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as u16, param_mask, args_blob, ..RawInstr::DEFAULTS }))
+        Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as _, param_mask, args_blob, ..RawInstr::DEFAULTS }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_u16(instr.opcode)?;
-        f.write_u16(self.instr_size(instr) as u16)?;
-        f.write_i16(instr.time as i16)?;
-        f.write_u16(instr.param_mask as u16)?;
+        f.write_u16(self.instr_size(instr) as _)?;
+        f.write_i16(instr.time as _)?;
+        f.write_u16(instr.param_mask as _)?;
         f.write_all(&instr.args_blob)?;
         Ok(())
     }

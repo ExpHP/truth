@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::raw;
 use crate::ast::{self, pseudo};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
@@ -33,9 +34,9 @@ impl Default for DecompileOptions {
 
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
-    time: i32,
-    difficulty_mask: u8,
-    opcode: u16,
+    time: raw::Time,
+    difficulty_mask: raw::DifficultyMask,
+    opcode: raw::Opcode,
     args: RaiseArgs,
 }
 
@@ -47,8 +48,8 @@ enum RaiseArgs {
 }
 
 struct UnknownArgsData {
-    param_mask: u16,
-    extra_arg: Option<i16>,
+    param_mask: raw::ParamMask,
+    extra_arg: Option<raw::ExtraArg>,
     blob: Vec<u8>,
 }
 
@@ -592,7 +593,7 @@ impl Raiser<'_> {
         Ok(RaiseInstr {
             time: instr.time,
             opcode: instr.opcode,
-            difficulty_mask: std::convert::TryInto::try_into(instr.difficulty).unwrap(),  // FIXME type disagreement
+            difficulty_mask: instr.difficulty,
             args: RaiseArgs::Unknown(UnknownArgsData {
                 param_mask: instr.param_mask,
                 extra_arg: instr.extra_arg,
@@ -692,7 +693,7 @@ fn decode_args_with_abi(
     Ok(RaiseInstr {
         time: instr.time,
         opcode: instr.opcode,
-        difficulty_mask: std::convert::TryInto::try_into(instr.difficulty).unwrap(),  // FIXME type disagreement
+        difficulty_mask: instr.difficulty,
         args: RaiseArgs::Decoded(args),
     })
 }
@@ -711,13 +712,13 @@ const DEFAULT_DIFFICULTY: u8 = 0xFF;
 
 /// Emits time and difficulty labels from an instruction stream.
 struct LabelEmitter<'a> {
-    prev_time: i32,
-    prev_difficulty: u8,
-    offset_labels: &'a BTreeMap<u64, Label>,
+    prev_time: raw::Time,
+    prev_difficulty: raw::DifficultyMask,
+    offset_labels: &'a BTreeMap<raw::BytePos, Label>,
 }
 
 impl<'a> LabelEmitter<'a> {
-    fn new(offset_labels: &'a BTreeMap<u64, Label>) -> Self {
+    fn new(offset_labels: &'a BTreeMap<raw::BytePos, Label>) -> Self {
         LabelEmitter {
             prev_time: 0,
             prev_difficulty: DEFAULT_DIFFICULTY,
@@ -725,13 +726,13 @@ impl<'a> LabelEmitter<'a> {
         }
     }
 
-    fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: u64, time: i32, difficulty: u8) {
+    fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask) {
         // self.emit_difficulty_labels(out, difficulty);  // FIXME uncomment
         self.emit_offset_and_time_labels(out, offset, time);
     }
 
     // emit both labels like "label_354:" and "+24:"
-    fn emit_offset_and_time_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: u64, time: i32) {
+    fn emit_offset_and_time_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time) {
         // in the current implementation there is at most one regular label at this offset, which
         // may be before or after a relative time jump.
         let mut offset_label = self.offset_labels.get(&offset);

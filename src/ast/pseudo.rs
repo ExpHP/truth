@@ -1,16 +1,17 @@
 //! Pseudo-arguments; special "arguments" that can be used on instructions that
 //! directly set parts of the raw format.
 
+use crate::raw;
 use crate::ast;
 use crate::pos::Sp;
 use crate::diagnostic::Diagnostic;
 
 /// A normalized form of the pseudo-args in an instruction call.
 pub struct PseudoArgData {
-    pub param_mask: Option<Sp<u16>>,
+    pub param_mask: Option<Sp<raw::ParamMask>>,
     pub blob: Option<Sp<Vec<u8>>>,
-    pub pop: Option<Sp<i16>>,
-    pub extra_arg: Option<Sp<i16>>,
+    pub pop: Option<Sp<raw::StackPop>>,
+    pub extra_arg: Option<Sp<raw::ExtraArg>>,
 }
 
 impl PseudoArgData {

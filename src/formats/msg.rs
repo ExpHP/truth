@@ -608,7 +608,7 @@ impl InstrFormat for InstrFormat06 {
         let opcode = f.read_i8()?;
         let argsize = f.read_u8()?;
         let args_blob = f.read_byte_vec(argsize as usize)?;
-        let instr = RawInstr { time: time as i32, opcode: opcode as u16, param_mask: 0, args_blob, ..RawInstr::DEFAULTS };
+        let instr = RawInstr { time: time.into(), opcode: opcode as _, param_mask: 0, args_blob, ..RawInstr::DEFAULTS };
 
         // eprintln!("pos: {:#06x} - time: {:#06x} opcode: {:#04x} argsize: {:#04x} args: {:02x?}", pos, time as u16, opcode as u8, argsize, args_blob);
         if (time, opcode, argsize) == (0, 0, 0) {
