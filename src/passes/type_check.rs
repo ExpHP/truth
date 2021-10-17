@@ -1,6 +1,6 @@
 //! Performs type-checking on the whole AST.
 //!
-//! Requires [name resolution](`crate::passes::resolve_names`).
+//! Requires [name resolution](`crate::passes::resolution`).
 //!
 //! The purpose of this pass is to serve as the answer to the question, "when do we generate an
 //! error about this?"  Ideally, all errors that can be classified as type errors are reported

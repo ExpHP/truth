@@ -6,7 +6,7 @@ use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
-use crate::resolve::{RegId};
+use crate::resolve::{RegId, UnusedNodeIds};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi};
@@ -84,8 +84,12 @@ impl<'a> Raiser<'a> {
         emitter: &dyn Emitter,
         raw_script: &[RawInstr],
         defs: &Defs,
+        unused_node_ids: &UnusedNodeIds,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        Ok(ast::add_time_labels_from_time_fields(0, raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?))
+        let stmts = raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?;
+        let mut stmts = ast::add_time_labels_from_time_fields(0, stmts);
+        crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &unused_node_ids)?;
+        Ok(stmts)
     }
 
     pub fn generate_warnings(&mut self) {
@@ -148,6 +152,7 @@ fn raise_instrs_to_sub_ast(
         node_id: None,
         body: ast::StmtBody::NoInstruction,
     }));
+
     Ok(out)
 }
 

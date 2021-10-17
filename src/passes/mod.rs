@@ -7,7 +7,7 @@ pub mod const_simplify;
 pub mod unused_labels;
 pub mod desugar_blocks;
 pub mod decompile_loop;
-pub mod resolve_names;
+pub mod resolution;
 pub mod type_check;
 pub mod debug {
     //! Passes that exist for **debugging/testing purposes only.**
@@ -32,14 +32,14 @@ pub mod evaluate_const_vars {
 /// Run decompilation passes common to all languages.
 pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
     script: &mut V,
-    ctx: &CompilerContext,
+    ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<(), ErrorReported> {
-    resolve_names::raw_to_aliases(script, ctx)?;
+    resolution::raw_to_aliases(script, ctx)?;
 
     if decompile_options.blocks {
-        decompile_loop::decompile_if_else(script)?;
-        decompile_loop::decompile_loop(script)?;
+        decompile_loop::decompile_if_else(script, ctx)?;
+        decompile_loop::decompile_loop(script, ctx)?;
         unused_labels::run(script)?;
     }
 

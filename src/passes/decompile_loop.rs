@@ -8,17 +8,18 @@ use crate::error::ErrorReported;
 use crate::ast::{self, VisitMut};
 use crate::ident::Ident;
 use crate::pos::Sp;
+use crate::context::CompilerContext;
 
 /// Decompiles `if { ... } else if { ... } else { ... }` chains.
-pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReported> {
-    let mut visitor = IfElseVisitor { label_refcounts_stack: vec![] };
+pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut visitor = IfElseVisitor { label_refcounts_stack: vec![], ctx };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
 
 /// Decompiles `loop { ... }` and `do { ... } while (<cond>)`.
-pub fn decompile_loop<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReported> {
-    let mut visitor = LoopVisitor { label_refcounts_stack: vec![] };
+pub fn decompile_loop<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut visitor = LoopVisitor { label_refcounts_stack: vec![], ctx };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
@@ -26,12 +27,13 @@ pub fn decompile_loop<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReporte
 // =============================================================================
 // if-else decompilation
 
-struct IfElseVisitor {
+struct IfElseVisitor<'a, 'ctx> {
     // whole-function-body label refcounts at the beginning of the procedure
     label_refcounts_stack: Vec<HashMap<Ident, u32>>,
+    ctx: &'a mut CompilerContext<'ctx>,
 }
 
-impl VisitMut for IfElseVisitor {
+impl VisitMut for IfElseVisitor<'_, '_> {
     fn visit_root_block(&mut self, block: &mut ast::Block) {
         self.label_refcounts_stack.push(get_label_refcounts(&block.0));
         self.visit_block(block);
@@ -103,7 +105,7 @@ impl VisitMut for IfElseVisitor {
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
                     new_stmts.push(sp!(span => ast::Stmt {
                         time: cond_chain.cond_blocks[0].block.0[0].time,
-                        node_id: None,
+                        node_id: Some(self.ctx.next_node_id()),
                         body: ast::StmtBody::CondChain(cond_chain),
                     }));
                 },
@@ -295,12 +297,13 @@ fn get_interrupt_label_indices(stmts: &[Sp<ast::Stmt>]) -> Vec<usize> {
 
 // =============================================================================
 
-struct LoopVisitor {
+struct LoopVisitor<'a, 'ctx> {
     // whole-function-body label refcounts at the beginning of the procedure
     label_refcounts_stack: Vec<HashMap<Ident, u32>>,
+    ctx: &'a mut CompilerContext<'ctx>,
 }
 
-impl VisitMut for LoopVisitor {
+impl VisitMut for LoopVisitor<'_, '_> {
     fn visit_root_block(&mut self, block: &mut ast::Block) {
         self.label_refcounts_stack.push(get_label_refcounts(&block.0));
         self.visit_block(block);
@@ -317,7 +320,7 @@ impl VisitMut for LoopVisitor {
         while let Some(last_stmt) = outer_stmts.0.last() {
             match JmpInfo::from_stmt(&last_stmt, &label_info) {
                 Some(JmpInfo { kind: jmp_kind, dest, time_arg: None, .. }) => {
-                    let did_decompile = maybe_decompile_jump(outer_stmts, &mut reversed_out, &interrupt_label_indices, dest, jmp_kind);
+                    let did_decompile = maybe_decompile_jump(self.ctx, outer_stmts, &mut reversed_out, &interrupt_label_indices, dest, jmp_kind);
                     if did_decompile { continue; }
                 },
                 _ => {},
@@ -334,6 +337,7 @@ impl VisitMut for LoopVisitor {
 }
 
 fn maybe_decompile_jump(
+    ctx: &mut CompilerContext<'_>,
     outer_stmts: &mut ast::Block,
     reversed_out: &mut Vec<Sp<ast::Stmt>>,
     interrupt_label_indices: &[usize],
@@ -360,7 +364,7 @@ fn maybe_decompile_jump(
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
         time: new_block.start_time(),
-        node_id: None,
+        node_id: Some(ctx.next_node_id()),
         body: jmp_kind.make_loop(new_block),
     }));
     // suppress the default behavior of popping the next item

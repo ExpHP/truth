@@ -67,8 +67,8 @@ where
     let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap();
 
     let ctx = truth.ctx();
-    crate::passes::resolve_names::assign_languages(&mut parsed, InstrLanguage::Ecl, ctx).unwrap();
-    match crate::passes::resolve_names::run(&parsed, ctx) {
+    crate::passes::resolution::assign_languages(&mut parsed, InstrLanguage::Ecl, ctx).unwrap();
+    match crate::passes::resolution::resolve_names(&parsed, ctx) {
         Ok(()) => Ok(parsed),
         Err(e) => {
             e.ignore();
@@ -559,5 +559,5 @@ fn panics_on_cloned_res() {
     let ctx = truth.ctx();
     let block = ast::Block(vec![def, cloned.clone(), cloned]);
 
-    crate::passes::resolve_names::run(&block, ctx).unwrap();
+    crate::passes::resolution::resolve_names(&block, ctx).unwrap();
 }

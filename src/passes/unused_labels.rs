@@ -83,7 +83,7 @@ mod tests {
 
         let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap();
         let ctx = truth.ctx();
-        crate::passes::resolve_names::run(&parsed, ctx).unwrap();
+        crate::passes::resolution::resolve_names(&parsed, ctx).unwrap();
         crate::passes::unused_labels::run(&mut parsed).unwrap();
 
         parsed.value

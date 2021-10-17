@@ -199,7 +199,7 @@ fn decompile(
         fields: sp!(sparse_script_table.make_meta()),
     })];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
-        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?;
+        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?;
 
         Ok(sp!(ast::Item::AnmScript {
             number: None,
@@ -273,8 +273,8 @@ fn compile(
     let ast = {
         let mut ast = ast.clone();
 
-        crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
-        crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::resolution::assign_languages(&mut ast, instr_format.language(), ctx)?;
+        crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;

@@ -10,10 +10,10 @@ use crate::pos::Sp;
 ///
 /// This is a wrapper around [`Ident`] which additionally has room for a [`ResId`].  This ID
 /// allows name resolution information (i.e. a [`DefId`]) to be recovered once the
-/// [name resolution][`crate::passes::resolve_names`] pass has been run.
+/// [name resolution][`crate::passes::resolution`] pass has been run.
 ///
 /// Note that the [`ResId`] will initially be null after parsing the ident; it is necessary
-/// to call [`crate::passes::resolve_names::assign_res_ids`] to fill it in.
+/// to call [`crate::passes::resolution::assign_res_ids`] to fill it in.
 ///
 /// # Identifier syntax
 ///

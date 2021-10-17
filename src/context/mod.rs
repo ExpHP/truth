@@ -3,9 +3,8 @@
 use std::path::PathBuf;
 
 use crate::ident::GensymContext;
-use crate::resolve::Resolutions;
+use crate::resolve::{Resolutions, UnusedNodeIds};
 use crate::resolve::rib::Rib;
-use crate::resolve::NodeId;
 
 pub use defs::Defs;
 pub mod defs;
@@ -42,7 +41,7 @@ pub use crate::diagnostic::RootEmitter;
 /// There have been numerous instances of things in the past which appeared that they may require breaking
 /// this rule, but it has always been found possible to make concessions in favor of keeping this separation.
 /// (e.g. [`llir::RawInstr`] holds an args blob so that reading/writing doesn't require signatures.
-/// [`crate::passes::resolve_names::assign_res_ids`] allows the parser to not require `Resolutions`, and
+/// [`crate::passes::resolution::assign_res_ids`] allows the parser to not require `Resolutions`, and
 /// [`crate::passes::debug::make_idents_unique`] does the same for the formatter)
 #[derive(Debug)]
 pub struct CompilerContext<'ctx> {
@@ -64,8 +63,9 @@ pub struct CompilerContext<'ctx> {
     /// The location where any data behind a `&'ctx` reference is *actually* stored.
     _scope: &'ctx Scope,
 
-    /// Next unused node ID for new AST nodes.
-    next_node_id: NodeId,
+    /// [`CompilerContext::next_node_id`] is usually more convenient but this is public for
+    /// when you can't call that.
+    pub unused_node_ids: UnusedNodeIds,
 
     // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
     // may eventually have AST nodes inside a struct inside a RefCell), so let's force this constraint now.
@@ -83,7 +83,7 @@ impl<'ctx> CompilerContext<'ctx> {
             consts: Default::default(),
             initial_ribs: Default::default(),
             _scope: scope,
-            next_node_id: NodeId(std::num::NonZeroU32::new(1).unwrap()),
+            unused_node_ids: UnusedNodeIds::new(),
             _make_invariant: Default::default(),
         }
     }

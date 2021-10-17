@@ -4,7 +4,7 @@ use crate::error::ErrorReported;
 use crate::ast::{self, VisitMut};
 use crate::pos::{Sp, Span};
 use crate::ident::Ident;
-use crate::resolve::{DefId, Resolutions};
+use crate::resolve::{DefId, Resolutions, UnusedNodeIds};
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
 
@@ -19,11 +19,16 @@ pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Res
 
     let mut visitor = Visitor { ctx };
     ast.visit_mut_with(&mut visitor);
+
+    // FIXME: currently needed because the macros leave out a bunch of NodeIds, but once we get rid of
+    //        Stmt.time we might not need those macros
+    crate::passes::resolution::fill_missing_node_ids(ast, &ctx.unused_node_ids)?;
+
     Ok(())
 }
 
 fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
-    let mut v = InsertLocalScopeEndsVisitor { resolutions: &ctx.resolutions, stack: vec![] };
+    let mut v = InsertLocalScopeEndsVisitor { resolutions: &ctx.resolutions, stack: vec![], unused_node_ids: &ctx.unused_node_ids };
     ast.visit_mut_with(&mut v);
     Ok(())
 }
@@ -35,6 +40,7 @@ fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'
 /// after block desugaring.
 struct InsertLocalScopeEndsVisitor<'a> {
     resolutions: &'a Resolutions,
+    unused_node_ids: &'a UnusedNodeIds,
     stack: Vec<BlockState>,
 }
 
@@ -58,7 +64,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             let span = x.last_stmt().span.end_span();
             x.0.push(sp!(span => ast::Stmt {
                 time: x.end_time(),
-                node_id: None,
+                node_id: Some(self.unused_node_ids.next()),
                 body: ast::StmtBody::ScopeEnd(def_id),
             }));
         }
@@ -140,7 +146,7 @@ impl Desugarer<'_, '_> {
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 time: outer_time,
-                                node_id: None,
+                                node_id: Some(self.ctx.next_node_id()),
                                 body: ast::StmtBody::Declaration {
                                     ty_keyword: sp!(count.span => token![int]),
                                     vars: vec![sp!(count.span => (var.clone(), None))]
@@ -157,7 +163,7 @@ impl Desugarer<'_, '_> {
                     if let Some(def_id) = temp_def {
                         self.out.push(sp!(end_span => ast::Stmt {
                             time: end_time,
-                            node_id: None,
+                            node_id: Some(self.ctx.next_node_id()),
                             body: ast::StmtBody::ScopeEnd(def_id),
                         }));
                     }
@@ -302,9 +308,11 @@ mod tests {
                 ctx.define_global_reg_alias(Dummy, reg, name.parse().unwrap());
                 ctx.set_reg_ty(Dummy, reg, ty.into());
             }
-            crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, &mut ctx).unwrap();
-            crate::passes::resolve_names::run(&ast.value, &mut ctx).unwrap();
-            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
+            crate::passes::resolution::assign_languages(&mut ast.value, Dummy, &mut ctx).unwrap();
+            crate::passes::resolution::resolve_names(&ast.value, &mut ctx).unwrap();
+            crate::passes::resolution::aliases_to_raw(&mut ast.value, &mut ctx).unwrap();
+
+            println!("{:#?}", ast.0);
 
             let mut vm_before = AstVm::new().with_max_iterations(1000);
             vm_before.run(&ast.0, &ctx);

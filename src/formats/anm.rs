@@ -466,7 +466,7 @@ fn decompile(
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
             let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
-                raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)
+                raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)
             })?;
 
             items.push(sp!(ast::Item::AnmScript {
@@ -812,7 +812,7 @@ fn compile(
     let instr_format = format.instr_format();
 
     let mut ast = ast.clone();
-    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
+    crate::passes::resolution::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     define_color_format_consts(ctx);
 
@@ -831,7 +831,7 @@ fn compile(
     // preprocess
     let ast = {
         let mut ast = ast;
-        crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::type_check::extra_checks(&extra_type_checks, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;

@@ -105,8 +105,8 @@ impl Truth<'_> {
         A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
             .map_err(|e| self.emit(e))
             .and_then(|mut ast| {
-                self.ctx.fill_missing_node_ids(&mut ast);
-                crate::passes::resolve_names::assign_res_ids(&mut ast, &mut self.ctx)?;
+                crate::passes::resolution::fill_missing_node_ids(&mut ast, &self.ctx.unused_node_ids)?;
+                crate::passes::resolution::assign_res_ids(&mut ast, &mut self.ctx)?;
                 Ok(ast)
             })
     }

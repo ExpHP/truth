@@ -62,7 +62,7 @@ fn decompile(
             keyword: sp!(()),
             number: sp!(index as i32),
             code: ast::Block({
-                timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?
+                timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
             }),
         }));
     }
@@ -75,7 +75,7 @@ fn decompile(
             ident: sp!(ResIdent::new_null(ident.clone())),
             params: vec![],
             code: Some(ast::Block({
-                sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs)?
+                sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
             })),
         }));
     }
@@ -100,7 +100,7 @@ fn compile(
     let timeline_format = format.timeline_format();
 
     let mut ast = ast.clone();
-    crate::passes::resolve_names::assign_languages(&mut ast, instr_format.language(), ctx)?;
+    crate::passes::resolution::assign_languages(&mut ast, instr_format.language(), ctx)?;
 
     // an early pass to define global constants for sub names
     let sub_ids = gather_sub_ids(&ast, ctx)?;
@@ -112,7 +112,7 @@ fn compile(
     // preprocess
     let ast = {
         let mut ast = ast;
-        crate::passes::resolve_names::run(&ast, ctx)?;
+        crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;

@@ -25,7 +25,7 @@ pub type IdMap<K, V> = HashMap<K, V>; // probably want to get FxHashMap
 ///
 /// All [`NodeId`]s in the AST are [`Option`]s.  These can be set to `None` during the initial construction of
 /// an AST fragment (e.g. during parsing), but should be reassigned as soon as the fragment is complete by calling
-/// either [`CompilerContext::fill_missing_node_ids`] or [`CompilerContext::refresh_node_ids`].
+/// either [`crate::passes::resolution::fill_missing_node_ids`] or [`crate::passes::resolution::refresh_node_ids`].
 ///
 /// When duplicating an AST node (for instance, inlining a function body or unrolling a loop), the copy should be
 /// reassigned new [`NodeId`]s using [`CompilerContext::refresh_node_ids`].
@@ -39,12 +39,12 @@ pub struct NodeId(pub NonZeroU32);
 ///
 /// # Uniqueness
 ///
-/// [`ResId`]s must be unique within any AST node that the [name resolution pass][`crate::passes::resolve_names::run`]
+/// [`ResId`]s must be unique within any AST node that the [name resolution pass][`crate::passes::resolution::resolve_names`]
 /// is called on, but after that, they can be freely copied around; all copies will continue referring to the
 /// same definition.
 ///
 /// There is not necessarily any association between the value of a [`ResId`] and a [`NodeId`].
-/// [`CompilerContext::refresh_node_ids`] will reassign the latter, but not the former.
+/// [`crate::passes::resolution::refresh_node_ids`] will reassign the latter, but not the former.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResId(pub NonZeroU32);
 
@@ -88,6 +88,30 @@ impl Namespace {
             (Namespace::Vars, None) => format!("variable"),
             (Namespace::Funcs, None) => format!("function"),
         }
+    }
+}
+
+/// Node ID allocator.
+///
+/// This can't be passed between threads, but uses internal mutability
+/// as the single-threadedness eliminates most bugs related to misuse.
+#[derive(Debug)]
+pub struct UnusedNodeIds {
+    next: std::cell::Cell<u32>,
+    _explicitly_single_threaded: std::marker::PhantomData<*mut ()>,
+}
+
+impl UnusedNodeIds {
+    pub fn new() -> Self {
+        UnusedNodeIds {
+            next: 1.into(),
+            _explicitly_single_threaded: Default::default(),
+        }
+    }
+
+    pub fn next(&self) -> NodeId {
+        self.next.set(self.next.get().checked_add(1).expect("too many node ids!"));
+        NodeId(std::num::NonZeroU32::new(self.next.get() - 1).unwrap())
     }
 }
 
@@ -139,7 +163,7 @@ mod resolve_vars {
     use super::rib::{RibKind, RibStacks};
 
     /// Visitor that performs name resolution. Please don't use this directly,
-    /// but instead call [`crate::passes::resolve_names::run`].
+    /// but instead call [`crate::passes::resolution::resolve_names`].
     ///
     /// The way it works is by visiting AST nodes in a particular order based on what ought to
     /// be in scope at any given point in the graph.

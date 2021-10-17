@@ -15,7 +15,7 @@ use crate::value::ScalarValue;
 /// past the last statement or hits a return.
 ///
 /// **Important:** The VM has no interaction with the type system.  This means that it cannot resolve
-/// aliases of registers; you should [convert them to raw registers](`crate::passes::resolve_names::aliases_to_regs`)
+/// aliases of registers; you should [convert them to raw registers](`crate::passes::resolution::aliases_to_regs`)
 /// as a preprocessing step before using the VM.
 #[derive(Debug, Clone)]
 pub struct AstVm {
@@ -122,7 +122,7 @@ impl AstVm {
     /// Run the statements until it hits the end or a `return`.  Returns the `return`ed value.
     ///
     /// **Important reminder:** Please be certain that name resolution has been performed, and that
-    /// additionally all register aliases have been [converted to raw registers](`crate::passes::resolve_names::aliases_to_regs`).
+    /// additionally all register aliases have been [converted to raw registers](`crate::passes::resolution::aliases_to_regs`).
     pub fn run(&mut self, stmts: &[Sp<ast::Stmt>], ctx: &CompilerContext<'_>) -> Option<ScalarValue> {
         let stmt_data = time_and_difficulty::run(stmts, ctx).expect("unexpected analysis failure");
         match self._run(stmts, &ctx.resolutions, &stmt_data) {
@@ -476,9 +476,9 @@ mod tests {
                 ctx.define_global_reg_alias(Dummy, reg, alias.parse().unwrap());
                 ctx.set_reg_ty(Dummy, reg, ty.into());
             }
-            crate::passes::resolve_names::assign_languages(&mut ast.value, Dummy, ctx).unwrap();
-            crate::passes::resolve_names::run(&ast.value, ctx).unwrap();
-            crate::passes::resolve_names::aliases_to_raw(&mut ast.value, ctx).unwrap();
+            crate::passes::resolution::assign_languages(&mut ast.value, Dummy, ctx).unwrap();
+            crate::passes::resolution::resolve_names(&ast.value, ctx).unwrap();
+            crate::passes::resolution::aliases_to_raw(&mut ast.value, ctx).unwrap();
             test(&ast.value, &ctx)
         }
     }

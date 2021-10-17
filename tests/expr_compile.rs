@@ -239,21 +239,31 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
         let ctx = truth.ctx();
-        truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx)?;
-        truth::passes::resolve_names::run(&block, ctx)?;
-        truth::passes::resolve_names::aliases_to_raw(&mut block, ctx)?;
+        truth::passes::resolution::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx)?;
+        truth::passes::resolution::resolve_names(&block, ctx)?;
+        truth::passes::resolution::aliases_to_raw(&mut block, ctx)?;
         truth::passes::desugar_blocks::run(&mut block, ctx)?;
         block
     };
     assert_eq!(truth.get_captured_diagnostics().unwrap(), "");
 
+    // compile the expressions... (this is the step we are testing)
     let emitter = truth.emitter();
     let ctx = truth.ctx();
     let old_stmts = parsed_block.0;
     let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, ctx)?;
-    let mut new_block = ast::Block(llir::Raiser::new(&instr_format, &ctx.emitter, &Default::default()).raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.defs)?);
-    truth::passes::resolve_names::aliases_to_raw(&mut new_block, ctx)?;
 
+    // decompile back to primitive operations (this gives an "actual" output)
+    let new_block = {
+        let options = Default::default();
+        let mut raiser = llir::Raiser::new(&instr_format, &ctx.emitter, &options);
+        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.defs, &ctx.unused_node_ids)?;
+        truth::passes::resolution::aliases_to_raw(&mut stmts[..], ctx)?;
+        ast::Block(stmts)
+    };
+
+    // check that the compilation preserved semantics by running both
+    // the original AST and the decompiled AST in the AstVm
     let mut old_vm = base_vm.clone();
     let mut new_vm = base_vm.clone();
     eprintln!("{}", truth::fmt::stringify(&new_block));
@@ -281,9 +291,9 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
         let ctx = truth.ctx();
-        truth::passes::resolve_names::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx).unwrap();
-        truth::passes::resolve_names::run(&block, ctx).unwrap();
-        truth::passes::resolve_names::aliases_to_raw(&mut block, ctx).unwrap();
+        truth::passes::resolution::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx).unwrap();
+        truth::passes::resolution::resolve_names(&block, ctx).unwrap();
+        truth::passes::resolution::aliases_to_raw(&mut block, ctx).unwrap();
         truth::passes::desugar_blocks::run(&mut block, ctx).unwrap();
         block
     };

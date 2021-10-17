@@ -12,7 +12,7 @@ use crate::value::ScalarValue;
 ///
 /// Basically, because consts can freely refer to each other regardless of definition order,
 /// dealing with const variables requires a two-stage process where they must first all be defined
-/// (which *mostly* occurs during [name resolution][`crate::passes::resolve_names`]), and then
+/// (which *mostly* occurs during [name resolution][`crate::passes::resolution`]), and then
 /// they must [all be evaluated][`crate::passes::evaluate_const_vars`].
 #[derive(Debug, Clone, Default)]
 pub struct Consts {

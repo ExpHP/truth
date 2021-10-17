@@ -202,6 +202,14 @@ impl CompilerContext<'_> {
     fn create_new_def_id(&mut self, ident: &ResIdent) -> DefId {
         self.resolutions.record_self_resolution(ident)
     }
+
+    /// Get a fresh node ID for a newly constructed AST node.
+    ///
+    /// If you're unable to use this because a smaller portion of [`CompilerContext`] is
+    /// already borrowed, you may alternatively borrow [`CompilerContext::unused_node_ids`].
+    pub fn next_node_id(&mut self) -> NodeId {
+        self.unused_node_ids.next()
+    }
 }
 
 /// # Recovering low-level information
@@ -427,18 +435,6 @@ impl CompilerContext<'_> {
             let string = s.to_str().expect("unpaired surrogate not supported!").into();
             sp!(ast::LitString { string })
         }).collect()
-    }
-}
-
-impl CompilerContext<'_> {
-    /// Generate brand new [`NodeId`]s for everything in an AST node.
-    pub fn fill_missing_node_ids<V: ast::Visitable>(&mut self, ast: &mut V) {
-        generate_node_ids(self, ast, OnlyMissing(true));
-    }
-
-    /// Generate brand new [`NodeId`]s for everything in an AST node.
-    pub fn refresh_node_ids<V: ast::Visitable>(&mut self, ast: &mut V) {
-        generate_node_ids(self, ast, OnlyMissing(false));
     }
 }
 
@@ -708,29 +704,4 @@ fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[as
         }).collect(),
         return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::expr_ty),
     }
-}
-
-// =============================================================================
-
-struct OnlyMissing(bool);
-fn generate_node_ids<V: ast::Visitable>(ctx: &mut CompilerContext<'_>, ast: &mut V, OnlyMissing(only_missing): OnlyMissing) {
-    struct Visitor<'a, 'ctx> {
-        only_missing: bool,
-        ctx: &'a mut CompilerContext<'ctx>,
-    }
-
-    impl<'a, 'ctx> ast::VisitMut for Visitor<'a, 'ctx> {
-        fn visit_node_id(&mut self, node_id: &mut Option<NodeId>) {
-            if self.only_missing && node_id.is_some() {
-                return;
-            }
-            *node_id = Some(self.ctx.next_node_id);
-
-            // HEEEEEEY KIDS do you wanna add 1 to an integer?  ALRIGHT!!
-            // (FIXME: please simplify when NonZero*::checked_add is a thing...)
-            self.ctx.next_node_id.0 = std::num::NonZeroU32::new(self.ctx.next_node_id.0.get().checked_add(1).expect("too many node ids")).unwrap();
-        }
-    }
-
-    ast.visit_mut_with(&mut Visitor { ctx, only_missing });
 }
