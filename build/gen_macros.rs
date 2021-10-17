@@ -2,25 +2,11 @@
 
 pub fn gen_ast_macros() -> String {
     vec![
-        // ==== Macro that turns a StmtBody into a Stmt ====
-        gen_ast_macro(
-            "stmt", &[
-                ("time", ArgKind::StmtTimeRequired),
-                ("body", ArgKind::SpTransparent),
-            ],
-            FinalCasesType::Regular(r#"
-                $crate::ast::Stmt {
-                    node_id: None,
-                    body: $body,
-                }
-            "#),
-        ),
-
         // ==== Macros that can generate either StmtBody or Stmt ====
 
         gen_ast_macro(
             "stmt_assign", &[
-                ("time", ArgKind::StmtTime),
+                ("_as_kind", ArgKind::AsKind),
                 ("var", ArgKind::Node),
                 ("op", ArgKind::Token(&[
                     "=", "+=", "-=", "*=", "/=", "%=", "|=", "^=", "&="
@@ -38,7 +24,7 @@ pub fn gen_ast_macros() -> String {
 
         gen_ast_macro(
             "stmt_label", &[
-                ("time", ArgKind::StmtTime),
+                ("_as_kind", ArgKind::AsKind),
                 ("label", ArgKind::Node),
             ],
             FinalCasesType::Stmt { body: r#"
@@ -48,7 +34,7 @@ pub fn gen_ast_macros() -> String {
 
         gen_ast_macro(
             "stmt_goto", &[
-                ("time", ArgKind::StmtTime),
+                ("_as_kind", ArgKind::AsKind),
                 ("goto_label", ArgKind::GotoLabel),
                 ("goto_time", ArgKind::GotoTime),
             ],
@@ -62,7 +48,7 @@ pub fn gen_ast_macros() -> String {
 
         gen_ast_macro(
             "stmt_cond_goto", &[
-                ("time", ArgKind::StmtTime),
+                ("_as_kind", ArgKind::AsKind),
                 ("keyword", ArgKind::Token(&["if", "unless"])),
                 ("cond", ArgKind::Cond),
                 ("goto_label", ArgKind::GotoLabel),
@@ -82,7 +68,7 @@ pub fn gen_ast_macros() -> String {
 
         gen_ast_macro(
             "stmt_interrupt", &[
-                ("time", ArgKind::StmtTime),
+                ("_as_kind", ArgKind::AsKind),
                 ("number", ArgKind::Node),
             ],
             FinalCasesType::Stmt { body: r#"
@@ -140,13 +126,14 @@ enum ArgKind {
     Node,
     /// A node for something that should not get its own span, yet still allows `rec_sp!` to
     /// recurse through it if it is an AST macro call.
+    // (this was originally used for the stmt body in e.g. `stmt!(at #time, stmt_label!(#ident))`)
+    #[allow(dead_code)]
     SpTransparent,
     /// This allows a keyword or token to be directly written
     Token(&'static [&'static str]),
 
     // A bunch of things that require special treatment due to e.g. optional parts or extra syntax
-    StmtTime,
-    StmtTimeRequired,
+    AsKind,
     Cond,
     GotoLabel,
     GotoTime,
@@ -206,28 +193,21 @@ impl ArgKind {
         let expected = |msg: &str| make_err_case_expected(cur_step, msg);
         let expected_after = |prefix: &str, msg: &str| make_err_case_expected_after(cur_step, prefix, msg);
         let err = |msg: &str| make_err_case(cur_step, "", msg);
+
+        const DUMMY_EXPR: &'static str = r#"unreachable!("unused dummy time")"#;
         match self {
             ArgKind::Node |
             ArgKind::SpTransparent => {
+                // these are the types of syntax that rec_sp! can recurse into.
                 out.push(case(&format!("#($expr:expr)"), "$expr", None));
                 out.push(case(&format!("#$var:ident"), "$var", None));
                 out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args", None));
                 out.push(expected(MAC_OR_INTERP));
             },
-            ArgKind::StmtTime => {
-                // the optional StmtTime sets a flag to let us know to create a Stmt instead of StmtBody
-                out.push(case(&format!("at #($expr:expr),"), "$expr", Some("has_time")));
-                out.push(case(&format!("at #$var:ident,"), "$var", Some("has_time")));
-                out.push(expected_after("at", JUST_INTERP));
-
-                // if there's no time, we still need to save an expression, we just won't use it
-                out.push(case(&format!(""), r#"unreachable!("unused dummy time")"#, None));
-                out.push(expected(&format!("'at <time>,', where <time> is {}", JUST_INTERP)));
-            },
-            ArgKind::StmtTimeRequired => {
-                out.push(case(&format!("at #($expr:expr),"), "$expr", None));
-                out.push(case(&format!("at #$var:ident,"), "$var", None));
-                out.push(expected(&format!("'at <time>,', where <time> is {}", JUST_INTERP)));
+            ArgKind::AsKind => {
+                // lets us know to create a StmtKind instead of a Stmt
+                out.push(case(&format!("as kind,"), DUMMY_EXPR, Some("as_kind")));
+                out.push(case(&format!(""), DUMMY_EXPR, Some("")));
             },
             ArgKind::Cond => {
                 // NOTE: Sp<Expr> implements Into<Sp<Cond>> so we don't need special snytax for it
@@ -281,8 +261,7 @@ impl ArgKind {
                 => (format!("$(${}:tt)*", name), format!("rec_sp!(_span => _ast_sp_transparent!($(${})*))", name)),
 
             // Cases for things that don't need spans.
-            | ArgKind::StmtTime
-            | ArgKind::StmtTimeRequired
+            | ArgKind::AsKind
             | ArgKind::GotoTime
                 => (format!("${}:expr", name), format!("${}", name)),
         }
@@ -294,10 +273,7 @@ enum FinalCasesType {
     /// result is contained in the string. (which will basically be the RHS of the rule)
     Regular(&'static str),
 
-    /// Special final case type for statements.
-    ///
-    /// This is similar to Regular, but the first argument (which should be ArgKind::StmtTime) will
-    /// be matched; if the user wrote `at <time>,`, it produces a Stmt.  Otherwise, it produces a StmtBody.
+    /// Special final case type for statements, which can produce `StmtKind` if the user wrote `as kind,`.
     Stmt { body: &'static str },
 }
 
@@ -318,7 +294,7 @@ impl FinalCasesType {
             FinalCasesType::Stmt { body: body_expr } => {
                 let time_name = steps[0].0;
                 out.push(Rule {
-                    pattern: format!("@finish flags#[has_time] input#[] span#[] arg#[${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    pattern: format!("@finish flags#[] input#[] span#[] arg#[${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!(r#"
                         $crate::ast::Stmt {{
                             node_id: None,
@@ -327,7 +303,7 @@ impl FinalCasesType {
                     "#, body_expr),
                 });
                 out.push(Rule {
-                    pattern: format!("@finish flags#[] input#[] span#[] arg#[$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    pattern: format!("@finish flags#[as_kind] input#[] span#[] arg#[$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!("{}", body_expr),
                 });
             }

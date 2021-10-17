@@ -335,7 +335,6 @@ mod tests {
         let span_1 = Span::new(FILE_ID, 1, 1);
 
         let label: Ident = "label".parse().unwrap();
-        let _ = rec_sp!(span_1 => stmt_label!(at #(30), #(label.clone())));
         let _ = rec_sp!(span_1 => stmt_label!(#label));
     }
 }

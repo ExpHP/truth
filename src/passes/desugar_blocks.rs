@@ -203,7 +203,7 @@ impl Desugarer<'_, '_> {
     ) {
         let skip_label = self.ctx.gensym.gensym("@cond#");
         self.out.push(rec_sp!(condjmp_span =>
-            stmt_cond_goto!(at #(1234321), #(keyword.negate()) #cond goto #(skip_label.clone()))
+            stmt_cond_goto!(#(keyword.negate()) #cond goto #(skip_label.clone()))
         ));
 
         inner(self);
@@ -216,14 +216,14 @@ impl Desugarer<'_, '_> {
         let count_as_const = count.as_const_int();
 
         self.out.push(rec_sp!(span =>
-            stmt_assign!(at #(1234321), #(clobber.clone()) = #count)
+            stmt_assign!(#(clobber.clone()) = #count)
         ));
 
         // unless count is statically known to be nonzero, we need an initial zero test
         let skip_label = self.ctx.gensym.gensym("@times_zero#");
         if let None | Some(0) = count_as_const {
             self.out.push(rec_sp!(span =>
-                stmt_cond_goto!(at #(1234321), if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone()))
+                stmt_cond_goto!(if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone()))
             ));
         };
 
@@ -243,14 +243,14 @@ impl Desugarer<'_, '_> {
     }
 
     fn make_label(&mut self, span: Span, ident: Ident) {
-        self.out.push(rec_sp!(span => stmt_label!(at #(1234321), #ident)));
+        self.out.push(rec_sp!(span => stmt_label!(#ident)));
     }
 
     fn make_goto(&mut self, span: Span, cond: JumpInfo, ident: Ident) {
         self.out.push(match cond {
-            None => rec_sp!(span => stmt_goto!(at #(1234321), goto #ident)),
+            None => rec_sp!(span => stmt_goto!(goto #ident)),
             Some((kw, cond))
-                => rec_sp!(span => stmt_cond_goto!(at #(1234321), #kw #cond goto #ident)),
+                => rec_sp!(span => stmt_cond_goto!(#kw #cond goto #ident)),
         })
     }
 

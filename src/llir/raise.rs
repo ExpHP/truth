@@ -145,12 +145,12 @@ fn _raise_instrs_to_sub_ast(
         label_gen.emit_labels(&mut out, offset, instr.time, instr.difficulty_mask);
 
         let body = raise_instr(emitter, instr_format, instr, defs, &intrinsic_instrs, &offset_labels)?;
-        out.push(rec_sp!(Span::NULL => stmt!(at #(DUMMY_TIME), #body)));
+        out.push(sp!(ast::Stmt { node_id: None, body }));
     }
 
     // possible label after last instruction
     if let Some(label) = offset_labels.get(instr_offsets.last().expect("n + 1 offsets so there's always at least one")) {
-        out.push(rec_sp!(Span::NULL => stmt_label!(at #(DUMMY_TIME), #(label.label.clone()))));
+        out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
     }
     // XXX Bookend seems unnecessary maybe now that we have time label statements?
     // out.push(sp!(ast::Stmt {
@@ -380,7 +380,7 @@ fn raise_decoded_instr(
             warn_unless!(emitter, args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
             let goto = raise_jump_args(&args[0], args.get(1), instr_format, offset_labels);
-            Ok(stmt_goto!(rec_sp!(Span::NULL => goto #(goto.destination) #(goto.time))))
+            Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
         }),
 
 
@@ -389,7 +389,7 @@ fn raise_decoded_instr(
             let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
             let value = raise_arg(language, emitter, &args[1], encodings[1])?;
 
-            Ok(stmt_assign!(rec_sp!(Span::NULL => #var #op #value)))
+            Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var #op #value)))
         }),
 
 
@@ -399,7 +399,7 @@ fn raise_decoded_instr(
             let a = raise_arg(language, emitter, &args[1], encodings[1])?;
             let b = raise_arg(language, emitter, &args[2], encodings[2])?;
 
-            Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_binop!(#a #op #b))))
+            Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_binop!(#a #op #b))))
         }),
 
 
@@ -408,7 +408,7 @@ fn raise_decoded_instr(
             let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
             let b = raise_arg(language, emitter, &args[1], encodings[1])?;
 
-            Ok(stmt_assign!(rec_sp!(Span::NULL => #var = expr_unop!(#op #b))))
+            Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b))))
         }),
 
 
@@ -417,7 +417,7 @@ fn raise_decoded_instr(
             ensure!(emitter, args.len() >= 1, "expected {} args, got {}", 1, args.len());
             warn_unless!(emitter, args[1..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
-            Ok(stmt_interrupt!(rec_sp!(Span::NULL => #(args[0].expect_immediate_int()) )))
+            Ok(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #(args[0].expect_immediate_int()) )))
         }),
 
 
@@ -427,7 +427,7 @@ fn raise_decoded_instr(
             let goto = raise_jump_args(&args[1], Some(&args[2]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                if (decvar: #var) goto #(goto.destination) #(goto.time)
+                as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
             )))
         }),
 
@@ -439,7 +439,7 @@ fn raise_decoded_instr(
             let goto = raise_jump_args(&args[2], Some(&args[3]), instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
+                as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
             )))
         }),
 
@@ -757,7 +757,7 @@ impl<'a> LabelEmitter<'a> {
         // FIXME part of kludge:  check for label before time increase
         if let Some(label) = &offset_label {
             if label.time_label == self.prev_time {
-                out.push(rec_sp!(Span::NULL => stmt_label!(at #(DUMMY_TIME), #(label.label.clone()))));
+                out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
                 offset_label = None;
             }
         }
@@ -788,7 +788,7 @@ impl<'a> LabelEmitter<'a> {
         // FIXME part of kludge:  check for label after time increase
         if let Some(label) = &offset_label {
             if label.time_label == time {
-                out.push(rec_sp!(Span::NULL => stmt_label!(at #(DUMMY_TIME), #(label.label.clone()))));
+                out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
                 offset_label = None;
             }
         }
