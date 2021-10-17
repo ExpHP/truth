@@ -47,14 +47,10 @@ impl VisitMut for IfElseVisitor<'_, '_> {
 
         let original_len = outer_block.0.len();
 
-        // FIXME: temporary hack (we probably should put more time info in BlockContext);
-        //        I plan to get rid of the stmt.time field and turns time labels into statements,
-        //        so this should become unnecessary then.
-        let stmt_times = outer_block.0.iter().map(|stmt| stmt.time).collect::<Vec<_>>();
         let mut index = 0;
         let mut stmt_iter = outer_block.0.drain(..);
         while index < original_len {
-            match gather_cond_chain(index, &stmt_times, &context) {
+            match gather_cond_chain(index, &context) {
                 Err(NoCondChain) => {
                     new_stmts.push(stmt_iter.next().unwrap()); index += 1;
                 },
@@ -104,7 +100,7 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                     let cond_chain = ast::StmtCondChain { cond_blocks: cond_block_asts, else_block };
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
                     new_stmts.push(sp!(span => ast::Stmt {
-                        time: cond_chain.cond_blocks[0].block.0[0].time,
+                        time: 1234321,  // XXX DUMMY VALUE
                         node_id: Some(self.ctx.next_node_id()),
                         body: ast::StmtBody::CondChain(cond_chain),
                     }));
@@ -135,7 +131,7 @@ struct CondBlockInfo {
 
 struct NoCondChain;
 
-fn gather_cond_chain(start: usize, stmt_times: &[i32], context: &BlockContext) -> Result<CondChainInfo, NoCondChain> {
+fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainInfo, NoCondChain> {
     let mut chain = vec![];
     let mut src = start;
     let mut known_end = None;
@@ -156,16 +152,6 @@ fn gather_cond_chain(start: usize, stmt_times: &[i32], context: &BlockContext) -
         // make sure there's only one reference to the dest label,
         // because for 'else if' there will be no place for us to put it
         if if_jmp.dest_refcount > 1 {
-            return Err(NoCondChain);
-        }
-
-        // see integration test 'anm10_if_elseif_time_impossible_1'
-        if stmt_times[if_jmp.dest] != stmt_times[if_jmp.dest - 1] {
-            return Err(NoCondChain);
-        }
-
-        // see integration test 'anm10_if_elseif_time_sorta_possible'
-        if stmt_times[if_jmp.dest] != stmt_times[if_jmp.dest + 1] {
             return Err(NoCondChain);
         }
 
@@ -271,7 +257,6 @@ impl BlockContext {
 struct LabelInfo {
     stmt_index: usize,
     refcount: u32,  // number of jumps to this label
-    time: i32,
 }
 
 /// For each label, get the index of its statement.
@@ -280,7 +265,7 @@ fn get_label_info(stmts: &[Sp<ast::Stmt>], refcounts: &HashMap<Ident, u32>) -> H
         .filter_map(|(stmt_index, stmt)| match &stmt.body {
             ast::StmtBody::Label(ident) => {
                 let refcount = refcounts.get(&ident.value).copied().unwrap_or(0);
-                Some((ident.value.clone(), LabelInfo { stmt_index, refcount, time: stmt.time }))
+                Some((ident.value.clone(), LabelInfo { stmt_index, refcount }))
             },
             _ => None,
         }).collect()
@@ -401,8 +386,8 @@ impl JmpInfo {
         Some(JmpInfo {
             dest: label_entry.stmt_index,
             dest_refcount: label_entry.refcount,
-            time_arg: goto.time.filter(|&x| x != label_entry.time),
-            kind,
+            time_arg: goto.time,
+            kind
         })
     }
 
