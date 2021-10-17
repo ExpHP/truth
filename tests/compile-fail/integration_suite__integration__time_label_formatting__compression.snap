@@ -1,0 +1,19 @@
+---
+source: tests/integration/time_label_formatting.rs
+expression: decompiled
+---
+timeline 0 {
+}
+
+
+void sub0() {
+    ins_11(@blob="");
+    ins_11(@blob="");
++6: // 6
+    ins_11(@blob="");
+    ins_11(@blob="");
+-1:
+    ins_11(@blob="");
+    ins_11(@blob="");
+}
+
