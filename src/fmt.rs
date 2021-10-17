@@ -714,7 +714,7 @@ impl Format for ast::StmtBody {
             },
 
             ast::StmtBody::RawDifficultyLabel(value) => {
-                out.fmt_label(("difficulty[", value, "]:"))?;
+                out.fmt_label(("difficulty[", format_args!("{:#X}", value.value), "]:"))?;
                 out.suppress_blank_line();
                 Ok(())
             },

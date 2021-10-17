@@ -452,6 +452,9 @@ pub trait InstrFormat {
     /// Helper method that returns the total instruction size, including the arguments.
     /// There should be no need to override this.
     fn instr_size(&self, instr: &RawInstr) -> usize { self.instr_header_size() + instr.args_blob.len() }
+
+    /// Initial difficulty mask.  In languages without difficulty, this returns `None.
+    fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { None }
 }
 
 /// An implementation of InstrFormat for testing the raising and lowering phases of compilation.

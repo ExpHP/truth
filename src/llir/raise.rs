@@ -132,7 +132,7 @@ fn _raise_instrs_to_sub_ast(
     };
 
     // main loop
-    let mut label_gen = LabelEmitter::new(&offset_labels);
+    let mut label_gen = LabelEmitter::new(instr_format, &offset_labels);
     for (&offset, instr) in zip!(&instr_offsets, &script) {
         label_gen.emit_labels(&mut out, offset, instr.time, instr.difficulty_mask);
 
@@ -708,26 +708,24 @@ fn expect_abi<'a>(language: InstrLanguage, instr: &RaiseInstr, defs: &'a Defs) -
 
 // =============================================================================
 
-const DEFAULT_DIFFICULTY: u8 = 0xFF;
-
 /// Emits time and difficulty labels from an instruction stream.
 struct LabelEmitter<'a> {
     prev_time: raw::Time,
-    prev_difficulty: raw::DifficultyMask,
+    prev_difficulty: Option<raw::DifficultyMask>,
     offset_labels: &'a BTreeMap<raw::BytePos, Label>,
 }
 
 impl<'a> LabelEmitter<'a> {
-    fn new(offset_labels: &'a BTreeMap<raw::BytePos, Label>) -> Self {
+    fn new(instr_format: &dyn InstrFormat, offset_labels: &'a BTreeMap<raw::BytePos, Label>) -> Self {
         LabelEmitter {
             prev_time: 0,
-            prev_difficulty: DEFAULT_DIFFICULTY,
+            prev_difficulty: instr_format.default_difficulty_mask(),
             offset_labels,
         }
     }
 
     fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask) {
-        // self.emit_difficulty_labels(out, difficulty);  // FIXME uncomment
+        self.emit_difficulty_labels(out, difficulty);
         self.emit_offset_and_time_labels(out, offset, time);
     }
 
@@ -783,9 +781,11 @@ impl<'a> LabelEmitter<'a> {
     }
 
     fn emit_difficulty_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, difficulty: u8) {
-        if difficulty != self.prev_difficulty {
-            out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RawDifficultyLabel(sp!(difficulty as _)) }));
+        if let Some(prev_difficulty) = &mut self.prev_difficulty {
+            if difficulty != *prev_difficulty {
+                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RawDifficultyLabel(sp!(difficulty as _)) }));
+            }
+            *prev_difficulty = difficulty;
         }
-        self.prev_difficulty = difficulty;
     }
 }

@@ -438,16 +438,18 @@ impl OldeFileFormat {
         }
     }
 
-    fn instr_format(&self) -> Box<dyn InstrFormat> { Box::new(InstrFormat06) }
+    fn instr_format(&self) -> Box<dyn InstrFormat> { Box::new(InstrFormat06 { game: self.game }) }
     fn timeline_format(&self) -> Box<dyn InstrFormat> { Box::new(TimelineInstrFormat { game: self.game }) }
 }
 
-struct InstrFormat06;
+struct InstrFormat06 { game: Game }
 
 impl InstrFormat for InstrFormat06 {
     fn language(&self) -> InstrLanguage { InstrLanguage::Ecl }
 
     fn has_registers(&self) -> bool { true }
+
+    fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { Some(0xFF) }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
         vec![] // TODO
@@ -455,16 +457,34 @@ impl InstrFormat for InstrFormat06 {
 
     fn instr_header_size(&self) -> usize { 12 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i32()?;
         let opcode = f.read_u16()?;
         let size = f.read_u16()? as usize;
-        let difficulty = f.read_u16()? as raw::DifficultyMask;
-        let param_mask = f.read_u16()?;  // NOTE: Even in EoSD there is space for this, but it's always 0xFFFF.
+        let before_difficulty = f.read_u8()?;
+        let difficulty = f.read_u8()?;
+        let param_mask = f.read_u8()?;
+        let after_param_mask = f.read_u8()?;
+
+        if before_difficulty != 0 {
+            emitter.as_sized().emit(warning!(
+                message("unexpected nonzero byte before difficulty mask: {:#04X}", before_difficulty)
+            )).ignore();
+        }
+        if self.game == Game::Th06 && param_mask != 0xFF {
+            emitter.as_sized().emit(warning!(
+                message("unexpected non-FF parameter mask in EoSD: {:#04X}", param_mask)
+            )).ignore();
+        }
+        if after_param_mask != 0 {
+            emitter.as_sized().emit(warning!(
+                message("unexpected nonzero byte after parameter mask: {:#04X}", after_param_mask)
+            )).ignore();
+        }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
 
-        let instr = RawInstr { time, opcode, param_mask, args_blob, difficulty, ..RawInstr::DEFAULTS };
+        let instr = RawInstr { time, opcode, param_mask: param_mask.into(), args_blob, difficulty: difficulty.into(), ..RawInstr::DEFAULTS };
 
         if opcode == (-1_i16) as u16 {
             Ok(ReadInstr::Terminal)
@@ -473,12 +493,17 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
-    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as _)?;
-        f.write_u16(instr.difficulty as _)?;
-        f.write_u16(instr.param_mask)?;
+        f.write_u8(0)?;
+        f.write_u8(instr.difficulty)?;
+        if instr.param_mask > u8::MAX as raw::ParamMask {
+            emitter.as_sized().emit(warning!("upper bits of parameter mask will be lost")).ignore();
+        }
+        f.write_u8(instr.param_mask as _)?;
+        f.write_u8(0)?;
         f.write_all(&instr.args_blob)?;
         Ok(())
     }
