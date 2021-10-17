@@ -149,7 +149,7 @@ impl AstVm {
 
             macro_rules! handle_goto {
                 ($goto:expr) => { match $goto {
-                    goto => match self.try_goto(stmts, goto) {
+                    goto => match self.try_goto(stmts, goto, stmt_data) {
                         Some(index) => {
                             stmt_index = index;
                             continue 'stmt;
@@ -434,12 +434,12 @@ impl AstVm {
             .apply_sigil(var.ty_sigil).unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var.name, var.ty_sigil))
     }
 
-    pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto) -> Option<usize> {
+    pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto, stmt_data: &IdMap<NodeId, TimeAndDifficulty>) -> Option<usize> {
         for (index, stmt) in stmts.iter().enumerate() {
             match &stmt.body {
                 ast::StmtBody::Label(label) => {
                     if label == &goto.destination {
-                        self.time = goto.time.map(|x| x.value).unwrap_or(stmt.time);
+                        self.time = goto.time.map(|x| x.value).unwrap_or(stmt_data[&stmt.node_id.unwrap()].time);
                         return Some(index);
                     }
                 },
