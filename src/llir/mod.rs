@@ -39,17 +39,16 @@ pub struct RawInstr {
     pub time: raw::Time,
     pub opcode: raw::Opcode,
     /// A mask indicating which arguments are registers, in languages that support registers.
+    ///
+    /// In other languages, it is zero.
     pub param_mask: raw::ParamMask,
     /// The bytes after the instruction header, exactly as they will appear in the file.
     pub args_blob: Vec<u8>,
-    /// Difficulty mask.  Only used in ECL.
+    /// Difficulty mask.
     pub difficulty: raw::DifficultyMask,
-    /// Stack change arg.  Only used in modern ECL.
+    /// Stack change arg.  Only used in modern ECL.  Zero in other languages.
     pub pop: raw::StackPop,
-    /// If an instruction format has an unusual thing in its instruction headers that we don't want
-    /// to invent new syntax for, we can put it here to have it appear as the first instruction argument.
-    ///
-    /// Used by ECL timelines.
+    /// Used by ECL timelines.  `None` elsewhere.
     pub extra_arg: Option<raw::ExtraArg>,
 }
 
@@ -57,7 +56,9 @@ impl RawInstr {
     pub const DEFAULTS: RawInstr = RawInstr {
         time: 0, opcode: 0,
         args_blob: Vec::new(), extra_arg: None,
-        param_mask: 0, difficulty: 0, pop: 0,
+        param_mask: 0,
+        difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK,
+        pop: 0,
     };
 }
 

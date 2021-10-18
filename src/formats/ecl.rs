@@ -484,7 +484,11 @@ impl InstrFormat for InstrFormat06 {
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
 
-        let instr = RawInstr { time, opcode, param_mask: param_mask.into(), args_blob, difficulty: difficulty.into(), ..RawInstr::DEFAULTS };
+        let instr = RawInstr {
+            time, opcode, args_blob,
+            param_mask: param_mask.into(), difficulty: difficulty.into(),
+            ..RawInstr::DEFAULTS
+        };
 
         if opcode == (-1_i16) as u16 {
             Ok(ReadInstr::Terminal)
@@ -497,6 +501,7 @@ impl InstrFormat for InstrFormat06 {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as _)?;
+
         f.write_u8(0)?;
         f.write_u8(instr.difficulty)?;
         if instr.param_mask > u8::MAX as raw::ParamMask {
@@ -504,6 +509,7 @@ impl InstrFormat for InstrFormat06 {
         }
         f.write_u8(instr.param_mask as _)?;
         f.write_u8(0)?;
+
         f.write_all(&instr.args_blob)?;
         Ok(())
     }

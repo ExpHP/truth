@@ -12,6 +12,7 @@ use crate::ident::{Ident};
 use crate::context::{self, CompilerContext};
 use crate::io::{Encoded, DEFAULT_ENCODING};
 use crate::value::ScalarValue;
+use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 
 mod stackless;
 
@@ -34,7 +35,7 @@ enum LowerStmt {
 /// An instruction that needs just a bit more postprocessing to convert it into a [`RawInstr`].
 #[derive(Debug, Clone, PartialEq)]
 struct LowerInstr {
-    time: raw::Time,
+    stmt_data: TimeAndDifficulty, // or should this be NodeId?
     opcode: raw::Opcode,
     /// Value provided by user via an explicit `@arg0=`.
     explicit_extra_arg: Option<raw::ExtraArg>,
@@ -230,7 +231,7 @@ fn encode_labels(
 ///
 /// This preserves the number of bytes in the written instruction.
 fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
-    let &LowerInstr { time, opcode, user_param_mask, explicit_extra_arg: extra_arg, ref args } = instr;
+    let &LowerInstr { ref args, .. } = instr;
     let new_args = match args {
         LowerArgs::Unknown(blob) => LowerArgs::Unknown(blob.clone()),
         LowerArgs::Known(args) => LowerArgs::Known(args.iter().map(|arg| match arg.value {
@@ -244,7 +245,7 @@ fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
             | LowerArg::Raw(_) => arg.clone(),
         }).collect())
     };
-    LowerInstr { time, opcode, user_param_mask, explicit_extra_arg: extra_arg, args: new_args }
+    LowerInstr { args: new_args, ..*instr }
 }
 
 // =============================================================================
@@ -277,13 +278,14 @@ fn encode_args(
         LowerArgs::Unknown(blob) => {
             // Trivial case; a @blob was provided so there's nothing for this function to do.
             return Ok(RawInstr {
-                time: instr.time,
+                time: instr.stmt_data.time,
                 opcode: instr.opcode,
                 param_mask: instr.user_param_mask.unwrap_or(0),
                 args_blob: blob.value.clone(),
                 extra_arg: instr.explicit_extra_arg,
+                difficulty: instr.stmt_data.difficulty_mask,
                 // TODO: ECL pseudo-args whose semantics are not yet implemented
-                difficulty: 0, pop: 0,
+                pop: 0,
             });
         },
     };
@@ -395,7 +397,7 @@ fn encode_args(
     }
 
     Ok(RawInstr {
-        time: instr.time,
+        time: instr.stmt_data.time,
         opcode: instr.opcode,
         param_mask: match instr.user_param_mask {
             Some(user_provided_mask) => user_provided_mask,
@@ -403,8 +405,9 @@ fn encode_args(
         },
         args_blob: args_blob.into_inner(),
         extra_arg,
+        difficulty: instr.stmt_data.difficulty_mask,
         // TODO: ECL pseudo-args whose semantics are not yet implemented
-        difficulty: 0, pop: 0,
+        pop: 0,
     })
 }
 

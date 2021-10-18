@@ -1,12 +1,13 @@
 //! See [`run`].
 
+use crate::raw;
 use crate::ast;
 use crate::pos::Sp;
 use crate::error::{ErrorReported, ErrorFlag};
 use crate::diagnostic::Emitter;
 use crate::resolve::{NodeId, IdMap, node_id_helpers};
 
-pub const DEFAULT_DIFFICULTY_MASK: u8 = 0xFF;
+pub const DEFAULT_DIFFICULTY_MASK: raw::DifficultyMask = -1 as _;
 
 /// Time and difficulty assignment pass.
 ///
@@ -24,10 +25,10 @@ pub fn run<V: ast::Visitable + ?Sized>(ast: &V, emitter: &dyn Emitter) -> Result
     visitor.errors.into_result(visitor.output)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TimeAndDifficulty {
-    pub time: i32,
-    pub difficulty_mask: u8,
+    pub time: raw::Time,
+    pub difficulty_mask: raw::DifficultyMask,
 }
 
 struct Visitor<'a> {
