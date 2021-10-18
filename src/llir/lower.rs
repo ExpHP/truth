@@ -123,7 +123,10 @@ pub fn lower_sub_ast_to_instrs(
 
 // =============================================================================
 
-type LabelInfoMap = HashMap<Sp<Ident>, RawLabelInfo>;
+struct LabelInfoverse {
+    stmt_offsets: Vec<raw::BytePos>,
+    labels: HashMap<Sp<Ident>, RawLabelInfo>,
+}
 struct RawLabelInfo {
     time: raw::Time,
     offset: raw::BytePos,
@@ -136,7 +139,7 @@ fn gather_label_info(
     code: &[LowerStmt],
     defs: &context::Defs,
     emitter: &context::RootEmitter,
-) -> Result<LabelInfoMap, ErrorReported> {
+) -> Result<LabelInfoverse, ErrorReported> {
     use std::collections::hash_map::Entry;
 
     // Due to things like the TH12 MSG furigana bug, the size of an instruction can depend
@@ -157,11 +160,13 @@ fn gather_label_info(
     // I doubt that the extra encoding is a big issue in the grand scheme of things.  - Exp
 
     let mut offset = initial_offset;
-    let mut out = HashMap::new();
+    let mut labels = HashMap::new();
+    let mut stmt_offsets = vec![];
 
     let mut encoding_state = ArgEncodingState::new();
 
     code.iter().enumerate().map(|(index, thing)| {
+        stmt_offsets.push(offset);
         match *thing {
             LowerStmt::Instr(ref instr) => {
                 emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
@@ -173,7 +178,7 @@ fn gather_label_info(
                 })?;
             },
             LowerStmt::Label { time, ref label } => {
-                match out.entry(label.clone()) {
+                match labels.entry(label.clone()) {
                     Entry::Vacant(e) => {
                         e.insert(RawLabelInfo { time, offset });
                     },
@@ -191,25 +196,29 @@ fn gather_label_info(
         Ok(())
     }).collect_with_recovery()?;
 
-    Ok(out)
+    Ok(LabelInfoverse { labels, stmt_offsets })
 }
 
 /// Eliminates all `LowerArg::Label`s by replacing them with their dword values.
 fn encode_labels(
     code: &mut [LowerStmt],
     format: &dyn InstrFormat,
-    label_info: &LabelInfoMap,
+    label_info: &LabelInfoverse,
     emitter: &context::RootEmitter,
 ) -> Result<(), ErrorReported> {
-    code.iter_mut().map(|stmt| {
+    let LabelInfoverse { labels, stmt_offsets } = label_info;
+
+    assert_eq!(code.len(), stmt_offsets.len());
+    code.iter_mut().enumerate().map(|(stmt_index, stmt)| {
+        let cur_offset = stmt_offsets[stmt_index];
         if let LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) = stmt {
             for arg in args {
                 match arg.value {
                     | LowerArg::Label(ref label)
                     | LowerArg::TimeOf(ref label)
-                    => match label_info.get(label) {
+                    => match labels.get(label) {
                         Some(info) => match arg.value {
-                            LowerArg::Label(_) => arg.value = LowerArg::Raw((format.encode_label(info.offset) as i32).into()),
+                            LowerArg::Label(_) => arg.value = LowerArg::Raw((format.encode_label(cur_offset, info.offset) as i32).into()),
                             LowerArg::TimeOf(_) => arg.value = LowerArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },

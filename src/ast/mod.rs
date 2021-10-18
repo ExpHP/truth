@@ -99,8 +99,9 @@ pub struct Stmt {
     pub body: StmtBody,
 }
 
-/// Represents a statement, including the ';' if required, but
-/// without any labels.
+// FIXME: Rename to StmtKind, the name StmtBody is because this historically
+//        used to refer to "the statement without its labels".
+//        All labels are statements now...
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtBody {
     /// Some items are allowed to appear as statements. (`const`s and functions)
@@ -406,6 +407,8 @@ pub enum IntRadix {
     Dec,
     /// Display as hexadecimal, with an `0x` prefix.
     Hex,
+    /// Display as potentially negative hexadecimal, with an `0x` prefix.
+    SignedHex,
     /// Display as binary, with an `0b` prefix.
     Bin,
     /// Use `true` and `false` if the value is `1` or `0`.  Otherwise, fall back to decimal.

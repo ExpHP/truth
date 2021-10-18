@@ -751,11 +751,11 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn encode_label(&self, offset: u64) -> u32 {
-        assert_eq!(offset % 20, 0);
-        (offset / 20) as u32
+    fn encode_label(&self, _cur: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
+        assert_eq!(dest_offset % 20, 0);
+        (dest_offset / 20) as u32
     }
-    fn decode_label(&self, bits: u32) -> u64 {
+    fn decode_label(&self, _cur: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
         (bits * 20) as u64
     }
 }

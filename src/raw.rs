@@ -36,6 +36,10 @@ pub type ExtraArg = i16;
 /// The preferred type for representing the difficulty mask field of an ECL instruction.
 pub type DifficultyMask = u8;
 
+/// An dword-sized integer serving as a bag of 32 bits.  It's possible that these bits actually
+/// encode data of a different type. (e.g. a signed integer or a float...)
+pub type RawDwordBits = u32;
+
 /// The preferred type for representing the stack pop field of a modern ECL instruction.
 pub type StackPop = i16;
 

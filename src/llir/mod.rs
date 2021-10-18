@@ -444,11 +444,12 @@ pub trait InstrFormat {
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
     fn is_th06_anm_terminating_instr(&self, _opcode: raw::Opcode) -> bool { false }
 
-    // Most formats encode labels as offsets from the beginning of the script (in which case
-    // these functions are trivial), but early STD is a special snowflake that writes the
-    // instruction *index* instead.
-    fn encode_label(&self, offset: raw::BytePos) -> u32 { offset as _ }
-    fn decode_label(&self, bits: u32) -> raw::BytePos { bits as _ }
+    // Most formats encode labels as offsets from the beginning of the script, but:
+    // * early STD writes the instruction *index*.
+    // * early (?) ECL writes offsets relative to the current instruction.
+    // both args here are relative to the beginning of the sub.
+    fn encode_label(&self, _cur_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits { dest_offset as _ }
+    fn decode_label(&self, _cur_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos { bits as _ }
 
     /// Helper method that returns the total instruction size, including the arguments.
     /// There should be no need to override this.

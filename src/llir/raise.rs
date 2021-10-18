@@ -34,6 +34,7 @@ impl Default for DecompileOptions {
 
 /// Intermediate form of an instruction only used during decompilation.
 struct RaiseInstr {
+    offset: raw::BytePos,
     time: raw::Time,
     difficulty_mask: raw::DifficultyMask,
     opcode: raw::Opcode,
@@ -119,7 +120,11 @@ fn _raise_instrs_to_sub_ast(
     let instr_offsets = gather_instr_offsets(raw_script, instr_format);
 
     // Preprocess by using mapfile signatures to parse arguments
-    let script: Vec<RaiseInstr> = raw_script.iter().map(|raw_instr| raiser.decode_args(emitter, raw_instr, defs)).collect::<Result<_, _>>()?;
+    let script: Vec<RaiseInstr> = {
+        raw_script.iter().zip(&instr_offsets)
+            .map(|(raw_instr, &instr_offset)| raiser.decode_args(emitter, raw_instr, instr_offset, defs))
+            .collect::<Result<_, _>>()?
+    };
 
     let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
@@ -261,7 +266,7 @@ fn extract_jump_args_by_signature(
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
     defs: &Defs,
-) -> Option<(u64, Option<i32>)> {
+) -> Option<(raw::BytePos, Option<raw::Time>)> {
     let mut jump_offset = None;
     let mut jump_time = None;
 
@@ -273,8 +278,10 @@ fn extract_jump_args_by_signature(
     let abi = defs.ins_abi(instr_format.language(), instr.opcode).expect("decoded, so abi is known");
     for (arg, encoding) in zip!(args, abi.arg_encodings()) {
         match encoding {
-            ArgEncoding::JumpOffset => jump_offset = Some(instr_format.decode_label(arg.expect_immediate_int() as u32)),
-            ArgEncoding::JumpTime => jump_time = Some(arg.expect_immediate_int()),
+            ArgEncoding::JumpOffset
+                => jump_offset = Some(instr_format.decode_label(instr.offset, arg.expect_immediate_int() as u32)),
+            ArgEncoding::JumpTime
+                => jump_time = Some(arg.expect_immediate_int()),
             _ => {},
         }
     }
@@ -365,7 +372,7 @@ fn raise_decoded_instr(
             ensure!(emitter, args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
             warn_unless!(emitter, args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
-            let goto = raise_jump_args(&args[0], args.get(1), instr_format, offset_labels);
+            let goto = raise_jump_args(&args[0], args.get(1), instr.offset, instr_format, offset_labels);
             Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
         }),
 
@@ -410,7 +417,7 @@ fn raise_decoded_instr(
         Some(IntrinsicInstrKind::CountJmp) => emitter.chain("while decompiling a decrement jump", |emitter| {
             warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
             let var = raise_arg_to_reg(language, emitter, &args[0], ScalarType::Int)?;
-            let goto = raise_jump_args(&args[1], Some(&args[2]), instr_format, offset_labels);
+            let goto = raise_jump_args(&args[1], Some(&args[2]), instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
@@ -422,7 +429,7 @@ fn raise_decoded_instr(
             warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
             let a = raise_arg(language, emitter, &args[0], encodings[0])?;
             let b = raise_arg(language, emitter, &args[1], encodings[1])?;
-            let goto = raise_jump_args(&args[2], Some(&args[3]), instr_format, offset_labels);
+            let goto = raise_jump_args(&args[2], Some(&args[3]), instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
@@ -530,8 +537,10 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         }
 
         | ArgEncoding::Color
-        | ArgEncoding::JumpOffset  // NOTE: might eventually want offsetof(label)
         => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
+
+        | ArgEncoding::JumpOffset // NOTE: might eventually want offsetof(label)
+        => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex }),
 
         | ArgEncoding::Float
         => Ok(ast::Expr::from(raw.expect_float())),
@@ -554,7 +563,7 @@ fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &Simpl
         ast::VarSigil::Float => {
             let float_reg = raw.expect_float();
             if float_reg != f32::round(float_reg) {
-                return Err(emitter.emit(error!("non-integer float variable [{}] in binary file!", float_reg)));
+                return Err(emitter.emit(error!("non-integer float variable %REG[{}] in binary file!", float_reg)));
             }
             RegId(float_reg as i32)
         },
@@ -566,10 +575,11 @@ fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &Simpl
 fn raise_jump_args(
     offset_arg: &SimpleArg,
     time_arg: Option<&SimpleArg>,  // None when the instruction signature has no time arg
+    cur_instr_offset: raw::BytePos,
     instr_format: &dyn InstrFormat,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> ast::StmtGoto {
-    let offset = instr_format.decode_label(offset_arg.expect_immediate_int() as u32);
+    let offset = instr_format.decode_label(cur_instr_offset, offset_arg.expect_immediate_int() as u32);
     let label = &offset_labels[&offset];
     ast::StmtGoto {
         destination: sp!(label.label.clone()),
@@ -580,10 +590,10 @@ fn raise_jump_args(
 // =============================================================================
 
 impl Raiser<'_> {
-    fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
+    fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, instr_offset: raw::BytePos, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         if self.options.arguments {
             if let Some(abi) = defs.ins_abi(self.instr_format.language(), instr.opcode) {
-                return decode_args_with_abi(emitter, instr, abi);
+                return decode_args_with_abi(emitter, instr, instr_offset, abi);
             } else {
                 self.opcodes_without_abis.insert(instr.opcode);
             }
@@ -591,6 +601,7 @@ impl Raiser<'_> {
 
         // Fall back to decompiling as a blob.
         Ok(RaiseInstr {
+            offset: instr_offset,
             time: instr.time,
             opcode: instr.opcode,
             difficulty_mask: instr.difficulty,
@@ -606,6 +617,7 @@ impl Raiser<'_> {
 fn decode_args_with_abi(
     emitter: &impl Emitter,
     instr: &RawInstr,
+    instr_offset: raw::BytePos,
     siggy: &InstrAbi,
 ) -> Result<RaiseInstr, ErrorReported> {
     use crate::io::BinRead;
@@ -691,6 +703,7 @@ fn decode_args_with_abi(
         )).ignore();
     }
     Ok(RaiseInstr {
+        offset: instr_offset,
         time: instr.time,
         opcode: instr.opcode,
         difficulty_mask: instr.difficulty,

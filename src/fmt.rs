@@ -842,6 +842,7 @@ impl Format for ast::Expr {
             ast::Expr::LitInt { value, radix: ast::IntRadix::Bool } => out.fmt(value),
             ast::Expr::LitInt { value, radix: ast::IntRadix::Dec } => out.fmt(value),
             ast::Expr::LitInt { value, radix: ast::IntRadix::Hex } => out.fmt(format_args!("{:#x}", value)),
+            ast::Expr::LitInt { value, radix: ast::IntRadix::SignedHex } => out.fmt(format_args!("{:#x}", SignedRadix(*value))),
             ast::Expr::LitInt { value, radix: ast::IntRadix::Bin } => out.fmt(format_args!("{:#b}", value)),
             ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
@@ -879,6 +880,32 @@ impl Format for ast::VarName {
             ast::VarName::Reg { reg, language: _ } => out.fmt(("REG[", reg.0, "]")),
         }
     }
+}
+
+// =============================================================================
+// Helper std::fmt wrappers
+
+/// Integer wrapper type whose Hex impls and etc. can print negative integers as negative.
+/// (normally they show the unsigned equivalent)
+struct SignedRadix(i32);
+
+macro_rules! impl_std_fmt_for_signed_radix {
+    ($($Trait:ident,)+) => {$(
+        impl std::fmt::$Trait for SignedRadix {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                if self.0 < 0 {
+                    write!(f, "-")?;
+                    std::fmt::$Trait::fmt(&self.0.wrapping_neg(), f)
+                } else {
+                    std::fmt::$Trait::fmt(&self.0, f)
+                }
+            }
+        }
+    )+};
+}
+
+impl_std_fmt_for_signed_radix!{
+    LowerHex, UpperHex, Binary,
 }
 
 // =============================================================================

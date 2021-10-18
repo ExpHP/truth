@@ -463,7 +463,7 @@ impl InstrFormat for InstrFormat06 {
         let size = f.read_u16()? as usize;
         let before_difficulty = f.read_u8()?;
         let difficulty = f.read_u8()?;
-        let param_mask = f.read_u8()?;
+        let mut param_mask = f.read_u8()?;
         let after_param_mask = f.read_u8()?;
 
         if before_difficulty != 0 {
@@ -483,6 +483,10 @@ impl InstrFormat for InstrFormat06 {
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
+
+        if self.game == Game::Th06 {
+            param_mask = 0;  // HACK
+        }
 
         let instr = RawInstr {
             time, opcode, args_blob,
@@ -521,6 +525,16 @@ impl InstrFormat for InstrFormat06 {
         f.write_u16(0xff00)?; // difficulty
         f.write_u16(0x00ff)?; // param_mask
         Ok(())
+    }
+
+    // offsets are written as relative in these files
+    fn encode_label(&self, current_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
+        let relative = dest_offset as i64 - current_offset as i64;
+        relative as i32 as u32
+    }
+    fn decode_label(&self, current_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
+        let relative = bits as i32 as i64; // double cast for sign-extension
+        (current_offset as i64 + relative) as u64
     }
 }
 
