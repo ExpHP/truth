@@ -457,6 +457,18 @@ pub trait InstrFormat {
 
     /// Initial difficulty mask.  In languages without difficulty, this returns `None.
     fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { None }
+
+    /// In EoSD ECL, the value of an argument can, in some cases, decide if it is
+    /// a literal or a register.
+    fn register_style(&self) -> RegisterEncodingStyle { RegisterEncodingStyle::ByParamMask }
+}
+
+#[derive(Copy, Clone)]
+pub enum RegisterEncodingStyle {
+    /// The language encodes "registerness" of arguments in the parameter mask.
+    ByParamMask,
+    /// The language is EoSD ECL and all registers are just special values.
+    EosdEcl { does_value_look_like_a_register: fn(&ScalarValue) -> bool },
 }
 
 /// An implementation of InstrFormat for testing the raising and lowering phases of compilation.

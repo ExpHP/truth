@@ -10,7 +10,7 @@ use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, Si
 use crate::resolve::{RegId, UnusedNodeIds};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;
-use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi};
+use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
@@ -482,6 +482,7 @@ fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, e
             | ArgEncoding::Sprite
             | ArgEncoding::Script
             | ArgEncoding::Dword
+            | ArgEncoding::Word  // EoSD ECL can put regs in words
             => ScalarType::Int,
 
             | ArgEncoding::Float
@@ -489,7 +490,7 @@ fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, e
 
             | ArgEncoding::JumpTime => return Err(emitter.emit(error!("unexpected register used as jump time"))),
             | ArgEncoding::JumpOffset => return Err(emitter.emit(error!("unexpected register used as jump offset"))),
-            | ArgEncoding::Word => return Err(emitter.emit(error!("unexpected register used as word-sized argument"))),
+            // | ArgEncoding::Word => return Err(emitter.emit(error!("unexpected register used as word-sized argument, {:?}", raw))),
             | ArgEncoding::String { .. } => return Err(emitter.emit(error!("unexpected register used as string argument"))),
             | ArgEncoding::TimelineArg { .. } => return Err(emitter.emit(error!("unexpected register used as timeline ex arg"))),
         };
@@ -593,7 +594,7 @@ impl Raiser<'_> {
     fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, instr_offset: raw::BytePos, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         if self.options.arguments {
             if let Some(abi) = defs.ins_abi(self.instr_format.language(), instr.opcode) {
-                return decode_args_with_abi(emitter, instr, instr_offset, abi);
+                return decode_args_with_abi(emitter, self.instr_format, instr, instr_offset, abi);
             } else {
                 self.opcodes_without_abis.insert(instr.opcode);
             }
@@ -616,6 +617,7 @@ impl Raiser<'_> {
 
 fn decode_args_with_abi(
     emitter: &impl Emitter,
+    instr_format: &dyn InstrFormat,
     instr: &RawInstr,
     instr_offset: raw::BytePos,
     siggy: &InstrAbi,
@@ -635,8 +637,9 @@ fn decode_args_with_abi(
         Ok(())
     }
 
+    let reg_style = instr_format.register_style();
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
-        let is_reg = param_mask % 2 == 1;
+        let param_mask_bit = param_mask % 2 == 1;
         param_mask /= 2;
 
         emitter.chain_with(|f| write!(f, "in argument {} of ins_{}", arg_index + 1, instr.opcode), |emitter| {
@@ -682,11 +685,18 @@ fn decode_args_with_abi(
                 | ArgEncoding::TimelineArg { .. }
                 => return Ok(()),  // no value for this arg
             };
+
+            let is_reg = match reg_style {
+                RegisterEncodingStyle::ByParamMask => param_mask_bit,
+                RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register } => {
+                    does_value_look_like_a_register(&value)
+                },
+            };
+
             args.push(SimpleArg { value, is_reg });
             Ok(())
         })?;
     }
-
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
         emitter.emit(warning!(
@@ -696,7 +706,8 @@ fn decode_args_with_abi(
         )).ignore();
     }
 
-    if param_mask != 0 {
+    // check that we did enough right-shifts to use every bit
+    if param_mask != 0 && matches!(reg_style, RegisterEncodingStyle::ByParamMask) {
         emitter.emit(warning!(
             "unused mask bits in ins_{}! (arg {} is a register, but there are only {} args!)",
             instr.opcode, param_mask.trailing_zeros() + args.len() as u32 + 1, args.len(),

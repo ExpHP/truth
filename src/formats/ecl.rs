@@ -8,8 +8,8 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported};
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
-use crate::value::{ScalarType};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
+use crate::value::{ScalarType, ScalarValue};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions, RegisterEncodingStyle};
 use crate::context::CompilerContext;
 
 // =============================================================================
@@ -463,7 +463,7 @@ impl InstrFormat for InstrFormat06 {
         let size = f.read_u16()? as usize;
         let before_difficulty = f.read_u8()?;
         let difficulty = f.read_u8()?;
-        let mut param_mask = f.read_u8()?;
+        let param_mask = f.read_u8()?;
         let after_param_mask = f.read_u8()?;
 
         if before_difficulty != 0 {
@@ -483,10 +483,6 @@ impl InstrFormat for InstrFormat06 {
         }
 
         let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
-
-        if self.game == Game::Th06 {
-            param_mask = 0;  // HACK
-        }
 
         let instr = RawInstr {
             time, opcode, args_blob,
@@ -535,6 +531,21 @@ impl InstrFormat for InstrFormat06 {
     fn decode_label(&self, current_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
         let relative = bits as i32 as i64; // double cast for sign-extension
         (current_offset as i64 + relative) as u64
+    }
+
+    fn register_style(&self) -> RegisterEncodingStyle {
+        if self.game == Game::Th06 {
+            RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register: |value| {
+                let id = match *value {
+                    ScalarValue::Int(x) => x,
+                    ScalarValue::Float(x) => x as i32,
+                    ScalarValue::String(_) => return false,
+                };
+                -10_025 <= id && id <= -10_001
+            }}
+        } else {
+            RegisterEncodingStyle::ByParamMask
+        }
     }
 }
 
