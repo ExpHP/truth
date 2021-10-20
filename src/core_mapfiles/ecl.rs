@@ -117,7 +117,9 @@ static ECL_06: &'static CoreSignatures = &CoreSignatures {
         (Th06, 90, Some("Sfff")),
         (Th06, 91, Some("S")),
         (Th06, 92, Some("S")),
-        (Th06, 93, Some("ssz(bs=4)")),
+        // All spell names are length 34 in EoSD.
+        // This makes every spell name instruction not a multiple of 4 bytes. Yep.
+        (Th06, 93, Some("ssz(bs=34)")),
         (Th06, 94, Some("")),
         (Th06, 95, Some("EfffssS")),
         (Th06, 96, Some("")),
@@ -152,8 +154,8 @@ static ECL_06: &'static CoreSignatures = &CoreSignatures {
         (Th06, 125, Some("")),
         (Th06, 126, Some("S")),
         (Th06, 127, Some("S")),
-        (Th06, 128, Some("s")),
-        (Th06, 129, Some("Ss")),
+        (Th06, 128, Some("S")), // zero: s
+        (Th06, 129, Some("SS")), // zero: Ss
         (Th06, 130, Some("S")),
         (Th06, 131, Some("ffSSSS")),
         (Th06, 132, Some("S")),

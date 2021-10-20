@@ -442,7 +442,12 @@ impl Lowerer<'_, '_> {
             opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
             explicit_extra_arg: None,
             user_param_mask: None,
-            args: LowerArgs::Known(vec![label_arg, time_arg]),
+            // FIXME: what happens to time_arg in signatures without time args? Document plz...
+            // XXX we should use signature to determine this order instead
+            args: LowerArgs::Known(match self.instr_format.jump_args_are_flipped() {
+                false => vec![label_arg, time_arg],
+                true => vec![time_arg, label_arg],
+            }),
         }));
         Ok(())
     }

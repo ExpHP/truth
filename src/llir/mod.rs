@@ -436,10 +436,17 @@ pub trait InstrFormat {
     /// communicate registers it doesn't even mention, if both `parent` and `child` are using it!)
     fn instr_disables_scratch_regs(&self, _opcode: raw::Opcode) -> bool { false }
 
+    // FIXME: this should be determined from the signature, like it is during decompilation
     /// Indicates that [`IntrinsicInstrKind::Jmp`] takes two arguments, where the second is time.
     ///
     /// TH06 ANM has no time arg. (it always sets the script clock to the destination's time)
     fn jump_has_time_arg(&self) -> bool { true }
+
+    // FIXME: this should be determined from the signature, like it is during decompilation
+    /// Indicates that [`IntrinsicInstrKind::Jmp`] takes time BEFORE offset.
+    ///
+    /// TH06 ECl flips the time and offset args around.
+    fn jump_args_are_flipped(&self) -> bool { false }
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
     fn is_th06_anm_terminating_instr(&self, _opcode: raw::Opcode) -> bool { false }

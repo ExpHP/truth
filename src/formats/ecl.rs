@@ -449,6 +449,8 @@ impl InstrFormat for InstrFormat06 {
 
     fn has_registers(&self) -> bool { true }
 
+    fn jump_args_are_flipped(&self) -> bool { true }
+
     fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { Some(0xFF) }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
