@@ -481,6 +481,7 @@ fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, e
             | ArgEncoding::Color
             | ArgEncoding::Sprite
             | ArgEncoding::Script
+            | ArgEncoding::Sub
             | ArgEncoding::Dword
             | ArgEncoding::Word  // EoSD ECL can put regs in words
             => ScalarType::Int,
@@ -530,6 +531,7 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
             Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
         },
 
+        | ArgEncoding::Sub
         | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
         => {
             let const_ident = ResIdent::new_null(crate::formats::ecl::auto_sub_name(raw.expect_int() as _));
@@ -658,6 +660,7 @@ fn decode_args_with_abi(
                 | ArgEncoding::Padding
                 | ArgEncoding::Sprite
                 | ArgEncoding::Script
+                | ArgEncoding::Sub
                 => {
                     decrease_len(emitter, &mut remaining_len, 4)?;
                     ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)

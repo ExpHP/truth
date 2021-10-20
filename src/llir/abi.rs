@@ -48,6 +48,8 @@ pub enum ArgEncoding {
     Script,
     /// `n` in mapfile. Dword index of an anm sprite.  When decompiled, prefers to use the name of that sprite.
     Sprite,
+    /// `E` in mapfile. Dword index of an olde-format ECL sub.  When decompiled, prefers to use the name of that sub.
+    Sub,
     /// `z(bs=<int>)` or `m(bs=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
     /// A null-terminated string argument which must be the last argument in the signature and
@@ -154,6 +156,7 @@ impl ArgEncoding {
             | ArgEncoding::Word
             | ArgEncoding::Sprite
             | ArgEncoding::Script
+            | ArgEncoding::Sub
             | ArgEncoding::Dword
             | ArgEncoding::TimelineArg { .. }
             => ScalarType::Int,
@@ -210,6 +213,7 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
                 | ArgEncoding::JumpTime
                 | ArgEncoding::Sprite
                 | ArgEncoding::Script
+                | ArgEncoding::Sub
                 | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
                 | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
                 => (ScalarType::Int, None),

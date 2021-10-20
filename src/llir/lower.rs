@@ -362,6 +362,7 @@ fn encode_args(
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
             | ArgEncoding::Script
+            | ArgEncoding::Sub
             | ArgEncoding::Sprite
             => args_blob.write_i32(arg.expect_raw().expect_int()).expect("Cursor<Vec> failed?!"),
 

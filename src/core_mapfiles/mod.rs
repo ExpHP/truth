@@ -5,6 +5,7 @@ use crate::game::{Game, InstrLanguage};
 use crate::eclmap::Eclmap;
 
 mod anm;
+mod ecl;
 mod msg;
 mod std;
 
@@ -15,8 +16,8 @@ pub fn core_mapfile(game: Game, language: InstrLanguage) -> Eclmap {
         InstrLanguage::Anm => self::anm::core_signatures(game),
         InstrLanguage::Std => self::std::core_signatures(game),
         InstrLanguage::Msg => self::msg::core_signatures(game),
-        InstrLanguage::Ecl => CoreSignatures::EMPTY, // TODO
-        InstrLanguage::Timeline => CoreSignatures::EMPTY, // TODO
+        InstrLanguage::Ecl => self::ecl::core_signatures(game),
+        InstrLanguage::Timeline => self::ecl::timeline_core_signatures(game),
         InstrLanguage::End => CoreSignatures::EMPTY, // TODO
         InstrLanguage::Dummy => CoreSignatures::EMPTY,
     };

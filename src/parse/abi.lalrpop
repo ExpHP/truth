@@ -20,6 +20,7 @@ ArgEncoding: ArgEncoding = {
     "_" => ArgEncoding::Padding,
     "n" => ArgEncoding::Sprite,
     "N" => ArgEncoding::Script,
+    "E" => ArgEncoding::Sub,
     ZString,
     MString,
     TArg,
