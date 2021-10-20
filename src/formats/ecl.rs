@@ -463,8 +463,7 @@ impl InstrFormat for InstrFormat06 {
         let size = f.read_u16()? as usize;
         let before_difficulty = f.read_u8()?;
         let difficulty = f.read_u8()?;
-        let param_mask = f.read_u8()?;
-        let after_param_mask = f.read_u8()?;
+        let param_mask = f.read_u16()?;
 
         if before_difficulty != 0 {
             emitter.as_sized().emit(warning!(
@@ -474,11 +473,6 @@ impl InstrFormat for InstrFormat06 {
         if self.game == Game::Th06 && param_mask != 0xFF {
             emitter.as_sized().emit(warning!(
                 message("unexpected non-FF parameter mask in EoSD: {:#04X}", param_mask)
-            )).ignore();
-        }
-        if after_param_mask != 0 {
-            emitter.as_sized().emit(warning!(
-                message("unexpected nonzero byte after parameter mask: {:#04X}", after_param_mask)
             )).ignore();
         }
 
@@ -497,18 +491,17 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
-    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult {
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
         f.write_u16(self.instr_size(instr) as _)?;
 
         f.write_u8(0)?;
         f.write_u8(instr.difficulty)?;
-        if instr.param_mask > u8::MAX as raw::ParamMask {
-            emitter.as_sized().emit(warning!("upper bits of parameter mask will be lost")).ignore();
-        }
-        f.write_u8(instr.param_mask as _)?;
-        f.write_u8(0)?;
+        f.write_u16(match self.game {
+            Game::Th06 => 0x00FF,
+            _ => instr.param_mask as _,
+        })?;
 
         f.write_all(&instr.args_blob)?;
         Ok(())
