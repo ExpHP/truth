@@ -452,7 +452,31 @@ impl InstrFormat for InstrFormat06 {
     fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { Some(0xFF) }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
-        vec![] // TODO
+        use llir::IntrinsicInstrKind as I;
+
+        match self.game {
+            Game::Th06 => {
+                let out = vec![
+                    (I::Jmp, 2),
+                    // (I::CountJmp, 5),
+                    // (I::InterruptLabel, 21),
+                    // (I::Unop(token![sin], ScalarType::Float), 61),
+                    // (I::Unop(token![cos], ScalarType::Float), 62),
+                    // (I::Unop(Un::Tan, ScalarType::Float), 63),
+                    // (I::Unop(Un::Acos, ScalarType::Float), 64),
+                    // (I::Unop(Un::Atan, ScalarType::Float), 65),
+                ];
+                // llir::register_assign_ops(&mut out, 37);
+                // llir::register_binary_ops(&mut out, 49);
+                // llir::register_cond_jumps(&mut out, 67);
+                out
+            },
+            Game::Th07 => vec![],
+            Game::Th08 => vec![],
+            Game::Th09 => vec![],
+            Game::Th095 => vec![],
+            _ => unreachable!(),
+        }
     }
 
     fn instr_header_size(&self) -> usize { 12 }

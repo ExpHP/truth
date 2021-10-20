@@ -372,7 +372,7 @@ fn raise_decoded_instr(
             ensure!(emitter, args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
             warn_unless!(emitter, args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
-            let goto = raise_jump_args(&args[0], args.get(1), instr.offset, instr_format, offset_labels);
+            let goto = raise_jump_args(args, &encodings, instr.offset, instr_format, offset_labels);
             Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
         }),
 
@@ -417,7 +417,7 @@ fn raise_decoded_instr(
         Some(IntrinsicInstrKind::CountJmp) => emitter.chain("while decompiling a decrement jump", |emitter| {
             warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
             let var = raise_arg_to_reg(language, emitter, &args[0], ScalarType::Int)?;
-            let goto = raise_jump_args(&args[1], Some(&args[2]), instr.offset, instr_format, offset_labels);
+            let goto = raise_jump_args(&args[1..], &encodings[2..], instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
@@ -429,7 +429,7 @@ fn raise_decoded_instr(
             warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
             let a = raise_arg(language, emitter, &args[0], encodings[0])?;
             let b = raise_arg(language, emitter, &args[1], encodings[1])?;
-            let goto = raise_jump_args(&args[2], Some(&args[3]), instr.offset, instr_format, offset_labels);
+            let goto = raise_jump_args(&args[2..], &encodings[2..], instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
@@ -573,13 +573,20 @@ fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &Simpl
     Ok(ast::Var { ty_sigil: Some(ty_sigil), name })
 }
 
+/// Raises one or two arguments with the signature "o", "ot" or "to" into a `goto`.
 fn raise_jump_args(
-    offset_arg: &SimpleArg,
-    time_arg: Option<&SimpleArg>,  // None when the instruction signature has no time arg
+    jump_args: &[SimpleArg],
+    encodings: &[ArgEncoding],
     cur_instr_offset: raw::BytePos,
     instr_format: &dyn InstrFormat,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> ast::StmtGoto {
+    let (offset_arg, time_arg) = match encodings {
+        &[ArgEncoding::JumpOffset] => (&jump_args[0], None),
+        &[ArgEncoding::JumpOffset, ArgEncoding::JumpTime] => (&jump_args[0], Some(&jump_args[1])),
+        &[ArgEncoding::JumpTime, ArgEncoding::JumpOffset] => (&jump_args[1], Some(&jump_args[0])),
+        _ => panic!("encodings not 'o', 'ot', 'to'"),  // FIXME not necessarily a bug, could be bad map from user
+    };
     let offset = instr_format.decode_label(cur_instr_offset, offset_arg.expect_immediate_int() as u32);
     let label = &offset_labels[&offset];
     ast::StmtGoto {
