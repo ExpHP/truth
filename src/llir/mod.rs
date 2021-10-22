@@ -12,6 +12,7 @@ use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
 
 pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind};
+use abi::JumpIntrinsicArgOrder;
 mod abi;
 
 pub use lower::lower_sub_ast_to_instrs;
@@ -254,7 +255,7 @@ pub fn write_instrs(
 pub enum IntrinsicInstrKind {
     /// Like `goto label @ t;` (and `goto label;`)
     ///
-    /// Args: `label, t`.
+    /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     Jmp,
     /// Like `interrupt[n]:`
     ///
@@ -277,12 +278,24 @@ pub enum IntrinsicInstrKind {
     Unop(ast::UnopKind, ScalarType),
     /// Like `if (--x) goto label @ t`.
     ///
-    /// Args: `x, label, t`.
+    /// Args: `x, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     CountJmp,
     /// Like `if (a == c) goto label @ t;`
     ///
-    /// Args: `a, b, label, t`
+    /// Args: `a, b, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     CondJmp(ast::BinopKind, ScalarType),
+    /// First part of a conditional jump in languages where it is comprised of 2 instructions.
+    /// Sets a hidden compare register.
+    ///
+    /// Args: `a, b`
+    CondJmp2A(ScalarType),
+    /// Second part of a 2-instruction conditional jump in languages where it is comprised of 2 instructions.
+    /// Jumps based on the hidden compare register.
+    ///
+    /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
+    CondJmp2B(ast::BinopKind),
+    /// The abomination in EoSD known as a "conditional call."
+    CondCall(ast::BinopKind),
 }
 
 #[derive(Default)]
@@ -305,6 +318,10 @@ impl IntrinsicInstrs {
                 primary(span, "{} not supported in this game", descr),
             )),
         }
+    }
+
+    pub fn get_opcode_opt(&self, intrinsic: IntrinsicInstrKind) -> Option<raw::Opcode> {
+        self.intrinsic_opcodes.get(&intrinsic).copied()
     }
 
     pub fn get_intrinsic(&self, opcode: raw::Opcode) -> Option<IntrinsicInstrKind> {
@@ -351,6 +368,21 @@ pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, s
             pairs.push((IntrinsicInstrKind::CondJmp(op, ty), opcode));
             opcode += 1;
         }
+    }
+}
+
+/// Register a sequence of six comparison based ops in the order used by EoSD ECL: `<, <=, ==, >, >=, !=`
+pub fn register_olde_ecl_comp_ops(
+    pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>,
+    start: raw::Opcode,
+    kind_fn: impl Fn(ast::BinopKind) -> IntrinsicInstrKind,
+) {
+    use ast::BinopKind as B;
+
+    let mut opcode = start;
+    for op in vec![B::Lt, B::Le, B::Eq, B::Gt, B::Ge, B::Ne] {
+        pairs.push((kind_fn(op), opcode));
+        opcode += 1;
     }
 }
 

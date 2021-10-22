@@ -6,7 +6,7 @@ use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
-use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
+use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, JumpIntrinsicArgOrder};
 use crate::resolve::{RegId, UnusedNodeIds};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;
@@ -348,6 +348,8 @@ fn raise_decoded_instr(
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, ErrorReported> {
+    use IntrinsicInstrKind as I;
+
     let language = instr_format.language();
     let opcode = instr.opcode;
     let abi = defs.ins_abi(language, instr.opcode).expect("decoded, so abi is known");
@@ -366,13 +368,17 @@ fn raise_decoded_instr(
 
     match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
-            let nargs = if instr_format.jump_has_time_arg() { 2 } else { 1 };
+            let JumpIntrinsicArgOrder {
+                offset: offset_arg, time: time_arg,
+                other_args, other_arg_encodings: _,
+            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 0).map_err(|e| emitter.emit(e))?;
 
+            // FIXME deal with STD PADDING
             // This one is >= because it exists in early STD where there can be padding args.
-            ensure!(emitter, args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
-            warn_unless!(emitter, args[nargs..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
+            // ensure!(emitter, args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
+            warn_unless!(emitter, other_args.iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
 
-            let goto = raise_jump_args(args, &encodings, instr.offset, instr_format, offset_labels);
+            let goto = raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
             Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
         }),
 
@@ -416,8 +422,13 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::CountJmp) => emitter.chain("while decompiling a decrement jump", |emitter| {
             warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_reg(language, emitter, &args[0], ScalarType::Int)?;
-            let goto = raise_jump_args(&args[1..], &encodings[2..], instr.offset, instr_format, offset_labels);
+            let JumpIntrinsicArgOrder {
+                offset: offset_arg, time: time_arg,
+                other_args, other_arg_encodings: _,
+            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
+
+            let var = raise_arg_to_reg(language, emitter, other_args[0], ScalarType::Int)?;
+            let goto = raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
@@ -427,13 +438,44 @@ fn raise_decoded_instr(
 
         Some(IntrinsicInstrKind::CondJmp(op, _)) => emitter.chain("while decompiling a conditional jump", |emitter| {
             warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let a = raise_arg(language, emitter, &args[0], encodings[0])?;
-            let b = raise_arg(language, emitter, &args[1], encodings[1])?;
-            let goto = raise_jump_args(&args[2..], &encodings[2..], instr.offset, instr_format, offset_labels);
+            let JumpIntrinsicArgOrder {
+                offset: offset_arg, time: time_arg,
+                other_args, other_arg_encodings,
+            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
+
+            let a = raise_arg(language, emitter, &other_args[0], other_arg_encodings[0])?;
+            let b = raise_arg(language, emitter, &other_args[1], other_arg_encodings[1])?;
+            let goto = raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
             )))
+        }),
+
+
+        Some(IntrinsicInstrKind::CondJmp2A(_)) => emitter.chain("while decompiling a conditional jump A", |emitter| {
+            warn_unless!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
+
+            let a = raise_arg(language, emitter, &args[0], encodings[0])?;
+            let b = raise_arg(language, emitter, &args[1], encodings[1])?;
+
+            unimplemented!();
+        }),
+
+
+        Some(IntrinsicInstrKind::CondJmp2B(op)) => emitter.chain("while decompiling a conditional jump B", |emitter| {
+            warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
+            let JumpIntrinsicArgOrder {
+                offset: offset_arg, time: time_arg,
+                other_args, other_arg_encodings,
+            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
+
+            unimplemented!();
+        }),
+
+
+        Some(IntrinsicInstrKind::CondCall(op)) => emitter.chain("while decompiling a conditional jump B", |emitter| {
+            unimplemented!();
         }),
 
 
@@ -577,18 +619,12 @@ fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &Simpl
 
 /// Raises one or two arguments with the signature "o", "ot" or "to" into a `goto`.
 fn raise_jump_args(
-    jump_args: &[SimpleArg],
-    encodings: &[ArgEncoding],
+    offset_arg: &SimpleArg,
+    time_arg: Option<&SimpleArg>,
     cur_instr_offset: raw::BytePos,
     instr_format: &dyn InstrFormat,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> ast::StmtGoto {
-    let (offset_arg, time_arg) = match encodings {
-        &[ArgEncoding::JumpOffset] => (&jump_args[0], None),
-        &[ArgEncoding::JumpOffset, ArgEncoding::JumpTime] => (&jump_args[0], Some(&jump_args[1])),
-        &[ArgEncoding::JumpTime, ArgEncoding::JumpOffset] => (&jump_args[1], Some(&jump_args[0])),
-        _ => panic!("encodings not 'o', 'ot', 'to'"),  // FIXME not necessarily a bug, could be bad map from user
-    };
     let offset = instr_format.decode_label(cur_instr_offset, offset_arg.expect_immediate_int() as u32);
     let label = &offset_labels[&offset];
     ast::StmtGoto {

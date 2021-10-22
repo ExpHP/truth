@@ -511,3 +511,9 @@ script main {}
     "#,
     expect_error: "too long",
 );
+
+
+#[test]
+fn need_tests_for_malformed_jump_signatures() {
+    panic!()
+}

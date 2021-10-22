@@ -7,7 +7,7 @@ use std::collections::{HashMap, BTreeSet};
 use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
-use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
+use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, JumpIntrinsicArgOrder};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -431,23 +431,22 @@ impl Lowerer<'_, '_> {
     }
 
     fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_data: TimeAndDifficulty, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
-        if goto.time.is_some() && !self.instr_format.jump_has_time_arg() {
-            return Err(self.unsupported(&stmt_span, "goto @ time"));
-        }
-
         let (label_arg, time_arg) = lower_goto_args(goto);
+
+        // use the signature to determine the right order to put the arguments
+        let opcode = self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?;
+        let abi = self.ctx.defs.ins_abi(self.instr_format.language(), opcode).unwrap();
+        let args = JumpIntrinsicArgOrder {
+            offset: label_arg, time: Some(time_arg),
+            other_args: vec![], other_arg_encodings: vec![],
+        }.into_vec(&abi).map_err(|err| self.ctx.emitter.emit(err))?;
 
         self.out.push(LowerStmt::Instr(LowerInstr {
             stmt_data,
-            opcode: self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?,
+            opcode,
             explicit_extra_arg: None,
             user_param_mask: None,
-            // FIXME: what happens to time_arg in signatures without time args? Document plz...
-            // XXX we should use signature to determine this order instead
-            args: LowerArgs::Known(match self.instr_format.jump_args_are_flipped() {
-                false => vec![label_arg, time_arg],
-                true => vec![time_arg, label_arg],
-            }),
+            args: LowerArgs::Known(args),
         }));
         Ok(())
     }
@@ -482,12 +481,20 @@ impl Lowerer<'_, '_> {
                 let (arg_label, arg_time) = lower_goto_args(goto);
                 assert_eq!(ty_var, ScalarType::Int, "shoulda been type-checked!");
 
+                let opcode = self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?;
+                let abi = self.ctx.defs.ins_abi(self.instr_format.language(), opcode).unwrap();
+                let args = JumpIntrinsicArgOrder {
+                    offset: arg_label, time: Some(arg_time),
+                    other_args: vec![arg_var],
+                    other_arg_encodings: vec![],
+                }.into_vec(&abi).map_err(|err| self.ctx.emitter.emit(err))?;
+
                 self.out.push(LowerStmt::Instr(LowerInstr {
                     stmt_data,
-                    opcode: self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?,
+                    opcode,
                     explicit_extra_arg: None,
                     user_param_mask: None,
-                    args: LowerArgs::Known(vec![arg_var, arg_label, arg_time]),
+                    args: LowerArgs::Known(args),
                 }));
                 Ok(())
             },
@@ -601,17 +608,80 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-  /// Lowers `if (<A> || <B>) goto label @ time;` and similar
-  fn lower_cond_jump_logic_binop(
-      &mut self,
-      stmt_span: Span,
-      stmt_data: TimeAndDifficulty,
-      keyword: &Sp<ast::CondKeyword>,
-      a: &Sp<ast::Expr>,
-      binop: &Sp<ast::BinopKind>,
-      b: &Sp<ast::Expr>,
-      goto: &ast::StmtGoto,
-  ) -> Result<(), ErrorReported> {
+    // `if (a != b) ...` for simple values
+    fn lower_cond_jump_intrinsic(
+        &mut self,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        data_a: SimpleExpr,
+        binop: &Sp<ast::BinopKind>,
+        data_b: SimpleExpr,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), ErrorReported> {
+        assert_eq!(data_a.ty, data_b.ty, "should've been type-checked");
+        let ty_arg = data_a.ty;
+
+        let (lowered_label, lowered_time) = lower_goto_args(goto);
+
+        // check language capabilities
+        if let Some(cmp_jmp_opcode) = self.intrinsic_instrs.get_opcode_opt(IKind::CondJmp(binop.value, ty_arg)) {
+            // language has single-instruction conditional jumps
+            let cmp_jmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), cmp_jmp_opcode).unwrap();
+            let cmp_jmp_args = JumpIntrinsicArgOrder {
+                offset: lowered_label, time: Some(lowered_time),
+                other_args: vec![data_a.lowered, data_b.lowered],
+                other_arg_encodings: vec![], // ignored by into_vec
+            }.into_vec(&cmp_jmp_abi).map_err(|err| self.ctx.emitter.emit(err))?;
+
+            self.out.push(LowerStmt::Instr(LowerInstr {
+                stmt_data,
+                opcode: cmp_jmp_opcode,
+                explicit_extra_arg: None,
+                user_param_mask: None,
+                args: LowerArgs::Known(cmp_jmp_args),
+            }));
+        } else {
+            // language may have two-instruction conditional jumps
+            let cmp_opcode = self.get_opcode(IKind::CondJmp2A(ty_arg), stmt_span, "conditional jump")?;
+            let jmp_opcode = self.get_opcode(IKind::CondJmp2B(binop.value), binop.span, "conditional jump with this operator")?;
+
+            let cmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), cmp_opcode).unwrap();
+            let jmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), jmp_opcode).unwrap();
+            let jmp_args = JumpIntrinsicArgOrder {
+                offset: lowered_label, time: Some(lowered_time),
+                other_args: vec![],
+                other_arg_encodings: vec![], // ignored by into_vec
+            }.into_vec(&jmp_abi).map_err(|err| self.ctx.emitter.emit(err))?;
+
+            self.out.push(LowerStmt::Instr(LowerInstr {
+                stmt_data,
+                opcode: cmp_opcode,
+                explicit_extra_arg: None,
+                user_param_mask: None,
+                args: LowerArgs::Known(vec![data_a.lowered, data_b.lowered]),
+            }));
+            self.out.push(LowerStmt::Instr(LowerInstr {
+                stmt_data,
+                opcode: jmp_opcode,
+                explicit_extra_arg: None,
+                user_param_mask: None,
+                args: LowerArgs::Known(jmp_args),
+            }));
+        }
+        Ok(())
+    }
+
+    /// Lowers `if (<A> || <B>) goto label @ time;` and similar
+    fn lower_cond_jump_logic_binop(
+        &mut self,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        keyword: &Sp<ast::CondKeyword>,
+        a: &Sp<ast::Expr>,
+        binop: &Sp<ast::BinopKind>,
+        b: &Sp<ast::Expr>,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), ErrorReported> {
         let is_easy_case = match (keyword.value, binop.value) {
             (token![if], token![||]) => true,
             (token![if], token![&&]) => false,
