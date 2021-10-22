@@ -162,6 +162,58 @@ void externFunc();
     expect_error: "unsupported extern function",
 );
 
+source_test!(
+    ECL_06, decompile_eosd_cmp_jmp_success,
+    main_body: r#"
+label:
+    cmpInt(I0, 5);
+    jmpLt(timeof(label), offsetof(label));
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("while"));
+        assert!(decompiled.contains("< 5"));
+    },
+);
+
+source_test!(
+    ECL_06, decompile_eosd_cmp_jmp_blocked_by_time,
+    main_body: r#"
+label:
+    cmpInt(I0, 5);
++1:
+    jmpLt(timeof(label), offsetof(label));
+"#,
+    sbsb: |decompiled| {
+        assert!(!decompiled.contains("while"));
+    },
+);
+
+source_test!(
+    ECL_06, decompile_eosd_cmp_jmp_blocked_by_difficulty,
+    main_body: r#"
+label:
+    cmpInt(I0, 5);
+difficulty[0x8]:
+    jmpLt(timeof(label), offsetof(label));
+"#,
+    sbsb: |decompiled| {
+        assert!(!decompiled.contains("while"));
+    },
+);
+
+source_test!(
+    ECL_06, decompile_eosd_cmp_jmp_blocked_by_label,
+    main_body: r#"
+label:
+    cmpInt(I0, 5);
+otherLabelLol:
+    jmpLt(timeof(label), offsetof(label));
+    goto otherLabelLol;
+"#,
+    sbsb: |decompiled| {
+        assert!(!decompiled.contains("while"));
+    },
+);
 
 // source_test!(
 //     ECL_10, extern_conflict,

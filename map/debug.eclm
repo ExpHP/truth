@@ -1,12 +1,25 @@
 !eclmap
 
 !ins_names
+2
+27 cmpInt
+29 jmpLt
+
 10 eclOnly
 11 dummy
 
 !ins_signatures
+2 to
 10 SS
 11
+27 SS
+29 to
+
+!gvar_names
+-10001 I0
+
+!gvar_types
+-10001 $
 
 !timeline_ins_names
 10 timelineOnly
