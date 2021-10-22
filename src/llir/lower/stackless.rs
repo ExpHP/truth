@@ -830,6 +830,13 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
             let (lowered, ty) = lower_var_to_arg(var, ctx)?;
             Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))
         },
+        ast::Expr::LabelProperty { keyword, ref label } => Ok(ExprClass::Simple(SimpleExpr {
+            lowered: sp!(arg.span => match keyword.value {
+                token![timeof] => LowerArg::TimeOf(label.value.clone()),
+                token![offsetof] => LowerArg::Label(label.value.clone()),
+            }),
+            ty: ScalarType::Int,
+        })),
 
         // Here we treat casts.  A cast of any expression is understood to require a temporary of
         // the *input* type of the cast, but not the output type.  For example:

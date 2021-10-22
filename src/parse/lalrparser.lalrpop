@@ -101,6 +101,8 @@ extern {
         "pragma" => Token::Pragma,
         "mapfile" => Token::Mapfile,
         "image_source" => Token::ImageSource,
+        "offsetof" => Token::OffsetOf,
+        "timeof" => Token::TimeOf,
         "sin" => Token::Sin,
         "cos" => Token::Cos,
         "sqrt" => Token::Sqrt,
@@ -530,6 +532,9 @@ ExprTerm: ast::Expr = {
     <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")"
         => ast::Expr::Unop(op, e),
 
+    <keyword:Sp<LabelPropertyKeyword>> "(" <label:Sp<Ident>> ")"
+        => ast::Expr::LabelProperty { label, keyword },
+
     <name:Sp<CallableName>> <args:ExprCallParenArgsWithPseudos>
         => ast::Expr::Call { name, pseudos: args.0, args: args.1 },
 
@@ -547,6 +552,11 @@ ExprTerm: ast::Expr = {
         message("invalid operation"),
         primary(Span::from_locs(l, r), "array indexing is not a thing, sorry"),
     ).into()),
+};
+
+LabelPropertyKeyword: ast::LabelPropertyKeyword = {
+    "offsetof" => ast::LabelPropertyKeyword::OffsetOf,
+    "timeof" => ast::LabelPropertyKeyword::TimeOf,
 };
 
 #[inline]

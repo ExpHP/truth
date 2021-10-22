@@ -63,6 +63,9 @@ macro_rules! token {
     ($(meta)? meta) => { $crate::ast::MetaKeyword::Meta };
     ($(meta)? entry) => { $crate::ast::MetaKeyword::Entry };
 
+    ($(labelprop)? offsetof) => { $crate::ast::LabelPropertyKeyword::OffsetOf };
+    ($(labelprop)? timeof) => { $crate::ast::LabelPropertyKeyword::TimeOf };
+
     ($(sigil)? $) => { $crate::ast::VarSigil::Int };
     (  sigil   %) => { $crate::ast::VarSigil::Float };
 

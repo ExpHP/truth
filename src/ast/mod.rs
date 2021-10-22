@@ -398,6 +398,10 @@ pub enum Expr {
     },
     LitFloat { value: raw::LangFloat },
     LitString(LitString),
+    LabelProperty {
+        label: Sp<Ident>,
+        keyword: Sp<LabelPropertyKeyword>
+    },
     Var(Sp<Var>),
 }
 
@@ -427,6 +431,7 @@ impl Expr {
         Expr::Call { .. } => "call expression",
         Expr::Unop { .. } => "unary operator",
         Expr::LitInt { .. } => "literal integer",
+        Expr::LabelProperty { .. } => "label property",
         Expr::LitFloat { .. } => "literal float",
         Expr::LitString { .. } => "literal string",
         Expr::Var { .. } => "var expression",
@@ -589,6 +594,14 @@ string_enum! {
         #[str = "pop"] Pop,
         #[str = "blob"] Blob,
         #[str = "arg0"] ExtraArg,
+    }
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum LabelPropertyKeyword {
+        #[str = "offsetof"] OffsetOf,
+        #[str = "timeof"] TimeOf,
     }
 }
 
@@ -953,6 +966,7 @@ macro_rules! generate_visitor_stuff {
                 Expr::LitInt { value: _, radix: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
+                Expr::LabelProperty { .. } => {},
                 Expr::Var(var) => v.visit_var(var),
             }
         }

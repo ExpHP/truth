@@ -517,3 +517,13 @@ script main {}
 fn need_tests_for_malformed_jump_signatures() {
     panic!()
 }
+
+#[test]
+fn need_tests_for_funny_broken_cmp_jmp_pairs() {
+    panic!()
+}
+
+#[test]
+fn need_to_decompile_offsetof_timeof() {
+    panic!()
+}

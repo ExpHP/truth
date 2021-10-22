@@ -334,8 +334,8 @@ impl AstVm {
 
                 ast::StmtBody::RawDifficultyLabel(_) => {},
 
-                ast::StmtBody::AbsTimeLabel { .. } => { /* FIXME: switch VM to use these labels */ },
-                ast::StmtBody::RelTimeLabel { .. } => { /* FIXME: switch VM to use these labels */ },
+                ast::StmtBody::AbsTimeLabel { .. } => { },
+                ast::StmtBody::RelTimeLabel { .. } => { },
 
                 ast::StmtBody::ScopeEnd(_) => {},
 
@@ -367,6 +367,8 @@ impl AstVm {
             ast::Expr::LitFloat { value, .. } => ScalarValue::Float(*value),
 
             ast::Expr::LitString(ast::LitString { string, .. }) => ScalarValue::String(string.clone()),
+
+            ast::Expr::LabelProperty { .. } => unimplemented!("offsetof/timeof in VM"),
 
             ast::Expr::Var(var) => self.read_var_by_ast(var, resolutions),
         }

@@ -136,6 +136,8 @@ define_token_enum! {
         #[token("pragma")] Pragma,
         #[token("mapfile")] Mapfile,
         #[token("image_source")] ImageSource,
+        #[token("offsetof")] OffsetOf,
+        #[token("timeof")] TimeOf,
         #[token("sin")] Sin,
         #[token("cos")] Cos,
         #[token("sqrt")] Sqrt,

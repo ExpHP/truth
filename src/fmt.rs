@@ -846,6 +846,7 @@ impl Format for ast::Expr {
             ast::Expr::LitInt { value, radix: ast::IntRadix::Bin } => out.fmt(format_args!("{:#b}", value)),
             ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
+            ast::Expr::LabelProperty { label, keyword } => out.fmt((keyword, "(", label, ")")),
             ast::Expr::Var(x) => out.fmt(x),
         }
     }

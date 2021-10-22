@@ -354,6 +354,9 @@ impl ExprTypeChecker<'_, '_> {
                 ExprType::Value(left_ty?)
             },
 
+            ast::Expr::LabelProperty { keyword: _, label: _ }
+            => ExprType::Value(ScalarType::Int),
+
             ast::Expr::Call { ref name, ref pseudos, ref args, }
             => self.check_expr_call(name, pseudos, args)?,
         };
@@ -510,6 +513,9 @@ impl ast::Expr {
 
             ast::Expr::Ternary { ref left, .. }
             => left.compute_ty(ctx),
+
+            ast::Expr::LabelProperty { .. }
+            => ExprType::Value(ScalarType::Int),
 
             ast::Expr::Call { ref pseudos, ref name, .. } => {
                 if pseudos.iter().any(|x| matches!(x.kind.value, token![blob])) {
