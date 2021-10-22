@@ -133,6 +133,21 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, time_loop_at_beginning_of_script,
+    main_body: r#"
+    label:
+    +1:
+        pos(0.0, 0.0, 0.0);
+        goto label;
+    "#,
+    sbsb: |decompiled| {
+        // This is a regression test for a bug where raising would place this label
+        // at the wrong time due to having no "previous instruction"
+        assert!(decompiled.contains("loop {"));
+    },
+);
+
+source_test!(
     STD_08, forward_jump,
     main_body: r#"
         up(0.0, 1.0, -1.0);

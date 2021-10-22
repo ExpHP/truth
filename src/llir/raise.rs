@@ -281,12 +281,12 @@ fn generate_label_at_offset(
 ) -> Label {
     let time_args = time_args.iter().map(|&x| x.unwrap_or(next_time)).collect::<BTreeSet<_>>();
 
-    if let Some((prev_offset, prev_time)) = prev {
-        // If the only time used with this label is the time of the previous instruction
-        // (which is less than this instruction), put the label before the relative time increase.
-        if prev_time < next_time && time_args.len() == 1 && time_args.iter().next().unwrap() == &prev_time {
-            return Label { label: format!("label_{}r", prev_offset).parse().unwrap(), time_label: prev_time };
-        }
+    // see test time_loop_at_beginning_of_script.  Scripts implicitly start at time 0.
+    let (prev_offset, prev_time) = prev.unwrap_or((0, 0));
+    // If the only time used with this label is the time of the previous instruction
+    // (which is less than this instruction), put the label before the relative time increase.
+    if prev_time < next_time && time_args.len() == 1 && time_args.iter().next().unwrap() == &prev_time {
+        return Label { label: format!("label_{}r", prev_offset).parse().unwrap(), time_label: prev_time };
     }
     Label { label: format!("label_{}", next_offset).parse().unwrap(), time_label: next_time }
 }
