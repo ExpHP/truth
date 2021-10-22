@@ -128,7 +128,6 @@ fn _raise_instrs_to_sub_ast(
 
     let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
-    let mut out = vec![];
 
     // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
     let intrinsic_instrs = match raiser.options.intrinsics {
@@ -136,19 +135,70 @@ fn _raise_instrs_to_sub_ast(
         false => Default::default(),
     };
 
-    // main loop
-    let mut label_gen = LabelEmitter::new(&offset_labels);
-    for (&offset, instr) in zip!(&instr_offsets, &script) {
+    _raise_instrs_main_loop(
+        emitter, defs, instr_format, &instr_offsets,
+        &script, &offset_labels, &intrinsic_instrs,
+    )
+}
+
+fn _raise_instrs_main_loop(
+    emitter: &impl Emitter,
+    defs: &Defs,
+    instr_format: &dyn InstrFormat,
+    instr_offsets: &Vec<raw::BytePos>,
+    script: &[RaiseInstr],
+    offset_labels: &BTreeMap<raw::BytePos, Label>,
+    intrinsic_instrs: &IntrinsicInstrs,
+) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+    let mut out = vec![];
+    let mut label_gen = LabelEmitter::new(offset_labels);
+    let mut remaining_instrs = zip!(instr_offsets.iter().copied(), script).peekable();
+
+    while let Some((offset, instr)) = remaining_instrs.next() {
         label_gen.emit_labels(&mut out, offset, instr.time, instr.difficulty_mask);
 
-        let body = raise_instr(emitter, instr_format, instr, defs, &intrinsic_instrs, &offset_labels)?;
+        let args = match &instr.args {
+            RaiseArgs::Unknown(args) => {
+                // Unknown signature, fall back to pseudos.
+                let body = raise_unknown_instr(instr_format.language(), instr, args)?;
+                out.push(sp!(ast::Stmt { node_id: None, body }));
+                continue;
+            },
+            RaiseArgs::Decoded(args) => args,
+        };
+
+        // Is it a two-instruction intrinsic?
+        // Both instructions must have known signatures...
+        if let Some(&(next_offset, ref next_instr)) = remaining_instrs.peek() {
+            if let RaiseArgs::Decoded(next_args) = &next_instr.args {
+                // FIXME don't do this check on every instr, or maybe benchmark?
+                if !label_gen.would_emit_labels(next_offset, next_instr.time, next_instr.difficulty_mask) {
+                    if let Some(body) = possibly_raise_long_intrinsic(
+                        emitter, instr_format, instr, next_instr,
+                        args, next_args, defs, intrinsic_instrs, offset_labels,
+                    )? {
+                        // Success! It's a two-instruction intrinsic.
+                        out.push(sp!(ast::Stmt { node_id: None, body }));
+                        remaining_instrs.next();  // consume second part
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // We have a single instruction with known signature.
+        let body = raise_single_decoded_instr(
+            emitter, instr_format, instr, args, defs,
+            &intrinsic_instrs, &offset_labels,
+        )?;
         out.push(sp!(ast::Stmt { node_id: None, body }));
     }
 
     // possible label after last instruction
-    if let Some(label) = offset_labels.get(instr_offsets.last().expect("n + 1 offsets so there's always at least one")) {
-        out.push(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
-    }
+    let end_time = label_gen.prev_time;
+    let end_difficulty = label_gen.prev_difficulty;
+    let &end_offset = instr_offsets.last().expect("n + 1 offsets so there's always at least one");
+    label_gen.emit_labels(&mut out, end_offset, end_time, end_difficulty);
 
     Ok(out)
 }
@@ -289,19 +339,15 @@ fn extract_jump_args_by_signature(
     jump_offset.map(|offset| (offset, jump_time))
 }
 
-
-fn raise_instr(
-    emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
-    instr: &RaiseInstr,
-    defs: &Defs,
-    intrinsic_instrs: &IntrinsicInstrs,
-    offset_labels: &BTreeMap<u64, Label>,
-) -> Result<ast::StmtBody, ErrorReported> {
-    match &instr.args {
-        RaiseArgs::Decoded(args) => raise_decoded_instr(emitter, instr_format, instr, args, defs, intrinsic_instrs, offset_labels),
-        RaiseArgs::Unknown(args) => raise_unknown_instr(instr_format.language(), instr, args),
-    }
+macro_rules! ensure {
+    ($emitter:ident, $cond:expr, $($arg:tt)+) => {
+        if !$cond { return Err($emitter.emit(error!($($arg)+))); }
+    };
+}
+macro_rules! warn_unless {
+    ($emitter:ident, $cond:expr, $($arg:tt)+) => {
+        if !$cond { $emitter.emit(warning!($($arg)+)).ignore(); }
+    };
 }
 
 fn raise_unknown_instr(
@@ -339,7 +385,7 @@ fn raise_unknown_instr(
     })))
 }
 
-fn raise_decoded_instr(
+fn raise_single_decoded_instr(
     emitter: &impl Emitter,
     instr_format: &dyn InstrFormat,
     instr: &RaiseInstr,
@@ -348,23 +394,10 @@ fn raise_decoded_instr(
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<ast::StmtBody, ErrorReported> {
-    use IntrinsicInstrKind as I;
-
     let language = instr_format.language();
     let opcode = instr.opcode;
     let abi = defs.ins_abi(language, instr.opcode).expect("decoded, so abi is known");
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
-
-    macro_rules! ensure {
-        ($emitter:ident, $cond:expr, $($arg:tt)+) => {
-            if !$cond { return Err($emitter.emit(error!($($arg)+))); }
-        };
-    }
-    macro_rules! warn_unless {
-        ($emitter:ident, $cond:expr, $($arg:tt)+) => {
-            if !$cond { $emitter.emit(warning!($($arg)+)).ignore(); }
-        };
-    }
 
     match intrinsic_instrs.get_intrinsic(opcode) {
         Some(IntrinsicInstrKind::Jmp) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
@@ -453,36 +486,16 @@ fn raise_decoded_instr(
         }),
 
 
-        Some(IntrinsicInstrKind::CondJmp2A(_)) => emitter.chain("while decompiling a conditional jump A", |emitter| {
-            warn_unless!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
-
-            let a = raise_arg(language, emitter, &args[0], encodings[0])?;
-            let b = raise_arg(language, emitter, &args[1], encodings[1])?;
-
-            unimplemented!();
-        }),
-
-
-        Some(IntrinsicInstrKind::CondJmp2B(op)) => emitter.chain("while decompiling a conditional jump B", |emitter| {
-            warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let JumpIntrinsicArgOrder {
-                offset: offset_arg, time: time_arg,
-                other_args, other_arg_encodings,
-            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
-
-            unimplemented!();
-        }),
-
-
-        Some(IntrinsicInstrKind::CondCall(op)) => emitter.chain("while decompiling a conditional jump B", |emitter| {
-            unimplemented!();
-        }),
-
-
-        // Default behavior for general instructions
-        None => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
-            let abi = expect_abi(language, instr, defs);
-
+        // Default behavior for general instructions.
+        //
+        // Individual pieces of multipart intrinsics also take this route for cases where
+        // they show up alone or with e.g. time labels in-between.
+        | None
+        | Some(IntrinsicInstrKind::CondJmp2A { .. })
+        | Some(IntrinsicInstrKind::CondJmp2B { .. })
+        | Some(IntrinsicInstrKind::CondCall { .. })  // don't wanna deal with you right now
+        => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
+            // Raise directly to `ins_*(...)` syntax.
             Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
                 name: sp!(ast::CallableName::Ins { opcode, language: Some(language) }),
                 pseudos: vec![],
@@ -492,6 +505,53 @@ fn raise_decoded_instr(
     }
 }
 
+/// Raise an intrinsic that is two instructions long.
+fn possibly_raise_long_intrinsic(
+    emitter: &impl Emitter,
+    instr_format: &dyn InstrFormat,
+    instr_1: &RaiseInstr,
+    instr_2: &RaiseInstr,
+    args_1: &[SimpleArg],
+    args_2: &[SimpleArg],
+    defs: &Defs,
+    intrinsic_instrs: &IntrinsicInstrs,
+    offset_labels: &BTreeMap<u64, Label>,
+) -> Result<Option<ast::StmtBody>, ErrorReported> {
+    let language = instr_format.language();
+
+    match intrinsic_instrs.get_intrinsic(instr_1.opcode) {
+        Some(IntrinsicInstrKind::CondJmp2A(_)) => match intrinsic_instrs.get_intrinsic(instr_2.opcode) {
+            Some(IntrinsicInstrKind::CondJmp2B(op)) => {
+                emitter.chain("while decompiling a two-step conditional jump", |emitter| {
+                    let (cmp_instr, cmp_args) = (instr_1, args_1);
+                    let (jmp_instr, jmp_args) = (instr_2, args_2);
+
+                    let cmp_abi = expect_abi(language, cmp_instr, defs);
+                    let jmp_abi = expect_abi(language, jmp_instr, defs);
+                    let mut cmp_encodings = cmp_abi.arg_encodings();
+
+                    warn_unless!(emitter, cmp_args.len() == 2, "expected {} args, got {}", 2, cmp_args.len());
+
+                    let a = raise_arg(language, emitter, &cmp_args[0], cmp_encodings.next().unwrap())?;
+                    let b = raise_arg(language, emitter, &cmp_args[1], cmp_encodings.next().unwrap())?;
+                    let JumpIntrinsicArgOrder {
+                        offset: offset_arg, time: time_arg,
+                        other_args, other_arg_encodings: _,
+                    } = JumpIntrinsicArgOrder::from_iter(jmp_args.iter(), &jmp_abi, 0).map_err(|e| emitter.emit(e))?;
+                    assert_eq!(other_args.len(), 0);
+
+                    let goto = raise_jump_args(offset_arg, time_arg, jmp_instr.offset, instr_format, offset_labels);
+
+                    Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                        as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
+                    ))))
+                })
+            },
+            _ => Ok(None),
+        },
+        _ => Ok(None),
+    }
+}
 
 fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<ast::Expr>>, ErrorReported> {
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
@@ -779,6 +839,7 @@ fn expect_abi<'a>(language: InstrLanguage, instr: &RaiseInstr, defs: &'a Defs) -
 // =============================================================================
 
 /// Emits time and difficulty labels from an instruction stream.
+#[derive(Debug, Clone)]
 struct LabelEmitter<'a> {
     prev_time: raw::Time,
     prev_difficulty: raw::DifficultyMask,
@@ -797,6 +858,14 @@ impl<'a> LabelEmitter<'a> {
     fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask) {
         self.emit_difficulty_labels(out, difficulty);
         self.emit_offset_and_time_labels(out, offset, time);
+    }
+
+    /// Determine if the label emitter would emit a label here.
+    fn would_emit_labels(&self, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask) -> bool {
+        let mut out = vec![];
+        let mut temp_emitter = self.clone();
+        temp_emitter.emit_labels(&mut out, offset, time, difficulty);
+        !out.is_empty()
     }
 
     // emit both labels like "label_354:" and "+24:"

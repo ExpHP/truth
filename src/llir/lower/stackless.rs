@@ -592,17 +592,7 @@ impl Lowerer<'_, '_> {
                     token![if] => binop.value,
                     token![unless] => binop.negate_comparison().expect("lower_cond_jump_comparison called with non-comparison operator"),
                 });
-                assert_eq!(data_a.ty, data_b.ty, "should've been type-checked");
-                let ty_arg = data_a.ty;
-
-                let (lowered_label, lowered_time) = lower_goto_args(goto);
-                self.out.push(LowerStmt::Instr(LowerInstr {
-                    stmt_data,
-                    opcode: self.get_opcode(IKind::CondJmp(binop.value, ty_arg), binop.span, "conditional jump with this operator")?,
-                    explicit_extra_arg: None,
-                    user_param_mask: None,
-                    args: LowerArgs::Known(vec![data_a.lowered, data_b.lowered, lowered_label, lowered_time]),
-                }));
+                self.lower_cond_jump_intrinsic(stmt_span, stmt_data, data_a, &binop, data_b, goto)?;
             },
         }
         Ok(())
@@ -645,7 +635,6 @@ impl Lowerer<'_, '_> {
             let cmp_opcode = self.get_opcode(IKind::CondJmp2A(ty_arg), stmt_span, "conditional jump")?;
             let jmp_opcode = self.get_opcode(IKind::CondJmp2B(binop.value), binop.span, "conditional jump with this operator")?;
 
-            let cmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), cmp_opcode).unwrap();
             let jmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), jmp_opcode).unwrap();
             let jmp_args = JumpIntrinsicArgOrder {
                 offset: lowered_label, time: Some(lowered_time),
