@@ -485,6 +485,7 @@ where
     }
 }
 
+// Can't generalize, would conflict with the Borrow<T> for T impl. </3
 impl<T: ?Sized> std::borrow::Borrow<T> for Sp<T> {
     fn borrow(&self) -> &T {
         &self.value

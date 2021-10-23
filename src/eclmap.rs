@@ -1,27 +1,27 @@
 use std::collections::{BTreeMap};
-use regex::Regex;
-use lazy_static::lazy_static;
 
+use crate::pos::{Sp, FileId};
 use crate::game::{Game, InstrLanguage};
 use crate::diagnostic::{RootEmitter, Emitter};
 use crate::ident::Ident;
 use crate::io::Fs;
+use crate::parse::seqmap::{SeqmapRaw, SeqmapRawSection};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 
 /// FIXME: Rename to Mapfile, how have I not done this already?!  - Exp
 #[derive(Debug)]
 pub struct Eclmap {
     pub language: InstrLanguage,
-    pub ins_names: BTreeMap<i32, Ident>,
-    pub ins_signatures: BTreeMap<i32, String>,
-    pub ins_rets: BTreeMap<i32, String>,
-    pub gvar_names: BTreeMap<i32, Ident>,
-    pub gvar_types: BTreeMap<i32, String>,
+    pub ins_names: BTreeMap<i32, Sp<Ident>>,
+    pub ins_signatures: BTreeMap<i32, Sp<String>>,
+    pub ins_rets: BTreeMap<i32, Sp<String>>,
+    pub gvar_names: BTreeMap<i32, Sp<Ident>>,
+    pub gvar_types: BTreeMap<i32, Sp<String>>,
     /// For historic reasons, [`InstrLanguage::Timeline`] has dedicated sections.
     /// When these are seen in a file, they will always define things for timelines
     /// instead of [`Self::language`].
-    pub timeline_ins_names: BTreeMap<i32, Ident>,
-    pub timeline_ins_signatures: BTreeMap<i32, String>,
+    pub timeline_ins_names: BTreeMap<i32, Sp<Ident>>,
+    pub timeline_ins_signatures: BTreeMap<i32, Sp<String>>,
 }
 
 impl Eclmap {
@@ -39,32 +39,35 @@ impl Eclmap {
         }
     }
 
-    pub fn load(path: impl AsRef<std::path::Path>, game: Option<Game>, root_emitter: &RootEmitter) -> Result<Self, ErrorReported> {
+    pub fn load(
+        path: impl AsRef<std::path::Path>,
+        game: Option<Game>,
+        emitter: &RootEmitter,
+        // Things gets a bit ugly because a map can refer to more maps
+        mut read_file: impl FnMut(&std::path::Path) -> Result<(FileId, String), ErrorReported>,
+    ) -> Result<Self, ErrorReported> {
         // canonicalize so paths in gamemaps can be interpreted relative to the gamemap path
         let path = path.as_ref();
-        let emitter = root_emitter.while_reading(path);
-        let fs = Fs::new(root_emitter);
+        let fs = Fs::new(emitter);
+        let path = fs.canonicalize(path).map_err(|e| emitter.emit(e))?;
 
-        let path = fs.canonicalize(path).map_err(|e| root_emitter.emit(e))?;
-        let text = fs.read_to_string(&path)?;
-
-        let mut seqmap = parse_seqmap(&text, &emitter)?;
+        let (file_id, file_contents) = read_file(&path)?;
+        let mut seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
         if seqmap.magic == "!gamemap" {
             let game = match game {
                 Some(game) => game,
                 None => return Err(emitter.emit(error!("can't use gamemap because no game was supplied!")))
             };
             let base_dir = path.parent().expect("filename must have parent");
-            seqmap = Self::resolve_gamemap(base_dir, seqmap, game, &emitter, root_emitter, &fs)?;
-            // FIXME: following Self::from_seqmap should use emitter for resolved path but we
-            //        don't have it in this function
+            let game_specific_map_path = Self::resolve_gamemap(base_dir, seqmap, game, emitter)?;
+            let (file_id, file_contents) = read_file(&game_specific_map_path)?;
+            seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
+            Self::from_seqmap(seqmap, emitter)
+        } else {
+            // had to put this in an else to satisfy borrow checker _/o\_
+            // hope it doesn't code gen twice?
+            Self::from_seqmap(seqmap, emitter)
         }
-        Self::from_seqmap(seqmap, &emitter)
-    }
-
-    pub fn parse(text: &str, root_emitter: &RootEmitter) -> Result<Self, ErrorReported> {
-        let emitter = root_emitter.get_chained("in mapfile");
-        Self::from_seqmap(parse_seqmap(text, &emitter)?, &emitter)
     }
 
     /// Check the default map directories for a file whose name is `any.{extension}`
@@ -84,32 +87,41 @@ impl Eclmap {
 
     fn resolve_gamemap(
         base_dir: &std::path::Path,
-        mut seqmap: SeqMap,
+        seqmap: SeqmapRaw,
         game: Game,
-        gamemap_emitter: &impl Emitter,
-        root_emitter: &RootEmitter,
-        fs: &Fs,
-    ) -> Result<SeqMap, ErrorReported> {
-        let game_files = match seqmap.maps.remove("game_files") {
+        emitter: &impl Emitter,
+    ) -> Result<std::path::PathBuf, ErrorReported> {
+        let SeqmapRaw { magic, sections } = seqmap;
+        let mut maps = gather_seqmaps(sections, emitter)?;
+
+        let game_files = match maps.remove(&"game_files".to_string()) {
             Some(game_files) => game_files,
-            None => return Err(gamemap_emitter.emit(error!("no !game_files section in gamemap"))),
+            None => return Err(emitter.emit(error!(
+                message("no !game_files section in gamemap"),
+                primary(magic, "gamemap without !game_files section"),
+            ))),
         };
-        for (key, _) in seqmap.maps {
-            gamemap_emitter.emit(warning!("unrecognized section: {:?}", key)).ignore();
+        for (key, _) in maps {
+            emitter.emit(warning!(
+                message("unrecognized section in gamemap: {:?}", key),
+                primary(key, "unrecognized section"),
+            )).ignore();
         }
         let rel_path = match game_files.get(&(game.as_number() as i32)) {
             Some(file) => file,
-            None => return Err(gamemap_emitter.emit(error!("no entry for {}", game.as_str()))),
+            None => return Err(emitter.emit(error!(
+                message("no entry for {}", game.as_str()),
+                primary(magic, "gamemap has no entry for {}", game.as_str()),
+            ))),
         };
 
-        let final_path = base_dir.join(rel_path);
-        let mapfile_emitter = root_emitter.while_reading(&final_path);
-        let text = fs.read_to_string(&final_path)?;
-        parse_seqmap(&text, &mapfile_emitter)
+        Ok(base_dir.join(rel_path))
     }
 
-    fn from_seqmap(seqmap: SeqMap, emitter: &impl Emitter) -> Result<Eclmap, ErrorReported> {
-        let SeqMap { magic, mut maps } = seqmap;
+    pub fn from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Eclmap, ErrorReported> {
+        let SeqmapRaw { magic, sections } = seqmap;
+
+        let mut maps = gather_seqmaps(sections, emitter)?;
 
         // NOTE: Experimental.  We have two options for deciding the language:
         //
@@ -125,15 +137,21 @@ impl Eclmap {
             "!anmmap" => InstrLanguage::Anm,
             "!stdmap" => InstrLanguage::Std,
             "!msgmap" => InstrLanguage::Msg,
-            _ => return Err(emitter.emit(error!("bad magic: {:?}", magic))),
+            _ => return Err(emitter.emit(error!(
+                message("bad magic: {:?}", magic),
+                primary(magic, "bad magic"),
+            ))),
         };
 
-        let mut pop_map = |section: &str| maps.remove(section).unwrap_or_else(BTreeMap::new);
-        let parse_idents = |section: &str, m: BTreeMap<i32, String>| -> Result<BTreeMap<i32, Ident>, ErrorReported> {
+        let mut pop_map = |section: &str| maps.remove(&section.to_string()).unwrap_or_else(BTreeMap::new);
+        let parse_idents = |section: &str, m: BTreeMap<i32, Sp<String>>| -> Result<BTreeMap<i32, Sp<Ident>>, ErrorReported> {
             emitter.chain_with(|f| write!(f, "section !{}", section), |emitter| {
                 m.into_iter().map(|(key, value)| {
-                    let ident = value.parse::<Ident>().map_err(|e| emitter.emit(error!("at key {}: {}", key, e)))?;
-                    Ok((key, ident))
+                    let ident = value.parse::<Ident>().map_err(|e| emitter.emit(error!(
+                        message("at key {}: {}", key, e),
+                        primary(value, "bad identifier"),
+                    )))?;
+                    Ok((key, sp!(value.span => ident)))
                 }).collect_with_recovery()
             })
         };
@@ -152,76 +170,34 @@ impl Eclmap {
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
         };
         for (key, _) in maps {
-            emitter.emit(warning!("unrecognized section in eclmap: {:?}", key)).ignore();
+            emitter.emit(warning!(
+                message("unrecognized section in eclmap: {:?}", key),
+                primary(key, "unrecognized section"),
+            )).ignore();
         }
 
         Ok(out)
     }
 }
 
-lazy_static! {
-    static ref SEQMAP_START_RE: Regex = Regex::new(r"^!([_a-zA-Z][_a-zA-Z0-9]*)$").unwrap();
-    static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s*(\S*)$").unwrap();
-}
+type GatheredSeqmaps = BTreeMap<Sp<String>, BTreeMap<i32, Sp<String>>>;
 
-struct SeqMap {
-    magic: String,
-    maps: BTreeMap<String, BTreeMap<i32, String>>,
-}
-
-fn parse_seqmap(text: &str, emitter: &impl Emitter) -> Result<SeqMap, ErrorReported> {
+fn gather_seqmaps(sections: Vec<SeqmapRawSection<'_>>, emitter: &impl Emitter) -> Result<GatheredSeqmaps, ErrorReported> {
     let mut maps = BTreeMap::new();
-    let mut cur_section = None;
-    let mut cur_map = None;
-    let mut lines = text.lines();
+    for section in sections {
+        let cur_map = maps.entry(section.header.sp_map(ToString::to_string)).or_insert_with(BTreeMap::new);
 
-    macro_rules! bail {
-        ($($args:tt)+) => { return Err(emitter.emit(error!($($args)+))) }
-    }
-
-    let magic = match lines.next() {
-        Some(magic) => {
-            if magic.chars().next() != Some('!') {
-                bail!("this doesn't look like a seqmap file!");
-            }
-            magic.trim().to_string()
-        },
-        None => bail!("file is empty"),
-    };
-
-    for mut line in lines {
-        if let Some(hash) = line.find("#") {
-            line = &line[..hash];
-        }
-        line = line.trim();
-
-        if line.is_empty() {
-            continue;
-        } else if line.starts_with("!") {
-            let name = match SEQMAP_START_RE.captures(line) {
-                Some(captures) => captures[1].to_string(),
-                None => bail!("bad section start: {:?}", line),
-            };
-            cur_section = Some(name.clone());
-            cur_map = Some(maps.entry(name).or_insert_with(BTreeMap::new));
-        } else {
-            match SEQMAP_ITEM_RE.captures(line) {
-                None => bail!("parse error at line: {:?}", line),
-                Some(captures) => {
-                    let number = captures[1].parse().unwrap();
-                    let value = captures[2].to_string();
-
-                    let cur_map = match &mut cur_map {
-                        None => bail!("missing section header"),
-                        Some(cur_map) => cur_map,
-                    };
-                    if let Some(_) = cur_map.insert(number, value) {
-                        let section_name = cur_section.as_ref().expect("can't be None if cur_map is Some");
-                        bail!("in section '{}': duplicate key error for id {}", section_name, number);
-                    }
-                }
+        for (number, value) in section.lines {
+            if let Some(previous) = cur_map.insert(number.value, value.sp_map(ToString::to_string)) {
+                // FIXME: Technically we should allow this and keep both as aliases.
+                //        https://github.com/ExpHP/truth/issues/49
+                return Err(emitter.emit(error!(
+                    message("in section '{}': duplicate key error for id {}", section.header, number),
+                    primary(value, "redefinition"),
+                    secondary(previous, "previous definition"),
+                )));
             }
         }
     }
-    Ok(SeqMap { magic, maps })
+    Ok(maps)
 }

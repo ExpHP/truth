@@ -81,8 +81,8 @@ impl CompilerContext<'_> {
     /// Add an alias for a register from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
-    pub fn define_global_reg_alias(&mut self, language: InstrLanguage, reg: RegId, ident: Ident) -> DefId {
-        let res_ident = self.resolutions.attach_fresh_res(ident.clone());
+    pub fn define_global_reg_alias(&mut self, language: InstrLanguage, reg: RegId, ident: Sp<Ident>) -> DefId {
+        let res_ident = self.resolutions.attach_fresh_res(ident.value.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
         self.defs.vars.insert(def_id, VarData {
@@ -160,8 +160,8 @@ impl CompilerContext<'_> {
     /// Add an alias for an instruction from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    pub fn define_global_ins_alias(&mut self, language: InstrLanguage, opcode: raw::Opcode, ident: Ident) -> DefId {
-        let res_ident = self.resolutions.attach_fresh_res(ident.clone());
+    pub fn define_global_ins_alias(&mut self, language: InstrLanguage, opcode: raw::Opcode, ident: Sp<Ident>) -> DefId {
+        let res_ident = self.resolutions.attach_fresh_res(ident.value.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
         self.defs.funcs.insert(def_id, FuncData {
@@ -170,7 +170,7 @@ impl CompilerContext<'_> {
         });
         self.defs.ins_aliases.insert((language, opcode), def_id);
 
-        if let Err(old) = self.defs.ins_alias_ribs[language].insert(sp!(ident.clone()), def_id) {
+        if let Err(old) = self.defs.ins_alias_ribs[language].insert(ident.clone(), def_id) {
             let old_opcode = self.defs.func_opcode(old.def_id).unwrap().1;
             if opcode as u16 != old_opcode {
                 self.emitter.emit(warning!(

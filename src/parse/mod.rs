@@ -22,6 +22,8 @@ pub mod abi {
 use lexer::{Lexer, Token};
 pub mod lexer;
 
+pub mod seqmap;
+
 #[cfg(test)]
 mod tests;
 

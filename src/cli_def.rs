@@ -556,7 +556,7 @@ fn load_mapfiles(
     truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
 
     if let Some(mapfile_arg) = mapfile_arg {
-        truth.read_mapfile_and_record(&mapfile_arg, Some(game))?;
+        truth.load_mapfile(&mapfile_arg, Some(game))?;
     }
     Ok(())
 }

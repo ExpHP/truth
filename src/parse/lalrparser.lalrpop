@@ -746,10 +746,8 @@ OptionalMinus: i32 = {
 #[inline]
 ResIdent: ResIdent = <ident:Ident> => ResIdent::new_null(ident);
 
-Ident: Ident = {
-    <l: @L> <tok:IdentStr> <r: @R> => {
-        tok.parse().expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
-    },
+Ident: Ident = <tok:IdentStr> => {
+    tok.parse().expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
 };
 
 IdentStr: &'input str = {

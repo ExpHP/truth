@@ -1,6 +1,7 @@
 use ::std::collections::BTreeMap;
 
 use crate::raw;
+use crate::pos::Sp;
 use crate::game::{Game, InstrLanguage};
 use crate::eclmap::Eclmap;
 
@@ -80,25 +81,25 @@ impl CoreSignatures {
 
         for &(min_game, opcode, siggy_str) in self.ins {
             if min_game <= game {
-                insert_or_remove(&mut mapfile.ins_signatures, opcode as _, siggy_str);
+                insert_or_remove(&mut mapfile.ins_signatures, opcode as _, siggy_str.map(|x| sp!(x)));
             }
         }
 
         for &(min_game, reg_id, type_str) in self.var {
             if min_game <= game {
-                insert_or_remove(&mut mapfile.gvar_types, reg_id as _, type_str);
+                insert_or_remove(&mut mapfile.gvar_types, reg_id as _, type_str.map(|x| sp!(x)));
             }
         }
     }
 }
 
-fn insert_or_remove<K, V>(map: &mut BTreeMap<K, V::Owned>, key: K, value: Option<&V>)
+fn insert_or_remove<K, V>(map: &mut BTreeMap<K, Sp<V::Owned>>, key: K, value: Option<Sp<&V>>)
 where
     K: Ord + Eq,
     V: ToOwned + ?Sized,
 {
     if let Some(value) = value {
-        map.insert(key, value.to_owned());
+        map.insert(key, value.sp_map(ToOwned::to_owned));
     } else {
         map.remove(&key);
     }

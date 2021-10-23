@@ -70,16 +70,24 @@ impl Truth<'_> {
 
 /// # Reading text files
 impl Truth<'_> {
+    /// For unit tests.
     pub fn apply_mapfile_str(&mut self, text: &str) -> Result<(), ErrorReported> {
-        self.apply_mapfile(&crate::Eclmap::parse(text, &self.ctx.emitter)?)
+        let (file_id, source_str) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
+        let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &source_str[..], &self.ctx.emitter)?;
+        self.apply_mapfile(&crate::Eclmap::from_seqmap(seqmap, &self.ctx.emitter)?)
     }
 
     pub fn apply_mapfile(&mut self, mapfile: &crate::Eclmap) -> Result<(), ErrorReported> {
         self.ctx.extend_from_eclmap(None, &mapfile)
     }
 
-    pub fn read_mapfile_and_record(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
-        let eclmap = crate::Eclmap::load(filepath, game, &self.ctx.emitter)?;
+    pub fn load_mapfile(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
+        let eclmap = crate::Eclmap::load(filepath, game, &self.ctx.emitter, |path| {
+            let bytes = self.fs().read(path)?;
+            self.ctx.emitter.files.add(&path.to_string_lossy(), &bytes)
+                .map_err(|e| self.ctx.emitter.emit(e))
+                .map(|(file_id, str)| (file_id, str.to_string()))
+        })?;
         self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
     }
 
@@ -118,9 +126,7 @@ impl Truth<'_> {
     pub fn load_mapfiles_from_pragmas(&mut self, game: Game, script: &ast::ScriptFile) -> Result<(), ErrorReported> {
         for path_literal in &script.mapfiles {
             let path: &Path = path_literal.string.as_ref();
-
-            let eclmap = crate::Eclmap::load(&path, Some(game), &self.ctx.emitter)?;
-            self.ctx.extend_from_eclmap(Some(path), &eclmap)?;
+            self.load_mapfile(&path, Some(game))?;
         }
         Ok(())
     }

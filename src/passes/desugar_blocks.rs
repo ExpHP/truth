@@ -297,7 +297,7 @@ mod tests {
 
             let mut ctx = truth.ctx();
             for &(name, reg, ty) in &self.globals {
-                ctx.define_global_reg_alias(Dummy, reg, name.parse().unwrap());
+                ctx.define_global_reg_alias(Dummy, reg, sp!(name.parse().unwrap()));
                 ctx.set_reg_ty(Dummy, reg, ty.into());
             }
             crate::passes::resolution::assign_languages(&mut ast.value, Dummy, &mut ctx).unwrap();
