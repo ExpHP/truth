@@ -449,8 +449,6 @@ impl InstrFormat for InstrFormat06 {
 
     fn has_registers(&self) -> bool { true }
 
-    fn jump_args_are_flipped(&self) -> bool { true }
-
     fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { Some(0xFF) }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
@@ -471,8 +469,8 @@ impl InstrFormat for InstrFormat06 {
                     // (I::Unop(Un::Acos, ScalarType::Float), 64),
                     // (I::Unop(Un::Atan, ScalarType::Float), 65),
                 ];
-                llir::register_olde_ecl_comp_ops(&mut out, 29, I::CondJmp2B);
-                llir::register_olde_ecl_comp_ops(&mut out, 37, I::CondCall);
+                I::register_olde_ecl_comp_ops(&mut out, 29, I::CondJmp2B);
+                I::register_olde_ecl_comp_ops(&mut out, 37, I::CondCall);
                 out
             },
             Game::Th07 => vec![],

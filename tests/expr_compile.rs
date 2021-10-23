@@ -121,15 +121,17 @@ fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec
 }
 
 fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
+    use llir::IntrinsicInstrKind as I;
+
     let mut format = llir::TestFormat::default();
     format.language = truth::InstrLanguage::Anm;
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Jmp, JUMP_OPCODE));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::CountJmp, COUNT_JUMP_OPCODE));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Sin, Ty::Float), SINE_OPCODE));
-    format.intrinsic_opcode_pairs.push((llir::IntrinsicInstrKind::Unop(ast::UnopKind::Cos, Ty::Float), COSINE_OPCODE));
-    llir::register_assign_ops(&mut format.intrinsic_opcode_pairs, ASSIGN_OPS_OPCODE);
-    llir::register_binary_ops(&mut format.intrinsic_opcode_pairs, BINARY_OPS_OPCODE);
-    llir::register_cond_jumps(&mut format.intrinsic_opcode_pairs, COND_JUMPS_OPCODE);
+    format.intrinsic_opcode_pairs.push((I::Jmp, JUMP_OPCODE));
+    format.intrinsic_opcode_pairs.push((I::CountJmp, COUNT_JUMP_OPCODE));
+    format.intrinsic_opcode_pairs.push((I::Unop(ast::UnopKind::Sin, Ty::Float), SINE_OPCODE));
+    format.intrinsic_opcode_pairs.push((I::Unop(ast::UnopKind::Cos, Ty::Float), COSINE_OPCODE));
+    I::register_assign_ops(&mut format.intrinsic_opcode_pairs, ASSIGN_OPS_OPCODE);
+    I::register_binary_ops(&mut format.intrinsic_opcode_pairs, BINARY_OPS_OPCODE);
+    I::register_cond_jumps(&mut format.intrinsic_opcode_pairs, COND_JUMPS_OPCODE);
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();

@@ -1713,8 +1713,6 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn jump_has_time_arg(&self) -> bool { false }
-
     fn is_th06_anm_terminating_instr(&self, opcode: raw::Opcode) -> bool {
         // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
         // Basically, the first `delete` or `static` marks the end of the script.
@@ -1747,9 +1745,9 @@ impl InstrFormat for InstrFormat07 {
                     // (I::Unop(Un::Acos, ScalarType::Float), 64),
                     // (I::Unop(Un::Atan, ScalarType::Float), 65),
                 ];
-                llir::register_assign_ops(&mut out, 37);
-                llir::register_binary_ops(&mut out, 49);
-                llir::register_cond_jumps(&mut out, 67);
+                I::register_assign_ops(&mut out, 37);
+                I::register_binary_ops(&mut out, 49);
+                I::register_cond_jumps(&mut out, 67);
                 out
             },
             Version::V4 | Version::V7 => {
@@ -1763,9 +1761,9 @@ impl InstrFormat for InstrFormat07 {
                     // (I::Unop(Un::Acos, ScalarType::Float), 45),
                     // (I::Unop(Un::Atan, ScalarType::Float), 46),
                 ];
-                llir::register_assign_ops(&mut out, 6);
-                llir::register_binary_ops(&mut out, 18);
-                llir::register_cond_jumps(&mut out, 28);
+                I::register_assign_ops(&mut out, 6);
+                I::register_binary_ops(&mut out, 18);
+                I::register_cond_jumps(&mut out, 28);
                 out
             },
             Version::V8 => {
@@ -1779,9 +1777,9 @@ impl InstrFormat for InstrFormat07 {
                     // (I::Unop(Un::Acos, ScalarType::Float), 127),
                     // (I::Unop(Un::Atan, ScalarType::Float), 128),
                 ];
-                llir::register_assign_ops(&mut out, 100);
-                llir::register_binary_ops(&mut out, 112);
-                llir::register_cond_jumps(&mut out, 202);
+                I::register_assign_ops(&mut out, 100);
+                I::register_binary_ops(&mut out, 112);
+                I::register_cond_jumps(&mut out, 202);
                 out
             },
         }

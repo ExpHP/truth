@@ -88,6 +88,25 @@ pub enum TimelineArgKind {
     MsgSub,
 }
 
+impl ArgEncoding {
+    pub fn descr(&self) -> &'static str {
+        match self {
+            Self::Dword => "dword integer",
+            Self::Word => "word-sized integer",
+            Self::JumpOffset => "jump offset",
+            Self::JumpTime => "jump time",
+            Self::Padding => "padding",
+            Self::Color => "hex integer",
+            Self::Float => "float",
+            Self::Script => "script id",
+            Self::Sprite => "sprite id",
+            Self::Sub => "sub id",
+            Self::String { .. } => "string",
+            Self::TimelineArg { .. } => "timeline arg0",
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AcceleratingByteMask { pub mask: u8, pub vel: u8, pub accel: u8 }
 
@@ -236,87 +255,6 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
 
             Some(defs::SignatureParam { default, name, ty: sp!(var_ty) })
         }).collect(),
-    }
-}
-
-/// Helper for inspecting the signature of a jump related intrinsic to determine the
-/// order of the arguments.  (which varies from language to language)
-pub struct JumpIntrinsicArgOrder<T> {
-    pub offset: T,
-    /// This will be `None` if the signature has no time arguments. (basically just TH06 ANM)
-    pub time: Option<T>,
-    /// The rest of the args in the order they were found.
-    pub other_args: Vec<T>,
-    /// Encodings of `other_args`.
-    pub other_arg_encodings: Vec<ArgEncoding>,
-}
-
-impl<T> JumpIntrinsicArgOrder<T> {
-    /// Pull out the items in an iterator that correspond to jump arguments.
-    pub fn from_iter(args: impl ExactSizeIterator<Item=T>, abi: &InstrAbi, expected_extra_args: usize) -> Result<Self, Diagnostic> {
-        if args.len() != abi.arg_encodings().len() {
-            return Err(error!(
-                "jump intrinsic got {} args but its signature has {}. (signature is probably wrong)",
-                args.len(), abi.arg_encodings().len(),
-            ));
-        }
-
-        let mut offset = None;
-        let mut time = None;
-        let mut other_args = vec![];
-        let mut other_arg_encodings = vec![];
-        for (arg, encoding) in args.zip(abi.arg_encodings()) {
-            match encoding {
-                ArgEncoding::JumpOffset => offset = Some(arg),
-                ArgEncoding::JumpTime => time = Some(arg),
-                _ => {
-                    other_args.push(arg);
-                    other_arg_encodings.push(encoding);
-                },
-            }
-        }
-
-        if other_args.len() != expected_extra_args {
-            let hint = if other_args.len() == expected_extra_args + 1 && time.is_none() {
-                r#" (possibly missing "t" in signature)"#
-            } else {
-                ""
-            };
-            return Err(error!(
-                "jump intrinsic expected {} non-jump args but got {}{}",
-                expected_extra_args, other_args.len(), hint
-            ));
-        }
-
-        match offset {
-            Some(offset) => Ok(JumpIntrinsicArgOrder { offset, time, other_args, other_arg_encodings }),
-            _ => Err(error!("jump intrinsic signature is missing offset argument")),
-        }
-    }
-
-    /// Use the given signature to convert this into a list of arguments.
-    ///
-    /// `other_arg_encodings` does not need to be populated.
-    pub fn into_vec(self, abi: &InstrAbi) -> Result<Vec<T>, Diagnostic>
-    where T: Clone, // HACK, shouldn't be necessary, we're only cloning a const None
-    {
-        let nargs = abi.arg_encodings().len();
-
-        let mut out_things = vec![None; nargs];
-
-        // "Clever." Use JumpIntrinsicArgs::from_iter on an iterator of `Item=&mut Option<T>`.
-        // Then assign those Options to fill in the vec.
-        let mut out_jump = JumpIntrinsicArgOrder::from_iter(out_things.iter_mut(), abi, self.other_args.len())?;
-        *out_jump.offset = Some(self.offset);
-        for (out_time, time) in out_jump.time.iter_mut().zip(self.time) {
-            **out_time = Some(time);
-        }
-        for (out_arg, arg) in out_jump.other_args.iter_mut().zip(self.other_args) {
-            **out_arg = Some(arg);
-        }
-
-        // all items should be filled now
-        Ok(out_things.into_iter().map(|opt| opt.unwrap()).collect())
     }
 }
 

@@ -531,18 +531,18 @@ impl ast::Expr {
 
 impl ExprTypeChecker<'_, '_> {
     fn binop_check(&self, op: Sp<ast::BinopKind>, arg_tys: (ScalarType, ScalarType), arg_spans: (Span, Span)) -> ImplResult {
-        use ast::BinopKind as B;
-
-        match op.value {
-            | B::Add | B::Sub | B::Mul | B::Div | B::Rem
+        match op.class() {
+            | ast::OpClass::Arithmetic
             => self.require_numeric(arg_tys.0, op.span, arg_spans.0)?,
 
-            | B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge
+            | ast::OpClass::Comparison
             => self.require_numeric(arg_tys.0, op.span, arg_spans.0)?,
 
-            | B::BitXor | B::BitAnd | B::BitOr
-            | B::LogicOr | B::LogicAnd
+            | ast::OpClass::Bitwise
+            | ast::OpClass::Logical
             => self.require_int(arg_tys.0, op.span, arg_spans.0)?,
+
+            _ => unreachable!(),
         };
 
         // (we do this AFTER the other check because that yields more sensible errors; e.g.
@@ -561,18 +561,26 @@ impl ast::Expr {
     /// This assumes that the expression has already been type-checked.  When provided an
     /// invalid combination of operator and arguments, it may return anything.
     pub fn binop_ty(op: ast::BinopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
-        use ast::BinopKind as B;
+        Self::_binop_ty(op, || arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"))
+    }
 
-        match op {
-            | B::Add | B::Sub | B::Mul | B::Div | B::Rem
-            => arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"),
+    pub fn binop_ty_from_arg_ty(op: ast::BinopKind, arg_ty: ScalarType) -> ScalarType {
+        Self::_binop_ty(op, || arg_ty)
+    }
 
-            | B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge
+    fn _binop_ty(op: ast::BinopKind, compute_arg_ty: impl Fn() -> ScalarType) -> ScalarType {
+        match op.class() {
+            | ast::OpClass::Arithmetic
+            => compute_arg_ty(),
+
+            | ast::OpClass::Comparison
             => ScalarType::Int,
 
-            | B::BitXor | B::BitAnd | B::BitOr
-            | B::LogicOr | B::LogicAnd
+            | ast::OpClass::Bitwise
+            | ast::OpClass::Logical
             => ScalarType::Int,
+
+            _ => unreachable!(),
         }
     }
 }
@@ -601,8 +609,16 @@ impl ast::Expr {
     /// This assumes that the expression has already been type-checked.  When provided an
     /// invalid combination of operator and arguments, it may return anything.
     pub fn unop_ty(op: ast::UnopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
+        Self::_unop_ty(op, || arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"))
+    }
+
+    pub fn unop_ty_from_arg_ty(op: ast::UnopKind, arg_ty: ScalarType) -> ScalarType {
+        Self::_unop_ty(op, || arg_ty)
+    }
+
+    fn _unop_ty(op: ast::UnopKind, compute_arg_ty: impl Fn() -> ScalarType) -> ScalarType {
         match op {
-            token![unop -] => arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"),
+            token![unop -] => compute_arg_ty(),
             token![unop !] => ScalarType::Int,
 
             token![unop sin] |

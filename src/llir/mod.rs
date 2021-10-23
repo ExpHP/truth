@@ -1,18 +1,13 @@
-use std::collections::HashMap;
-
 use enum_map::EnumMap;
 
 use crate::raw;
-use crate::ast;
 use crate::game::InstrLanguage;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
-use crate::pos::{Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::resolve::{RegId};
 
 pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind};
-use abi::JumpIntrinsicArgOrder;
 mod abi;
 
 pub use lower::lower_sub_ast_to_instrs;
@@ -20,6 +15,9 @@ mod lower;
 
 pub use raise::{Raiser, DecompileOptions};
 mod raise;
+
+pub use intrinsic::{IntrinsicInstrs, IntrinsicInstrKind, JumpIntrinsicArgOrder};
+mod intrinsic;
 
 /// The lowest level representation of an instruction that is common between all games.
 ///
@@ -251,141 +249,6 @@ pub fn write_instrs(
 
 // =============================================================================
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum IntrinsicInstrKind {
-    /// Like `goto label @ t;` (and `goto label;`)
-    ///
-    /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    Jmp,
-    /// Like `interrupt[n]:`
-    ///
-    /// Args: `n`.
-    InterruptLabel,
-    /// Like `a = b;` or `a += b;`
-    ///
-    /// Args: `a, b`.
-    AssignOp(ast::AssignOpKind, ScalarType),
-    /// Like `a = b + c;`
-    ///
-    /// Args: `a, b, c`.
-    Binop(ast::BinopKind, ScalarType),
-    /// Like `a = sin(b);` (or `a = -a;`, but it seems no formats actually have this?)
-    ///
-    /// This is not used for casts like `a = _S(b);`.  Casts have no explicit representation in
-    /// a compiled script; they're just a fundamental part of how the engine reads variables.
-    ///
-    /// Args: `a, b`.
-    Unop(ast::UnopKind, ScalarType),
-    /// Like `if (--x) goto label @ t`.
-    ///
-    /// Args: `x, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    CountJmp,
-    /// Like `if (a == c) goto label @ t;`
-    ///
-    /// Args: `a, b, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    CondJmp(ast::BinopKind, ScalarType),
-    /// First part of a conditional jump in languages where it is comprised of 2 instructions.
-    /// Sets a hidden compare register.
-    ///
-    /// Args: `a, b`
-    CondJmp2A(ScalarType),
-    /// Second part of a 2-instruction conditional jump in languages where it is comprised of 2 instructions.
-    /// Jumps based on the hidden compare register.
-    ///
-    /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    CondJmp2B(ast::BinopKind),
-    /// The abomination in EoSD known as a "conditional call."
-    CondCall(ast::BinopKind),
-}
-
-#[derive(Default)]
-pub struct IntrinsicInstrs {
-    intrinsic_opcodes: HashMap<IntrinsicInstrKind, raw::Opcode>,
-    opcode_intrinsics: HashMap<raw::Opcode, IntrinsicInstrKind>,
-}
-impl IntrinsicInstrs {
-    pub fn from_pairs(pairs: impl IntoIterator<Item=(IntrinsicInstrKind, raw::Opcode)>) -> Self {
-        let intrinsic_opcodes: HashMap<_, _> = pairs.into_iter().collect();
-        let opcode_intrinsics = intrinsic_opcodes.iter().map(|(&k, &v)| (v, k)).collect();
-        IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes }
-    }
-
-    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<raw::Opcode, Diagnostic> {
-        match self.intrinsic_opcodes.get(&intrinsic) {
-            Some(&opcode) => Ok(opcode),
-            None => Err(error!(
-                message("feature not supported by format"),
-                primary(span, "{} not supported in this game", descr),
-            )),
-        }
-    }
-
-    pub fn get_opcode_opt(&self, intrinsic: IntrinsicInstrKind) -> Option<raw::Opcode> {
-        self.intrinsic_opcodes.get(&intrinsic).copied()
-    }
-
-    pub fn get_intrinsic(&self, opcode: raw::Opcode) -> Option<IntrinsicInstrKind> {
-        self.opcode_intrinsics.get(&opcode).copied()
-    }
-}
-
-/// Add intrinsic pairs for binary operations in `a = b op c` form in their canonical order,
-/// which is `+, -, *, /, %`, with each operator having an int version and a float version.
-pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-    use ast::BinopKind as B;
-
-    let mut opcode = start;
-    for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
-        for ty in vec![ScalarType::Int, ScalarType::Float] {
-            pairs.push((IntrinsicInstrKind::Binop(op, ty), opcode));
-            opcode += 1;
-        }
-    }
-}
-
-/// Add intrinsic pairs for assign ops in their cannonical order: `=, +=, -=, *=, /=, %=`,
-/// with each operator having an int version and a float version.
-pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-    use ast::AssignOpKind as As;
-
-    let mut opcode = start;
-    for op in vec![As::Assign, As::Add, As::Sub, As::Mul, As::Div, As::Rem] {
-        for ty in vec![ScalarType::Int, ScalarType::Float] {
-            pairs.push((IntrinsicInstrKind::AssignOp(op, ty), opcode));
-            opcode += 1;
-        }
-    }
-}
-
-/// Add intrinsic pairs for conditional jumps in their cannonical order: `==, !=, <, <=, >, >=`,
-/// with each operator having an int version and a float version.
-pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-    use ast::BinopKind as B;
-
-    let mut opcode = start;
-    for op in vec![B::Eq, B::Ne, B::Lt, B::Le, B::Gt, B::Ge] {
-        for ty in vec![ScalarType::Int, ScalarType::Float] {
-            pairs.push((IntrinsicInstrKind::CondJmp(op, ty), opcode));
-            opcode += 1;
-        }
-    }
-}
-
-/// Register a sequence of six comparison based ops in the order used by EoSD ECL: `<, <=, ==, >, >=, !=`
-pub fn register_olde_ecl_comp_ops(
-    pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>,
-    start: raw::Opcode,
-    kind_fn: impl Fn(ast::BinopKind) -> IntrinsicInstrKind,
-) {
-    use ast::BinopKind as B;
-
-    let mut opcode = start;
-    for op in vec![B::Lt, B::Le, B::Eq, B::Gt, B::Ge, B::Ne] {
-        pairs.push((kind_fn(op), opcode));
-        opcode += 1;
-    }
-}
-
 #[derive(Debug)]
 pub enum ReadInstr {
     /// A regular instruction was read that belongs in the script.
@@ -467,18 +330,6 @@ pub trait InstrFormat {
     /// a script in the middle of a `grandparent->parent->child` ancestry could be using it to
     /// communicate registers it doesn't even mention, if both `parent` and `child` are using it!)
     fn instr_disables_scratch_regs(&self, _opcode: raw::Opcode) -> bool { false }
-
-    // FIXME: this should be determined from the signature, like it is during decompilation
-    /// Indicates that [`IntrinsicInstrKind::Jmp`] takes two arguments, where the second is time.
-    ///
-    /// TH06 ANM has no time arg. (it always sets the script clock to the destination's time)
-    fn jump_has_time_arg(&self) -> bool { true }
-
-    // FIXME: this should be determined from the signature, like it is during decompilation
-    /// Indicates that [`IntrinsicInstrKind::Jmp`] takes time BEFORE offset.
-    ///
-    /// TH06 ECl flips the time and offset args around.
-    fn jump_args_are_flipped(&self) -> bool { false }
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
     fn is_th06_anm_terminating_instr(&self, _opcode: raw::Opcode) -> bool { false }

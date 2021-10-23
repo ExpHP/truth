@@ -325,6 +325,20 @@ string_enum! {
 }
 
 impl AssignOpKind {
+    pub fn class(self) -> OpClass {
+        match self {
+            Self::Assign => OpClass::DirectAssignment,
+            Self::Add => OpClass::Arithmetic,
+            Self::Sub => OpClass::Arithmetic,
+            Self::Mul => OpClass::Arithmetic,
+            Self::Div => OpClass::Arithmetic,
+            Self::Rem => OpClass::Arithmetic,
+            Self::BitOr => OpClass::Bitwise,
+            Self::BitXor => OpClass::Bitwise,
+            Self::BitAnd => OpClass::Bitwise,
+        }
+    }
+
     pub fn corresponding_binop(self) -> Option<BinopKind> {
         match self {
             token![=] => None,
@@ -538,8 +552,19 @@ string_enum! {
 }
 
 impl BinopKind {
+    pub fn class(self) -> OpClass {
+        use BinopKind as B;
+
+        match self {
+            B::Add | B::Sub | B::Mul | B::Div | B::Rem => OpClass::Arithmetic,
+            B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => OpClass::Comparison,
+            B::BitOr | B::BitXor | B::BitAnd => OpClass::Bitwise,
+            B::LogicOr | B::LogicAnd => OpClass::Logical,
+        }
+    }
+
     pub fn is_comparison(self) -> bool {
-        matches!(self, token![==] | token![!=] | token![<] | token![<=] | token![>] | token![>=])
+        self.class() == OpClass::Logical
     }
 
     pub fn negate_comparison(self) -> Option<BinopKind> { match self {
@@ -567,8 +592,47 @@ string_enum! {
 }
 
 impl UnopKind {
+    pub fn class(&self) -> OpClass {
+        match self {
+            UnopKind::Not => OpClass::Logical,
+            UnopKind::Neg => OpClass::Arithmetic,
+            UnopKind::Sin => OpClass::FloatMath,
+            UnopKind::Cos => OpClass::FloatMath,
+            UnopKind::Sqrt => OpClass::FloatMath,
+            UnopKind::CastI => OpClass::Cast,
+            UnopKind::CastF => OpClass::Cast,
+        }
+    }
+
     pub fn is_cast(&self) -> bool {
-        matches!(self, token![_S] | token![_f])
+        self.class() == OpClass::Cast
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OpClass {
+    Arithmetic,
+    Comparison,
+    Bitwise,
+    Shift,
+    Logical,
+    FloatMath,
+    Cast,
+    DirectAssignment,
+}
+
+impl OpClass {
+    pub fn descr(&self) -> &'static str {
+        match self {
+            Self::Arithmetic => "arithmetic",
+            Self::Comparison => "comparison",
+            Self::Bitwise => "bitwise",
+            Self::Shift => "shift",
+            Self::Logical => "logical",
+            Self::FloatMath => "mathematical",
+            Self::Cast => "cast",
+            Self::DirectAssignment => "direct",
+        }
     }
 }
 
