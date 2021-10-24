@@ -12,6 +12,7 @@ mod integration {
     mod msg_features;
     mod ecl_features;
     mod bits_2_bits;
+    mod mapfiles;
     mod type_check;
     mod decompile_loop;
     mod time_label_formatting;

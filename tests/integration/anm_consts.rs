@@ -464,10 +464,15 @@ script 101 another {}
 "#;
 
 #[test]
+fn why_arent_those_source_tests() {
+    panic!("why aren't the below two tests source_tests?"); // FIXME XXX
+}
+
+#[test]
 fn script_ids() {
     let format = ANM_12;
     let source = TestFile::from_content("input", SCRIPT_IDS_EXAMPLE);
-    let anm = format.compile(&source).read_anm(&format);
+    let anm = format.compile(&source, None).read_anm(&format);
 
     assert_eq!(anm.entries[0].scripts[0].id, 0);
     assert_eq!(anm.entries[0].scripts[1].id, 24);
@@ -479,7 +484,7 @@ fn script_ids() {
 fn scripts_as_consts() {
     let format = ANM_12;
     let source = TestFile::from_content("input", SCRIPT_IDS_EXAMPLE);
-    let anm = format.compile(&source).read_anm(&format);
+    let anm = format.compile(&source, None).read_anm(&format);
 
     // the value of the const should be the *index across all entries* (2), not the ID (25)
     assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![2, 0, 0, 0]);

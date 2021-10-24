@@ -834,7 +834,7 @@ entry {
 }
 
 script howyado {}
-    "#), &["--output-thecl-defs".as_ref(), thecl_defs.as_path().as_ref()]);
+    "#), &["--output-thecl-defs".as_ref(), thecl_defs.as_path().as_ref()], None);
 
     let actual = thecl_defs.read_to_string();
     let expected = r#"
@@ -843,4 +843,5 @@ global there = 1;
 global howyado = 2;
     "#;
     assert_eq!(actual.trim(), expected.trim());
+    panic!("why isn't this a source test");
 }

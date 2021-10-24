@@ -19,6 +19,7 @@ macro_rules! source_test {
     (
         $format:expr, $test_name:ident
 
+        $(, mapfile: $mapfile:expr)?
         // -------------------------
         // args to make_source!
         $(, items: $items:expr)?
@@ -69,6 +70,7 @@ macro_rules! source_test {
                     $(, main_body: $main_body)?
                     $(, full_source: $full_source)?
                 ),
+                mapfile: question_kleene_to_option!( $($mapfile.to_string())? ),
                 expect_error: question_kleene_to_option!( $($expect_error_msg.to_string())? ),
                 expect_warning: question_kleene_to_option!( $($expect_warning_msg.to_string())? ),
                 sbsb: question_kleene_to_option!( $($sbsb_check_fn)? ),
@@ -83,6 +85,7 @@ macro_rules! source_test {
 pub struct SourceTest {
     pub format: &'static Format,
     pub source: TestFile,
+    pub mapfile: Option<String>,
     pub check_compiled: Option<fn(&TestFile, &Format)>,
     pub expect_warning: Option<String>,
     pub expect_error: Option<String>,
@@ -102,8 +105,10 @@ impl SourceTest {
 
         let mut did_something = false;
 
+        let mapfile = self.mapfile.as_ref().map(|s| TestFile::from_content("mapfile input", s));
+
         if self.check_compiled.is_some() || self.expect_warning.is_some() {
-            let (outfile, output) = self.format.compile_and_capture(&self.source);
+            let (outfile, output) = self.format.compile_and_capture(&self.source, mapfile.as_ref());
             let stderr = String::from_utf8_lossy(&output.stderr);
             match &self.expect_warning {
                 Some(expected) => {
@@ -119,7 +124,7 @@ impl SourceTest {
         }
 
         if let Some(sbsb_check_fn) = self.sbsb {
-            self.format.sbsb_test(&self.source, self.sbsb_decompile_args.unwrap_or(&[]), sbsb_check_fn);
+            self.format.sbsb_test(&self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(), sbsb_check_fn);
             did_something = true;
         } else {
             if self.sbsb_decompile_args.is_some() {
@@ -128,7 +133,7 @@ impl SourceTest {
         }
 
         if let Some(expect_error_msg) = &&self.expect_error {
-            let stderr = self.format.compile_fail_stderr(&self.source);
+            let stderr = self.format.compile_fail_stderr(&self.source, mapfile.as_ref());
             check_compile_fail_output(&stderr, expect_error_msg);
             did_something = true;
         }

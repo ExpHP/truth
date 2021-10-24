@@ -40,7 +40,8 @@ impl Format {
         truth::setup_for_test_harness();
 
         let original = TestFile::from_path(infile.as_ref());
-        let decompiled = self.decompile_with_args(&original, &["-m".as_ref(), mapfile.as_ref().as_ref()]);
+        let mapfile = TestFile::from_path(mapfile.as_ref());
+        let decompiled = self.decompile_with_args(&original, &[], Some(&mapfile));
 
         do_with_text(&decompiled.read_to_string());
 
@@ -50,7 +51,8 @@ impl Format {
             args.push(infile.as_ref().as_ref());
         }
 
-        let recompiled = self.compile_with_args(&decompiled, &args);
+        let recompile_mapfile = None; // decompiled source already includes mapfile
+        let recompiled = self.compile_with_args(&decompiled, &args, recompile_mapfile);
         assert_eq!(original.read(), recompiled.read());
     }
 
@@ -68,20 +70,21 @@ impl Format {
     ///
     /// The comparison of the two compiled files helps check to make sure that the decompilation
     /// step did not accidentally change the meaning of the code.
-    pub fn sbsb_test(&self, original_source: &TestFile, decompile_args: &[impl AsRef<OsStr>], with_decompiled: impl FnOnce(&str)) {
+    pub fn sbsb_test(&self, original_source: &TestFile, decompile_args: &[impl AsRef<OsStr>], mapfile: Option<&TestFile>, with_decompiled: impl FnOnce(&str)) {
         truth::setup_for_test_harness();
 
         let decompile_args = decompile_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
 
-        let compiled = self.compile(&original_source);
-        let decompiled = self.decompile_with_args(&compiled, &decompile_args);
+        let compiled = self.compile(&original_source, mapfile);
+        let decompiled = self.decompile_with_args(&compiled, &decompile_args, mapfile);
         let decompiled_str = decompiled.read_to_string();
 
         eprintln!("== DECOMPILED:");
         eprintln!("{}", &decompiled_str);
         with_decompiled(&decompiled_str);
 
-        let recompiled = self.compile(&decompiled);
+        let recompile_mapfile = None; // decompiled file already links mapfile
+        let recompiled = self.compile(&decompiled, recompile_mapfile);
 
         assert_eq!(compiled.read(), recompiled.read());
     }
@@ -107,19 +110,19 @@ pub struct TestFile {
 }
 
 impl Format {
-    pub fn compile(&self, src: &TestFile) -> TestFile {
-        self.compile_with_args(src, &[])
+    pub fn compile(&self, src: &TestFile, mapfile: Option<&TestFile>) -> TestFile {
+        self.compile_with_args(src, &[], mapfile)
     }
 
-    pub fn compile_and_capture(&self, src: &TestFile) -> (TestFile, std::process::Output) {
-        self._compile_with_args(src, &[])
+    pub fn compile_and_capture(&self, src: &TestFile, mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
+        self._compile_with_args(src, &[], mapfile)
     }
 
-    pub fn compile_with_args(&self, src: &TestFile, args: &[&OsStr]) -> TestFile {
-        self._compile_with_args(src, args).0
+    pub fn compile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {
+        self._compile_with_args(src, args, mapfile).0
     }
 
-    fn _compile_with_args(&self, src: &TestFile, args: &[&OsStr]) -> (TestFile, std::process::Output) {
+    fn _compile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
         let outfile = TestFile::new_temp("compilation output");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
@@ -127,6 +130,7 @@ impl Format {
                 .arg("-g").arg(format!("{}", self.game))
                 .arg(src.as_path())
                 .arg("-o").arg(outfile.as_path())
+                .args(optional_mapfile_args(mapfile))
                 .args(args)
                 .output().expect("failed to execute process")
         };
@@ -142,7 +146,7 @@ impl Format {
         (outfile, output)
     }
 
-    pub fn decompile_with_args(&self, src: &TestFile, args: &[&OsStr]) -> TestFile {
+    pub fn decompile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {
         let outfile = TestFile::new_temp("decompilation output");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
@@ -150,6 +154,7 @@ impl Format {
                 .arg("-g").arg(format!("{}", self.game))
                 .arg(src.as_path())
                 .stdout(outfile.create())
+                .args(optional_mapfile_args(mapfile))
                 .args(args)
                 .output().expect("failed to execute process")
         };
@@ -159,6 +164,13 @@ impl Format {
         }
         assert!(output.status.success());
         outfile
+    }
+}
+
+fn optional_mapfile_args(mapfile: Option<&TestFile>) -> Vec<String> {
+    match mapfile {
+        Some(mapfile) => vec!["-m".to_string(), mapfile.filepath.to_string_lossy().into()],
+        None => vec![],
     }
 }
 
@@ -241,13 +253,14 @@ lazy_static::lazy_static! {
 
 impl Format {
     /// Attempt to compile but expect failure and extract stderr.
-    pub fn compile_fail_stderr(&self, source: &TestFile) -> String {
+    pub fn compile_fail_stderr(&self, source: &TestFile, mapfile: Option<&TestFile>) -> String {
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("compile")
                 .arg("-g").arg(format!("{}", self.game))
                 .arg(source.as_path())
                 .arg("-o").arg("/dev/null")
+                .args(optional_mapfile_args(mapfile))
                 .output().expect("failed to execute process")
         };
         assert!(!output.status.success());

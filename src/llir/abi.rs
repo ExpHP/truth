@@ -1,3 +1,4 @@
+use crate::pos::Span;
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, defs};
@@ -129,8 +130,8 @@ impl Iterator for AcceleratingByteMask {
 }
 
 impl InstrAbi {
-    pub fn from_encodings(encodings: Vec<ArgEncoding>) -> Result<Self, Diagnostic> {
-        validate(&encodings)?;
+    pub fn from_encodings(span: Span, encodings: Vec<ArgEncoding>) -> Result<Self, Diagnostic> {
+        validate(span, &encodings)?;
         Ok(InstrAbi { encodings })
     }
 
@@ -144,7 +145,7 @@ impl InstrAbi {
 
     pub fn validate_against_language(&self, language: InstrLanguage, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
         // NOTE: Normally the authority on timeline extra arguments is InstrFormat, but we want
-        //       this check to run long before any InsrFormats are created.
+        //       this check to run long before any InstrFormats are created.
         //
         //       Hence, we check based on the language instead.
         let sig_has_arg0 = matches!(self.encodings.get(0), Some(ArgEncoding::TimelineArg { .. }));
@@ -157,11 +158,14 @@ impl InstrAbi {
         Ok(())
     }
 
-    pub fn parse(s: &str, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
-        InstrAbi::from_encodings({
+    pub fn parse(span: Span, s: &str, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
+        InstrAbi::from_encodings(span, {
             crate::parse::abi::PARSER.parse(emitter, s)
-                .map_err(|e| emitter.as_sized().emit(error!("{}", e)))?
-        }).map_err(|e| emitter.as_sized().emit(e))
+                .map_err(|syntax_err| emitter.as_sized().emit(error!(
+                    message("signature syntax error: {}", syntax_err),
+                    primary(span, "{}", syntax_err),
+                )))?
+        }).map_err(|validation_err| emitter.as_sized().emit(validation_err))
     }
 }
 
@@ -189,33 +193,36 @@ impl ArgEncoding {
     }
 }
 
-
-fn validate(encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
+fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
+    let err = |message: String| Err(error!(
+        message("bad signature: {}", message),
+        primary(abi_span, "{}", message),
+    ));
     let o_count = encodings.iter().filter(|&&c| c == Enc::JumpOffset).count();
     let t_count = encodings.iter().filter(|&&c| c == Enc::JumpTime).count();
 
     for &(char, count) in &[('o', o_count), ('t', t_count)][..] {
         if count > 1 {
-            return Err(error!("signature has multiple '{}' args", char));
+            return err(format!("signature has multiple '{}' args", char));
         }
     }
     if t_count == 1 && o_count == 0 {
-        return Err(error!("signature has a 't' arg without an 'o' arg"));
+        return err(format!("signature has a 't' arg without an 'o' arg"));
     }
 
     if encodings.iter().skip(1).any(|c| matches!(c, Enc::TimelineArg { .. })) {
-        return Err(error!("'T()' arguments may only appear at the beginning of a signature"));
+        return err(format!("'T()' arguments may only appear at the beginning of a signature"));
     }
 
     if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { .. })) {
-        return Err(error!("'z' or 'm' arguments can only appear at the very end"));
+        return err(format!("'z' or 'm' arguments can only appear at the very end"));
     }
 
     let trailing_pad_count = encodings.iter().rev().take_while(|c| matches!(c, Enc::Padding)).count();
     let total_pad_count = encodings.iter().filter(|c| matches!(c, Enc::Padding)).count();
     if total_pad_count != trailing_pad_count {
         // this restriction is required because Padding produces signatures with optional args.
-        return Err(error!("non-'_' arguments cannot come after '_' arguments"));
+        return err(format!("non-'_' arguments cannot come after '_' arguments"));
     }
     Ok(())
 }
@@ -264,12 +271,12 @@ mod tests {
 
     fn parse(s: &str) -> Result<InstrAbi, ErrorReported> {
         let emitter = crate::diagnostic::RootEmitter::new_captured();
-        InstrAbi::parse(s, &emitter)
+        InstrAbi::parse(Span::NULL, s, &emitter)
     }
 
     #[test]
     fn test_parse() {
-        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(vec![Enc::Dword, Enc::Dword, Enc::Float]).unwrap());
+        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(Span::NULL, vec![Enc::Dword, Enc::Dword, Enc::Float]).unwrap());
     }
 
     #[test]
