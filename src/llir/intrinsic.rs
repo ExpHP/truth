@@ -211,6 +211,8 @@ pub mod abi_props {
 
     /// An operator input argument.
     pub struct InputOperandType;
+    /// An argument that must be an immediate.
+    pub struct ImmediateArgType;
 }
 
 /// Streamlines the relationship between the ABI of an intrinsic and how it is expressed
@@ -234,11 +236,13 @@ pub enum IntrinsicInstrAbiProps {
         padding: abi_props::UnrepresentablePadding,
         jump: (usize, abi_props::JumpArgOrder),
     },
-    InterruptLabel { padding: abi_props::UnrepresentablePadding },
+    InterruptLabel {
+        padding: abi_props::UnrepresentablePadding,
+        label: (usize, abi_props::ImmediateArgType),
+    },
     AssignOp {
         dest: (usize, abi_props::OutOperandType),
         rhs: (usize, abi_props::InputOperandType),
-        jump: (usize, abi_props::JumpArgOrder),
     },
     Binop {
         dest: (usize, abi_props::OutOperandType),
@@ -256,7 +260,7 @@ pub enum IntrinsicInstrAbiProps {
         args: [(usize, abi_props::InputOperandType); 2],
         jump: (usize, abi_props::JumpArgOrder),
     },
-    CondJmp2A { args:  [(usize, abi_props::InputOperandType); 2] },
+    CondJmp2A { args: [(usize, abi_props::InputOperandType); 2] },
     CondJmp2B { jump: (usize, abi_props::JumpArgOrder) },
 }
 
@@ -349,6 +353,14 @@ impl abi_props::InputOperandType {
     }
 }
 
+impl abi_props::ImmediateArgType {
+    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<(usize, Self), Diagnostic> {
+        abi_props::InputOperandType::remove(arg_encodings, abi_span, ty_in_ast)
+            .map(|(index, _)| (index, Self))
+    }
+}
+
+
 impl IntrinsicInstrAbiProps {
     pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: Sp<&InstrAbi>) -> Result<Self, Diagnostic> {
         use IntrinsicInstrKind as I;
@@ -367,13 +379,13 @@ impl IntrinsicInstrAbiProps {
             },
             I::InterruptLabel => {
                 let padding = abi_props::UnrepresentablePadding::detect_and_remove(&mut encodings, abi.span)?;
-                Self::InterruptLabel { padding }
+                let label = abi_props::ImmediateArgType::remove(&mut encodings, abi.span, ScalarType::Int)?;
+                Self::InterruptLabel { label, padding }
             }
             I::AssignOp(_op, ty) => {
-                let jump = abi_props::JumpArgOrder::find_and_remove(&mut encodings, abi.span)?;
                 let dest = abi_props::OutOperandType::remove(&mut encodings, abi.span, ty)?;
                 let rhs = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
-                Self::AssignOp { dest, rhs, jump }
+                Self::AssignOp { dest, rhs }
             },
             I::Binop(op, arg_ty) => {
                 let out_ty = ast::Expr::binop_ty_from_arg_ty(op, arg_ty);
