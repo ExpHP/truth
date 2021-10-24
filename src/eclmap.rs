@@ -51,23 +51,24 @@ impl Eclmap {
         let fs = Fs::new(emitter);
         let path = fs.canonicalize(path).map_err(|e| emitter.emit(e))?;
 
-        let (file_id, file_contents) = read_file(&path)?;
-        let mut seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
-        if seqmap.magic == "!gamemap" {
+        let (file_id, mut file_contents) = read_file(&path)?;
+        let seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
+
+        // if the map is a gamemap, it points to another file; that's the one we really want.
+        let seqmap = if seqmap.magic == "!gamemap" {
             let game = match game {
                 Some(game) => game,
                 None => return Err(emitter.emit(error!("can't use gamemap because no game was supplied!")))
             };
             let base_dir = path.parent().expect("filename must have parent");
             let game_specific_map_path = Self::resolve_gamemap(base_dir, seqmap, game, emitter)?;
-            let (file_id, file_contents) = read_file(&game_specific_map_path)?;
-            seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
-            Self::from_seqmap(seqmap, emitter)
+            let (file_id, new_file_contents) = read_file(&game_specific_map_path)?;
+            file_contents = new_file_contents; // replace outer variable for longer lifetime
+            SeqmapRaw::parse(file_id, &file_contents, emitter)?
         } else {
-            // had to put this in an else to satisfy borrow checker _/o\_
-            // hope it doesn't code gen twice?
-            Self::from_seqmap(seqmap, emitter)
-        }
+            seqmap
+        };
+        Self::from_seqmap(seqmap, emitter)
     }
 
     /// Check the default map directories for a file whose name is `any.{extension}`
