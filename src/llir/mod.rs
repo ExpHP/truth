@@ -297,10 +297,6 @@ pub trait InstrFormat {
 
     fn has_registers(&self) -> bool;
 
-    fn intrinsic_instrs(&self) -> IntrinsicInstrs {
-        IntrinsicInstrs::from_pairs(self.intrinsic_opcode_pairs())
-    }
-
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)>;
 
     /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).

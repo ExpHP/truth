@@ -469,8 +469,8 @@ impl InstrFormat for InstrFormat06 {
                     // (I::Unop(Un::Acos, ScalarType::Float), 64),
                     // (I::Unop(Un::Atan, ScalarType::Float), 65),
                 ];
-                I::register_olde_ecl_comp_ops(&mut out, 29, I::CondJmp2B);
-                I::register_olde_ecl_comp_ops(&mut out, 37, I::CondCall);
+                I::register_olde_ecl_comp_ops(&mut out, 29, |op| I::CondJmp2B(op));
+                // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
                 out
             },
             Game::Th07 => vec![],

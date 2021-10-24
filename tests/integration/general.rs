@@ -519,6 +519,11 @@ fn need_tests_for_malformed_jump_signatures() {
 }
 
 #[test]
+fn need_tests_for_eosd_regs() {
+    panic!()
+}
+
+#[test]
 fn need_tests_for_funny_broken_cmp_jmp_pairs() {
     panic!()
 }

@@ -5,7 +5,6 @@ use enum_map::{EnumMap, enum_map};
 use crate::raw;
 use crate::ast;
 use crate::context::CompilerContext;
-use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::game::InstrLanguage;
@@ -386,10 +385,7 @@ impl CompilerContext<'_> {
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
     pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, mapfile: &Eclmap) -> Result<(), ErrorReported> {
-        let emitter = self.emitter.get_chained(match path {
-            Some(path) => path.to_string_lossy().into_owned(),
-            None => format!("in mapfile"),
-        });
+        let emitter = self.emitter;
 
         if let Some(path) = path {
             self.mapfiles.push(path.to_owned());
@@ -404,13 +400,11 @@ impl CompilerContext<'_> {
             }
 
             signatures.iter().map(|(&opcode, abi_str)| {
-                emitter.chain_with(|f| write!(f, "in signature for {} opcode {}", language.descr(), opcode), |emitter| {
-                    let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
-                    abi.validate_against_language(language, emitter)?;
-                    self.set_ins_abi(language, opcode as u16, abi);
-                    Ok::<_, ErrorReported>(())
-                })
-            }).collect_with_recovery()?;
+                let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
+                abi.validate_against_language(language, emitter)?;
+                self.set_ins_abi(language, opcode as u16, abi);
+                Ok::<_, ErrorReported>(())
+            }).collect_with_recovery::<()>()?;
         }
 
         for (&reg, ident) in &mapfile.gvar_names {
@@ -422,7 +416,10 @@ impl CompilerContext<'_> {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
                 _ => {
-                    emitter.emit(warning!("ignoring invalid variable type '{}' for gvar {}", value, reg)).ignore();
+                    emitter.emit(warning!(
+                        message("ignoring invalid variable type '{}' for gvar {}", value, reg),
+                        primary(value, "invalid type"),
+                    )).ignore();
                     continue;
                 },
             };

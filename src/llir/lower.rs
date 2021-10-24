@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use crate::raw;
 use super::{unsupported, SimpleArg};
-use crate::llir::{RawInstr, InstrFormat, ArgEncoding, TimelineArgKind, ScalarType};
+use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
@@ -73,7 +73,6 @@ impl LowerArg {
     /// Call this at a time when the arg is known to have a fully resolved value.
     ///
     /// Such times are:
-    /// * During decompilation.
     /// * Within [`InstrFormat::write_instr`].
     #[track_caller]
     pub fn expect_raw(&self) -> &SimpleArg {
@@ -93,7 +92,7 @@ pub fn lower_sub_ast_to_instrs(
 
     let mut lowerer = Lowerer {
         out: vec![],
-        intrinsic_instrs: instr_format.intrinsic_instrs(),
+        intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(instr_format, &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
         ctx,
         instr_format,

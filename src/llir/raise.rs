@@ -131,7 +131,7 @@ fn _raise_instrs_to_sub_ast(
 
     // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
     let intrinsic_instrs = match raiser.options.intrinsics {
-        true => instr_format.intrinsic_instrs(),
+        true => IntrinsicInstrs::from_format_and_mapfiles(instr_format, defs, emitter)?,
         false => Default::default(),
     };
 
@@ -493,7 +493,6 @@ fn raise_single_decoded_instr(
         | None
         | Some(IntrinsicInstrKind::CondJmp2A { .. })
         | Some(IntrinsicInstrKind::CondJmp2B { .. })
-        | Some(IntrinsicInstrKind::CondCall { .. })  // don't wanna deal with you right now
         => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
             // Raise directly to `ins_*(...)` syntax.
             Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {

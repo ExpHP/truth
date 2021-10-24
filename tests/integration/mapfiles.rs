@@ -9,3 +9,21 @@ source_test!(
     main_body: r#""#,
     expect_error: "JIS",
 );
+
+#[test]
+fn missing_test() {
+    panic!(
+        "test of user mapfile that sets an existing instruction as an \
+        incorrect intrinsic but doesn't set a signature (so it has no span/uses \
+        the core mapfile)"
+    )
+}
+
+
+#[test]
+fn missing_test_2() {
+    panic!(
+        "test of user mapfile that sets a instruction as an \
+        intrinsic which has no signature"
+    )
+}
