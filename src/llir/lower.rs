@@ -15,6 +15,7 @@ use crate::value::ScalarValue;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 
 mod stackless;
+mod intrinsic;
 
 /// An intermediate representation that is only used during lowering.
 ///

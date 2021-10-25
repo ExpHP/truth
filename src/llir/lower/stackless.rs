@@ -431,24 +431,7 @@ impl Lowerer<'_, '_> {
     }
 
     fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_data: TimeAndDifficulty, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
-        let (label_arg, time_arg) = lower_goto_args(goto);
-
-        // use the signature to determine the right order to put the arguments
-        let opcode = self.get_opcode(IKind::Jmp, stmt_span, "'goto'")?;
-        let abi = self.ctx.defs.ins_abi(self.instr_format.language(), opcode).unwrap();
-        let args = JumpIntrinsicArgOrder {
-            offset: label_arg, time: Some(time_arg),
-            other_args: vec![], other_arg_encodings: vec![],
-        }.into_vec(&abi).map_err(|err| self.ctx.emitter.emit(err))?;
-
-        self.out.push(LowerStmt::Instr(LowerInstr {
-            stmt_data,
-            opcode,
-            explicit_extra_arg: None,
-            user_param_mask: None,
-            args: LowerArgs::Known(args),
-        }));
-        Ok(())
+        self.lower_intrinsic_jmp(stmt_span, stmt_data, goto)
     }
 
     /// Lowers `if (<cond>) goto label @ time;`
@@ -771,7 +754,7 @@ impl Lowerer<'_, '_> {
     }
 
     fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, ErrorReported> {
-        self.intrinsic_instrs.get_opcode(kind, span, descr).map_err(|e| self.ctx.emitter.emit(e))
+        self.intrinsic_instrs.get_opcode_and_abi_props(kind, span, descr).map_err(|e| self.ctx.emitter.emit(e)).map(|tup| tup.0)
     }
 
     fn unsupported(&self, span: &crate::pos::Span, what: &str) -> ErrorReported {

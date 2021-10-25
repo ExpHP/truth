@@ -10,7 +10,7 @@ use crate::pos::{Span, Sp};
 use crate::value::{ScalarType};
 
 /// Maps opcodes to and from intrinsics.
-#[derive(Default)] // Default is used by --no-intrinsics
+#[derive(Debug, Default)] // Default is used by --no-intrinsics
 pub struct IntrinsicInstrs {
     intrinsic_opcodes: HashMap<IntrinsicInstrKind, raw::Opcode>,
     intrinsic_abi_props: HashMap<IntrinsicInstrKind, IntrinsicInstrAbiProps>,
@@ -49,9 +49,9 @@ impl IntrinsicInstrs {
         Ok(IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes, intrinsic_abi_props })
     }
 
-    pub fn get_opcode(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<raw::Opcode, Diagnostic> {
+    pub(crate) fn get_opcode_and_abi_props(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<(raw::Opcode, &IntrinsicInstrAbiProps), Diagnostic> {
         match self.intrinsic_opcodes.get(&intrinsic) {
-            Some(&opcode) => Ok(opcode),
+            Some(&opcode) => Ok((opcode, &self.intrinsic_abi_props[&intrinsic])),
             None => Err(error!(
                 message("feature not supported by format"),
                 primary(span, "{} not supported in this game", descr),
@@ -59,11 +59,16 @@ impl IntrinsicInstrs {
         }
     }
 
-    pub fn get_opcode_opt(&self, intrinsic: IntrinsicInstrKind) -> Option<raw::Opcode> {
+    pub(crate) fn get_opcode_opt(&self, intrinsic: IntrinsicInstrKind) -> Option<raw::Opcode> {
         self.intrinsic_opcodes.get(&intrinsic).copied()
     }
 
-    pub fn get_intrinsic(&self, opcode: raw::Opcode) -> Option<IntrinsicInstrKind> {
+    pub(crate) fn get_intrinsic_and_props(&self, opcode: raw::Opcode) -> Option<(IntrinsicInstrKind, &IntrinsicInstrAbiProps)> {
+        self.opcode_intrinsics.get(&opcode)
+            .map(|&kind| (kind, &self.intrinsic_abi_props[&kind]))
+    }
+
+    pub(crate) fn get_intrinsic(&self, opcode: raw::Opcode) -> Option<IntrinsicInstrKind> {
         self.opcode_intrinsics.get(&opcode).copied()
     }
 }
@@ -191,10 +196,21 @@ impl IntrinsicInstrKind {
 pub mod abi_props {
     /// Indicates that the ABI contains this many padding dwords at the end,
     /// which cannot be represented in the AST if they are nonzero.
-    pub struct UnrepresentablePadding { pub count: usize }
+    #[derive(Debug)]
+    pub struct UnrepresentablePadding {
+        pub index: usize,
+        pub count: usize,
+    }
 
     /// Describes the order of jump arguments.
-    pub enum JumpArgOrder {
+    #[derive(Debug)]
+    pub struct JumpArgOrder {
+        pub index: usize,
+        pub kind: JumpArgOrderKind,
+    }
+
+    #[derive(Debug)]
+    pub enum JumpArgOrderKind {
         TimeLoc,
         LocTime,
         /// Always uses timeof(destination).
@@ -202,7 +218,14 @@ pub mod abi_props {
     }
 
     /// Describes how an output register is encoded (e.g. is a float register encoded as "f" or "S")?
-    pub enum OutOperandType {
+    #[derive(Debug)]
+    pub struct OutOperandType {
+        pub index: usize,
+        pub kind: OutOperandTypeKind,
+    }
+
+    #[derive(Debug)]
+    pub enum OutOperandTypeKind {
         /// It's a float register, but is written to file as an integer. (used by EoSD ECL)
         FloatAsInt,
         /// The register is saved to file using the same datatype as it has in the AST.
@@ -210,9 +233,11 @@ pub mod abi_props {
     }
 
     /// An operator input argument.
-    pub struct InputOperandType;
+    #[derive(Debug)]
+    pub struct InputOperandType { pub index: usize }
     /// An argument that must be an immediate.
-    pub struct ImmediateArgType;
+    #[derive(Debug)]
+    pub struct ImmediateArgType { pub index: usize }
 }
 
 /// Streamlines the relationship between the ABI of an intrinsic and how it is expressed
@@ -227,41 +252,48 @@ pub mod abi_props {
 /// raw, encoded argument list.
 ///
 /// The `usize`s are all indices into the encoded argument list.
-pub enum IntrinsicInstrAbiProps {
+#[derive(Debug)]
+pub struct IntrinsicInstrAbiProps {
+    pub num_instr_args: usize,
+    pub kind: IntrinsicInstrAbiPropsKind,
+}
+
+#[derive(Debug)]
+pub enum IntrinsicInstrAbiPropsKind {
     // this could maybe be a struct with Option<> fields for all of the abi_props types
     // but it's currently written as an enum to leverage unused variable warnings to make
     // sure all of the different places that work with an intrinsic are checking the same
     // set of properties.
     Jmp {
         padding: abi_props::UnrepresentablePadding,
-        jump: (usize, abi_props::JumpArgOrder),
+        jump: abi_props::JumpArgOrder,
     },
     InterruptLabel {
         padding: abi_props::UnrepresentablePadding,
-        label: (usize, abi_props::ImmediateArgType),
+        label: abi_props::ImmediateArgType,
     },
     AssignOp {
-        dest: (usize, abi_props::OutOperandType),
-        rhs: (usize, abi_props::InputOperandType),
+        dest: abi_props::OutOperandType,
+        rhs: abi_props::InputOperandType,
     },
     Binop {
-        dest: (usize, abi_props::OutOperandType),
-        args: [(usize, abi_props::InputOperandType); 2],
+        dest: abi_props::OutOperandType,
+        args: [abi_props::InputOperandType; 2],
     },
     Unop {
-        dest: (usize, abi_props::OutOperandType),
-        arg: (usize, abi_props::InputOperandType),
+        dest: abi_props::OutOperandType,
+        arg: abi_props::InputOperandType,
     },
     CountJmp {
-        arg: (usize, abi_props::OutOperandType),
-        jump: (usize, abi_props::JumpArgOrder),
+        arg: abi_props::OutOperandType,
+        jump: abi_props::JumpArgOrder,
     },
     CondJmp {
-        args: [(usize, abi_props::InputOperandType); 2],
-        jump: (usize, abi_props::JumpArgOrder),
+        args: [abi_props::InputOperandType; 2],
+        jump: abi_props::JumpArgOrder,
     },
-    CondJmp2A { args: [(usize, abi_props::InputOperandType); 2] },
-    CondJmp2B { jump: (usize, abi_props::JumpArgOrder) },
+    CondJmp2A { args: [abi_props::InputOperandType; 2] },
+    CondJmp2B { jump: abi_props::JumpArgOrder },
 }
 
 fn intrinsic_abi_error(abi_span: Span, message: &str) -> Diagnostic {
@@ -274,11 +306,16 @@ fn intrinsic_abi_error(abi_span: Span, message: &str) -> Diagnostic {
 impl abi_props::UnrepresentablePadding {
     fn detect_and_remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, _abi_span: Span) -> Result<Self, Diagnostic> {
         let mut count = 0;
-        while matches!(arg_encodings.last(), Some((_, ArgEncoding::Padding))) {
+        let mut first_index = arg_encodings.len();
+        while let Some(&(index, ArgEncoding::Padding)) = arg_encodings.last() {
+            // assumption that this func always runs first (nothing is deleted before us)
+            assert_eq!(index, arg_encodings.len() - 1);
+
             arg_encodings.pop();
             count += 1;
+            first_index = index;
         }
-        Ok(Self { count })
+        Ok(Self { count, index: first_index })
     }
 }
 
@@ -290,7 +327,7 @@ fn remove_first_where<T>(vec: &mut Vec<T>, pred: impl FnMut(&T) -> bool) -> Opti
 }
 
 impl abi_props::JumpArgOrder {
-    fn find_and_remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span) -> Result<(usize, Self), Diagnostic> {
+    fn find_and_remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span) -> Result<Self, Diagnostic> {
         let offset_data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::JumpOffset);
         let time_data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::JumpTime);
 
@@ -303,20 +340,20 @@ impl abi_props::JumpArgOrder {
 
         if let Some(time_index) = time_index {
             if time_index == offset_index + 1 {
-                Ok((offset_index, Self::LocTime))
+                Ok(Self { index: offset_index, kind: abi_props::JumpArgOrderKind::LocTime })
             } else if time_index + 1 == offset_index {
-                Ok((time_index, Self::TimeLoc))
+                Ok(Self { index: time_index, kind: abi_props::JumpArgOrderKind::TimeLoc })
             } else {
                 Err(intrinsic_abi_error(abi_span, "offset ('o') and time ('t') args must be consecutive"))
             }
         } else {
-            Ok((offset_index, Self::Loc))
+            Ok(Self { index: offset_index, kind: abi_props::JumpArgOrderKind::Loc })
         }
     }
 }
 
 impl abi_props::OutOperandType {
-    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<(usize, Self), Diagnostic> {
+    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<Self, Diagnostic> {
         // it is expected that previous detect_and_remove functions have already removed everything before the out operand.
         let (index, encoding) = match arg_encodings.len() {
             0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
@@ -325,10 +362,10 @@ impl abi_props::OutOperandType {
         match (ty_in_ast, encoding) {
             | (ScalarType::Int, ArgEncoding::Dword)
             | (ScalarType::Float, ArgEncoding::Float)
-            => Ok((index, Self::Natural)),
+            => Ok(Self { index, kind: abi_props::OutOperandTypeKind::Natural }),
 
             | (ScalarType::Float, ArgEncoding::Dword)
-            => Ok((index, Self::FloatAsInt)),
+            => Ok(Self { index, kind: abi_props::OutOperandTypeKind::FloatAsInt }),
 
             | (_, _)
             => Err(intrinsic_abi_error(abi_span, &format!("output arg has unexpected encoding ({})", encoding.descr()))),
@@ -337,7 +374,7 @@ impl abi_props::OutOperandType {
 }
 
 impl abi_props::InputOperandType {
-    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<(usize, Self), Diagnostic> {
+    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<Self, Diagnostic> {
         let (index, encoding) = match arg_encodings.len() {
             0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
             _ => arg_encodings.remove(0),
@@ -345,7 +382,7 @@ impl abi_props::InputOperandType {
         match (ty_in_ast, encoding) {
             | (ScalarType::Int, ArgEncoding::Dword)
             | (ScalarType::Float, ArgEncoding::Float)
-            => Ok((index, abi_props::InputOperandType)),
+            => Ok(Self { index }),
 
             | (_, _)
             => Err(intrinsic_abi_error(abi_span, &format!("output arg has unexpected encoding ({})", encoding.descr()))),
@@ -354,9 +391,9 @@ impl abi_props::InputOperandType {
 }
 
 impl abi_props::ImmediateArgType {
-    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<(usize, Self), Diagnostic> {
+    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<Self, Diagnostic> {
         abi_props::InputOperandType::remove(arg_encodings, abi_span, ty_in_ast)
-            .map(|(index, _)| (index, Self))
+            .map(|out| Self { index: out.index })
     }
 }
 
@@ -364,10 +401,12 @@ impl abi_props::ImmediateArgType {
 impl IntrinsicInstrAbiProps {
     pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: Sp<&InstrAbi>) -> Result<Self, Diagnostic> {
         use IntrinsicInstrKind as I;
+        use IntrinsicInstrAbiPropsKind as P;
 
         let mut encodings = abi.arg_encodings().enumerate().collect::<Vec<_>>();
+        let num_instr_args = encodings.len();
 
-        let result = match intrinsic {
+        let kind = match intrinsic {
             // DON'T PANIC EVERYTHING IS OK
             //
             // This code might look positively horrifying but 90% of it is impossible to get wrong.
@@ -375,56 +414,56 @@ impl IntrinsicInstrAbiProps {
             I::Jmp => {
                 let padding = abi_props::UnrepresentablePadding::detect_and_remove(&mut encodings, abi.span)?;
                 let jump = abi_props::JumpArgOrder::find_and_remove(&mut encodings, abi.span)?;
-                Self::Jmp { padding, jump }
+                P::Jmp { padding, jump }
             },
             I::InterruptLabel => {
                 let padding = abi_props::UnrepresentablePadding::detect_and_remove(&mut encodings, abi.span)?;
                 let label = abi_props::ImmediateArgType::remove(&mut encodings, abi.span, ScalarType::Int)?;
-                Self::InterruptLabel { label, padding }
+                P::InterruptLabel { label, padding }
             }
             I::AssignOp(_op, ty) => {
                 let dest = abi_props::OutOperandType::remove(&mut encodings, abi.span, ty)?;
                 let rhs = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
-                Self::AssignOp { dest, rhs }
+                P::AssignOp { dest, rhs }
             },
             I::Binop(op, arg_ty) => {
                 let out_ty = ast::Expr::binop_ty_from_arg_ty(op, arg_ty);
                 let dest = abi_props::OutOperandType::remove(&mut encodings, abi.span, out_ty)?;
                 let a = abi_props::InputOperandType::remove(&mut encodings, abi.span, arg_ty)?;
                 let b = abi_props::InputOperandType::remove(&mut encodings, abi.span, arg_ty)?;
-                Self::Binop { dest, args: [a, b] }
+                P::Binop { dest, args: [a, b] }
             },
             I::Unop(_op, ty) => {
                 let dest = abi_props::OutOperandType::remove(&mut encodings, abi.span, ty)?;
                 let arg = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
-                Self::Unop { dest, arg }
+                P::Unop { dest, arg }
             },
             I::CountJmp => {
                 let jump = abi_props::JumpArgOrder::find_and_remove(&mut encodings, abi.span)?;
                 let arg = abi_props::OutOperandType::remove(&mut encodings, abi.span, ScalarType::Int)?;
-                Self::CountJmp { jump, arg }
+                P::CountJmp { jump, arg }
             },
             I::CondJmp(_op, ty) => {
                 let jump = abi_props::JumpArgOrder::find_and_remove(&mut encodings, abi.span)?;
                 let a = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
                 let b = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
-                Self::CondJmp { jump, args: [a, b] }
+                P::CondJmp { jump, args: [a, b] }
             },
             I::CondJmp2A(ty) => {
                 let a = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
                 let b = abi_props::InputOperandType::remove(&mut encodings, abi.span, ty)?;
-                Self::CondJmp2A { args: [a, b] }
+                P::CondJmp2A { args: [a, b] }
             },
             I::CondJmp2B(_op) => {
                 let jump = abi_props::JumpArgOrder::find_and_remove(&mut encodings, abi.span)?;
-                Self::CondJmp2B { jump }
+                P::CondJmp2B { jump }
             },
         };
 
         if let Some(&(index, encoding)) = encodings.get(0) {
             return Err(intrinsic_abi_error(abi.span, &format!("unexpected {} arg at index {}", encoding.descr(), index + 1)));
         }
-        Ok(result)
+        Ok(Self { num_instr_args, kind })
     }
 }
 
@@ -476,7 +515,7 @@ impl<T> JumpIntrinsicArgOrder<T> {
             } else {
                 ""
             };
-            return Err(error!(
+            return Err(panic!(
                 "jump intrinsic expected {} non-jump args but got {}{}",
                 expected_extra_args, other_args.len(), hint
             ));

@@ -7,6 +7,7 @@ use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, JumpIntrinsicArgOrder};
+use crate::llir::intrinsic::{IntrinsicInstrAbiProps, IntrinsicInstrAbiPropsKind, abi_props};
 use crate::resolve::{RegId, UnusedNodeIds};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;
@@ -399,24 +400,20 @@ fn raise_single_decoded_instr(
     let abi = defs.ins_abi(language, instr.opcode).expect("decoded, so abi is known");
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
-    match intrinsic_instrs.get_intrinsic(opcode) {
-        Some(IntrinsicInstrKind::Jmp) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
-            let JumpIntrinsicArgOrder {
-                offset: offset_arg, time: time_arg,
-                other_args, other_arg_encodings: _,
-            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 0).map_err(|e| emitter.emit(e))?;
-
-            // FIXME deal with STD PADDING
-            // This one is >= because it exists in early STD where there can be padding args.
-            // ensure!(emitter, args.len() >= nargs, "expected {} args, got {}", nargs, args.len());
-            warn_unless!(emitter, other_args.iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
-
-            let goto = raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
-            Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
+    match intrinsic_instrs.get_intrinsic_and_props(opcode) {
+        Some((IntrinsicInstrKind::Jmp, props)) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
+            match &props.kind {
+                IntrinsicInstrAbiPropsKind::Jmp { padding, jump } => {
+                    let () = padding.raise(args, &emitter)?;
+                    let goto = jump.raise(args, instr.offset, instr_format, offset_labels)?;
+                    Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
-        Some(IntrinsicInstrKind::AssignOp(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
+        Some((IntrinsicInstrKind::AssignOp(op, ty), _)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
             ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
             let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
             let value = raise_arg(language, emitter, &args[1], encodings[1])?;
@@ -425,7 +422,7 @@ fn raise_single_decoded_instr(
         }),
 
 
-        Some(IntrinsicInstrKind::Binop(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
+        Some((IntrinsicInstrKind::Binop(op, ty), _)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
             ensure!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
             let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
             let a = raise_arg(language, emitter, &args[1], encodings[1])?;
@@ -435,7 +432,7 @@ fn raise_single_decoded_instr(
         }),
 
 
-        Some(IntrinsicInstrKind::Unop(op, ty)) => emitter.chain_with(|f| write!(f, "while decompiling a unary '{}' operation", op), |emitter| {
+        Some((IntrinsicInstrKind::Unop(op, ty), _)) => emitter.chain_with(|f| write!(f, "while decompiling a unary '{}' operation", op), |emitter| {
             ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
             let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
             let b = raise_arg(language, emitter, &args[1], encodings[1])?;
@@ -444,7 +441,7 @@ fn raise_single_decoded_instr(
         }),
 
 
-        Some(IntrinsicInstrKind::InterruptLabel) => emitter.chain("while decompiling an interrupt label", |emitter| {
+        Some((IntrinsicInstrKind::InterruptLabel, _)) => emitter.chain("while decompiling an interrupt label", |emitter| {
             // This one is >= because it exists in STD where there can be padding args.
             ensure!(emitter, args.len() >= 1, "expected {} args, got {}", 1, args.len());
             warn_unless!(emitter, args[1..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
@@ -453,7 +450,7 @@ fn raise_single_decoded_instr(
         }),
 
 
-        Some(IntrinsicInstrKind::CountJmp) => emitter.chain("while decompiling a decrement jump", |emitter| {
+        Some((IntrinsicInstrKind::CountJmp, _)) => emitter.chain("while decompiling a decrement jump", |emitter| {
             warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
             let JumpIntrinsicArgOrder {
                 offset: offset_arg, time: time_arg,
@@ -461,7 +458,7 @@ fn raise_single_decoded_instr(
             } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
 
             let var = raise_arg_to_reg(language, emitter, other_args[0], ScalarType::Int)?;
-            let goto = raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
+            let goto = xxx_raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
@@ -469,16 +466,16 @@ fn raise_single_decoded_instr(
         }),
 
 
-        Some(IntrinsicInstrKind::CondJmp(op, _)) => emitter.chain("while decompiling a conditional jump", |emitter| {
+        Some((IntrinsicInstrKind::CondJmp(op, _), _)) => emitter.chain("while decompiling a conditional jump", |emitter| {
             warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
             let JumpIntrinsicArgOrder {
                 offset: offset_arg, time: time_arg,
                 other_args, other_arg_encodings,
-            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
+            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 2).map_err(|e| emitter.emit(e))?;
 
             let a = raise_arg(language, emitter, &other_args[0], other_arg_encodings[0])?;
             let b = raise_arg(language, emitter, &other_args[1], other_arg_encodings[1])?;
-            let goto = raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
+            let goto = xxx_raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
 
             Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                 as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
@@ -491,8 +488,8 @@ fn raise_single_decoded_instr(
         // Individual pieces of multipart intrinsics also take this route for cases where
         // they show up alone or with e.g. time labels in-between.
         | None
-        | Some(IntrinsicInstrKind::CondJmp2A { .. })
-        | Some(IntrinsicInstrKind::CondJmp2B { .. })
+        | Some((IntrinsicInstrKind::CondJmp2A { .. }, _))
+        | Some((IntrinsicInstrKind::CondJmp2B { .. }, _))
         => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
             // Raise directly to `ins_*(...)` syntax.
             Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
@@ -539,7 +536,7 @@ fn possibly_raise_long_intrinsic(
                     } = JumpIntrinsicArgOrder::from_iter(jmp_args.iter(), &jmp_abi, 0).map_err(|e| emitter.emit(e))?;
                     assert_eq!(other_args.len(), 0);
 
-                    let goto = raise_jump_args(offset_arg, time_arg, jmp_instr.offset, instr_format, offset_labels);
+                    let goto = xxx_raise_jump_args(offset_arg, time_arg, jmp_instr.offset, instr_format, offset_labels);
 
                     Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
                         as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
@@ -677,7 +674,7 @@ fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &Simpl
 }
 
 /// Raises one or two arguments with the signature "o", "ot" or "to" into a `goto`.
-fn raise_jump_args(
+fn xxx_raise_jump_args(
     offset_arg: &SimpleArg,
     time_arg: Option<&SimpleArg>,
     cur_instr_offset: raw::BytePos,
@@ -689,6 +686,43 @@ fn raise_jump_args(
     ast::StmtGoto {
         destination: sp!(label.label.clone()),
         time: time_arg.map(|arg| sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label),
+    }
+}
+
+impl abi_props::JumpArgOrder {
+    fn raise(
+        &self,
+        args: &[SimpleArg],
+        cur_instr_offset: raw::BytePos,
+        instr_format: &dyn InstrFormat,
+        offset_labels: &BTreeMap<u64, Label>,
+    ) -> Result<ast::StmtGoto, ErrorReported> {
+        let (offset_arg, time_arg) = match self.kind {
+            abi_props::JumpArgOrderKind::TimeLoc => (&args[self.index + 1], Some(&args[self.index])),
+            abi_props::JumpArgOrderKind::LocTime => (&args[self.index], Some(&args[self.index + 1])),
+            abi_props::JumpArgOrderKind::Loc => (&args[self.index], None),
+        };
+        let offset = instr_format.decode_label(cur_instr_offset, offset_arg.expect_immediate_int() as u32);
+        let label = &offset_labels[&offset];
+        Ok(ast::StmtGoto {
+            destination: sp!(label.label.clone()),
+            time: time_arg.map(|arg| sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label),
+        })
+    }
+}
+
+impl abi_props::UnrepresentablePadding {
+    fn raise(
+        &self,
+        args: &[SimpleArg],
+        emitter: &impl Emitter,
+    ) -> Result<(), ErrorReported> {
+        warn_unless!(
+            emitter,
+            args[self.index..self.index + self.count].iter().all(|a| a.expect_int() == 0),
+            "unsupported data in padding of intrinsic",
+        );
+        Ok(())
     }
 }
 

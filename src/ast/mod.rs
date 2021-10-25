@@ -564,7 +564,7 @@ impl BinopKind {
     }
 
     pub fn is_comparison(self) -> bool {
-        self.class() == OpClass::Logical
+        self.class() == OpClass::Comparison
     }
 
     pub fn negate_comparison(self) -> Option<BinopKind> { match self {
