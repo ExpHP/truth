@@ -464,6 +464,7 @@ script 101 another {}
 "#;
 
 #[test]
+#[ignore]
 fn why_arent_those_source_tests() {
     panic!("why aren't the below two tests source_tests?"); // FIXME XXX
 }

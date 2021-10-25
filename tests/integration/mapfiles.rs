@@ -11,6 +11,7 @@ source_test!(
 );
 
 #[test]
+#[ignore]
 fn missing_test() {
     panic!(
         "test of user mapfile that sets an existing instruction as an \
@@ -21,9 +22,20 @@ fn missing_test() {
 
 
 #[test]
+#[ignore]
 fn missing_test_2() {
     panic!(
         "test of user mapfile that sets a instruction as an \
         intrinsic which has no signature"
+    )
+}
+
+
+#[test]
+#[ignore]
+fn missing_test_3() {
+    panic!(
+        "test of user mapfile that has wrong num args for intrinsic and also \
+        a binary file with that number of arguments"
     )
 }

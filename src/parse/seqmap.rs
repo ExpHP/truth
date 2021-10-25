@@ -196,19 +196,19 @@ mod spanned_str {
     fn test_trim() {
         // nontrivial
         let input = SpannedStr { file_id: None, str: "  aaf io    ", start_pos: 17 };
-        let trimmed = input.trimmed();
+        let trimmed = input.trim();
         assert_eq!(trimmed.start_pos, 19);
         assert_eq!(trimmed.str, "aaf io");
 
         // trivial
         let input = SpannedStr { file_id: None, str: "aaf io", start_pos: 17 };
-        let trimmed = input.trimmed();
+        let trimmed = input.trim();
         assert_eq!(trimmed.start_pos, 17);
         assert_eq!(trimmed.str, "aaf io");
 
         // all whitespace; edge case where a bad implementation could double-count
         let input = SpannedStr { file_id: None, str: "   ", start_pos: 17 };
-        let trimmed = input.trimmed();
+        let trimmed = input.trim();
         assert!(17 <= trimmed.start_pos && trimmed.start_pos <= 17 + input.len());
         assert_eq!(trimmed.str, "");
     }

@@ -843,5 +843,10 @@ global there = 1;
 global howyado = 2;
     "#;
     assert_eq!(actual.trim(), expected.trim());
-    panic!("why isn't this a source test");
+}
+
+#[test]
+#[ignore]
+fn why_isnt_that_a_source_test() {
+    panic!()
 }

@@ -6,7 +6,7 @@ use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
-use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, JumpIntrinsicArgOrder};
+use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiPropsKind, abi_props};
 use crate::resolve::{RegId, UnusedNodeIds};
 use crate::context::{self, Defs};
@@ -14,6 +14,9 @@ use crate::game::InstrLanguage;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue, ScalarType};
 use crate::io::{DEFAULT_ENCODING, Encoded};
+
+use IntrinsicInstrKind as IKind;
+use IntrinsicInstrAbiPropsKind as IProps;
 
 #[derive(Debug, Clone)]
 pub struct DecompileOptions {
@@ -401,9 +404,9 @@ fn raise_single_decoded_instr(
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     match intrinsic_instrs.get_intrinsic_and_props(opcode) {
-        Some((IntrinsicInstrKind::Jmp, props)) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
-            match &props.kind {
-                IntrinsicInstrAbiPropsKind::Jmp { padding, jump } => {
+        Some((IKind::Jmp, props)) => emitter.chain("while decompiling a 'goto' operation", |emitter| {
+            match props {
+                IProps::Jmp { padding, jump } => {
                     let () = padding.raise(args, &emitter)?;
                     let goto = jump.raise(args, instr.offset, instr_format, offset_labels)?;
                     Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
@@ -413,73 +416,81 @@ fn raise_single_decoded_instr(
         }),
 
 
-        Some((IntrinsicInstrKind::AssignOp(op, ty), _)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
-            ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
-            let value = raise_arg(language, emitter, &args[1], encodings[1])?;
-
-            Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var #op #value)))
+        Some((IKind::AssignOp(op, ty), props)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
+            match props {
+                IProps::AssignOp { dest, rhs } => {
+                    let var = dest.raise(args, emitter, language, ty)?;
+                    let value = rhs.raise(args, emitter, language, &encodings)?;
+                    Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var #op #value)))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
-        Some((IntrinsicInstrKind::Binop(op, ty), _)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
-            ensure!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
-            let a = raise_arg(language, emitter, &args[1], encodings[1])?;
-            let b = raise_arg(language, emitter, &args[2], encodings[2])?;
-
-            Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_binop!(#a #op #b))))
+        Some((IKind::Binop(op, ty), props)) => emitter.chain_with(|f| write!(f, "while decompiling a '{}' operation", op), |emitter| {
+            match props {
+                IProps::Binop { dest: dest_props, args: [a_props, b_props] } => {
+                    let var = dest_props.raise(args, emitter, language, ty)?;
+                    let a = a_props.raise(args, emitter, language, &encodings)?;
+                    let b = b_props.raise(args, emitter, language, &encodings)?;
+                    Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_binop!(#a #op #b))))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
-        Some((IntrinsicInstrKind::Unop(op, ty), _)) => emitter.chain_with(|f| write!(f, "while decompiling a unary '{}' operation", op), |emitter| {
-            ensure!(emitter, args.len() == 2, "expected {} args, got {}", 2, args.len());
-            let var = raise_arg_to_reg(language, emitter, &args[0], ty)?;
-            let b = raise_arg(language, emitter, &args[1], encodings[1])?;
-
-            Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b))))
+        Some((IKind::Unop(op, ty), props)) => emitter.chain_with(|f| write!(f, "while decompiling a unary '{}' operation", op), |emitter| {
+            match props {
+                IProps::Unop { dest: dest_props, arg: arg_props } => {
+                    let var = dest_props.raise(args, emitter, language, ty)?;
+                    let b = arg_props.raise(args, emitter, language, &encodings)?;
+                    Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b))))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
-        Some((IntrinsicInstrKind::InterruptLabel, _)) => emitter.chain("while decompiling an interrupt label", |emitter| {
-            // This one is >= because it exists in STD where there can be padding args.
-            ensure!(emitter, args.len() >= 1, "expected {} args, got {}", 1, args.len());
-            warn_unless!(emitter, args[1..].iter().all(|a| a.expect_int() == 0), "unsupported data in padding of intrinsic");
-
-            Ok(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #(args[0].expect_immediate_int()) )))
+        Some((IKind::InterruptLabel, props)) => emitter.chain("while decompiling an interrupt label", |emitter| {
+            match props {
+                IProps::InterruptLabel { padding: padding_props, label: label_props } => {
+                    let () = padding_props.raise(args, emitter)?;
+                    let interrupt = label_props.raise(args, emitter)?;
+                    Ok(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #(interrupt) )))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
-        Some((IntrinsicInstrKind::CountJmp, _)) => emitter.chain("while decompiling a decrement jump", |emitter| {
-            warn_unless!(emitter, args.len() == 3, "expected {} args, got {}", 3, args.len());
-            let JumpIntrinsicArgOrder {
-                offset: offset_arg, time: time_arg,
-                other_args, other_arg_encodings: _,
-            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 1).map_err(|e| emitter.emit(e))?;
-
-            let var = raise_arg_to_reg(language, emitter, other_args[0], ScalarType::Int)?;
-            let goto = xxx_raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
-
-            Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
-            )))
+        Some((IKind::CountJmp, props)) => emitter.chain("while decompiling a decrement jump", |emitter| {
+            match props {
+                IProps::CountJmp { jump: jump_props, arg: arg_props } => {
+                    let goto = jump_props.raise(args, instr.offset, instr_format, offset_labels)?;
+                    let var = arg_props.raise(args, emitter, language, ScalarType::Int)?;
+                    Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                        as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
+                    )))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
-        Some((IntrinsicInstrKind::CondJmp(op, _), _)) => emitter.chain("while decompiling a conditional jump", |emitter| {
-            warn_unless!(emitter, args.len() == 4, "expected {} args, got {}", 4, args.len());
-            let JumpIntrinsicArgOrder {
-                offset: offset_arg, time: time_arg,
-                other_args, other_arg_encodings,
-            } = JumpIntrinsicArgOrder::from_iter(args.iter(), &abi, 2).map_err(|e| emitter.emit(e))?;
-
-            let a = raise_arg(language, emitter, &other_args[0], other_arg_encodings[0])?;
-            let b = raise_arg(language, emitter, &other_args[1], other_arg_encodings[1])?;
-            let goto = xxx_raise_jump_args(offset_arg, time_arg, instr.offset, instr_format, offset_labels);
-
-            Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
-            )))
+        Some((IKind::CondJmp(op, _), props)) => emitter.chain("while decompiling a conditional jump", |emitter| {
+            match props {
+                IProps::CondJmp { jump: jump_props, args: [a_props, b_props] } => {
+                    let goto = jump_props.raise(args, instr.offset, instr_format, offset_labels)?;
+                    let a = a_props.raise(args, emitter, language, &encodings)?;
+                    let b = b_props.raise(args, emitter, language, &encodings)?;
+                    Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                        as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
+                    )))
+                },
+                _ => unreachable!(),
+            }
         }),
 
 
@@ -488,8 +499,8 @@ fn raise_single_decoded_instr(
         // Individual pieces of multipart intrinsics also take this route for cases where
         // they show up alone or with e.g. time labels in-between.
         | None
-        | Some((IntrinsicInstrKind::CondJmp2A { .. }, _))
-        | Some((IntrinsicInstrKind::CondJmp2B { .. }, _))
+        | Some((IKind::CondJmp2A { .. }, _))
+        | Some((IKind::CondJmp2B { .. }, _))
         => emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
             // Raise directly to `ins_*(...)` syntax.
             Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
@@ -513,34 +524,33 @@ fn possibly_raise_long_intrinsic(
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
 ) -> Result<Option<ast::StmtBody>, ErrorReported> {
+    assert_eq!(instr_1.time, instr_2.time, "already checked by caller");
+    assert_eq!(instr_1.difficulty_mask, instr_2.difficulty_mask, "already checked by caller");
+
     let language = instr_format.language();
 
-    match intrinsic_instrs.get_intrinsic(instr_1.opcode) {
-        Some(IntrinsicInstrKind::CondJmp2A(_)) => match intrinsic_instrs.get_intrinsic(instr_2.opcode) {
-            Some(IntrinsicInstrKind::CondJmp2B(op)) => {
+    match intrinsic_instrs.get_intrinsic_and_props(instr_1.opcode) {
+        Some((IKind::CondJmp2A(_), props_1)) => match intrinsic_instrs.get_intrinsic_and_props(instr_2.opcode) {
+            Some((IKind::CondJmp2B(op), props_2)) => {
                 emitter.chain("while decompiling a two-step conditional jump", |emitter| {
-                    let (cmp_instr, cmp_args) = (instr_1, args_1);
-                    let (jmp_instr, jmp_args) = (instr_2, args_2);
+                    match (props_1, props_2) {
+                        (
+                            IProps::CondJmp2A { args: [a_props, b_props] },
+                            IProps::CondJmp2B { jump: jump_props },
+                        ) => {
+                            let (cmp_instr, cmp_args) = (instr_1, args_1);
+                            let (_jmp_instr, jmp_args) = (instr_2, args_2);
+                            let cmp_encodings = expect_abi(language, cmp_instr, defs).arg_encodings().collect::<Vec<_>>();
 
-                    let cmp_abi = expect_abi(language, cmp_instr, defs);
-                    let jmp_abi = expect_abi(language, jmp_instr, defs);
-                    let mut cmp_encodings = cmp_abi.arg_encodings();
-
-                    warn_unless!(emitter, cmp_args.len() == 2, "expected {} args, got {}", 2, cmp_args.len());
-
-                    let a = raise_arg(language, emitter, &cmp_args[0], cmp_encodings.next().unwrap())?;
-                    let b = raise_arg(language, emitter, &cmp_args[1], cmp_encodings.next().unwrap())?;
-                    let JumpIntrinsicArgOrder {
-                        offset: offset_arg, time: time_arg,
-                        other_args, other_arg_encodings: _,
-                    } = JumpIntrinsicArgOrder::from_iter(jmp_args.iter(), &jmp_abi, 0).map_err(|e| emitter.emit(e))?;
-                    assert_eq!(other_args.len(), 0);
-
-                    let goto = xxx_raise_jump_args(offset_arg, time_arg, jmp_instr.offset, instr_format, offset_labels);
-
-                    Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                        as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
-                    ))))
+                            let goto = jump_props.raise(cmp_args, cmp_instr.offset, instr_format, offset_labels)?;
+                            let a = a_props.raise(jmp_args, emitter, language, &cmp_encodings)?;
+                            let b = b_props.raise(jmp_args, emitter, language, &cmp_encodings)?;
+                            Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                                as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
+                            ))))
+                        },
+                        _ => unreachable!(),
+                    }
                 })
             },
             _ => Ok(None),
@@ -572,6 +582,8 @@ fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg
     Ok(out)
 }
 
+/// General argument-raising routine that supports registers and uses the encoding in the ABI
+/// to possibly guide how to express the output. This is what is used for e.g. args in `ins_` syntax.
 fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
     if raw.is_reg {
         let ty = match enc {
@@ -593,16 +605,15 @@ fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, e
             | ArgEncoding::String { .. } => return Err(emitter.emit(error!("unexpected register used as string argument"))),
             | ArgEncoding::TimelineArg { .. } => return Err(emitter.emit(error!("unexpected register used as timeline ex arg"))),
         };
-        Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, ty)?)))
+        Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, ty, abi_props::OutOperandTypeKind::Natural)?)))
     } else {
         raise_arg_to_literal(emitter, raw, enc)
     }
 }
 
+/// Raise an immediate arg, using the encoding to guide the formatting of the output.
 fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
-    if raw.is_reg {
-        return Err(emitter.emit(error!("expected an immediate, got a register")));
-    }
+    ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
 
     match enc {
         | ArgEncoding::Padding
@@ -654,12 +665,23 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
     }
 }
 
-fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
-    if !raw.is_reg {
-        return Err(emitter.emit(error!("expected a variable, got an immediate")));
-    }
-    let ty_sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
-    let reg = match ty_sigil {
+fn raise_arg_to_reg(
+    language: InstrLanguage,
+    emitter: &impl Emitter,
+    raw: &SimpleArg,
+    ty: ScalarType,
+    // FIXME: feels out of place.  But basically, the only place where the type of the raised
+    //        variable
+    storage_kind: abi_props::OutOperandTypeKind,
+) -> Result<ast::Var, ErrorReported> {
+    ensure!(emitter, raw.is_reg, "expected a variable, got an immediate");
+
+    let ast_ty_sigil = ty.sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
+    let storage_ty_sigil = match storage_kind {
+        abi_props::OutOperandTypeKind::FloatAsInt => ast::VarSigil::Int,
+        abi_props::OutOperandTypeKind::Natural => ast_ty_sigil,
+    };
+    let reg = match storage_ty_sigil {
         ast::VarSigil::Int => RegId(raw.expect_int()),
         ast::VarSigil::Float => {
             let float_reg = raw.expect_float();
@@ -670,23 +692,7 @@ fn raise_arg_to_reg(language: InstrLanguage, emitter: &impl Emitter, raw: &Simpl
         },
     };
     let name = ast::VarName::Reg { reg, language: Some(language) };
-    Ok(ast::Var { ty_sigil: Some(ty_sigil), name })
-}
-
-/// Raises one or two arguments with the signature "o", "ot" or "to" into a `goto`.
-fn xxx_raise_jump_args(
-    offset_arg: &SimpleArg,
-    time_arg: Option<&SimpleArg>,
-    cur_instr_offset: raw::BytePos,
-    instr_format: &dyn InstrFormat,
-    offset_labels: &BTreeMap<u64, Label>,
-) -> ast::StmtGoto {
-    let offset = instr_format.decode_label(cur_instr_offset, offset_arg.expect_immediate_int() as u32);
-    let label = &offset_labels[&offset];
-    ast::StmtGoto {
-        destination: sp!(label.label.clone()),
-        time: time_arg.map(|arg| sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label),
-    }
+    Ok(ast::Var { ty_sigil: Some(ast_ty_sigil), name })
 }
 
 impl abi_props::JumpArgOrder {
@@ -711,20 +717,39 @@ impl abi_props::JumpArgOrder {
     }
 }
 
+impl abi_props::OutOperandType {
+    fn raise(&self, args: &[SimpleArg], emitter: &impl Emitter, language: InstrLanguage, ty: ScalarType) -> Result<ast::Var, ErrorReported> {
+        let &abi_props::OutOperandType { index, kind } = self;
+        raise_arg_to_reg(language, emitter, &args[index], ty, kind)
+    }
+}
+
+impl abi_props::InputOperandType {
+    fn raise(&self, args: &[SimpleArg], emitter: &impl Emitter, language: InstrLanguage, encodings: &[ArgEncoding]) -> Result<ast::Expr, ErrorReported> {
+        let &abi_props::InputOperandType { index } = self;
+        raise_arg(language, emitter, &args[index], encodings[index])
+    }
+}
+
+impl abi_props::ImmediateInt {
+    fn raise(&self, args: &[SimpleArg], emitter: &impl Emitter) -> Result<raw::LangInt, ErrorReported> {
+        let &abi_props::ImmediateInt { index } = self;
+        ensure!(emitter, !args[index].is_reg, "unexpected register where an immediate int was expected");
+        Ok(args[index].expect_immediate_int())
+    }
+}
+
 impl abi_props::UnrepresentablePadding {
-    fn raise(
-        &self,
-        args: &[SimpleArg],
-        emitter: &impl Emitter,
-    ) -> Result<(), ErrorReported> {
+    fn raise(&self, args: &[SimpleArg], emitter: &impl Emitter) -> Result<(), ErrorReported> {
         warn_unless!(
             emitter,
-            args[self.index..self.index + self.count].iter().all(|a| a.expect_int() == 0),
+            args[self.index..self.index + self.count].iter().all(|a| !a.is_reg && a.expect_immediate_int() == 0),
             "unsupported data in padding of intrinsic",
         );
         Ok(())
     }
 }
+
 
 // =============================================================================
 

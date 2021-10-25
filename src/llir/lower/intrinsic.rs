@@ -7,8 +7,6 @@ use crate::error::{ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 
-use IntrinsicInstrKind as IKind;
-
 // FIXME: Ideally this module wouldn't depend on this type (so the stackful
 //        lowerer can also use it) but until the other lowerer exists,
 //        doing anything else would be premature abstraction.

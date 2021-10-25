@@ -149,3 +149,8 @@ script main {}
 "#,
     expect_error: "both 'unknown' and 'layer'",
 );
+
+#[test]
+fn test_for_data_in_intrinsic_padding() {
+    panic!()
+}

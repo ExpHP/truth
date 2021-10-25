@@ -16,7 +16,7 @@ mod lower;
 pub use raise::{Raiser, DecompileOptions};
 mod raise;
 
-pub use intrinsic::{IntrinsicInstrs, IntrinsicInstrKind, JumpIntrinsicArgOrder};
+pub use intrinsic::{IntrinsicInstrs, IntrinsicInstrKind};
 mod intrinsic;
 
 /// The lowest level representation of an instruction that is common between all games.

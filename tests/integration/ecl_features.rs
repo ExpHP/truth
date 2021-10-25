@@ -240,3 +240,9 @@ otherLabelLol:
 //         panic!("TODO: add a call to externFunc and check it here")
 //     },
 // );
+
+#[test]
+#[ignore]
+fn test_olde_ecl_register_allocation_correctly_uses_float_regs() {
+    panic!()
+}
