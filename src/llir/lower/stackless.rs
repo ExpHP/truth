@@ -8,7 +8,6 @@ use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
 use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
-use crate::llir::intrinsic::{IntrinsicInstrAbiPropsKind};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -58,15 +57,10 @@ impl Lowerer<'_, '_> {
 
 
                 ast::StmtBody::InterruptLabel(interrupt_id) => {
-                    let (opcode, abi_props, mut args) = self.begin_intrinsic(IKind::InterruptLabel, stmt.span, "interrupt label")?;
-                    match &abi_props {
-                        IntrinsicInstrAbiPropsKind::InterruptLabel { padding, label } => {
-                            padding.fill_in(&mut args)?;
-                            label.fill_in(&mut args, interrupt_id)?;
-                        },
-                        _ => unreachable!(),
-                    }
-                    self.finish_intrinsic(stmt_data, opcode, args);
+                    self.lower_intrinsic(stmt.span, stmt_data, IKind::InterruptLabel, "interrupt label", |bld| {
+                        let lowered_id = interrupt_id.sp_map(|value| LowerArg::Raw(value.into()));
+                        bld.plain_args.push(lowered_id);
+                    })?;
                 },
 
 
@@ -229,15 +223,14 @@ impl Lowerer<'_, '_> {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ty_rhs, "already type-checked");
 
-                let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?;
-                match &abi_props {
-                    IntrinsicInstrAbiPropsKind::AssignOp { dest: dest_props, rhs: rhs_props } => {
-                        dest_props.fill_in(&mut out_args, lowered_var)?;
-                        rhs_props.fill_in(&mut out_args, lowered_rhs)?;
+                self.lower_intrinsic(
+                    span, stmt_data,
+                    IKind::AssignOp(assign_op.value, ty_var), "update assignment with this operation",
+                    |bld| {
+                        bld.outputs.push(lowered_var);
+                        bld.plain_args.push(lowered_rhs);
                     },
-                    _ => unreachable!(),
-                }
-                self.finish_intrinsic(stmt_data, opcode, out_args);
+                )?;
                 return Ok(());
             },
             ExprClass::NeedsTemp(data) => data,
@@ -357,17 +350,11 @@ impl Lowerer<'_, '_> {
         let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
         assert_eq!(ty_var, ty_rhs, "already type-checked");
 
-        let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::Binop(binop.value, ty_var), span, "this binary operation")?;
-        match &abi_props {
-            IntrinsicInstrAbiPropsKind::Binop { dest: dest_props, args: [a_props, b_props] } => {
-                dest_props.fill_in(&mut out_args, lowered_var)?;
-                a_props.fill_in(&mut out_args, simple_a.lowered)?;
-                b_props.fill_in(&mut out_args, simple_b.lowered)?;
-            },
-            _ => unreachable!(),
-        }
-        self.finish_intrinsic(stmt_data, opcode, out_args);
-        Ok(())
+        self.lower_intrinsic(span, stmt_data, IKind::Binop(binop.value, ty_var), "this binary operation", |bld| {
+            bld.outputs.push(lowered_var);
+            bld.plain_args.push(simple_a.lowered);
+            bld.plain_args.push(simple_b.lowered);
+        })
     }
 
     /// Lowers `a = -<B>;`
@@ -426,15 +413,10 @@ impl Lowerer<'_, '_> {
                     token![sin] |
                     token![cos] |
                     token![sqrt] => {
-                        let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::Unop(unop.value, ty), span, "this unary operation")?;
-                        match &abi_props {
-                            IntrinsicInstrAbiPropsKind::Unop { dest: dest_props, arg: arg_props } => {
-                                dest_props.fill_in(&mut out_args, lowered_var)?;
-                                arg_props.fill_in(&mut out_args, data_b.lowered)?;
-                            },
-                            _ => unreachable!(),
-                        }
-                        self.finish_intrinsic(stmt_data, opcode, out_args);
+                        self.lower_intrinsic(span, stmt_data, IKind::Unop(unop.value, ty), "this unary operation", |bld| {
+                            bld.outputs.push(lowered_var);
+                            bld.plain_args.push(data_b.lowered);
+                        })?;
                     },
                 }
                 Ok(())
@@ -443,16 +425,9 @@ impl Lowerer<'_, '_> {
     }
 
     fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_data: TimeAndDifficulty, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
-        let (opcode, abi_props, mut args) = self.begin_intrinsic(IKind::Jmp, stmt_span, "'goto'")?;
-        match &abi_props {
-            IntrinsicInstrAbiPropsKind::Jmp { padding, jump } => {
-                padding.fill_in(&mut args)?;
-                jump.fill_in(&mut args, goto)?;
-            },
-            _ => unreachable!(),
-        }
-        self.finish_intrinsic(stmt_data, opcode, args);
-        Ok(())
+        self.lower_intrinsic(stmt_span, stmt_data, IKind::Jmp, "'goto'", |bld| {
+            bld.jump = Some(goto);
+        })
     }
 
     /// Lowers `if (<cond>) goto label @ time;`
@@ -484,16 +459,10 @@ impl Lowerer<'_, '_> {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ScalarType::Int, "shoulda been type-checked!");
 
-                let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::CountJmp, stmt_span, "decrement jump")?;
-                match &abi_props {
-                    IntrinsicInstrAbiPropsKind::CountJmp { jump: jump_props, arg: arg_props } => {
-                        jump_props.fill_in(&mut out_args, goto)?;
-                        arg_props.fill_in(&mut out_args, lowered_var)?;
-                    },
-                    _ => unreachable!(),
-                }
-                self.finish_intrinsic(stmt_data, opcode, out_args);
-                Ok(())
+                self.lower_intrinsic(stmt_span, stmt_data, IKind::CountJmp, "decrement jump", |bld| {
+                    bld.jump = Some(goto);
+                    bld.outputs.push(lowered_var);
+                })
             },
 
             // 'unless (--var) goto label'
@@ -612,36 +581,20 @@ impl Lowerer<'_, '_> {
         let cmp_jmp_kind = IKind::CondJmp(binop.value, ty_arg);
         if self.intrinsic_instrs.get_opcode_opt(cmp_jmp_kind).is_some() {
             // language has single-instruction conditional jumps
-            let (opcode, abi_props, mut out_args) = self.begin_intrinsic(cmp_jmp_kind, stmt_span, "(bug!) you shouldn't see this text")?;
-            match &abi_props {
-                IntrinsicInstrAbiPropsKind::CondJmp { jump: jump_props, args: [a_props, b_props] } => {
-                    jump_props.fill_in(&mut out_args, goto)?;
-                    a_props.fill_in(&mut out_args, data_a.lowered)?;
-                    b_props.fill_in(&mut out_args, data_b.lowered)?;
-                },
-                _ => unreachable!(),
-            }
-            self.finish_intrinsic(stmt_data, opcode, out_args);
+            self.lower_intrinsic(stmt_span, stmt_data, cmp_jmp_kind, "(bug!) you shouldn't see this text", |bld| {
+                bld.jump = Some(goto);
+                bld.plain_args.push(data_a.lowered);
+                bld.plain_args.push(data_b.lowered);
+            })?;
         } else {
             // language may have two-instruction conditional jumps
-            let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::CondJmp2A(ty_arg), stmt_span, "(bug!) you shouldn't see this text")?;
-            match &abi_props {
-                IntrinsicInstrAbiPropsKind::CondJmp2A { args: [a_props, b_props] } => {
-                    a_props.fill_in(&mut out_args, data_a.lowered)?;
-                    b_props.fill_in(&mut out_args, data_b.lowered)?;
-                },
-                _ => unreachable!(),
-            }
-            self.finish_intrinsic(stmt_data, opcode, out_args);
-
-            let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::CondJmp2B(binop.value), binop.span, "conditional jump with this operator")?;
-            match &abi_props {
-                IntrinsicInstrAbiPropsKind::CondJmp2B { jump: jump_props } => {
-                    jump_props.fill_in(&mut out_args, goto)?;
-                },
-                _ => unreachable!(),
-            }
-            self.finish_intrinsic(stmt_data, opcode, out_args);
+            self.lower_intrinsic(stmt_span, stmt_data, IKind::CondJmp2A(ty_arg), "conditional jump", |bld| {
+                bld.plain_args.push(data_a.lowered);
+                bld.plain_args.push(data_b.lowered);
+            })?;
+            self.lower_intrinsic(binop.span, stmt_data, IKind::CondJmp2B(binop.value), "conditional jump with this operator", |bld| {
+                bld.jump = Some(goto);
+            })?;
         }
         Ok(())
     }
