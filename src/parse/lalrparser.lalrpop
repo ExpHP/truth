@@ -281,61 +281,61 @@ PossiblyNumericIdent: Ident = {
 // Statements
 
 Stmt: ast::Stmt = {
-    <body:StmtBody> => ast::Stmt { body, node_id: None },
+    <kind:StmtKind> => ast::Stmt { kind, node_id: None },
 };
 
-StmtBody: ast::StmtBody = {
-    <item:Box<Sp<ItemConstVar>>> => ast::StmtBody::Item(item),
+StmtKind: ast::StmtKind = {
+    <item:Box<Sp<ItemConstVar>>> => ast::StmtKind::Item(item),
 
-    <item:Box<Sp<ItemFunc>>> => ast::StmtBody::Item(item),
+    <item:Box<Sp<ItemFunc>>> => ast::StmtKind::Item(item),
 
     <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
-        => ast::StmtBody::Return { keyword, value },
+        => ast::StmtKind::Return { keyword, value },
 
     <chain:CondChain>
-        => ast::StmtBody::CondChain(chain),
+        => ast::StmtKind::CondChain(chain),
 
     <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <goto:StmtGoto> ";"
-        => ast::StmtBody::CondGoto { keyword, cond, goto },
+        => ast::StmtKind::CondGoto { keyword, cond, goto },
 
     <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
-        => ast::StmtBody::While { do_keyword: Some(do_keyword), while_keyword, cond, block },
+        => ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block },
 
     <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => ast::StmtBody::While { do_keyword: None, while_keyword, cond, block },
+        => ast::StmtKind::While { do_keyword: None, while_keyword, cond, block },
 
     <keyword:TokenSpan<"times">> "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
-        => ast::StmtBody::Times { keyword, clobber, count, block },
+        => ast::StmtKind::Times { keyword, clobber, count, block },
 
     <keyword:TokenSpan<"loop">> <block:StmtOrBlock>
-        => ast::StmtBody::Loop { keyword, block },
+        => ast::StmtKind::Loop { keyword, block },
 
     <goto:StmtGoto> ";"
-        => ast::StmtBody::Goto(goto),
+        => ast::StmtKind::Goto(goto),
 
     <e:Sp<Expr>> ";"
-        => ast::StmtBody::Expr(e),
+        => ast::StmtKind::Expr(e),
 
     <name:Sp<Ident>> ":"
-        => ast::StmtBody::Label(name),
+        => ast::StmtKind::Label(name),
 
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
-        => ast::StmtBody::InterruptLabel(arg),
+        => ast::StmtKind::InterruptLabel(arg),
 
     "difficulty" "[" <arg:Sp<LitIntSigned>> "]" ":"
-        => ast::StmtBody::RawDifficultyLabel(arg),
+        => ast::StmtKind::RawDifficultyLabel(arg),
 
     <delta:Sp<("+" <LitIntUnsigned>)>> ":"
-        => ast::StmtBody::RelTimeLabel { delta, _absolute_time_comment: None },
+        => ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None },
 
     <t:Sp<LitIntSigned>> ":"
-        => ast::StmtBody::AbsTimeLabel(t),
+        => ast::StmtKind::AbsTimeLabel(t),
 
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
-        => ast::StmtBody::Assignment { var, op, value },
+        => ast::StmtKind::Assignment { var, op, value },
 
     <ty_keyword:Sp<LocalVarTypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        => ast::StmtBody::Declaration { ty_keyword, vars },
+        => ast::StmtKind::Declaration { ty_keyword, vars },
 
     StmtSpecialCall,
 }
@@ -345,13 +345,13 @@ StmtGoto: ast::StmtGoto = {
         => ast::StmtGoto { destination, time },
 };
 
-StmtSpecialCall: ast::StmtBody = {
+StmtSpecialCall: ast::StmtKind = {
     // handle cases where at least one of the '@' or 'async' are present
     "@" <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind?> ";" => {
-        ast::StmtBody::CallSub { at_symbol: true, func, args, async_ }
+        ast::StmtKind::CallSub { at_symbol: true, func, args, async_ }
     },
     <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind> ";" => {
-        ast::StmtBody::CallSub { at_symbol: true, func, args, async_: Some(async_) }
+        ast::StmtKind::CallSub { at_symbol: true, func, args, async_: Some(async_) }
     },
 };
 
@@ -427,11 +427,11 @@ BlockInnards: ast::Block = {
         //       block scoping of difficulty semantics, so I left them here.
         code.insert(0, sp!(start_span => ast::Stmt {
             node_id: None,
-            body: ast::StmtBody::NoInstruction,
+            kind: ast::StmtKind::NoInstruction,
         }));
         code.push(sp!(end_span => ast::Stmt {
             node_id: None,
-            body: ast::StmtBody::NoInstruction,
+            kind: ast::StmtKind::NoInstruction,
         }));
         ast::Block(code)
     },
@@ -448,16 +448,16 @@ RightTernary<NextTier>: ast::Expr = {
         => ast::Expr::Ternary { cond, left, right, question, colon },
     NextTier,
 };
-LeftBinop<Op, NextTier>: ast::Expr = {
-    <a:Box<Sp<LeftBinop<Op, NextTier>>>>
+LeftBinOp<Op, NextTier>: ast::Expr = {
+    <a:Box<Sp<LeftBinOp<Op, NextTier>>>>
         <op:Sp<Op>>
         <b:Box<Sp<NextTier>>>
-        => ast::Expr::Binop(a, op, b),
+        => ast::Expr::BinOp(a, op, b),
     NextTier,
 };
-LeftUnop<Op, NextTier>: ast::Expr = {
+LeftUnOp<Op, NextTier>: ast::Expr = {
     // no recursion; only allow one unary op
-    <op:Sp<Op>> <e:Box<Sp<NextTier>>> => ast::Expr::Unop(op, e),
+    <op:Sp<Op>> <e:Box<Sp<NextTier>>> => ast::Expr::UnOp(op, e),
     NextTier,
 };
 
@@ -465,38 +465,38 @@ Expr: ast::Expr = ExprWithOpers;
 
 // Operator precedence table
 ExprWithOpers = ExprTernary;
-ExprTernary = RightTernary<ExprBinopOr>;
-ExprBinopOr = LeftBinop<OpOr, ExprBinopAnd>;
-ExprBinopAnd = LeftBinop<OpAnd, ExprBinopBitOr>;
-ExprBinopBitOr = LeftBinop<OpBitOr, ExprBinopBitXor>;
-ExprBinopBitXor = LeftBinop<OpBitXor, ExprBinopBitAnd>;
-ExprBinopBitAnd = LeftBinop<OpBitAnd, ExprBinopCmpEq>;
-ExprBinopCmpEq = LeftBinop<OpCmpEq, ExprBinopCmpOrd>;
-ExprBinopCmpOrd = LeftBinop<OpCmpOrd, ExprBinopAddLike>;
-ExprBinopAddLike = LeftBinop<OpAddLike, ExprBinopMulLike>;
-ExprBinopMulLike = LeftBinop<OpMulLike, ExprUnop>;
-ExprUnop = LeftUnop<OpLeftUnary, ExprTerm>;
+ExprTernary = RightTernary<ExprBinOpOr>;
+ExprBinOpOr = LeftBinOp<OpOr, ExprBinOpAnd>;
+ExprBinOpAnd = LeftBinOp<OpAnd, ExprBinOpBitOr>;
+ExprBinOpBitOr = LeftBinOp<OpBitOr, ExprBinOpBitXor>;
+ExprBinOpBitXor = LeftBinOp<OpBitXor, ExprBinOpBitAnd>;
+ExprBinOpBitAnd = LeftBinOp<OpBitAnd, ExprBinOpCmpEq>;
+ExprBinOpCmpEq = LeftBinOp<OpCmpEq, ExprBinOpCmpOrd>;
+ExprBinOpCmpOrd = LeftBinOp<OpCmpOrd, ExprBinOpAddLike>;
+ExprBinOpAddLike = LeftBinOp<OpAddLike, ExprBinOpMulLike>;
+ExprBinOpMulLike = LeftBinOp<OpMulLike, ExprUnOp>;
+ExprUnOp = LeftUnOp<OpLeftUnary, ExprTerm>;
 
-OpOr: ast::BinopKind = "||" => token![||];
-OpAnd: ast::BinopKind = "&&" => token![&&];
-OpBitOr: ast::BinopKind = "|" => token![|];
-OpBitXor: ast::BinopKind = "^" => token![^];
-OpBitAnd: ast::BinopKind = "&" => token![&];
-OpCmpEq: ast::BinopKind = {
+OpOr: ast::BinOpKind = "||" => token![||];
+OpAnd: ast::BinOpKind = "&&" => token![&&];
+OpBitOr: ast::BinOpKind = "|" => token![|];
+OpBitXor: ast::BinOpKind = "^" => token![^];
+OpBitAnd: ast::BinOpKind = "&" => token![&];
+OpCmpEq: ast::BinOpKind = {
     "==" => token![==],
     "!=" => token![!=],
 };
-OpCmpOrd: ast::BinopKind = {
+OpCmpOrd: ast::BinOpKind = {
     ">" => token![>],
     "<" => token![<],
     ">=" => token![>=],
     "<=" => token![<=],
 };
-OpAddLike: ast::BinopKind = {
+OpAddLike: ast::BinOpKind = {
     "+" => token![+],
     "-" => token![-],
 };
-OpMulLike: ast::BinopKind = {
+OpMulLike: ast::BinOpKind = {
     "*" => token![*],
     "/" => token![/],
     "%" => token![%],
@@ -512,12 +512,12 @@ OpAssign: ast::AssignOpKind = {
     "^=" => token![^=],
     "&=" => token![&=],
 };
-#[inline] OpLeftUnary: ast::UnopKind = {
+#[inline] OpLeftUnary: ast::UnOpKind = {
     "-" => token![-],
     "!" => token![!],
 };
 
-FuncUnopKeyword: ast::UnopKind = {
+FuncUnOpKeyword: ast::UnOpKind = {
     "sin" => token![sin],
     "cos" => token![cos],
     "sqrt" => token![sqrt],
@@ -529,8 +529,8 @@ FuncUnopKeyword: ast::UnopKind = {
 ExprTerm: ast::Expr = {
     "(" <e:Expr> ")" => e,
 
-    <op:Sp<FuncUnopKeyword>> "(" <e:Box<Sp<Expr>>> ")"
-        => ast::Expr::Unop(op, e),
+    <op:Sp<FuncUnOpKeyword>> "(" <e:Box<Sp<Expr>>> ")"
+        => ast::Expr::UnOp(op, e),
 
     <keyword:Sp<LabelPropertyKeyword>> "(" <label:Sp<Ident>> ")"
         => ast::Expr::LabelProperty { label, keyword },

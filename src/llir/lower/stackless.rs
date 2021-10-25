@@ -35,7 +35,7 @@ impl Lowerer<'_, '_> {
         let mut th06_anm_end_span = None;
         code.iter().map(|stmt| {
             if let Some(end) = th06_anm_end_span {
-                if !matches!(&stmt.body, ast::StmtBody::NoInstruction) { return Err(self.ctx.emitter.emit(error!(
+                if !matches!(&stmt.kind, ast::StmtKind::NoInstruction) { return Err(self.ctx.emitter.emit(error!(
                     message("statement after end of script"),
                     primary(&stmt, "forbidden statement"),
                     secondary(&end, "marks the end of the script"),
@@ -45,18 +45,18 @@ impl Lowerer<'_, '_> {
 
             let stmt_data = self.stmt_data[&stmt.node_id.expect("stmt_data would've failed if missing")];
 
-            match &stmt.body {
-                ast::StmtBody::Goto(goto) => {
+            match &stmt.kind {
+                ast::StmtKind::Goto(goto) => {
                     self.lower_uncond_jump(stmt.span, stmt_data, goto)?;
                 },
 
 
-                ast::StmtBody::Assignment { var, op, value } => {
+                ast::StmtKind::Assignment { var, op, value } => {
                     self.lower_assign_op(stmt.span, stmt_data, var, op, value)?;
                 },
 
 
-                ast::StmtBody::InterruptLabel(interrupt_id) => {
+                ast::StmtKind::InterruptLabel(interrupt_id) => {
                     self.lower_intrinsic(stmt.span, stmt_data, IKind::InterruptLabel, "interrupt label", |bld| {
                         let lowered_id = interrupt_id.sp_map(|value| LowerArg::Raw(value.into()));
                         bld.plain_args.push(lowered_id);
@@ -64,38 +64,38 @@ impl Lowerer<'_, '_> {
                 },
 
 
-                ast::StmtBody::CondGoto { keyword, cond, goto } => {
+                ast::StmtKind::CondGoto { keyword, cond, goto } => {
                     self.lower_cond_jump(stmt.span, stmt_data, keyword, cond, goto)?;
                 },
 
 
-                ast::StmtBody::Declaration { ty_keyword, vars } => {
+                ast::StmtKind::Declaration { ty_keyword, vars } => {
                     self.lower_var_declaration(stmt.span, stmt_data, ty_keyword, vars)?;
                 },
 
 
-                ast::StmtBody::Expr(expr) => match &expr.value {
+                ast::StmtKind::Expr(expr) => match &expr.value {
                     ast::Expr::Call { name, pseudos, args } => {
                         let opcode = self.lower_func_stmt(stmt_data, name, pseudos, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(name);
                         }
                     },
-                    _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.body.descr()))),
+                    _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
                 }, // match expr
 
-                ast::StmtBody::Label(ident) => self.out.push(LowerStmt::Label { time: stmt_data.time, label: ident.clone() }),
+                ast::StmtKind::Label(ident) => self.out.push(LowerStmt::Label { time: stmt_data.time, label: ident.clone() }),
 
-                &ast::StmtBody::ScopeEnd(def_id) => self.out.push(LowerStmt::RegFree { def_id }),
+                &ast::StmtKind::ScopeEnd(def_id) => self.out.push(LowerStmt::RegFree { def_id }),
 
-                ast::StmtBody::NoInstruction => {},
+                ast::StmtKind::NoInstruction => {},
 
                 // handled by semantics pass
-                ast::StmtBody::AbsTimeLabel { .. } => {},
-                ast::StmtBody::RelTimeLabel { .. } => {},
-                ast::StmtBody::RawDifficultyLabel { .. } => {},
+                ast::StmtKind::AbsTimeLabel { .. } => {},
+                ast::StmtKind::RelTimeLabel { .. } => {},
+                ast::StmtKind::RawDifficultyLabel { .. } => {},
 
-                _ => return Err(self.unsupported(&stmt.span, stmt.body.descr())),
+                _ => return Err(self.unsupported(&stmt.span, stmt.kind.descr())),
             }
             Ok(())
         }).collect_with_recovery()
@@ -250,13 +250,13 @@ impl Lowerer<'_, '_> {
         // complex expressions without a cast
         match (assign_op.value, &data_rhs.tmp_expr.value) {
             // a = <expr> + <expr>;
-            (ast::AssignOpKind::Assign, ast::Expr::Binop(a, binop, b)) => {
+            (ast::AssignOpKind::Assign, ast::Expr::BinOp(a, binop, b)) => {
                 self.lower_assign_direct_binop(span, stmt_data, var, assign_op, rhs.span, a, binop, b)
             },
 
             // a = -<expr>;
             // a = sin(<expr>);
-            (ast::AssignOpKind::Assign, ast::Expr::Unop(unop, b)) => {
+            (ast::AssignOpKind::Assign, ast::Expr::UnOp(unop, b)) => {
                 self.lower_assign_direct_unop(span, stmt_data, var, assign_op, rhs.span, unop, b)
             },
 
@@ -290,7 +290,7 @@ impl Lowerer<'_, '_> {
         eq_sign: &Sp<ast::AssignOpKind>,
         rhs_span: Span,
         a: &Sp<ast::Expr>,
-        binop: &Sp<ast::BinopKind>,
+        binop: &Sp<ast::BinOpKind>,
         b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
         // So right here, we have something like `v = <A> * <B>`. If <A> and <B> are both simple arguments (literals or
@@ -350,7 +350,7 @@ impl Lowerer<'_, '_> {
         let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
         assert_eq!(ty_var, ty_rhs, "already type-checked");
 
-        self.lower_intrinsic(span, stmt_data, IKind::Binop(binop.value, ty_var), "this binary operation", |bld| {
+        self.lower_intrinsic(span, stmt_data, IKind::BinOp(binop.value, ty_var), "this binary operation", |bld| {
             bld.outputs.push(lowered_var);
             bld.plain_args.push(simple_a.lowered);
             bld.plain_args.push(simple_b.lowered);
@@ -365,7 +365,7 @@ impl Lowerer<'_, '_> {
         var: &Sp<ast::Var>,
         eq_sign: &Sp<ast::AssignOpKind>,
         rhs_span: Span,
-        unop: &Sp<ast::UnopKind>,
+        unop: &Sp<ast::UnOpKind>,
         b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
@@ -413,7 +413,7 @@ impl Lowerer<'_, '_> {
                     token![sin] |
                     token![cos] |
                     token![sqrt] => {
-                        self.lower_intrinsic(span, stmt_data, IKind::Unop(unop.value, ty), "this unary operation", |bld| {
+                        self.lower_intrinsic(span, stmt_data, IKind::UnOp(unop.value, ty), "this unary operation", |bld| {
                             bld.outputs.push(lowered_var);
                             bld.plain_args.push(data_b.lowered);
                         })?;
@@ -496,19 +496,19 @@ impl Lowerer<'_, '_> {
         match &expr.value {
             // 'if (<A> <= <B>) goto label'
             // 'unless (<A> <= <B>) goto label'
-            ast::Expr::Binop(a, binop, b) if binop.is_comparison() => {
+            ast::Expr::BinOp(a, binop, b) if binop.is_comparison() => {
                 self.lower_cond_jump_comparison(stmt_span, stmt_data, keyword, a, binop, b, goto)
             },
 
             // 'if (<A> || <B>) goto label'
             // 'unless (<A> || <B>) goto label'
-            ast::Expr::Binop(a, binop, b) if matches!(binop.value, token![&&] | token![||]) => {
+            ast::Expr::BinOp(a, binop, b) if matches!(binop.value, token![&&] | token![||]) => {
                 self.lower_cond_jump_logic_binop(stmt_span, stmt_data, keyword, a, binop, b, goto)
             },
 
             // 'if (!<B>) goto label'
             // 'unless (!<B>) goto label'
-            ast::Expr::Unop(sp_pat!(op_span => token![!]), b) => {
+            ast::Expr::UnOp(sp_pat!(op_span => token![!]), b) => {
                 let negated_kw = sp!(*op_span => keyword.negate());
                 self.lower_cond_jump_expr(stmt_span, stmt_data, &negated_kw, b, goto)
             },
@@ -531,7 +531,7 @@ impl Lowerer<'_, '_> {
         stmt_data: TimeAndDifficulty,
         keyword: &Sp<ast::CondKeyword>,
         a: &Sp<ast::Expr>,
-        binop: &Sp<ast::BinopKind>,
+        binop: &Sp<ast::BinOpKind>,
         b: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported>{
@@ -570,7 +570,7 @@ impl Lowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         data_a: SimpleExpr,
-        binop: &Sp<ast::BinopKind>,
+        binop: &Sp<ast::BinOpKind>,
         data_b: SimpleExpr,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported> {
@@ -606,7 +606,7 @@ impl Lowerer<'_, '_> {
         stmt_data: TimeAndDifficulty,
         keyword: &Sp<ast::CondKeyword>,
         a: &Sp<ast::Expr>,
-        binop: &Sp<ast::BinopKind>,
+        binop: &Sp<ast::BinOpKind>,
         b: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported> {
@@ -784,7 +784,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
         //             int tmp = $I + 3;
         //             foo(%tmp);
         //
-        ast::Expr::Unop(unop, ref b) if unop.is_cast() => {
+        ast::Expr::UnOp(unop, ref b) if unop.is_cast() => {
             let (tmp_ty, read_ty) = match unop.value {
                 token![_S] => (ScalarType::Float, ScalarType::Int),
                 token![_f] => (ScalarType::Int, ScalarType::Float),

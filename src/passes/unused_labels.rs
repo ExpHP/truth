@@ -31,8 +31,8 @@ impl VisitMut for Visitor {
 
     fn visit_block(&mut self, x: &mut ast::Block) {
         ast::walk_block_mut(self, x);
-        x.0.retain(|stmt| match &stmt.body {
-            ast::StmtBody::Label(ident) => {
+        x.0.retain(|stmt| match &stmt.kind {
+            ast::StmtKind::Label(ident) => {
                 self.used_labels_stack
                     .last().expect("must be visiting a function body!")
                     .contains(&ident.value)
@@ -51,9 +51,9 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
             ast::walk_stmt(self, x);
 
-            match &x.body {
-                | ast::StmtBody::Goto(goto)
-                | ast::StmtBody::CondGoto { goto, .. }
+            match &x.kind {
+                | ast::StmtKind::Goto(goto)
+                | ast::StmtKind::CondGoto { goto, .. }
                 => { self.labels.insert(goto.destination.value.clone()); }
 
                 _ => {},
@@ -96,7 +96,7 @@ mod tests {
 
     impl ast::Visit for CountIdentVisitor {
         fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
-            if let ast::StmtBody::Label(label) = &stmt.body {
+            if let ast::StmtKind::Label(label) = &stmt.kind {
                 if label == &self.search_ident {
                     self.count += 1;
                 }

@@ -127,8 +127,8 @@ fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
     format.language = truth::InstrLanguage::Anm;
     format.intrinsic_opcode_pairs.push((I::Jmp, JUMP_OPCODE));
     format.intrinsic_opcode_pairs.push((I::CountJmp, COUNT_JUMP_OPCODE));
-    format.intrinsic_opcode_pairs.push((I::Unop(ast::UnopKind::Sin, Ty::Float), SINE_OPCODE));
-    format.intrinsic_opcode_pairs.push((I::Unop(ast::UnopKind::Cos, Ty::Float), COSINE_OPCODE));
+    format.intrinsic_opcode_pairs.push((I::UnOp(ast::UnOpKind::Sin, Ty::Float), SINE_OPCODE));
+    format.intrinsic_opcode_pairs.push((I::UnOp(ast::UnOpKind::Cos, Ty::Float), COSINE_OPCODE));
     I::register_assign_ops(&mut format.intrinsic_opcode_pairs, ASSIGN_OPS_OPCODE);
     I::register_binary_ops(&mut format.intrinsic_opcode_pairs, BINARY_OPS_OPCODE);
     I::register_cond_jumps(&mut format.intrinsic_opcode_pairs, COND_JUMPS_OPCODE);

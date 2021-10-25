@@ -1739,11 +1739,11 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
                     (I::InterruptLabel, 21),
-                    (I::Unop(token![sin], ScalarType::Float), 61),
-                    (I::Unop(token![cos], ScalarType::Float), 62),
-                    // (I::Unop(Un::Tan, ScalarType::Float), 63),
-                    // (I::Unop(Un::Acos, ScalarType::Float), 64),
-                    // (I::Unop(Un::Atan, ScalarType::Float), 65),
+                    (I::UnOp(token![sin], ScalarType::Float), 61),
+                    (I::UnOp(token![cos], ScalarType::Float), 62),
+                    // (I::UnOp(Un::Tan, ScalarType::Float), 63),
+                    // (I::UnOp(Un::Acos, ScalarType::Float), 64),
+                    // (I::UnOp(Un::Atan, ScalarType::Float), 65),
                 ];
                 I::register_assign_ops(&mut out, 37);
                 I::register_binary_ops(&mut out, 49);
@@ -1755,11 +1755,11 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
                     (I::InterruptLabel, 64),
-                    (I::Unop(token![sin], ScalarType::Float), 42),
-                    (I::Unop(token![cos], ScalarType::Float), 43),
-                    // (I::Unop(Un::Tan, ScalarType::Float), 44),
-                    // (I::Unop(Un::Acos, ScalarType::Float), 45),
-                    // (I::Unop(Un::Atan, ScalarType::Float), 46),
+                    (I::UnOp(token![sin], ScalarType::Float), 42),
+                    (I::UnOp(token![cos], ScalarType::Float), 43),
+                    // (I::UnOp(Un::Tan, ScalarType::Float), 44),
+                    // (I::UnOp(Un::Acos, ScalarType::Float), 45),
+                    // (I::UnOp(Un::Atan, ScalarType::Float), 46),
                 ];
                 I::register_assign_ops(&mut out, 6);
                 I::register_binary_ops(&mut out, 18);
@@ -1771,11 +1771,11 @@ impl InstrFormat for InstrFormat07 {
                     (I::Jmp, 200),
                     (I::CountJmp, 201),
                     (I::InterruptLabel, 5),
-                    (I::Unop(token![sin], ScalarType::Float), 124),
-                    (I::Unop(token![cos], ScalarType::Float), 125),
-                    // (I::Unop(Un::Tan, ScalarType::Float), 126),
-                    // (I::Unop(Un::Acos, ScalarType::Float), 127),
-                    // (I::Unop(Un::Atan, ScalarType::Float), 128),
+                    (I::UnOp(token![sin], ScalarType::Float), 124),
+                    (I::UnOp(token![cos], ScalarType::Float), 125),
+                    // (I::UnOp(Un::Tan, ScalarType::Float), 126),
+                    // (I::UnOp(Un::Acos, ScalarType::Float), 127),
+                    // (I::UnOp(Un::Atan, ScalarType::Float), 128),
                 ];
                 I::register_assign_ops(&mut out, 100);
                 I::register_binary_ops(&mut out, 112);

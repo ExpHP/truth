@@ -611,18 +611,18 @@ impl Format for ast::Item {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        out.fmt(&self.body)
+        out.fmt(&self.kind)
     }
 }
 
-impl Format for ast::StmtBody {
+impl Format for ast::StmtKind {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
-            ast::StmtBody::Item(item) => out.fmt(item),
+            ast::StmtKind::Item(item) => out.fmt(item),
 
-            ast::StmtBody::Goto(goto) => out.fmt((goto, ";")),
+            ast::StmtKind::Goto(goto) => out.fmt((goto, ";")),
 
-            ast::StmtBody::Return { value, keyword: _ } => {
+            ast::StmtKind::Return { value, keyword: _ } => {
                 out.fmt("return")?;
                 if let Some(value) = value {
                     out.fmt((" ", value))?;
@@ -630,27 +630,27 @@ impl Format for ast::StmtBody {
                 out.fmt(";")
             },
 
-            ast::StmtBody::CondGoto { keyword, cond, goto } => {
+            ast::StmtKind::CondGoto { keyword, cond, goto } => {
                 out.fmt((keyword, " (", SuppressParens(cond), ") ", goto, ";"))
             },
 
-            ast::StmtBody::Loop { block, keyword: _ } => {
+            ast::StmtKind::Loop { block, keyword: _ } => {
                 out.fmt(("loop ", block))
             },
 
-            ast::StmtBody::CondChain(chain) => {
+            ast::StmtKind::CondChain(chain) => {
                 out.fmt(chain)
             },
 
-            ast::StmtBody::While { do_keyword: Some(_), cond, block, while_keyword: _ } => {
+            ast::StmtKind::While { do_keyword: Some(_), cond, block, while_keyword: _ } => {
                 out.fmt(("do ", block, " while (", SuppressParens(cond), ");"))
             },
 
-            ast::StmtBody::While { do_keyword: None, cond, block, while_keyword: _ } => {
+            ast::StmtKind::While { do_keyword: None, cond, block, while_keyword: _ } => {
                 out.fmt(("while (", SuppressParens(cond), ") ", block))
             },
 
-            ast::StmtBody::Times { clobber, count, block, keyword: _ } => {
+            ast::StmtKind::Times { clobber, count, block, keyword: _ } => {
                 out.fmt("times(")?;
                 if let Some(clobber) = clobber {
                     out.fmt((clobber, " = "))?;
@@ -658,15 +658,15 @@ impl Format for ast::StmtBody {
                 out.fmt((SuppressParens(count), ") ", block))
             },
 
-            ast::StmtBody::Expr(e) => {
+            ast::StmtKind::Expr(e) => {
                 out.fmt((e, ";"))
             },
 
-            ast::StmtBody::Assignment { var, op, value } => {
+            ast::StmtKind::Assignment { var, op, value } => {
                 out.fmt((var, " ", op, " ", SuppressParens(value), ";"))
             },
 
-            ast::StmtBody::Declaration { ty_keyword, vars } => {
+            ast::StmtKind::Declaration { ty_keyword, vars } => {
                 out.fmt((ty_keyword, " "))?;
 
                 let mut first = true;
@@ -685,7 +685,7 @@ impl Format for ast::StmtBody {
                 out.fmt(";")
             },
 
-            ast::StmtBody::CallSub { at_symbol, async_, func, args } => {
+            ast::StmtKind::CallSub { at_symbol, async_, func, args } => {
                 out.fmt(if *at_symbol { "@" } else { "" })?;
                 out.fmt(func)?;
                 out.fmt_comma_separated("(", ")", args)?;
@@ -695,13 +695,13 @@ impl Format for ast::StmtBody {
                 out.fmt(";")
             },
 
-            ast::StmtBody::Label(ref ident) => {
+            ast::StmtKind::Label(ref ident) => {
                 out.fmt_label((ident, ":"))?;
                 out.suppress_blank_line();
                 Ok(())
             },
 
-            ast::StmtBody::InterruptLabel(id) => {
+            ast::StmtKind::InterruptLabel(id) => {
                 // blank lines are created before interrupts to make them stand out,
                 // but multiple consecutive interrupt lines are grouped.
                 if !out.state.prev_line_was_interrupt {
@@ -713,19 +713,19 @@ impl Format for ast::StmtBody {
                 Ok(())
             },
 
-            ast::StmtBody::RawDifficultyLabel(value) => {
+            ast::StmtKind::RawDifficultyLabel(value) => {
                 out.fmt_label(("difficulty[", format_args!("{:#X}", value.value), "]:"))?;
                 out.suppress_blank_line();
                 Ok(())
             },
 
-            ast::StmtBody::AbsTimeLabel(value) => {
+            ast::StmtKind::AbsTimeLabel(value) => {
                 out.fmt_label((value, ":"))?;
                 out.suppress_blank_line();
                 Ok(())
             },
 
-            ast::StmtBody::RelTimeLabel { delta, _absolute_time_comment } => {
+            ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment } => {
                 assert!(delta.value >= 0);
                 if let Some(time) = _absolute_time_comment {
                     out.fmt_label(("+", delta, ": // ", time))?;
@@ -737,8 +737,8 @@ impl Format for ast::StmtBody {
                 Ok(())
             },
 
-            ast::StmtBody::ScopeEnd(_) |
-            ast::StmtBody::NoInstruction => {
+            ast::StmtKind::ScopeEnd(_) |
+            ast::StmtKind::NoInstruction => {
                 out.suppress_blank_line();
                 Ok(())
             },
@@ -822,7 +822,7 @@ impl Format for ast::Expr {
             ast::Expr::Ternary { cond, left, right, question: _, colon: _ } => {
                 out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
-            ast::Expr::Binop(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
+            ast::Expr::BinOp(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
             ast::Expr::Call { name, pseudos, args } => {
                 out.fmt(name)?;
                 out.fmt_comma_separated("(", ")", Iterator::chain(
@@ -830,7 +830,7 @@ impl Format for ast::Expr {
                     args.iter().map(Either::That),
                 ))
             },
-            ast::Expr::Unop(op, x) => match op.value {
+            ast::Expr::UnOp(op, x) => match op.value {
                 token![unop -] | token![!]
                     => out.fmt_optional_parens((op, x)),
 

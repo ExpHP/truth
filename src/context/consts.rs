@@ -166,12 +166,12 @@ impl<'a> Evaluator<'a> {
                 ast::VarName::Reg { .. } => {}, // fall to error path
             },
 
-            ast::Expr::Unop(op, b) => {
+            ast::Expr::UnOp(op, b) => {
                 let b_value = self._const_eval(b)?;
                 return Ok(op.const_eval(b_value));
             },
 
-            ast::Expr::Binop(a, op, b) => {
+            ast::Expr::BinOp(a, op, b) => {
                 let a_value = self._const_eval(a)?;
                 let b_value = self._const_eval(b)?;
                 return Ok(op.const_eval(a_value, b_value));

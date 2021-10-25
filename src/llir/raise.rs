@@ -163,8 +163,8 @@ fn _raise_instrs_main_loop(
         let args = match &instr.args {
             RaiseArgs::Unknown(args) => {
                 // Unknown signature, fall back to pseudos.
-                let body = raise_unknown_instr(instr_format.language(), instr, args)?;
-                out.push(sp!(ast::Stmt { node_id: None, body }));
+                let kind = raise_unknown_instr(instr_format.language(), instr, args)?;
+                out.push(sp!(ast::Stmt { node_id: None, kind }));
                 continue;
             },
             RaiseArgs::Decoded(args) => args,
@@ -176,12 +176,12 @@ fn _raise_instrs_main_loop(
             if let RaiseArgs::Decoded(next_args) = &next_instr.args {
                 // FIXME don't do this check on every instr, or maybe benchmark?
                 if !label_gen.would_emit_labels(next_offset, next_instr.time, next_instr.difficulty_mask) {
-                    if let Some(body) = possibly_raise_long_intrinsic(
+                    if let Some(kind) = possibly_raise_long_intrinsic(
                         emitter, instr_format, instr, next_instr,
                         args, next_args, defs, intrinsic_instrs, offset_labels,
                     )? {
                         // Success! It's a two-instruction intrinsic.
-                        out.push(sp!(ast::Stmt { node_id: None, body }));
+                        out.push(sp!(ast::Stmt { node_id: None, kind }));
                         remaining_instrs.next();  // consume second part
                         continue;
                     }
@@ -190,11 +190,11 @@ fn _raise_instrs_main_loop(
         }
 
         // We have a single instruction with known signature.
-        let body = raise_single_decoded_instr(
+        let kind = raise_single_decoded_instr(
             emitter, instr_format, instr, args, defs,
             &intrinsic_instrs, &offset_labels,
         )?;
-        out.push(sp!(ast::Stmt { node_id: None, body }));
+        out.push(sp!(ast::Stmt { node_id: None, kind }));
     }
 
     // possible label after last instruction
@@ -357,7 +357,7 @@ fn raise_unknown_instr(
     language: InstrLanguage,
     instr: &RaiseInstr,
     args: &UnknownArgsData,
-) -> Result<ast::StmtBody, ErrorReported> {
+) -> Result<ast::StmtKind, ErrorReported> {
     let mut pseudos = vec![];
     if args.param_mask != 0 {
         pseudos.push(sp!(ast::PseudoArg {
@@ -381,7 +381,7 @@ fn raise_unknown_instr(
         value: sp!(pseudo::format_blob(&args.blob).into()),
     }));
 
-    Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
+    Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call {
         name: sp!(ast::CallableName::Ins { opcode: instr.opcode, language: Some(language) }),
         pseudos,
         args: vec![],
@@ -396,7 +396,7 @@ fn raise_single_decoded_instr(
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
-) -> Result<ast::StmtBody, ErrorReported> {
+) -> Result<ast::StmtKind, ErrorReported> {
     let language = instr_format.language();
     let opcode = instr.opcode;
     let abi = expect_abi(language, instr, defs);
@@ -420,7 +420,7 @@ fn raise_single_decoded_instr(
             },
 
 
-            IKind::Binop(op, _ty) => {
+            IKind::BinOp(op, _ty) => {
                 let b = parts.plain_args.pop().unwrap();
                 let a = parts.plain_args.pop().unwrap();
                 let var = parts.outputs.pop().unwrap();
@@ -428,7 +428,7 @@ fn raise_single_decoded_instr(
             },
 
 
-            IKind::Unop(op, _ty) => {
+            IKind::UnOp(op, _ty) => {
                 let b = parts.plain_args.pop().unwrap();
                 let var = parts.outputs.pop().unwrap();
                 return Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b))));
@@ -475,7 +475,7 @@ fn raise_single_decoded_instr(
     // Cannot raise as intrinsic.  Raise directly to `ins_*(...)` syntax.
     let abi = expect_abi(language, instr, defs);
     emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
-        Ok(ast::StmtBody::Expr(sp!(ast::Expr::Call {
+        Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call {
             name: sp!(ast::CallableName::Ins { opcode, language: Some(language) }),
             pseudos: vec![],
             args: raise_args(language, emitter, args, abi)?,
@@ -494,7 +494,7 @@ fn possibly_raise_long_intrinsic(
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &BTreeMap<u64, Label>,
-) -> Result<Option<ast::StmtBody>, ErrorReported> {
+) -> Result<Option<ast::StmtKind>, ErrorReported> {
     assert_eq!(instr_1.time, instr_2.time, "already checked by caller");
     assert_eq!(instr_1.difficulty_mask, instr_2.difficulty_mask, "already checked by caller");
 
@@ -905,17 +905,17 @@ impl<'a> LabelEmitter<'a> {
             if prev_time < 0 && 0 <= time {
                 // Include an intermediate 0: between negative and positive.
                 // This is because ANM scripts can start with instrs at -1: that have special properties.
-                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(0)) }));
+                out.push(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::AbsTimeLabel(sp!(0)) }));
                 if time > 0 {
-                    out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RelTimeLabel {
+                    out.push(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::RelTimeLabel {
                         delta: sp!(time),
                         _absolute_time_comment: Some(time),
                     }}));
                 }
             } else if time < prev_time {
-                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::AbsTimeLabel(sp!(time)) }));
+                out.push(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::AbsTimeLabel(sp!(time)) }));
             } else if prev_time < time {
-                out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RelTimeLabel {
+                out.push(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::RelTimeLabel {
                     delta: sp!(time - prev_time),
                     _absolute_time_comment: Some(time),
                 }}));
@@ -934,7 +934,7 @@ impl<'a> LabelEmitter<'a> {
 
     fn emit_difficulty_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, difficulty: raw::DifficultyMask) {
         if difficulty != self.prev_difficulty {
-            out.push(sp!(ast::Stmt { node_id: None, body: ast::StmtBody::RawDifficultyLabel(sp!(difficulty as _)) }));
+            out.push(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::RawDifficultyLabel(sp!(difficulty as _)) }));
         }
         self.prev_difficulty = difficulty;
     }

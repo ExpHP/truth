@@ -96,14 +96,11 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub node_id: Option<NodeId>,
-    pub body: StmtBody,
+    pub kind: StmtKind,
 }
 
-// FIXME: Rename to StmtKind, the name StmtBody is because this historically
-//        used to refer to "the statement without its labels".
-//        All labels are statements now...
 #[derive(Debug, Clone, PartialEq)]
-pub enum StmtBody {
+pub enum StmtKind {
     /// Some items are allowed to appear as statements. (`const`s and functions)
     Item(Box<Sp<Item>>),
 
@@ -221,27 +218,27 @@ pub enum StmtBody {
     NoInstruction,
 }
 
-impl StmtBody {
+impl StmtKind {
     pub fn descr(&self) -> &'static str { match self {
-        StmtBody::Item(item) => item.descr(),
-        StmtBody::Goto { .. } => "goto",
-        StmtBody::CondGoto { .. } => "conditional goto",
-        StmtBody::Return { .. } => "return statement",
-        StmtBody::CondChain { .. } => "conditional chain",
-        StmtBody::Loop { .. } => "loop",
-        StmtBody::While { .. } => "while(..)",
-        StmtBody::Times { .. } => "times(..)",
-        StmtBody::Expr { .. } => "expression statement",
-        StmtBody::Assignment { .. } => "assignment",
-        StmtBody::Declaration { .. } => "var declaration",
-        StmtBody::CallSub { .. } => "sub call",
-        StmtBody::InterruptLabel { .. } => "interrupt label",
-        StmtBody::RawDifficultyLabel { .. } => "difficulty label",
-        StmtBody::AbsTimeLabel { .. } => "time label",
-        StmtBody::RelTimeLabel { .. } => "time label",
-        StmtBody::Label { .. } => "label",
-        StmtBody::ScopeEnd { .. } => "<ScopeEnd>",
-        StmtBody::NoInstruction { .. } => "<NoInstruction>",
+        StmtKind::Item(item) => item.descr(),
+        StmtKind::Goto { .. } => "goto",
+        StmtKind::CondGoto { .. } => "conditional goto",
+        StmtKind::Return { .. } => "return statement",
+        StmtKind::CondChain { .. } => "conditional chain",
+        StmtKind::Loop { .. } => "loop",
+        StmtKind::While { .. } => "while(..)",
+        StmtKind::Times { .. } => "times(..)",
+        StmtKind::Expr { .. } => "expression statement",
+        StmtKind::Assignment { .. } => "assignment",
+        StmtKind::Declaration { .. } => "var declaration",
+        StmtKind::CallSub { .. } => "sub call",
+        StmtKind::InterruptLabel { .. } => "interrupt label",
+        StmtKind::RawDifficultyLabel { .. } => "difficulty label",
+        StmtKind::AbsTimeLabel { .. } => "time label",
+        StmtKind::RelTimeLabel { .. } => "time label",
+        StmtKind::Label { .. } => "label",
+        StmtKind::ScopeEnd { .. } => "<ScopeEnd>",
+        StmtKind::NoInstruction { .. } => "<NoInstruction>",
     }}
 }
 
@@ -339,7 +336,7 @@ impl AssignOpKind {
         }
     }
 
-    pub fn corresponding_binop(self) -> Option<BinopKind> {
+    pub fn corresponding_binop(self) -> Option<BinOpKind> {
         match self {
             token![=] => None,
             token![+=] => Some(token![+]),
@@ -394,7 +391,7 @@ pub enum Expr {
         colon: Sp<()>,
         right: Box<Sp<Expr>>,
     },
-    Binop(Box<Sp<Expr>>, Sp<BinopKind>, Box<Sp<Expr>>),
+    BinOp(Box<Sp<Expr>>, Sp<BinOpKind>, Box<Sp<Expr>>),
     Call {
         // note: deliberately called 'name' instead of 'ident' so that you can
         //       match both this and the inner ident without shadowing
@@ -403,7 +400,7 @@ pub enum Expr {
         pseudos: Vec<Sp<PseudoArg>>,
         args: Vec<Sp<Expr>>,
     },
-    Unop(Sp<UnopKind>, Box<Sp<Expr>>),
+    UnOp(Sp<UnOpKind>, Box<Sp<Expr>>),
     LitInt {
         value: raw::LangInt,
         /// A hint to the formatter on how it should write the integer.
@@ -441,9 +438,9 @@ impl Expr {
     }}
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
-        Expr::Binop { .. } => "binary operator",
+        Expr::BinOp { .. } => "binary operator",
         Expr::Call { .. } => "call expression",
-        Expr::Unop { .. } => "unary operator",
+        Expr::UnOp { .. } => "unary operator",
         Expr::LitInt { .. } => "literal integer",
         Expr::LabelProperty { .. } => "label property",
         Expr::LitFloat { .. } => "literal float",
@@ -531,7 +528,7 @@ pub enum VarName {
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum BinopKind {
+    pub enum BinOpKind {
         #[str = "+"] Add,
         #[str = "-"] Sub,
         #[str = "*"] Mul,
@@ -551,9 +548,9 @@ string_enum! {
     }
 }
 
-impl BinopKind {
+impl BinOpKind {
     pub fn class(self) -> OpClass {
-        use BinopKind as B;
+        use BinOpKind as B;
 
         match self {
             B::Add | B::Sub | B::Mul | B::Div | B::Rem => OpClass::Arithmetic,
@@ -567,7 +564,7 @@ impl BinopKind {
         self.class() == OpClass::Comparison
     }
 
-    pub fn negate_comparison(self) -> Option<BinopKind> { match self {
+    pub fn negate_comparison(self) -> Option<BinOpKind> { match self {
         token![==] => Some(token![!=]),
         token![!=] => Some(token![==]),
         token![<=] => Some(token![>]),
@@ -580,7 +577,7 @@ impl BinopKind {
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum UnopKind {
+    pub enum UnOpKind {
         #[str = "!"] Not,
         #[str = "-"] Neg,
         #[str = "sin"] Sin,
@@ -591,16 +588,16 @@ string_enum! {
     }
 }
 
-impl UnopKind {
+impl UnOpKind {
     pub fn class(&self) -> OpClass {
         match self {
-            UnopKind::Not => OpClass::Logical,
-            UnopKind::Neg => OpClass::Arithmetic,
-            UnopKind::Sin => OpClass::FloatMath,
-            UnopKind::Cos => OpClass::FloatMath,
-            UnopKind::Sqrt => OpClass::FloatMath,
-            UnopKind::CastI => OpClass::Cast,
-            UnopKind::CastF => OpClass::Cast,
+            UnOpKind::Not => OpClass::Logical,
+            UnOpKind::Neg => OpClass::Arithmetic,
+            UnOpKind::Sin => OpClass::FloatMath,
+            UnOpKind::Cos => OpClass::FloatMath,
+            UnOpKind::Sqrt => OpClass::FloatMath,
+            UnOpKind::CastI => OpClass::Cast,
+            UnOpKind::CastF => OpClass::Cast,
         }
     }
 
@@ -920,22 +917,22 @@ macro_rules! generate_visitor_stuff {
         {
             v.visit_node_id(& $($mut)? x.node_id);
 
-            match & $($mut)? x.body {
-                StmtBody::Item(item) => v.visit_item(item),
-                StmtBody::Goto(goto) => {
+            match & $($mut)? x.kind {
+                StmtKind::Item(item) => v.visit_item(item),
+                StmtKind::Goto(goto) => {
                     v.visit_goto(goto);
                 },
-                StmtBody::Return { value, keyword: _ } => {
+                StmtKind::Return { value, keyword: _ } => {
                     if let Some(value) = value {
                         v.visit_expr(value);
                     }
                 },
-                StmtBody::Loop { block, keyword: _ } => v.visit_block(block),
-                StmtBody::CondGoto { cond, goto, keyword: _ } => {
+                StmtKind::Loop { block, keyword: _ } => v.visit_block(block),
+                StmtKind::CondGoto { cond, goto, keyword: _ } => {
                     v.visit_cond(cond);
                     v.visit_goto(goto);
                 },
-                StmtBody::CondChain(chain) => {
+                StmtKind::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
                     for CondBlock { cond, block, keyword: _ } in cond_blocks {
                         v.visit_cond(cond);
@@ -945,29 +942,29 @@ macro_rules! generate_visitor_stuff {
                         v.visit_block(block);
                     }
                 },
-                StmtBody::While { do_keyword: Some(_), while_keyword: _, cond, block } => {
+                StmtKind::While { do_keyword: Some(_), while_keyword: _, cond, block } => {
                     v.visit_cond(cond);
                     v.visit_block(block);
                 },
-                StmtBody::While { do_keyword: None, while_keyword: _, cond, block } => {
+                StmtKind::While { do_keyword: None, while_keyword: _, cond, block } => {
                     v.visit_block(block);
                     v.visit_cond(cond);
                 },
-                StmtBody::Times { clobber, count, block, keyword: _ } => {
+                StmtKind::Times { clobber, count, block, keyword: _ } => {
                     if let Some(clobber) = clobber {
                         v.visit_var(clobber);
                     }
                     v.visit_expr(count);
                     v.visit_block(block);
                 },
-                StmtBody::Expr(e) => {
+                StmtKind::Expr(e) => {
                     v.visit_expr(e);
                 },
-                StmtBody::Assignment { var, op: _, value } => {
+                StmtKind::Assignment { var, op: _, value } => {
                     v.visit_var(var);
                     v.visit_expr(value);
                 },
-                StmtBody::Declaration { ty_keyword: _, vars } => {
+                StmtKind::Declaration { ty_keyword: _, vars } => {
                     for sp_pat![(var, value)] in vars {
                         v.visit_var(var);
                         if let Some(value) = value {
@@ -975,18 +972,18 @@ macro_rules! generate_visitor_stuff {
                         }
                     }
                 },
-                StmtBody::CallSub { at_symbol: _, async_: _, func: _, args } => {
+                StmtKind::CallSub { at_symbol: _, async_: _, func: _, args } => {
                     for arg in args {
                         v.visit_expr(arg);
                     }
                 },
-                StmtBody::Label(_) => {},
-                StmtBody::InterruptLabel(_) => {},
-                StmtBody::AbsTimeLabel { .. } => {},
-                StmtBody::RelTimeLabel { .. } => {},
-                StmtBody::RawDifficultyLabel { .. } => {},
-                StmtBody::ScopeEnd(_) => {},
-                StmtBody::NoInstruction => {},
+                StmtKind::Label(_) => {},
+                StmtKind::InterruptLabel(_) => {},
+                StmtKind::AbsTimeLabel { .. } => {},
+                StmtKind::RelTimeLabel { .. } => {},
+                StmtKind::RawDifficultyLabel { .. } => {},
+                StmtKind::ScopeEnd(_) => {},
+                StmtKind::NoInstruction => {},
             }
         }
 
@@ -1013,7 +1010,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(left);
                     v.visit_expr(right);
                 },
-                Expr::Binop(a, _op, b) => {
+                Expr::BinOp(a, _op, b) => {
                     v.visit_expr(a);
                     v.visit_expr(b);
                 },
@@ -1026,7 +1023,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(arg);
                     }
                 },
-                Expr::Unop(_op, x) => v.visit_expr(x),
+                Expr::UnOp(_op, x) => v.visit_expr(x),
                 Expr::LitInt { value: _, radix: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},

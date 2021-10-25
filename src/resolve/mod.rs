@@ -263,8 +263,8 @@ mod resolve_vars {
         }
 
         fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
-            match x.body {
-                ast::StmtBody::Declaration { ty_keyword, ref vars } => {
+            match x.kind {
+                ast::StmtKind::Declaration { ty_keyword, ref vars } => {
                     let var_ty = ty_keyword.value.var_ty();
 
                     for pair in vars {
@@ -287,7 +287,7 @@ mod resolve_vars {
                     }
                 },
 
-                ast::StmtBody::Item(ref item) => self.visit_item(item),
+                ast::StmtKind::Item(ref item) => self.visit_item(item),
 
                 _ => ast::walk_stmt(self, x),
             }
@@ -317,8 +317,8 @@ mod resolve_vars {
 
     // get the items defined inside a block (that aren't further nested inside another block)
     fn block_items(block: &ast::Block) -> impl Iterator<Item=&Sp<ast::Item>> {
-        block.0.iter().filter_map(|stmt| match &stmt.body {
-            ast::StmtBody::Item(item) => Some(&**item),
+        block.0.iter().filter_map(|stmt| match &stmt.kind {
+            ast::StmtKind::Item(item) => Some(&**item),
             _ => None,
         })
     }

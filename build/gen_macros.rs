@@ -2,7 +2,7 @@
 
 pub fn gen_ast_macros() -> String {
     vec![
-        // ==== Macros that can generate either StmtBody or Stmt ====
+        // ==== Macros that can generate either StmtKind or Stmt ====
 
         gen_ast_macro(
             "stmt_assign", &[
@@ -14,7 +14,7 @@ pub fn gen_ast_macros() -> String {
                 ("value", ArgKind::Node),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtBody::Assignment {
+                $crate::ast::StmtKind::Assignment {
                     var: ::core::convert::Into::into($var),
                     op: $op,
                     value: ::core::convert::Into::into($value),
@@ -28,7 +28,7 @@ pub fn gen_ast_macros() -> String {
                 ("label", ArgKind::Node),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtBody::Label($label)
+                $crate::ast::StmtKind::Label($label)
             "#},
         ),
 
@@ -39,7 +39,7 @@ pub fn gen_ast_macros() -> String {
                 ("goto_time", ArgKind::GotoTime),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtBody::Goto($crate::ast::StmtGoto {
+                $crate::ast::StmtKind::Goto($crate::ast::StmtGoto {
                     destination: $goto_label,
                     time: $goto_time,
                 })
@@ -55,7 +55,7 @@ pub fn gen_ast_macros() -> String {
                 ("goto_time", ArgKind::GotoTime),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtBody::CondGoto {
+                $crate::ast::StmtKind::CondGoto {
                     keyword: $keyword,
                     cond: Into::into($cond),
                     goto: $crate::ast::StmtGoto {
@@ -72,7 +72,7 @@ pub fn gen_ast_macros() -> String {
                 ("number", ArgKind::Node),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtBody::InterruptLabel($number)
+                $crate::ast::StmtKind::InterruptLabel($number)
             "#},
         ),
 
@@ -89,7 +89,7 @@ pub fn gen_ast_macros() -> String {
                 ("b", ArgKind::Node),
             ],
             FinalCasesType::Regular(r#"
-                $crate::ast::Expr::Binop(
+                $crate::ast::Expr::BinOp(
                     Box::new(Into::into($a)),
                     $op,
                     Box::new(Into::into($b)),
@@ -107,7 +107,7 @@ pub fn gen_ast_macros() -> String {
                 ("b", ArgKind::Node),
             ],
             FinalCasesType::Regular(r#"
-                $crate::ast::Expr::Unop(
+                $crate::ast::Expr::UnOp(
                     $op,
                     Box::new(Into::into($b)),
                 )
@@ -298,7 +298,7 @@ impl FinalCasesType {
                     result: format!(r#"
                         $crate::ast::Stmt {{
                             node_id: None,
-                            body: {},
+                            kind: {},
                         }}
                     "#, body_expr),
                 });

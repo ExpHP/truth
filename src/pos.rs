@@ -52,7 +52,7 @@ macro_rules! sp {
 /// ```
 /// # let my_span = truth::Span::NULL;
 /// # fn do_something() -> Sp<Expr> { truth::sp!(Expr::LitFloat { value: 2.0 }) };
-/// use truth::{sp_pat, Sp, ast::Expr, ast::BinopKind};
+/// use truth::{sp_pat, Sp, ast::Expr, ast::BinOpKind};
 ///
 /// let expr: Sp<Expr> = do_something();
 ///
@@ -67,7 +67,7 @@ macro_rules! sp {
 ///
 /// // example use for matching a nested `Sp`
 /// match &expr.value {
-///     Expr::Binop(_, sp_pat!(BinopKind::Add), _) => println!("adding!"),
+///     Expr::BinOp(_, sp_pat!(BinOpKind::Add), _) => println!("adding!"),
 ///     _ => println!("not adding!"),
 /// }
 /// ```

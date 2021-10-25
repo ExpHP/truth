@@ -13,7 +13,7 @@ use crate::context::CompilerContext;
 /// This desugars all block structures in the code (conditional blocks, loops), reducing everything
 /// into a single block.
 ///
-/// This pass is not idempotent, because it inserts [`ast::StmtBody::ScopeEnd`] statements.
+/// This pass is not idempotent, because it inserts [`ast::StmtKind::ScopeEnd`] statements.
 pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     insert_scope_ends(ast, ctx)?;
 
@@ -35,7 +35,7 @@ fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'
 
 // =============================================================================
 
-/// Inserts [`ast::StmtBody::ScopeEnd`] statements for locals declared in each block.  These allow the
+/// Inserts [`ast::StmtKind::ScopeEnd`] statements for locals declared in each block.  These allow the
 /// compiler to continue to take advantage of lexical scope information (to e.g. free registers) even
 /// after block desugaring.
 struct InsertLocalScopeEndsVisitor<'a> {
@@ -64,14 +64,14 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             let span = x.last_stmt().span.end_span();
             x.0.push(sp!(span => ast::Stmt {
                 node_id: Some(self.unused_node_ids.next()),
-                body: ast::StmtBody::ScopeEnd(def_id),
+                kind: ast::StmtKind::ScopeEnd(def_id),
             }));
         }
     }
 
     fn visit_stmt(&mut self, x: &mut Sp<ast::Stmt>) {
-        match &x.body {
-            ast::StmtBody::Declaration { ty_keyword: _, vars } => {
+        match &x.kind {
+            ast::StmtKind::Declaration { ty_keyword: _, vars } => {
                 for pair in vars {
                     let (var, _) = &pair.value;
                     if let ast::VarName::Normal { ident, .. } = &var.value.name {
@@ -116,24 +116,24 @@ struct Desugarer<'a, 'ctx> {
 impl Desugarer<'_, '_> {
     pub fn desugar_block(&mut self, mut outer_block: ast::Block) {
         for outer_stmt in outer_block.0.drain(..) {
-            match outer_stmt.value.body {
-                ast::StmtBody::Loop { block, .. } => {
+            match outer_stmt.value.kind {
+                ast::StmtKind::Loop { block, .. } => {
                     self.desugar_loop_body(block, None)
                 },
 
-                ast::StmtBody::While { do_keyword: Some(_), while_keyword, cond, block } => {
+                ast::StmtKind::While { do_keyword: Some(_), while_keyword, cond, block } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
                     self.desugar_loop_body(block, Some((if_keyword, cond.value)))
                 },
 
-                ast::StmtBody::While { do_keyword: None, while_keyword, cond, block } => {
+                ast::StmtKind::While { do_keyword: None, while_keyword, cond, block } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
                     self.desugar_conditional_region(cond.span, if_keyword, cond.clone(), |self_| {
                         self_.desugar_loop_body(block, Some((if_keyword, cond.value)));
                     });
                 },
 
-                ast::StmtBody::Times { clobber, count, block, .. } => {
+                ast::StmtKind::Times { clobber, count, block, .. } => {
                     let (clobber, temp_def) = match clobber {
                         Some(var) => (var, None),
                         None => {
@@ -144,7 +144,7 @@ impl Desugarer<'_, '_> {
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 node_id: Some(self.ctx.next_node_id()),
-                                body: ast::StmtBody::Declaration {
+                                kind: ast::StmtKind::Declaration {
                                     ty_keyword: sp!(count.span => token![int]),
                                     vars: vec![sp!(count.span => (var.clone(), None))]
                                 },
@@ -160,12 +160,12 @@ impl Desugarer<'_, '_> {
                     if let Some(def_id) = temp_def {
                         self.out.push(sp!(end_span => ast::Stmt {
                             node_id: Some(self.ctx.next_node_id()),
-                            body: ast::StmtBody::ScopeEnd(def_id),
+                            kind: ast::StmtKind::ScopeEnd(def_id),
                         }));
                     }
                 },
 
-                ast::StmtBody::CondChain(chain) => {
+                ast::StmtKind::CondChain(chain) => {
                     let veryend = self.ctx.gensym.gensym("@cond_veryend#");
 
                     for ast::CondBlock { keyword, cond, block } in chain.cond_blocks {

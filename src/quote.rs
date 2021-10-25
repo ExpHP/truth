@@ -8,30 +8,30 @@ use crate::pos::{Sp, Span};
 macro_rules! token {
     (rec_sp!($span:expr => $($tok:tt)+)) => { sp!($span => token!($($tok)+)) };
 
-    ($(binop)? +) => { $crate::ast::BinopKind::Add };
-    (  binop   -) => { $crate::ast::BinopKind::Sub };
-    ($(binop)? *) => { $crate::ast::BinopKind::Mul };
-    ($(binop)? /) => { $crate::ast::BinopKind::Div };
-    (  binop   %) => { $crate::ast::BinopKind::Rem };
-    ($(binop)? |) => { $crate::ast::BinopKind::BitOr };
-    ($(binop)? ^) => { $crate::ast::BinopKind::BitXor };
-    ($(binop)? &) => { $crate::ast::BinopKind::BitAnd };
-    ($(binop)? ||) => { $crate::ast::BinopKind::LogicOr };
-    ($(binop)? &&) => { $crate::ast::BinopKind::LogicAnd };
-    ($(binop)? ==) => { $crate::ast::BinopKind::Eq };
-    ($(binop)? !=) => { $crate::ast::BinopKind::Ne };
-    ($(binop)? <) => { $crate::ast::BinopKind::Lt };
-    ($(binop)? <=) => { $crate::ast::BinopKind::Le };
-    ($(binop)? >) => { $crate::ast::BinopKind::Gt };
-    ($(binop)? >=) => { $crate::ast::BinopKind::Ge };
+    ($(binop)? +) => { $crate::ast::BinOpKind::Add };
+    (  binop   -) => { $crate::ast::BinOpKind::Sub };
+    ($(binop)? *) => { $crate::ast::BinOpKind::Mul };
+    ($(binop)? /) => { $crate::ast::BinOpKind::Div };
+    (  binop   %) => { $crate::ast::BinOpKind::Rem };
+    ($(binop)? |) => { $crate::ast::BinOpKind::BitOr };
+    ($(binop)? ^) => { $crate::ast::BinOpKind::BitXor };
+    ($(binop)? &) => { $crate::ast::BinOpKind::BitAnd };
+    ($(binop)? ||) => { $crate::ast::BinOpKind::LogicOr };
+    ($(binop)? &&) => { $crate::ast::BinOpKind::LogicAnd };
+    ($(binop)? ==) => { $crate::ast::BinOpKind::Eq };
+    ($(binop)? !=) => { $crate::ast::BinOpKind::Ne };
+    ($(binop)? <) => { $crate::ast::BinOpKind::Lt };
+    ($(binop)? <=) => { $crate::ast::BinOpKind::Le };
+    ($(binop)? >) => { $crate::ast::BinOpKind::Gt };
+    ($(binop)? >=) => { $crate::ast::BinOpKind::Ge };
 
-    ($(unop)? !) => { $crate::ast::UnopKind::Not };
-    (  unop   -) => { $crate::ast::UnopKind::Neg };
-    ($(unop)? sin) => { $crate::ast::UnopKind::Sin };
-    ($(unop)? cos) => { $crate::ast::UnopKind::Cos };
-    ($(unop)? sqrt) => { $crate::ast::UnopKind::Sqrt };
-    ($(unop)? _S) => { $crate::ast::UnopKind::CastI };
-    ($(unop)? _f) => { $crate::ast::UnopKind::CastF };
+    ($(unop)? !) => { $crate::ast::UnOpKind::Not };
+    (  unop   -) => { $crate::ast::UnOpKind::Neg };
+    ($(unop)? sin) => { $crate::ast::UnOpKind::Sin };
+    ($(unop)? cos) => { $crate::ast::UnOpKind::Cos };
+    ($(unop)? sqrt) => { $crate::ast::UnOpKind::Sqrt };
+    ($(unop)? _S) => { $crate::ast::UnOpKind::CastI };
+    ($(unop)? _f) => { $crate::ast::UnOpKind::CastF };
 
     ($(assignop)? =) => { $crate::ast::AssignOpKind::Assign };
     ($(assignop)? +=) => { $crate::ast::AssignOpKind::Add };
@@ -88,10 +88,10 @@ macro_rules! impl_ambiguous_token_into {
 }
 
 impl_ambiguous_token_into!{
-    MinusSign => ast::BinopKind::Sub,
-    MinusSign => ast::UnopKind::Neg,
+    MinusSign => ast::BinOpKind::Sub,
+    MinusSign => ast::UnOpKind::Neg,
     PercentSign => ast::VarSigil::Float,
-    PercentSign => ast::BinopKind::Rem,
+    PercentSign => ast::BinOpKind::Rem,
 }
 
 // -----------------------------------
@@ -147,8 +147,8 @@ macro_rules! impl_into_spanned_for_ast {
 //
 // One is provided for every type that we might wrap `Sp<...>` around.
 impl_into_spanned_for_ast!{
-    ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtBody, ast::Cond,
-    ast::UnopKind, ast::BinopKind, ast::AssignOpKind,
+    ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtKind, ast::Cond,
+    ast::UnOpKind, ast::BinOpKind, ast::AssignOpKind,
     ast::CondKeyword, ast::TypeKeyword, ast::MetaKeyword,
     crate::ident::Ident,
     crate::ast::Meta,
@@ -257,9 +257,9 @@ mod tests {
         //  * another macro call, through which rec_sp! will be recursively applied
         let expr = rec_sp!(span_1 => expr_binop!(#(a.clone()) + expr_binop!(#a + expr_binop!(#b - #c))));
         match &expr.value {
-            ast::Expr::Binop(subexpr1, op, subexpr2) => match &subexpr2.value {
-                ast::Expr::Binop(subexpr21, op2, subexpr22) => match &subexpr22.value {
-                    ast::Expr::Binop(subexpr221, op22, subexpr222) => {
+            ast::Expr::BinOp(subexpr1, op, subexpr2) => match &subexpr2.value {
+                ast::Expr::BinOp(subexpr21, op2, subexpr22) => match &subexpr22.value {
+                    ast::Expr::BinOp(subexpr221, op22, subexpr222) => {
                         assert_eq!(expr.span, span_1);
                         assert_eq!(op.span, span_1);
                         assert_eq!(op2.span, span_1);
@@ -294,8 +294,8 @@ mod tests {
             #a + rec_sp!(span_2 => expr_binop!(#b + #(ast::Expr::from(31))))
         ));
         match &expr.value {
-            ast::Expr::Binop(subexpr1, _, subexpr2) => match &subexpr2.value {
-                ast::Expr::Binop(subexpr21, _, subexpr22) => {
+            ast::Expr::BinOp(subexpr1, _, subexpr2) => match &subexpr2.value {
+                ast::Expr::BinOp(subexpr21, _, subexpr22) => {
                     assert_eq!(subexpr1.span, span_1);
                     assert_eq!(subexpr2.span, span_2);
                     assert_eq!(subexpr21.span, span_2);
@@ -311,7 +311,7 @@ mod tests {
         let b: ast::Expr = 42.into();
         let expr = rec_sp!(span_1 => expr_binop!(#a + sp!(span_2 => b)));
         match &expr.value {
-            ast::Expr::Binop(subexpr1, _, subexpr2) => {
+            ast::Expr::BinOp(subexpr1, _, subexpr2) => {
                 assert_eq!(subexpr1.span, span_1);
                 assert_eq!(subexpr2.span, span_2);
             },

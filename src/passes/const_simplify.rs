@@ -42,7 +42,7 @@ fn uncaught_type_error() -> ! {
     panic!("(bug!) type_check should fail...")
 }
 
-impl ast::UnopKind {
+impl ast::UnOpKind {
     pub fn const_eval(&self, b: ScalarValue) -> ScalarValue {
         match b {
             ScalarValue::Int(x) => match self {
@@ -70,7 +70,7 @@ impl ast::UnopKind {
     }
 }
 
-impl ast::BinopKind {
+impl ast::BinOpKind {
     pub fn const_eval(&self, a: ScalarValue, b: ScalarValue) -> ScalarValue {
         match (a, b) {
             (ScalarValue::Int(a), ScalarValue::Int(b)) => match self {
@@ -190,13 +190,13 @@ impl ast::VisitMut for Visitor<'_, '_> {
                 ast::VarName::Reg { .. } => {}, // can't simplify register
             },
 
-            ast::Expr::Unop(op, b) => {
+            ast::Expr::UnOp(op, b) => {
                 if let Some(b_value) = b.to_const() {
                     e.value = op.const_eval(b_value).into();
                 }
             },
 
-            ast::Expr::Binop(a, op, b) => {
+            ast::Expr::BinOp(a, op, b) => {
                 if let (Some(a_value), Some(b_value)) = (a.to_const(), b.to_const()) {
                     e.value = op.const_eval(a_value, b_value).into();
                 };

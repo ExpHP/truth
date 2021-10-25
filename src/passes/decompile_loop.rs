@@ -68,11 +68,11 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                         let cond_block_span = inner_block.start_span().merge(inner_block.end_span());
 
                         // get rid of the original jumps and the label
-                        assert!(matches!(inner_block.0.pop().unwrap().value.body, ast::StmtBody::Label { .. }));  // remove label
+                        assert!(matches!(inner_block.0.pop().unwrap().value.kind, ast::StmtKind::Label { .. }));  // remove label
                         let last_stmt = inner_block.0.last_mut().unwrap();
-                        last_stmt.body = ast::StmtBody::NoInstruction;  // replace unconditional jump with bookend
+                        last_stmt.kind = ast::StmtKind::NoInstruction;  // replace unconditional jump with bookend
                         last_stmt.span = cond_block_span.start_span();
-                        inner_block.0[0].body = ast::StmtBody::NoInstruction;  // replace conditional jump with bookend
+                        inner_block.0[0].kind = ast::StmtKind::NoInstruction;  // replace conditional jump with bookend
                         inner_block.0[0].span = cond_block_span.end_span();
 
                         cond_block_asts.push(ast::CondBlock {
@@ -101,7 +101,7 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
                     new_stmts.push(sp!(span => ast::Stmt {
                         node_id: Some(self.ctx.next_node_id()),
-                        body: ast::StmtBody::CondChain(cond_chain),
+                        kind: ast::StmtKind::CondChain(cond_chain),
                     }));
                 },
             }
@@ -261,8 +261,8 @@ struct LabelInfo {
 /// For each label, get the index of its statement.
 fn get_label_info(stmts: &[Sp<ast::Stmt>], refcounts: &HashMap<Ident, u32>) -> HashMap<Ident, LabelInfo> {
     stmts.iter().enumerate()
-        .filter_map(|(stmt_index, stmt)| match &stmt.body {
-            ast::StmtBody::Label(ident) => {
+        .filter_map(|(stmt_index, stmt)| match &stmt.kind {
+            ast::StmtKind::Label(ident) => {
                 let refcount = refcounts.get(&ident.value).copied().unwrap_or(0);
                 Some((ident.value.clone(), LabelInfo { stmt_index, refcount }))
             },
@@ -273,8 +273,8 @@ fn get_label_info(stmts: &[Sp<ast::Stmt>], refcounts: &HashMap<Ident, u32>) -> H
 /// Get a list of statement indices that are interrupt labels.
 fn get_interrupt_label_indices(stmts: &[Sp<ast::Stmt>]) -> Vec<usize> {
     stmts.iter().enumerate()
-        .filter_map(|(index, stmt)| match stmt.body {
-            ast::StmtBody::InterruptLabel { .. } => Some(index),
+        .filter_map(|(index, stmt)| match stmt.kind {
+            ast::StmtKind::InterruptLabel { .. } => Some(index),
             _ => None,
         }).collect()
 }
@@ -341,14 +341,14 @@ fn maybe_decompile_jump(
     }
 
     // replace the goto with an EndOfBlock, preserving its time
-    outer_stmts.0.last_mut().unwrap().body = ast::StmtBody::NoInstruction;
+    outer_stmts.0.last_mut().unwrap().kind = ast::StmtKind::NoInstruction;
 
     let new_block = ast::Block(outer_stmts.0.drain(dest_index..).collect());
     let inner_span = new_block.start_span().merge(new_block.end_span());
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
         node_id: Some(ctx.next_node_id()),
-        body: jmp_kind.make_loop(new_block),
+        kind: jmp_kind.make_loop(new_block),
     }));
     // suppress the default behavior of popping the next item
     true
@@ -369,10 +369,10 @@ enum Direction { Forwards, Backwards }
 
 impl JmpInfo {
     fn from_stmt(ast: &ast::Stmt, label_info: &HashMap<Ident, LabelInfo>) -> Option<Self> {
-        let (goto, kind) = match ast.body {
-            ast::StmtBody::Goto(ref goto) => (goto, JmpKind::Uncond),
+        let (goto, kind) = match ast.kind {
+            ast::StmtKind::Goto(ref goto) => (goto, JmpKind::Uncond),
 
-            ast::StmtBody::CondGoto { keyword, ref cond, ref goto } => match keyword.value {
+            ast::StmtKind::CondGoto { keyword, ref cond, ref goto } => match keyword.value {
                 ast::CondKeyword::If => (goto, JmpKind::Cond { keyword, cond: cond.clone() }),
                 ast::CondKeyword::Unless => unimplemented!(),  // not present in decompiled code
             }
@@ -401,24 +401,24 @@ enum JmpKind {
     Cond { keyword: Sp<ast::CondKeyword>, cond: Sp<ast::Cond> },
 }
 
-type ExprBinopRef<'a> = (&'a Sp<ast::Expr>, Sp<ast::BinopKind>, &'a Sp<ast::Expr>);
+type ExprBinOpRef<'a> = (&'a Sp<ast::Expr>, Sp<ast::BinOpKind>, &'a Sp<ast::Expr>);
 
 impl JmpKind {
-    fn as_binop_cond(&self) -> Option<(Sp<ast::CondKeyword>, Sp<ExprBinopRef<'_>>)> {
+    fn as_binop_cond(&self) -> Option<(Sp<ast::CondKeyword>, Sp<ExprBinOpRef<'_>>)> {
         match *self {
-            JmpKind::Cond { keyword, cond: sp_pat!(ast::Cond::Expr(sp_pat!(span => ast::Expr::Binop(ref a, op, ref b)))) }
+            JmpKind::Cond { keyword, cond: sp_pat!(ast::Cond::Expr(sp_pat!(span => ast::Expr::BinOp(ref a, op, ref b)))) }
                 => Some((keyword, sp!(span => (a, op, b)))),
 
             _ => None,
         }
     }
 
-    fn make_loop(&self, block: ast::Block) -> ast::StmtBody {
+    fn make_loop(&self, block: ast::Block) -> ast::StmtKind {
         match *self {
-            JmpKind::Uncond => ast::StmtBody::Loop { block, keyword: sp!(()) },
+            JmpKind::Uncond => ast::StmtKind::Loop { block, keyword: sp!(()) },
 
             JmpKind::Cond { keyword: sp_pat![token![unless]], .. } => unimplemented!(),  // not present in decompiled code
-            JmpKind::Cond { keyword: sp_pat![kw_span => token![if]], ref cond } => ast::StmtBody::While {
+            JmpKind::Cond { keyword: sp_pat![kw_span => token![if]], ref cond } => ast::StmtKind::While {
                 do_keyword: Some(sp!(kw_span => ())),
                 while_keyword: sp!(kw_span => ()),
                 cond: cond.clone(),

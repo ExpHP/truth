@@ -86,14 +86,14 @@ pub enum IntrinsicInstrKind {
     /// Like `a = b + c;`
     ///
     /// Args: `a, b, c`.
-    Binop(ast::BinopKind, ScalarType),
+    BinOp(ast::BinOpKind, ScalarType),
     /// Like `a = sin(b);` (or `a = -a;`, but it seems no formats actually have this?)
     ///
     /// This is not used for casts like `a = _S(b);`.  Casts have no explicit representation in
     /// a compiled script; they're just a fundamental part of how the engine reads variables.
     ///
     /// Args: `a, b`.
-    Unop(ast::UnopKind, ScalarType),
+    UnOp(ast::UnOpKind, ScalarType),
     /// Like `if (--x) goto label @ t`.
     ///
     /// Args: `x, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
@@ -101,7 +101,7 @@ pub enum IntrinsicInstrKind {
     /// Like `if (a == c) goto label @ t;`
     ///
     /// Args: `a, b, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    CondJmp(ast::BinopKind, ScalarType),
+    CondJmp(ast::BinOpKind, ScalarType),
     /// First part of a conditional jump in languages where it is comprised of 2 instructions.
     /// Sets a hidden compare register.
     ///
@@ -111,7 +111,7 @@ pub enum IntrinsicInstrKind {
     /// Jumps based on the hidden compare register.
     ///
     /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    CondJmp2B(ast::BinopKind),
+    CondJmp2B(ast::BinOpKind),
 }
 
 impl IntrinsicInstrKind {
@@ -120,8 +120,8 @@ impl IntrinsicInstrKind {
             Self::Jmp { .. } => "unconditional jump",
             Self::InterruptLabel { .. } => "interrupt label",
             Self::AssignOp { .. } => "assign op",
-            Self::Binop { .. } => "binary op",
-            Self::Unop { .. } => "unary op",
+            Self::BinOp { .. } => "binary op",
+            Self::UnOp { .. } => "unary op",
             Self::CountJmp { .. } => "decrement jump",
             Self::CondJmp { .. } => "conditional jump",
             Self::CondJmp2A { .. } => "dedicated cmp",
@@ -139,8 +139,8 @@ impl IntrinsicInstrKind {
             => format!("{}", self.descr()),
 
             Self::AssignOp(op, _ty) => format!("{} op", op),
-            Self::Binop(op, _ty) => format!("binary {} op", op),
-            Self::Unop(op, _ty) => format!("unary {} op", op),
+            Self::BinOp(op, _ty) => format!("binary {} op", op),
+            Self::UnOp(op, _ty) => format!("unary {} op", op),
             Self::CondJmp(op, _ty) => format!("conditional ({}) jump", op),
             Self::CondJmp2B(op) => format!("conditional ({}) jump after cmp", op),
         }
@@ -151,12 +151,12 @@ impl IntrinsicInstrKind {
     /// Add intrinsic pairs for binary operations in `a = b op c` form in their canonical order,
     /// which is `+, -, *, /, %`, with each operator having an int version and a float version.
     pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-        use ast::BinopKind as B;
+        use ast::BinOpKind as B;
 
         let mut opcode = start;
         for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
             for ty in vec![ScalarType::Int, ScalarType::Float] {
-                pairs.push((IntrinsicInstrKind::Binop(op, ty), opcode));
+                pairs.push((IntrinsicInstrKind::BinOp(op, ty), opcode));
                 opcode += 1;
             }
         }
@@ -179,7 +179,7 @@ impl IntrinsicInstrKind {
     /// Add intrinsic pairs for conditional jumps in their cannonical order: `==, !=, <, <=, >, >=`,
     /// with each operator having an int version and a float version.
     pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-        use ast::BinopKind as B;
+        use ast::BinOpKind as B;
 
         let mut opcode = start;
         for op in vec![B::Eq, B::Ne, B::Lt, B::Le, B::Gt, B::Ge] {
@@ -194,9 +194,9 @@ impl IntrinsicInstrKind {
     pub fn register_olde_ecl_comp_ops(
         pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>,
         start: raw::Opcode,
-        kind_fn: impl Fn(ast::BinopKind) -> IntrinsicInstrKind,
+        kind_fn: impl Fn(ast::BinOpKind) -> IntrinsicInstrKind,
     ) {
-        use ast::BinopKind as B;
+        use ast::BinOpKind as B;
 
         let mut opcode = start;
         for op in vec![B::Lt, B::Le, B::Eq, B::Gt, B::Ge, B::Ne] {
@@ -368,13 +368,13 @@ impl IntrinsicInstrAbiParts {
                 out.outputs.push(remove_out_arg(&mut encodings, abi.span, ty)?);
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
             },
-            I::Binop(op, arg_ty) => {
+            I::BinOp(op, arg_ty) => {
                 let out_ty = ast::Expr::binop_ty_from_arg_ty(op, arg_ty);
                 out.outputs.push(remove_out_arg(&mut encodings, abi.span, out_ty)?);
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, arg_ty)?);
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, arg_ty)?);
             },
-            I::Unop(_op, ty) => {
+            I::UnOp(_op, ty) => {
                 out.outputs.push(remove_out_arg(&mut encodings, abi.span, ty)?);
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
             },

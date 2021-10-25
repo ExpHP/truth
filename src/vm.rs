@@ -183,22 +183,22 @@ impl AstVm {
             // N.B. this can't easily be factored out into a method because it would require
             //      some way of storing or communicating a "instruction pointer", which
             //      doesn't exist due to the nested nature of the AST.
-            match &stmts[stmt_index].body {
-                ast::StmtBody::Item(_) => {},
+            match &stmts[stmt_index].kind {
+                ast::StmtKind::Item(_) => {},
 
-                ast::StmtBody::Goto(goto) => handle_goto!(goto),
+                ast::StmtKind::Goto(goto) => handle_goto!(goto),
 
-                ast::StmtBody::CondGoto { keyword, cond, goto } => {
+                ast::StmtKind::CondGoto { keyword, cond, goto } => {
                     if self.eval_cond(cond, resolutions) == (keyword == &token![if]) {
                         handle_goto!(goto);
                     }
                 },
 
-                ast::StmtBody::Return { value, .. } => {
+                ast::StmtKind::Return { value, .. } => {
                     return RunResult::Return(value.as_ref().map(|x| self.eval(x, resolutions)));
                 },
 
-                ast::StmtBody::CondChain(chain) => {
+                ast::StmtKind::CondChain(chain) => {
                     let ast::StmtCondChain { cond_blocks, else_block } = chain;
 
                     let mut branch_taken = false;
@@ -220,14 +220,14 @@ impl AstVm {
                     self.time = end_time(chain.last_block());
                 },
 
-                ast::StmtBody::Loop { block, .. } => {
+                ast::StmtKind::Loop { block, .. } => {
                     loop {
                         handle_block!(&block.0);
                         self.time = start_time(block);
                     }
                 },
 
-                ast::StmtBody::While { do_keyword, cond, block, .. } => {
+                ast::StmtKind::While { do_keyword, cond, block, .. } => {
                     if do_keyword.is_some() || self.eval_cond(cond, resolutions) {
                         loop {
                             handle_block!(&block.0);
@@ -244,7 +244,7 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Times { clobber: None, count, block, .. } => {
+                ast::StmtKind::Times { clobber: None, count, block, .. } => {
                     self.time = end_time(block);
                     match self.eval_int(count, resolutions) {
                         0 => {},
@@ -259,7 +259,7 @@ impl AstVm {
 
                 // when a clobber is specified we have to treat it pretty differently
                 // as the loop counter now has an observable presence
-                ast::StmtBody::Times { clobber: Some(clobber), count, block, .. } => {
+                ast::StmtKind::Times { clobber: Some(clobber), count, block, .. } => {
                     let count = self.eval_int(count, resolutions);
                     self.set_var_by_ast(clobber, ScalarValue::Int(count), resolutions);
 
@@ -282,7 +282,7 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Expr(expr) => {
+                ast::StmtKind::Expr(expr) => {
                     match &expr.value {
                         ast::Expr::Call { name, pseudos, args } => {
                             if pseudos.len() > 0 {
@@ -299,7 +299,7 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Assignment { var, op, value } => {
+                ast::StmtKind::Assignment { var, op, value } => {
                     match op.value {
                         ast::AssignOpKind::Assign => {
                             let value = self.eval(value, resolutions);
@@ -316,7 +316,7 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::Declaration { vars, .. } => {
+                ast::StmtKind::Declaration { vars, .. } => {
                     for pair in vars.iter() {
                         let (var, expr) = &pair.value;
                         if let Some(expr) = expr {
@@ -326,20 +326,20 @@ impl AstVm {
                     }
                 },
 
-                ast::StmtBody::CallSub { .. } => unimplemented!("CallSub for AST VM"),
+                ast::StmtKind::CallSub { .. } => unimplemented!("CallSub for AST VM"),
 
-                ast::StmtBody::Label(_) => {},
+                ast::StmtKind::Label(_) => {},
 
-                ast::StmtBody::InterruptLabel(_) => {},
+                ast::StmtKind::InterruptLabel(_) => {},
 
-                ast::StmtBody::RawDifficultyLabel(_) => {},
+                ast::StmtKind::RawDifficultyLabel(_) => {},
 
-                ast::StmtBody::AbsTimeLabel { .. } => { },
-                ast::StmtBody::RelTimeLabel { .. } => { },
+                ast::StmtKind::AbsTimeLabel { .. } => { },
+                ast::StmtKind::RelTimeLabel { .. } => { },
 
-                ast::StmtBody::ScopeEnd(_) => {},
+                ast::StmtKind::ScopeEnd(_) => {},
 
-                ast::StmtBody::NoInstruction => {},
+                ast::StmtKind::NoInstruction => {},
             }
 
             stmt_index += 1;
@@ -356,11 +356,11 @@ impl AstVm {
                 }
             },
 
-            ast::Expr::Binop(a, op, b) => op.const_eval(self.eval(a, resolutions), self.eval(b, resolutions)),
+            ast::Expr::BinOp(a, op, b) => op.const_eval(self.eval(a, resolutions), self.eval(b, resolutions)),
 
             ast::Expr::Call { .. } => unimplemented!("func calls in VM exprs"),
 
-            ast::Expr::Unop(op, x) => op.const_eval(self.eval(x, resolutions)),
+            ast::Expr::UnOp(op, x) => op.const_eval(self.eval(x, resolutions)),
 
             ast::Expr::LitInt { value, .. } => ScalarValue::Int(*value),
 
@@ -438,8 +438,8 @@ impl AstVm {
 
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto, stmt_data: &IdMap<NodeId, TimeAndDifficulty>) -> Option<usize> {
         for (index, stmt) in stmts.iter().enumerate() {
-            match &stmt.body {
-                ast::StmtBody::Label(label) => {
+            match &stmt.kind {
+                ast::StmtKind::Label(label) => {
                     if label == &goto.destination {
                         self.time = goto.time.map(|x| x.value).unwrap_or(stmt_data[&stmt.node_id.unwrap()].time);
                         return Some(index);

@@ -463,11 +463,11 @@ impl InstrFormat for InstrFormat06 {
                     (I::CondJmp2A(ScalarType::Float), 28),
                     // (I::CountJmp, 5),
                     // (I::InterruptLabel, 21),
-                    // (I::Unop(token![sin], ScalarType::Float), 61),
-                    // (I::Unop(token![cos], ScalarType::Float), 62),
-                    // (I::Unop(Un::Tan, ScalarType::Float), 63),
-                    // (I::Unop(Un::Acos, ScalarType::Float), 64),
-                    // (I::Unop(Un::Atan, ScalarType::Float), 65),
+                    // (I::UnOp(token![sin], ScalarType::Float), 61),
+                    // (I::UnOp(token![cos], ScalarType::Float), 62),
+                    // (I::UnOp(Un::Tan, ScalarType::Float), 63),
+                    // (I::UnOp(Un::Acos, ScalarType::Float), 64),
+                    // (I::UnOp(Un::Atan, ScalarType::Float), 65),
                 ];
                 I::register_olde_ecl_comp_ops(&mut out, 29, |op| I::CondJmp2B(op));
                 // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));

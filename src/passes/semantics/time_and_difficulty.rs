@@ -53,14 +53,14 @@ impl<'a> Visitor<'a> {
     fn time(&self) -> i32 { *self.time_stack.last().expect("empty time stack?! (bug)") }
     fn difficulty_mask(&self) -> u8 { *self.difficulty_stack.last().expect("empty diff stack?! (bug)") }
     fn visit_stmt_shallow(&mut self, stmt: &ast::Stmt) {
-        match &stmt.body {
-            &ast::StmtBody::RawDifficultyLabel(value) => {
+        match &stmt.kind {
+            &ast::StmtKind::RawDifficultyLabel(value) => {
                 *self.difficulty_stack.last_mut().expect("empty diff stack?! (bug)") = value.value as u8;
             },
-            &ast::StmtBody::AbsTimeLabel(value) => {
+            &ast::StmtKind::AbsTimeLabel(value) => {
                 *self.time_stack.last_mut().expect("empty time stack?! (bug)") = value.value;
             },
-            &ast::StmtBody::RelTimeLabel { delta, .. } => {
+            &ast::StmtKind::RelTimeLabel { delta, .. } => {
                 *self.time_stack.last_mut().expect("empty time stack?! (bug)") += delta.value;
             },
             _ => {},

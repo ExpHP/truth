@@ -117,58 +117,58 @@ impl ast::Visit for Visitor<'_, '_> {
     }
 
     fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
-        match &stmt.value.body {
+        match &stmt.value.kind {
             // statement types where there's nothing additional to check beyond what
             // would already be done by recursively walking the node
-            | ast::StmtBody::Item { .. }
-            | ast::StmtBody::CondChain { .. }
-            | ast::StmtBody::CondGoto { .. }
-            | ast::StmtBody::While { .. }
-            | ast::StmtBody::Goto { .. }
-            | ast::StmtBody::Loop { .. } => {
+            | ast::StmtKind::Item { .. }
+            | ast::StmtKind::CondChain { .. }
+            | ast::StmtKind::CondGoto { .. }
+            | ast::StmtKind::While { .. }
+            | ast::StmtKind::Goto { .. }
+            | ast::StmtKind::Loop { .. } => {
                 ast::walk_stmt(self, stmt)
             },
 
-            &ast::StmtBody::Return { ref value, keyword } => {
+            &ast::StmtKind::Return { ref value, keyword } => {
                 if let Err(e) = self.check_stmt_return(keyword, value) {
                     self.errors.set(e);
                 }
             },
 
-            ast::StmtBody::Assignment { var, op, value } => {
+            ast::StmtKind::Assignment { var, op, value } => {
                 if let Err(e) = self.check_stmt_assignment(var, *op, value) {
                     self.errors.set(e);
                 }
             },
 
-            ast::StmtBody::Expr(expr) => {
+            ast::StmtKind::Expr(expr) => {
                 if let Err(e) = self.check_stmt_expr(expr) {
                     self.errors.set(e);
                 }
             },
 
-            ast::StmtBody::Times { clobber, count, block, keyword: _ } => {
+            ast::StmtKind::Times { clobber, count, block, keyword: _ } => {
                 if let Err(e) = self.check_stmt_times(clobber, count) {
                     self.errors.set(e);
                 }
                 ast::walk_block(self, block);
             },
 
-            ast::StmtBody::Declaration { ty_keyword, vars } => {
+            ast::StmtKind::Declaration { ty_keyword, vars } => {
                 if let Err(e) = self.check_stmt_declaration(*ty_keyword, vars) {
                     self.errors.set(e);
                 }
             },
 
-            ast::StmtBody::CallSub { .. } => unimplemented!("need to check arg types against signature"),
+            ast::StmtKind::CallSub { .. } => unimplemented!("need to check arg types against signature"),
 
-            ast::StmtBody::InterruptLabel { .. } => {},
-            ast::StmtBody::RawDifficultyLabel { .. } => {},
-            ast::StmtBody::AbsTimeLabel { .. } => {},
-            ast::StmtBody::RelTimeLabel { .. } => {},
-            ast::StmtBody::Label { .. } => {},
-            ast::StmtBody::ScopeEnd { .. } => {},
-            ast::StmtBody::NoInstruction { .. } => {},
+            ast::StmtKind::InterruptLabel { .. } => {},
+            ast::StmtKind::RawDifficultyLabel { .. } => {},
+            ast::StmtKind::AbsTimeLabel { .. } => {},
+            ast::StmtKind::RelTimeLabel { .. } => {},
+            ast::StmtKind::Label { .. } => {},
+            ast::StmtKind::ScopeEnd { .. } => {},
+            ast::StmtKind::NoInstruction { .. } => {},
         }
     }
 
@@ -326,7 +326,7 @@ impl ExprTypeChecker<'_, '_> {
             ast::Expr::Var(ref var)
             => ExprType::Value(self.check_var(var)?),
 
-            ast::Expr::Binop(ref a, op, ref b)
+            ast::Expr::BinOp(ref a, op, ref b)
             => {
                 let a_ty = self.check_expr_as_value(a, op.span);
                 let b_ty = self.check_expr_as_value(b, op.span);
@@ -335,7 +335,7 @@ impl ExprTypeChecker<'_, '_> {
                 ExprType::Value(ast::Expr::binop_ty(op.value, &a.value, self.ctx))
             },
 
-            ast::Expr::Unop(op, ref x)
+            ast::Expr::UnOp(op, ref x)
             => {
                 let x_ty = self.check_expr_as_value(x, op.span)?;
 
@@ -505,10 +505,10 @@ impl ast::Expr {
             ast::Expr::Var(ref var)
             => ExprType::Value(ctx.var_read_ty_from_ast(var).as_known_ty().expect("already type-checked")),
 
-            ast::Expr::Binop(ref a, op, _)
+            ast::Expr::BinOp(ref a, op, _)
             => ExprType::Value(ast::Expr::binop_ty(op.value, &a.value, ctx)),
 
-            ast::Expr::Unop(op, ref x)
+            ast::Expr::UnOp(op, ref x)
             => ExprType::Value(ast::Expr::unop_ty(op.value, &x.value, ctx)),
 
             ast::Expr::Ternary { ref left, .. }
@@ -530,7 +530,7 @@ impl ast::Expr {
 }
 
 impl ExprTypeChecker<'_, '_> {
-    fn binop_check(&self, op: Sp<ast::BinopKind>, arg_tys: (ScalarType, ScalarType), arg_spans: (Span, Span)) -> ImplResult {
+    fn binop_check(&self, op: Sp<ast::BinOpKind>, arg_tys: (ScalarType, ScalarType), arg_spans: (Span, Span)) -> ImplResult {
         match op.class() {
             | ast::OpClass::Arithmetic
             => self.require_numeric(arg_tys.0, op.span, arg_spans.0)?,
@@ -560,15 +560,15 @@ impl ast::Expr {
     ///
     /// This assumes that the expression has already been type-checked.  When provided an
     /// invalid combination of operator and arguments, it may return anything.
-    pub fn binop_ty(op: ast::BinopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
+    pub fn binop_ty(op: ast::BinOpKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
         Self::_binop_ty(op, || arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"))
     }
 
-    pub fn binop_ty_from_arg_ty(op: ast::BinopKind, arg_ty: ScalarType) -> ScalarType {
+    pub fn binop_ty_from_arg_ty(op: ast::BinOpKind, arg_ty: ScalarType) -> ScalarType {
         Self::_binop_ty(op, || arg_ty)
     }
 
-    fn _binop_ty(op: ast::BinopKind, compute_arg_ty: impl Fn() -> ScalarType) -> ScalarType {
+    fn _binop_ty(op: ast::BinOpKind, compute_arg_ty: impl Fn() -> ScalarType) -> ScalarType {
         match op.class() {
             | ast::OpClass::Arithmetic
             => compute_arg_ty(),
@@ -586,7 +586,7 @@ impl ast::Expr {
 }
 
 impl ExprTypeChecker<'_, '_> {
-    fn unop_check(&self, op: Sp<ast::UnopKind>, arg_ty: ScalarType, arg_span: Span) -> ImplResult {
+    fn unop_check(&self, op: Sp<ast::UnOpKind>, arg_ty: ScalarType, arg_span: Span) -> ImplResult {
         match op.value {
             token![unop -] => self.require_numeric(arg_ty, op.span, arg_span),
 
@@ -608,15 +608,15 @@ impl ast::Expr {
     ///
     /// This assumes that the expression has already been type-checked.  When provided an
     /// invalid combination of operator and arguments, it may return anything.
-    pub fn unop_ty(op: ast::UnopKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
+    pub fn unop_ty(op: ast::UnOpKind, arg: &ast::Expr, ctx: &CompilerContext) -> ScalarType {
         Self::_unop_ty(op, || arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void"))
     }
 
-    pub fn unop_ty_from_arg_ty(op: ast::UnopKind, arg_ty: ScalarType) -> ScalarType {
+    pub fn unop_ty_from_arg_ty(op: ast::UnOpKind, arg_ty: ScalarType) -> ScalarType {
         Self::_unop_ty(op, || arg_ty)
     }
 
-    fn _unop_ty(op: ast::UnopKind, compute_arg_ty: impl Fn() -> ScalarType) -> ScalarType {
+    fn _unop_ty(op: ast::UnOpKind, compute_arg_ty: impl Fn() -> ScalarType) -> ScalarType {
         match op {
             token![unop -] => compute_arg_ty(),
             token![unop !] => ScalarType::Int,
