@@ -7,7 +7,7 @@ use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, JumpIntrinsicArgOrder};
-use crate::llir::intrinsic::{IntrinsicInstrAbiProps, IntrinsicInstrAbiPropsKind, abi_props};
+use crate::llir::intrinsic::{IntrinsicInstrAbiPropsKind, abi_props};
 use crate::resolve::{RegId, UnusedNodeIds};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;

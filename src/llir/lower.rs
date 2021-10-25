@@ -63,7 +63,12 @@ enum LowerArg {
     /// All arguments are eventually lowered to this form.
     Raw(SimpleArg),
     /// A reference to a register-allocated local.
-    Local { def_id: DefId, read_ty: ScalarType },
+    Local {
+        def_id: DefId,
+        /// The type that the register ID should be written into the file as.
+        /// May differ from the type of the variable.
+        storage_ty: ScalarType
+    },
     /// A label that has not yet been converted to an integer argument.
     Label(Ident),
     /// A `timeof(label)` that has not yet been converted to an integer argument.
@@ -80,6 +85,19 @@ impl LowerArg {
         match self {
             LowerArg::Raw(x) => x,
             _ => panic!("unexpected unresolved argument (bug!): {:?}", self),
+        }
+    }
+
+    /// Tweak this LowerArg to encode its register ID as an int even if it was conceptually read/written as a float.
+    /// (for early ECL)
+    pub fn with_float_reg_encoded_as_int(self) -> Self {
+        match self {
+            LowerArg::Raw(arg) => LowerArg::Raw(SimpleArg::from_reg(arg.get_reg_id().unwrap(), ScalarType::Int)),
+
+            LowerArg::Local { def_id, .. } => LowerArg::Local { def_id, storage_ty: ScalarType::Int },
+
+            LowerArg::Label { .. } |
+            LowerArg::TimeOf { .. } => panic!("not a register: {:?}", self),
         }
     }
 }

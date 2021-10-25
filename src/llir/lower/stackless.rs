@@ -7,7 +7,8 @@ use std::collections::{HashMap, BTreeSet};
 use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
-use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, JumpIntrinsicArgOrder};
+use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
+use crate::llir::intrinsic::{IntrinsicInstrAbiPropsKind};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -57,13 +58,15 @@ impl Lowerer<'_, '_> {
 
 
                 ast::StmtBody::InterruptLabel(interrupt_id) => {
-                    self.out.push(LowerStmt::Instr(LowerInstr {
-                        stmt_data,
-                        opcode: self.get_opcode(IKind::InterruptLabel, stmt.span, "interrupt label")?,
-                        explicit_extra_arg: None,
-                        user_param_mask: None,
-                        args: LowerArgs::Known(vec![sp!(interrupt_id.span => LowerArg::Raw(interrupt_id.value.into()))]),
-                    }));
+                    let (opcode, abi_props, mut args) = self.begin_intrinsic(IKind::InterruptLabel, stmt.span, "interrupt label")?;
+                    match &abi_props {
+                        IntrinsicInstrAbiPropsKind::InterruptLabel { padding, label } => {
+                            padding.fill_in(&mut args)?;
+                            label.fill_in(&mut args, interrupt_id)?;
+                        },
+                        _ => unreachable!(),
+                    }
+                    self.finish_intrinsic(stmt_data, opcode, args);
                 },
 
 
@@ -158,7 +161,7 @@ impl Lowerer<'_, '_> {
                         ExprClass::NeedsTemp(data) => {
                             // Save this expression to a temporary
                             let (def_id, _) = self.define_temporary(stmt_data, &data)?;
-                            let lowered = sp!(expr.span => LowerArg::Local { def_id, read_ty: data.read_ty });
+                            let lowered = sp!(expr.span => LowerArg::Local { def_id, storage_ty: data.read_ty });
 
                             temp_def_ids.push(def_id); // so we can free the register later
                             lowered
@@ -219,20 +222,22 @@ impl Lowerer<'_, '_> {
         assign_op: &Sp<ast::AssignOpKind>,
         rhs: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
-        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
-
         let data_rhs = match classify_expr(rhs, self.ctx)? {
             // a = <atom>;
             // a += <atom>;
             ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
+                let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ty_rhs, "already type-checked");
-                self.out.push(LowerStmt::Instr(LowerInstr {
-                    stmt_data,
-                    opcode: self.get_opcode(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?,
-                    explicit_extra_arg: None,
-                    user_param_mask: None,
-                    args: LowerArgs::Known(vec![lowered_var, lowered_rhs]),
-                }));
+
+                let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::AssignOp(assign_op.value, ty_var), span, "update assignment with this operation")?;
+                match &abi_props {
+                    IntrinsicInstrAbiPropsKind::AssignOp { dest: dest_props, rhs: rhs_props } => {
+                        dest_props.fill_in(&mut out_args, lowered_var)?;
+                        rhs_props.fill_in(&mut out_args, lowered_rhs)?;
+                    },
+                    _ => unreachable!(),
+                }
+                self.finish_intrinsic(stmt_data, opcode, out_args);
                 return Ok(());
             },
             ExprClass::NeedsTemp(data) => data,
@@ -352,13 +357,16 @@ impl Lowerer<'_, '_> {
         let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
         assert_eq!(ty_var, ty_rhs, "already type-checked");
 
-        self.out.push(LowerStmt::Instr(LowerInstr {
-            stmt_data,
-            opcode: self.get_opcode(IKind::Binop(binop.value, ty_var), span, "this binary operation")?,
-            explicit_extra_arg: None,
-            user_param_mask: None,
-            args: LowerArgs::Known(vec![lowered_var, simple_a.lowered, simple_b.lowered]),
-        }));
+        let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::Binop(binop.value, ty_var), span, "this binary operation")?;
+        match &abi_props {
+            IntrinsicInstrAbiPropsKind::Binop { dest: dest_props, args: [a_props, b_props] } => {
+                dest_props.fill_in(&mut out_args, lowered_var)?;
+                a_props.fill_in(&mut out_args, simple_a.lowered)?;
+                b_props.fill_in(&mut out_args, simple_b.lowered)?;
+            },
+            _ => unreachable!(),
+        }
+        self.finish_intrinsic(stmt_data, opcode, out_args);
         Ok(())
     }
 
@@ -417,13 +425,17 @@ impl Lowerer<'_, '_> {
 
                     token![sin] |
                     token![cos] |
-                    token![sqrt] => self.out.push(LowerStmt::Instr(LowerInstr {
-                        stmt_data,
-                        opcode: self.get_opcode(IKind::Unop(unop.value, ty), span, "this unary operation")?,
-                        explicit_extra_arg: None,
-                        user_param_mask: None,
-                        args: LowerArgs::Known(vec![lowered_var, data_b.lowered]),
-                    })),
+                    token![sqrt] => {
+                        let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::Unop(unop.value, ty), span, "this unary operation")?;
+                        match &abi_props {
+                            IntrinsicInstrAbiPropsKind::Unop { dest: dest_props, arg: arg_props } => {
+                                dest_props.fill_in(&mut out_args, lowered_var)?;
+                                arg_props.fill_in(&mut out_args, data_b.lowered)?;
+                            },
+                            _ => unreachable!(),
+                        }
+                        self.finish_intrinsic(stmt_data, opcode, out_args);
+                    },
                 }
                 Ok(())
             },
@@ -431,7 +443,16 @@ impl Lowerer<'_, '_> {
     }
 
     fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_data: TimeAndDifficulty, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
-        self.lower_intrinsic_jmp(stmt_span, stmt_data, goto)
+        let (opcode, abi_props, mut args) = self.begin_intrinsic(IKind::Jmp, stmt_span, "'goto'")?;
+        match &abi_props {
+            IntrinsicInstrAbiPropsKind::Jmp { padding, jump } => {
+                padding.fill_in(&mut args)?;
+                jump.fill_in(&mut args, goto)?;
+            },
+            _ => unreachable!(),
+        }
+        self.finish_intrinsic(stmt_data, opcode, args);
+        Ok(())
     }
 
     /// Lowers `if (<cond>) goto label @ time;`
@@ -460,25 +481,18 @@ impl Lowerer<'_, '_> {
         match keyword.value {
             // 'if (--var) goto label'
             token![if] => {
-                let (arg_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
-                let (arg_label, arg_time) = lower_goto_args(goto);
+                let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ScalarType::Int, "shoulda been type-checked!");
 
-                let opcode = self.get_opcode(IKind::CountJmp, stmt_span, "decrement jump")?;
-                let abi = self.ctx.defs.ins_abi(self.instr_format.language(), opcode).unwrap();
-                let args = JumpIntrinsicArgOrder {
-                    offset: arg_label, time: Some(arg_time),
-                    other_args: vec![arg_var],
-                    other_arg_encodings: vec![],
-                }.into_vec(&abi).map_err(|err| self.ctx.emitter.emit(err))?;
-
-                self.out.push(LowerStmt::Instr(LowerInstr {
-                    stmt_data,
-                    opcode,
-                    explicit_extra_arg: None,
-                    user_param_mask: None,
-                    args: LowerArgs::Known(args),
-                }));
+                let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::CountJmp, stmt_span, "decrement jump")?;
+                match &abi_props {
+                    IntrinsicInstrAbiPropsKind::CountJmp { jump: jump_props, arg: arg_props } => {
+                        jump_props.fill_in(&mut out_args, goto)?;
+                        arg_props.fill_in(&mut out_args, lowered_var)?;
+                    },
+                    _ => unreachable!(),
+                }
+                self.finish_intrinsic(stmt_data, opcode, out_args);
                 Ok(())
             },
 
@@ -594,51 +608,40 @@ impl Lowerer<'_, '_> {
         assert_eq!(data_a.ty, data_b.ty, "should've been type-checked");
         let ty_arg = data_a.ty;
 
-        let (lowered_label, lowered_time) = lower_goto_args(goto);
-
         // check language capabilities
-        if let Some(cmp_jmp_opcode) = self.intrinsic_instrs.get_opcode_opt(IKind::CondJmp(binop.value, ty_arg)) {
+        let cmp_jmp_kind = IKind::CondJmp(binop.value, ty_arg);
+        if self.intrinsic_instrs.get_opcode_opt(cmp_jmp_kind).is_some() {
             // language has single-instruction conditional jumps
-            let cmp_jmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), cmp_jmp_opcode).unwrap();
-            let cmp_jmp_args = JumpIntrinsicArgOrder {
-                offset: lowered_label, time: Some(lowered_time),
-                other_args: vec![data_a.lowered, data_b.lowered],
-                other_arg_encodings: vec![], // ignored by into_vec
-            }.into_vec(&cmp_jmp_abi).map_err(|err| self.ctx.emitter.emit(err))?;
-
-            self.out.push(LowerStmt::Instr(LowerInstr {
-                stmt_data,
-                opcode: cmp_jmp_opcode,
-                explicit_extra_arg: None,
-                user_param_mask: None,
-                args: LowerArgs::Known(cmp_jmp_args),
-            }));
+            let (opcode, abi_props, mut out_args) = self.begin_intrinsic(cmp_jmp_kind, stmt_span, "(bug!) you shouldn't see this text")?;
+            match &abi_props {
+                IntrinsicInstrAbiPropsKind::CondJmp { jump: jump_props, args: [a_props, b_props] } => {
+                    jump_props.fill_in(&mut out_args, goto)?;
+                    a_props.fill_in(&mut out_args, data_a.lowered)?;
+                    b_props.fill_in(&mut out_args, data_b.lowered)?;
+                },
+                _ => unreachable!(),
+            }
+            self.finish_intrinsic(stmt_data, opcode, out_args);
         } else {
             // language may have two-instruction conditional jumps
-            let cmp_opcode = self.get_opcode(IKind::CondJmp2A(ty_arg), stmt_span, "conditional jump")?;
-            let jmp_opcode = self.get_opcode(IKind::CondJmp2B(binop.value), binop.span, "conditional jump with this operator")?;
+            let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::CondJmp2A(ty_arg), stmt_span, "(bug!) you shouldn't see this text")?;
+            match &abi_props {
+                IntrinsicInstrAbiPropsKind::CondJmp2A { args: [a_props, b_props] } => {
+                    a_props.fill_in(&mut out_args, data_a.lowered)?;
+                    b_props.fill_in(&mut out_args, data_b.lowered)?;
+                },
+                _ => unreachable!(),
+            }
+            self.finish_intrinsic(stmt_data, opcode, out_args);
 
-            let jmp_abi = self.ctx.defs.ins_abi(self.instr_format.language(), jmp_opcode).unwrap();
-            let jmp_args = JumpIntrinsicArgOrder {
-                offset: lowered_label, time: Some(lowered_time),
-                other_args: vec![],
-                other_arg_encodings: vec![], // ignored by into_vec
-            }.into_vec(&jmp_abi).map_err(|err| self.ctx.emitter.emit(err))?;
-
-            self.out.push(LowerStmt::Instr(LowerInstr {
-                stmt_data,
-                opcode: cmp_opcode,
-                explicit_extra_arg: None,
-                user_param_mask: None,
-                args: LowerArgs::Known(vec![data_a.lowered, data_b.lowered]),
-            }));
-            self.out.push(LowerStmt::Instr(LowerInstr {
-                stmt_data,
-                opcode: jmp_opcode,
-                explicit_extra_arg: None,
-                user_param_mask: None,
-                args: LowerArgs::Known(jmp_args),
-            }));
+            let (opcode, abi_props, mut out_args) = self.begin_intrinsic(IKind::CondJmp2B(binop.value), binop.span, "conditional jump with this operator")?;
+            match &abi_props {
+                IntrinsicInstrAbiPropsKind::CondJmp2B { jump: jump_props } => {
+                    jump_props.fill_in(&mut out_args, goto)?;
+                },
+                _ => unreachable!(),
+            }
+            self.finish_intrinsic(stmt_data, opcode, out_args);
         }
         Ok(())
     }
@@ -753,10 +756,6 @@ impl Lowerer<'_, '_> {
         Ok((def_id, var))
     }
 
-    fn get_opcode(&self, kind: IntrinsicInstrKind, span: Span, descr: &str) -> Result<u16, ErrorReported> {
-        self.intrinsic_instrs.get_opcode_and_abi_props(kind, span, descr).map_err(|e| self.ctx.emitter.emit(e)).map(|tup| tup.0)
-    }
-
     fn unsupported(&self, span: &crate::pos::Span, what: &str) -> ErrorReported {
         self.ctx.emitter.emit(super::unsupported(span, what))
     }
@@ -784,6 +783,7 @@ enum ExprClass<'a> {
 
 struct SimpleExpr {
     lowered: Sp<LowerArg>,
+    /// Type in the AST. This *can* contradict the type of `lowered`. (e.g. float registers in EoSD ECL are ints)
     ty: ScalarType,
 }
 
@@ -855,18 +855,9 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<Low
     // But now, we want both registers and their aliases to be resolved to a register
     let arg = match ctx.var_reg_from_ast(&var.name) {
         Ok((_lang, reg)) => LowerArg::Raw(SimpleArg::from_reg(reg, read_ty)),
-        Err(def_id) => LowerArg::Local { def_id, read_ty },
+        Err(def_id) => LowerArg::Local { def_id, storage_ty: read_ty },
     };
     Ok((sp!(var.span => arg), read_ty))
-}
-
-fn lower_goto_args(goto: &ast::StmtGoto) -> (Sp<LowerArg>, Sp<LowerArg>) {
-    let label_arg = goto.destination.clone().sp_map(LowerArg::Label);
-    let time_arg = match goto.time {
-        Some(time) => time.sp_map(|t| LowerArg::Raw(t.into())),
-        None => goto.destination.clone().sp_map(LowerArg::TimeOf),
-    };
-    (label_arg, time_arg)
 }
 
 fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
@@ -958,8 +949,8 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 if let LowerArgs::Known(args) = &mut instr.args {
                     for arg in args {
-                        if let LowerArg::Local { def_id, read_ty } = arg.value {
-                            arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&def_id].0, read_ty));
+                        if let LowerArg::Local { def_id, storage_ty } = arg.value {
+                            arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&def_id].0, storage_ty));
                         }
                     }
                 }

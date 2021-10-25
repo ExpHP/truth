@@ -196,20 +196,20 @@ impl IntrinsicInstrKind {
 pub mod abi_props {
     /// Indicates that the ABI contains this many padding dwords at the end,
     /// which cannot be represented in the AST if they are nonzero.
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub struct UnrepresentablePadding {
         pub index: usize,
         pub count: usize,
     }
 
     /// Describes the order of jump arguments.
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub struct JumpArgOrder {
         pub index: usize,
         pub kind: JumpArgOrderKind,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub enum JumpArgOrderKind {
         TimeLoc,
         LocTime,
@@ -218,13 +218,13 @@ pub mod abi_props {
     }
 
     /// Describes how an output register is encoded (e.g. is a float register encoded as "f" or "S")?
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub struct OutOperandType {
         pub index: usize,
         pub kind: OutOperandTypeKind,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub enum OutOperandTypeKind {
         /// It's a float register, but is written to file as an integer. (used by EoSD ECL)
         FloatAsInt,
@@ -233,11 +233,11 @@ pub mod abi_props {
     }
 
     /// An operator input argument.
-    #[derive(Debug)]
+    #[derive(Debug, Copy, Clone)]
     pub struct InputOperandType { pub index: usize }
     /// An argument that must be an immediate.
-    #[derive(Debug)]
-    pub struct ImmediateArgType { pub index: usize }
+    #[derive(Debug, Copy, Clone)]
+    pub struct ImmediateInt { pub index: usize }
 }
 
 /// Streamlines the relationship between the ABI of an intrinsic and how it is expressed
@@ -258,7 +258,7 @@ pub struct IntrinsicInstrAbiProps {
     pub kind: IntrinsicInstrAbiPropsKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum IntrinsicInstrAbiPropsKind {
     // this could maybe be a struct with Option<> fields for all of the abi_props types
     // but it's currently written as an enum to leverage unused variable warnings to make
@@ -270,7 +270,7 @@ pub enum IntrinsicInstrAbiPropsKind {
     },
     InterruptLabel {
         padding: abi_props::UnrepresentablePadding,
-        label: abi_props::ImmediateArgType,
+        label: abi_props::ImmediateInt,
     },
     AssignOp {
         dest: abi_props::OutOperandType,
@@ -382,7 +382,7 @@ impl abi_props::InputOperandType {
         match (ty_in_ast, encoding) {
             | (ScalarType::Int, ArgEncoding::Dword)
             | (ScalarType::Float, ArgEncoding::Float)
-            => Ok(Self { index }),
+            => Ok(abi_props::InputOperandType { index }),
 
             | (_, _)
             => Err(intrinsic_abi_error(abi_span, &format!("output arg has unexpected encoding ({})", encoding.descr()))),
@@ -390,9 +390,9 @@ impl abi_props::InputOperandType {
     }
 }
 
-impl abi_props::ImmediateArgType {
-    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<Self, Diagnostic> {
-        abi_props::InputOperandType::remove(arg_encodings, abi_span, ty_in_ast)
+impl abi_props::ImmediateInt {
+    fn remove(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span) -> Result<Self, Diagnostic> {
+        abi_props::InputOperandType::remove(arg_encodings, abi_span, ScalarType::Int)
             .map(|out| Self { index: out.index })
     }
 }
@@ -418,7 +418,7 @@ impl IntrinsicInstrAbiProps {
             },
             I::InterruptLabel => {
                 let padding = abi_props::UnrepresentablePadding::detect_and_remove(&mut encodings, abi.span)?;
-                let label = abi_props::ImmediateArgType::remove(&mut encodings, abi.span, ScalarType::Int)?;
+                let label = abi_props::ImmediateInt::remove(&mut encodings, abi.span)?;
                 P::InterruptLabel { label, padding }
             }
             I::AssignOp(_op, ty) => {

@@ -103,6 +103,7 @@ impl SimpleArg {
 }
 
 impl SimpleArg {
+    /// Construct a register SimpleArg whose ID is encoded as a given datatype.
     pub fn from_reg(reg: RegId, ty: ScalarType) -> SimpleArg {
         let value = match ty {
             ScalarType::Int => ScalarValue::Int(reg.0),
