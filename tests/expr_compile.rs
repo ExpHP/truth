@@ -259,7 +259,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let new_block = {
         let options = Default::default();
         let mut raiser = llir::Raiser::new(&instr_format, &ctx.emitter, &ctx.defs, &options)?;
-        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.unused_node_ids)?;
+        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.defs, &ctx.unused_node_ids)?;
         truth::passes::resolution::aliases_to_raw(&mut stmts[..], ctx)?;
         ast::Block(stmts)
     };

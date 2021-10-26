@@ -89,6 +89,31 @@ impl Format {
         assert_eq!(compiled.read(), recompiled.read());
     }
 
+    /// In essence, a "decompile-fail" test.
+    ///
+    /// This is like `sbsb` but rather than compiling to binary one last time,
+    /// it instead expects to find a message in stderr from decompilation.
+    ///
+    /// stderr will be snapshotted.
+    pub fn sbsb_fail_test(
+        &self,
+        original_source: &TestFile,
+        decompile_args: &[impl AsRef<OsStr>],
+        mapfile: Option<&TestFile>,
+        should_error: bool,
+        check_compile_fail_output: impl FnOnce(&str),
+    ) {
+        truth::setup_for_test_harness();
+
+        let decompile_args = decompile_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+
+        let compiled = self.compile(&original_source, mapfile);
+        let (_decompiled, decompiled_output) = self._decompile_with_args(&compiled, &decompile_args, mapfile);
+
+        check_compile_fail_output(&String::from_utf8(decompiled_output.stderr).unwrap());
+        assert_eq!(decompiled_output.status.success(), !should_error);
+    }
+
     pub fn make_source(&self, descr: &str, script_parts: ScriptParts<'_>) -> TestFile {
         TestFile::from_content(descr, format!(
             "{}\n{}\n{}",
@@ -123,7 +148,7 @@ impl Format {
     }
 
     fn _compile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
-        let outfile = TestFile::new_temp("compilation output");
+        let outfile = TestFile::new_temp("Xx_COMPILATION OUTPUT_xX");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("compile")
@@ -146,8 +171,8 @@ impl Format {
         (outfile, output)
     }
 
-    pub fn decompile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {
-        let outfile = TestFile::new_temp("decompilation output");
+    fn _decompile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
+        let outfile = TestFile::new_temp("Xx_DECOMPILATION OUTPUT_xX");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("decompile")
@@ -158,6 +183,11 @@ impl Format {
                 .args(args)
                 .output().expect("failed to execute process")
         };
+        (outfile, output)
+    }
+
+    pub fn decompile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {
+        let (outfile, output) = self._decompile_with_args(src, args, mapfile);
         if !output.stderr.is_empty() {
             eprintln!("== DECOMPILE STDERR:");
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));
@@ -244,7 +274,9 @@ lazy_static::lazy_static! {
     static ref TEMP_FILE_SUBSTS: Vec<(regex::Regex, &'static str)> = {
         vec![
             (r#"┌─ .+[/\\]original\.spec"#, "┌─ <input>"),
+            (r#"┌─ .+[/\\]Xx_MAPFILE INPUT_xX"#, "┌─ <mapfile>"),
             (r#"while writing '[^']+': "#, "while writing '<output>':"),
+            (r#"^(warning|error): .+[/\\]Xx_COMPILATION OUTPUT_xX:"#, r#"$1: <decompile-input>:"#),
         ].into_iter().map(|(pat, subst)| {
             (regex::Regex::new(pat).unwrap(), subst)
         }).collect()

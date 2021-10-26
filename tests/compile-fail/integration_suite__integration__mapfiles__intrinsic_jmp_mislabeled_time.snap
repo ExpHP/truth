@@ -1,0 +1,11 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: bad ABI for intrinsic: unexpected dword integer arg at index 1
+  ┌─ <mapfile>:5:3
+  │
+5 │ 4 So
+  │   ^^ unexpected dword integer arg at index 1
+
+

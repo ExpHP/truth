@@ -1,0 +1,11 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: bad ABI for intrinsic: ABI input arg has unexpected encoding (float)
+  ┌─ <mapfile>:5:4
+  │
+5 │ 99 Sf
+  │    ^^ ABI input arg has unexpected encoding (float)
+
+

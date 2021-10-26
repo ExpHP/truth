@@ -1,0 +1,7 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+warning: <decompile-input>: while decompiling a unconditional jump: unsupported data in padding of intrinsic
+
+

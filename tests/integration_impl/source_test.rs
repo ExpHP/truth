@@ -40,10 +40,8 @@ macro_rules! source_test {
         // Does an "SBSB" test to test decompilation of a file compiled from simple source.
         //
         // IMPORTANT: Please see the documentation of Format::sbsb_test for more information.
-        $(
-            $(, decompile_args: $sbsb_decompile_args:expr)?
-            , sbsb: $sbsb_check_fn:expr
-        )?
+        $(, decompile_args: $sbsb_decompile_args:expr)?
+        $(, sbsb: $sbsb_check_fn:expr)?
 
         // Do a compile-fail snapshot test.
         //
@@ -56,6 +54,10 @@ macro_rules! source_test {
         // related to what they were originally testing.
         // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
         $(, expect_error: $expect_error_msg:expr)?
+
+        // These are like a "failing" version of SBSB.  They compile and then check for stderr during decompilation.
+        $(, expect_decompile_warning: $expect_decompile_warning_msg:expr)?
+        $(, expect_decompile_error: $expect_decompile_error_msg:expr)?
 
         $(,)?
     ) => {
@@ -73,9 +75,11 @@ macro_rules! source_test {
                 mapfile: question_kleene_to_option!( $($mapfile.to_string())? ),
                 expect_error: question_kleene_to_option!( $($expect_error_msg.to_string())? ),
                 expect_warning: question_kleene_to_option!( $($expect_warning_msg.to_string())? ),
+                expect_decompile_error: question_kleene_to_option!( $($expect_decompile_error_msg.to_string())? ),
+                expect_decompile_warning: question_kleene_to_option!( $($expect_decompile_warning_msg.to_string())? ),
                 sbsb: question_kleene_to_option!( $($sbsb_check_fn)? ),
                 check_compiled: question_kleene_to_option!( $($check_fn)? ),
-                sbsb_decompile_args: question_kleene_to_option!( $($(&$sbsb_decompile_args)?)? ),
+                sbsb_decompile_args: question_kleene_to_option!( $(&$sbsb_decompile_args)? ),
             }.run(|stderr, expected| check_compile_fail_output!(stderr, expected))
         }
     };
@@ -89,6 +93,8 @@ pub struct SourceTest {
     pub check_compiled: Option<fn(&TestFile, &Format)>,
     pub expect_warning: Option<String>,
     pub expect_error: Option<String>,
+    pub expect_decompile_warning: Option<String>,
+    pub expect_decompile_error: Option<String>,
     pub sbsb_decompile_args: Option<&'static [&'static str]>,
     pub sbsb: Option<fn(&str)>,
 }
@@ -105,7 +111,7 @@ impl SourceTest {
 
         let mut did_something = false;
 
-        let mapfile = self.mapfile.as_ref().map(|s| TestFile::from_content("mapfile input", s));
+        let mapfile = self.mapfile.as_ref().map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s));
 
         if self.check_compiled.is_some() || self.expect_warning.is_some() {
             let (outfile, output) = self.format.compile_and_capture(&self.source, mapfile.as_ref());
@@ -124,11 +130,24 @@ impl SourceTest {
         }
 
         if let Some(sbsb_check_fn) = self.sbsb {
+            // decompile test
+            assert!(self.expect_decompile_warning.is_none(), "combining sbsb + expect_decompile_warning is not yet implemented");
             self.format.sbsb_test(&self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(), sbsb_check_fn);
             did_something = true;
+
+        } else if self.expect_decompile_error.is_some() || self.expect_decompile_warning.is_some() {
+            // decompile-fail test
+            assert!(!(self.expect_decompile_error.is_some() && self.expect_decompile_warning.is_some()));
+            let should_error = self.expect_decompile_error.is_some();
+            let expect_msg = self.expect_decompile_error.as_deref().or(self.expect_decompile_warning.as_deref()).unwrap();
+            self.format.sbsb_fail_test(
+                &self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(),
+                should_error, |stderr| check_compile_fail_output(stderr, expect_msg),
+            )
+
         } else {
             if self.sbsb_decompile_args.is_some() {
-                panic!("Test was provided with decompile_args but was not an sbsb test!")
+                panic!("Test was provided with decompile_args but was not an sbsb or decompile_fail test!")
             }
         }
 

@@ -1,0 +1,11 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: opcode 999 is an intrinsic but has no signature
+  ┌─ <mapfile>:3:5
+  │
+3 │ 999 Jmp()
+  │     ^^^^^ defined as an intrinsic here
+
+

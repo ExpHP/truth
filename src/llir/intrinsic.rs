@@ -87,25 +87,25 @@ pub enum IntrinsicInstrKind {
     /// Like `goto label @ t;` (and `goto label;`)
     ///
     /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    #[strum(serialize = "Jmp")]
+    #[strum_discriminants(strum(serialize = "Jmp"))]
     Jmp,
 
     /// Like `interrupt[n]:`
     ///
     /// Args: `n`.
-    #[strum(serialize = "Interrupt")]
+    #[strum_discriminants(strum(serialize = "Interrupt"))]
     InterruptLabel,
 
     /// Like `a = b;` or `a += b;`
     ///
     /// Args: `a, b`.
-    #[strum(serialize = "AssignOp")]
+    #[strum_discriminants(strum(serialize = "AssignOp"))]
     AssignOp(ast::AssignOpKind, ScalarType),
 
     /// Like `a = b + c;`
     ///
     /// Args: `a, b, c`.
-    #[strum(serialize = "BinOp")]
+    #[strum_discriminants(strum(serialize = "BinOp"))]
     BinOp(ast::BinOpKind, ScalarType),
 
     /// Like `a = sin(b);` (or `a = -a;`, but it seems no formats actually have this?)
@@ -114,33 +114,33 @@ pub enum IntrinsicInstrKind {
     /// a compiled script; they're just a fundamental part of how the engine reads variables.
     ///
     /// Args: `a, b`.
-    #[strum(serialize = "UnOp")]
+    #[strum_discriminants(strum(serialize = "UnOp"))]
     UnOp(ast::UnOpKind, ScalarType),
 
     /// Like `if (--x) goto label @ t`.
     ///
     /// Args: `x, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    #[strum(serialize = "CountJmp")]
+    #[strum_discriminants(strum(serialize = "CountJmp"))]
     CountJmp,
 
     /// Like `if (a == c) goto label @ t;`
     ///
     /// Args: `a, b, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    #[strum(serialize = "CondJmp")]
+    #[strum_discriminants(strum(serialize = "CondJmp"))]
     CondJmp(ast::BinOpKind, ScalarType),
 
     /// First part of a conditional jump in languages where it is comprised of 2 instructions.
     /// Sets a hidden compare register.
     ///
     /// Args: `a, b`
-    #[strum(serialize = "DedicatedCmp")]
+    #[strum_discriminants(strum(serialize = "DedicatedCmp"))]
     CondJmp2A(ScalarType),
 
     /// Second part of a 2-instruction conditional jump in languages where it is comprised of 2 instructions.
     /// Jumps based on the hidden compare register.
     ///
     /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
-    #[strum(serialize = "DedicatedCmpJmp")]
+    #[strum_discriminants(strum(serialize = "DedicatedCmpJmp"))]
     CondJmp2B(ast::BinOpKind),
 }
 
