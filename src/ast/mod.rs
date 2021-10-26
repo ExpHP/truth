@@ -77,8 +77,8 @@ string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum FuncQualifier {
         /// `entry` block for a texture in ANM.
-        #[str = "const"] Const,
-        #[str = "inline"] Inline,
+        #[strum(serialize = "const")] Const,
+        #[strum(serialize = "inline")] Inline,
     }
 }
 
@@ -86,8 +86,8 @@ string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum MetaKeyword {
         /// `entry` block for a texture in ANM.
-        #[str = "entry"] Entry,
-        #[str = "meta"] Meta,
+        #[strum(serialize = "entry")] Entry,
+        #[strum(serialize = "meta")] Meta,
     }
 }
 
@@ -291,8 +291,8 @@ pub enum CallAsyncKind {
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum CondKeyword {
-        #[str = "if"] If,
-        #[str = "unless"] Unless,
+        #[strum(serialize = "if")] If,
+        #[strum(serialize = "unless")] Unless,
     }
 }
 
@@ -309,15 +309,15 @@ pub type DifficultyLabel = String;
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum AssignOpKind {
-        #[str = "="] Assign,
-        #[str = "+="] Add,
-        #[str = "-="] Sub,
-        #[str = "*="] Mul,
-        #[str = "/="] Div,
-        #[str = "%="] Rem,
-        #[str = "|="] BitOr,
-        #[str = "^="] BitXor,
-        #[str = "&="] BitAnd,
+        #[strum(serialize = "=")] Assign,
+        #[strum(serialize = "+=")] Add,
+        #[strum(serialize = "-=")] Sub,
+        #[strum(serialize = "*=")] Mul,
+        #[strum(serialize = "/=")] Div,
+        #[strum(serialize = "%=")] Rem,
+        #[strum(serialize = "|=")] BitOr,
+        #[strum(serialize = "^=")] BitXor,
+        #[strum(serialize = "&=")] BitAnd,
     }
 }
 
@@ -529,22 +529,22 @@ pub enum VarName {
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum BinOpKind {
-        #[str = "+"] Add,
-        #[str = "-"] Sub,
-        #[str = "*"] Mul,
-        #[str = "/"] Div,
-        #[str = "%"] Rem,
-        #[str = "=="] Eq,
-        #[str = "!="] Ne,
-        #[str = "<"] Lt,
-        #[str = "<="] Le,
-        #[str = ">"] Gt,
-        #[str = ">="] Ge,
-        #[str = "|"] BitOr,
-        #[str = "^"] BitXor,
-        #[str = "&"] BitAnd,
-        #[str = "||"] LogicOr,
-        #[str = "&&"] LogicAnd,
+        #[strum(serialize = "+")] Add,
+        #[strum(serialize = "-")] Sub,
+        #[strum(serialize = "*")] Mul,
+        #[strum(serialize = "/")] Div,
+        #[strum(serialize = "%")] Rem,
+        #[strum(serialize = "==")] Eq,
+        #[strum(serialize = "!=")] Ne,
+        #[strum(serialize = "<")] Lt,
+        #[strum(serialize = "<=")] Le,
+        #[strum(serialize = ">")] Gt,
+        #[strum(serialize = ">=")] Ge,
+        #[strum(serialize = "|")] BitOr,
+        #[strum(serialize = "^")] BitXor,
+        #[strum(serialize = "&")] BitAnd,
+        #[strum(serialize = "||")] LogicOr,
+        #[strum(serialize = "&&")] LogicAnd,
     }
 }
 
@@ -578,13 +578,13 @@ impl BinOpKind {
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum UnOpKind {
-        #[str = "!"] Not,
-        #[str = "-"] Neg,
-        #[str = "sin"] Sin,
-        #[str = "cos"] Cos,
-        #[str = "sqrt"] Sqrt,
-        #[str = "_S"] CastI,
-        #[str = "_f"] CastF,
+        #[strum(serialize = "!")] Not,
+        #[strum(serialize = "-")] Neg,
+        #[strum(serialize = "sin")] Sin,
+        #[strum(serialize = "cos")] Cos,
+        #[strum(serialize = "sqrt")] Sqrt,
+        #[strum(serialize = "_S")] CastI,
+        #[strum(serialize = "_f")] CastF,
     }
 }
 
@@ -651,18 +651,18 @@ impl PseudoArg {
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum PseudoArgKind {
-        #[str = "mask"] Mask,
-        #[str = "pop"] Pop,
-        #[str = "blob"] Blob,
-        #[str = "arg0"] ExtraArg,
+        #[strum(serialize = "mask")] Mask,
+        #[strum(serialize = "pop")] Pop,
+        #[strum(serialize = "blob")] Blob,
+        #[strum(serialize = "arg0")] ExtraArg,
     }
 }
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum LabelPropertyKeyword {
-        #[str = "offsetof"] OffsetOf,
-        #[str = "timeof"] TimeOf,
+        #[strum(serialize = "offsetof")] OffsetOf,
+        #[strum(serialize = "timeof")] TimeOf,
     }
 }
 
@@ -694,11 +694,11 @@ impl From<Sp<String>> for Sp<Expr> {
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum TypeKeyword {
-        #[str = "int"] Int,
-        #[str = "float"] Float,
-        #[str = "string"] String,
-        #[str = "var"] Var,
-        #[str = "void"] Void,
+        #[strum(serialize = "int")] Int,
+        #[strum(serialize = "float")] Float,
+        #[strum(serialize = "string")] String,
+        #[strum(serialize = "var")] Var,
+        #[strum(serialize = "void")] Void,
     }
 }
 
@@ -730,8 +730,8 @@ string_enum! {
     /// A type sigil on a variable.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum VarSigil {
-        #[str = "$"] Int,
-        #[str = "%"] Float,
+        #[strum(serialize = "$")] Int,
+        #[strum(serialize = "%")] Float,
     }
 }
 

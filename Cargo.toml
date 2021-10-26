@@ -26,6 +26,7 @@ logos = "0.12"
 encoding_rs = "0.8"
 atty = "0.2"
 walkdir = "2"
+strum = {version = "0.22", features = ["derive"]}
 
 [dependencies.image]
 version = "0.23.14"

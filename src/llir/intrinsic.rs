@@ -70,47 +70,67 @@ impl IntrinsicInstrs {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(strum::EnumDiscriminants)]
+#[strum_discriminants(derive(strum::Display, strum::EnumString))]
+#[strum_discriminants(name(IntrinsicInstrTag))]
 pub enum IntrinsicInstrKind {
     /// Like `goto label @ t;` (and `goto label;`)
     ///
     /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
+    #[strum(serialize = "Jmp")]
     Jmp,
+
     /// Like `interrupt[n]:`
     ///
     /// Args: `n`.
+    #[strum(serialize = "Interrupt")]
     InterruptLabel,
+
     /// Like `a = b;` or `a += b;`
     ///
     /// Args: `a, b`.
+    #[strum(serialize = "AssignOp")]
     AssignOp(ast::AssignOpKind, ScalarType),
+
     /// Like `a = b + c;`
     ///
     /// Args: `a, b, c`.
+    #[strum(serialize = "BinOp")]
     BinOp(ast::BinOpKind, ScalarType),
+
     /// Like `a = sin(b);` (or `a = -a;`, but it seems no formats actually have this?)
     ///
     /// This is not used for casts like `a = _S(b);`.  Casts have no explicit representation in
     /// a compiled script; they're just a fundamental part of how the engine reads variables.
     ///
     /// Args: `a, b`.
+    #[strum(serialize = "UnOp")]
     UnOp(ast::UnOpKind, ScalarType),
+
     /// Like `if (--x) goto label @ t`.
     ///
     /// Args: `x, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
+    #[strum(serialize = "CountJmp")]
     CountJmp,
+
     /// Like `if (a == c) goto label @ t;`
     ///
     /// Args: `a, b, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
+    #[strum(serialize = "CondJmp")]
     CondJmp(ast::BinOpKind, ScalarType),
+
     /// First part of a conditional jump in languages where it is comprised of 2 instructions.
     /// Sets a hidden compare register.
     ///
     /// Args: `a, b`
+    #[strum(serialize = "DedicatedCmp")]
     CondJmp2A(ScalarType),
+
     /// Second part of a 2-instruction conditional jump in languages where it is comprised of 2 instructions.
     /// Jumps based on the hidden compare register.
     ///
     /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
+    #[strum(serialize = "DedicatedCmpJmp")]
     CondJmp2B(ast::BinOpKind),
 }
 
@@ -400,5 +420,97 @@ impl IntrinsicInstrAbiParts {
             return Err(intrinsic_abi_error(abi.span, &format!("unexpected {} arg at index {}", encoding.descr(), index + 1)));
         }
         Ok(out)
+    }
+}
+
+// =============================================================================
+
+#[derive(Debug, thiserror::Error)]
+#[error("{}", .message)]
+pub struct ParseIntrinsicError {
+    message: String,
+}
+
+impl From<strum::ParseError> for ParseIntrinsicError {
+    fn from(e: strum::ParseError) -> Self { ParseIntrinsicError { message: format!("{}", e) }}
+}
+
+/// Parse from a mapfile string.
+impl std::str::FromStr for IntrinsicInstrKind {
+    type Err = ParseIntrinsicError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use IntrinsicInstrTag as Tag;
+        use IntrinsicInstrKind as IKind;
+
+        let fail = |msg: &str| ParseIntrinsicError { message: msg.to_string() };
+
+        let (prefix, mut args) = if let Some(lparen_index) = s.find("(") {
+            if s.chars().next_back() != Some(')') {
+                return Err(fail("missing ')'"));
+            }
+            let (before_paren, at_paren) = s.split_at(lparen_index);
+            let args = at_paren[1..s.len() - 1].split(",").collect::<Vec<_>>();
+            (before_paren, args)
+        } else {
+            return Err(fail("missing '('"));
+        };
+
+        if args == [""] {
+            args.pop();
+        }
+
+        let parse_type = |s: &str| match s {
+            "int" => Ok(ScalarType::Int),
+            "float" => Ok(ScalarType::Float),
+            _ => Err(fail("bad type; expected int or float"))
+        };
+
+        let tag = prefix.parse::<Tag>().map_err(|s| fail(&s.to_string()))?;
+        let mut args = args.into_iter();
+        let mut next_arg = || {
+            args.next().ok_or_else(|| fail("not enough arguments to intrinsic"))
+        };
+        let out = match tag {
+            Tag::Jmp => IKind::Jmp,
+            Tag::InterruptLabel => IKind::InterruptLabel,
+            Tag::AssignOp => IKind::AssignOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
+            Tag::BinOp => IKind::BinOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
+            Tag::UnOp => IKind::UnOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
+            Tag::CountJmp => IKind::CountJmp,
+            Tag::CondJmp => IKind::CondJmp(next_arg()?.parse()?, parse_type(next_arg()?)?),
+            Tag::CondJmp2A => IKind::CondJmp2A(parse_type(next_arg()?)?),
+            Tag::CondJmp2B => IKind::CondJmp2B(next_arg()?.parse()?),
+        };
+
+        if let Some(_) = args.next() {
+            Err(fail("too many arguments to intrinsic"))
+        } else {
+            Ok(out)
+        }
+    }
+}
+
+impl std::fmt::Display for IntrinsicInstrKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use IntrinsicInstrKind as IKind;
+
+        let render_ty = |ty| match ty {
+            &ScalarType::Int => "int",
+            &ScalarType::Float => "float",
+            _ => unreachable!(),
+        };
+        let tag = IntrinsicInstrTag::from(self);
+        match self {
+            IKind::Jmp => write!(f, "{}()", tag),
+            IKind::InterruptLabel => write!(f, "{}()", tag),
+            IKind::AssignOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
+            IKind::BinOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
+            IKind::UnOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
+            IKind::CountJmp => write!(f, "{}()", tag),
+            IKind::CondJmp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
+            IKind::CondJmp2A(ty) => write!(f, "{}({})", tag, render_ty(ty)),
+            IKind::CondJmp2B(op) => write!(f, "{}({})", tag, op),
+        }
     }
 }

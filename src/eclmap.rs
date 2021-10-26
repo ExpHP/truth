@@ -17,6 +17,7 @@ pub struct Eclmap {
     pub ins_rets: BTreeMap<i32, Sp<String>>,
     pub gvar_names: BTreeMap<i32, Sp<Ident>>,
     pub gvar_types: BTreeMap<i32, Sp<String>>,
+    pub ins_intrinsics: BTreeMap<i32, Sp<String>>,
     /// For historic reasons, [`InstrLanguage::Timeline`] has dedicated sections.
     /// When these are seen in a file, they will always define things for timelines
     /// instead of [`Self::language`].
@@ -36,6 +37,7 @@ impl Eclmap {
             /// Legacy `timeline` sections. These will always apply to [`InstrLanguage::Timeline`] instead of [`Self::language`].
             timeline_ins_names: Default::default(),
             timeline_ins_signatures: Default::default(),
+            ins_intrinsics: Default::default(),
         }
     }
 
@@ -169,6 +171,7 @@ impl Eclmap {
             gvar_types: pop_map("gvar_types"),
             timeline_ins_names: pop_ident_map!("timeline_ins_names")?,
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
+            ins_intrinsics: pop_map("ins_intrinsics"),
         };
         for (key, _) in maps {
             emitter.emit(warning!(
