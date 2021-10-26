@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use indexmap::IndexMap;
 
 use crate::raw;
 use crate::ast;
@@ -12,9 +12,9 @@ use crate::value::{ScalarType};
 /// Maps opcodes to and from intrinsics.
 #[derive(Debug, Default)] // Default is used by --no-intrinsics
 pub struct IntrinsicInstrs {
-    intrinsic_opcodes: HashMap<IntrinsicInstrKind, raw::Opcode>,
-    intrinsic_abi_props: HashMap<IntrinsicInstrKind, IntrinsicInstrAbiParts>,
-    opcode_intrinsics: HashMap<raw::Opcode, IntrinsicInstrKind>,
+    intrinsic_opcodes: IndexMap<IntrinsicInstrKind, raw::Opcode>,
+    intrinsic_abi_props: IndexMap<IntrinsicInstrKind, IntrinsicInstrAbiParts>,
+    opcode_intrinsics: IndexMap<raw::Opcode, Sp<IntrinsicInstrKind>>,
 }
 
 #[test]
@@ -32,17 +32,27 @@ impl IntrinsicInstrs {
     ///
     /// This will perform verification of the signatures for each intrinsic.
     pub fn from_format_and_mapfiles(instr_format: &dyn InstrFormat, defs: &context::Defs, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
-        let intrinsic_opcodes: HashMap<_, _> = instr_format.intrinsic_opcode_pairs().into_iter().collect();
-        let opcode_intrinsics = intrinsic_opcodes.iter().map(|(&k, &v)| (v, k)).collect();
+        let native_pairs = instr_format.intrinsic_opcode_pairs();
+        let iter_pairs = || {
+            native_pairs.iter().copied()
+                .map(|(intrinsic, opcode)| (opcode, sp!(intrinsic))) // dummy spans for builtin defs
+                .chain(defs.iter_user_intrinsics(instr_format.language()))
+        };
+        // duplicates can be crazy so we iterate twice instead of making one map from the other
+        let opcode_intrinsics = iter_pairs().collect::<IndexMap<_, _>>();
+        let intrinsic_opcodes = iter_pairs().map(|(k, v)| (v.value, k)).collect::<IndexMap<_, _>>();
 
         let intrinsic_abi_props = {
-            intrinsic_opcodes.iter()
-                .map(|(&kind, &opcode)| {
+            opcode_intrinsics.iter()
+                .map(|(&opcode, &kind)| {
                     let abi = defs.ins_abi(instr_format.language(), opcode)
-                        .unwrap_or_else(|| unimplemented!("error when intrinsic has no ABI"));
-                    let abi_props = IntrinsicInstrAbiParts::from_abi(kind, sp!(Span::NULL => abi))
+                        .ok_or_else(|| emitter.as_sized().emit(error!(
+                            message("opcode {} is an intrinsic but has no signature", opcode),
+                            primary(kind, "defined as an intrinsic here"),
+                        )))?;
+                    let abi_props = IntrinsicInstrAbiParts::from_abi(kind.value, abi)
                         .map_err(|e| emitter.as_sized().emit(e))?;
-                    Ok((kind, abi_props))
+                    Ok((kind.value, abi_props))
                 })
                 .collect_with_recovery()?
         };
@@ -65,7 +75,7 @@ impl IntrinsicInstrs {
 
     pub(crate) fn get_intrinsic_and_props(&self, opcode: raw::Opcode) -> Option<(IntrinsicInstrKind, &IntrinsicInstrAbiParts)> {
         self.opcode_intrinsics.get(&opcode)
-            .map(|&kind| (kind, &self.intrinsic_abi_props[&kind]))
+            .map(|&kind| (kind.value, &self.intrinsic_abi_props[&kind.value]))
     }
 }
 
@@ -365,7 +375,7 @@ fn remove_plain_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Spa
 }
 
 impl IntrinsicInstrAbiParts {
-    pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: Sp<&InstrAbi>) -> Result<Self, Diagnostic> {
+    pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: &Sp<InstrAbi>) -> Result<Self, Diagnostic> {
         use IntrinsicInstrKind as I;
 
         let mut encodings = abi.arg_encodings().enumerate().collect::<Vec<_>>();
@@ -450,7 +460,7 @@ impl std::str::FromStr for IntrinsicInstrKind {
                 return Err(fail("missing ')'"));
             }
             let (before_paren, at_paren) = s.split_at(lparen_index);
-            let args = at_paren[1..s.len() - 1].split(",").collect::<Vec<_>>();
+            let args = at_paren[1..at_paren.len() - 1].split(",").collect::<Vec<_>>();
             (before_paren, args)
         } else {
             return Err(fail("missing '('"));

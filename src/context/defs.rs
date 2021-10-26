@@ -12,7 +12,7 @@ use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, NodeId, rib};
 use crate::eclmap::Eclmap;
 use crate::value::{ScalarType, VarType, ExprType};
-use crate::llir::InstrAbi;
+use crate::llir::{InstrAbi, IntrinsicInstrKind};
 
 /// Retains information about all definitions in the program.
 ///
@@ -44,6 +44,9 @@ pub struct Defs {
     ins_alias_ribs: EnumMap<InstrLanguage, rib::Rib>,
     /// One of the initial ribs for name resolution, containing consts from meta.
     auto_const_rib: rib::Rib,
+
+    /// Intrinsics from mapfiles.
+    user_defined_intrinsics: EnumMap<InstrLanguage, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
 }
 
 // =============================================================================
@@ -62,6 +65,7 @@ impl Default for Defs {
             reg_alias_ribs: enum_map![language => Rib::new(Namespace::Vars, RibKind::Mapfile { language })],
             ins_alias_ribs: enum_map![language => Rib::new(Namespace::Funcs, RibKind::Mapfile { language })],
             auto_const_rib: Rib::new(Namespace::Vars, RibKind::Generated),
+            user_defined_intrinsics: enum_map![_ => Default::default()],
         }
     }
 }
@@ -148,7 +152,7 @@ impl CompilerContext<'_> {
     /// Set the low-level ABI of an instruction.
     ///
     /// A high-level [`Signature`] will also be generated from the ABI.
-    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: raw::Opcode, abi: InstrAbi) {
+    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: raw::Opcode, abi: Sp<InstrAbi>) {
         // also update the high-level signature
         let sig = abi.create_signature(self);
         sig.validate(self).expect("invalid signature from InstrAbi");
@@ -247,7 +251,7 @@ impl Defs {
     }
 
     /// Recovers the ABI of an opcode, if it is known.
-    pub fn ins_abi(&self, language: InstrLanguage, opcode: raw::Opcode) -> Option<&InstrAbi> {
+    pub fn ins_abi(&self, language: InstrLanguage, opcode: raw::Opcode) -> Option<&Sp<InstrAbi>> {
         self.instrs.get(&(language, opcode)).map(|x| &x.abi)
     }
 }
@@ -400,7 +404,7 @@ impl CompilerContext<'_> {
             }
 
             signatures.iter().map(|(&opcode, abi_str)| {
-                let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
+                let abi = sp!(abi_str.span => InstrAbi::parse(abi_str.span, abi_str, emitter)?);
                 abi.validate_against_language(language, emitter)?;
                 self.set_ins_abi(language, opcode as u16, abi);
                 Ok::<_, ErrorReported>(())
@@ -425,6 +429,17 @@ impl CompilerContext<'_> {
             };
             self.set_reg_ty(mapfile.language, RegId(reg), ty);
         }
+
+        mapfile.ins_intrinsics.iter().map(|(&opcode, kind_str)| {
+            let kind = sp!(kind_str.span => kind_str.parse().map_err(|e| {
+                emitter.emit(error!(
+                    message("invalid intrinsic name: {}", e),
+                    primary(kind_str, "{}", e)
+                ))
+            })?);
+            self.defs.add_user_intrinsic(mapfile.language, opcode as _, kind);
+            Ok(())
+        }).collect_with_recovery::<()>()?;
         Ok(())
     }
 
@@ -444,6 +459,22 @@ impl Defs {
         vec.extend(self.reg_alias_ribs.values().cloned());
         vec.push(self.auto_const_rib.clone());
         vec
+    }
+}
+
+impl Defs {
+    /// Add a user-defined intrinsic mapping from a mapfile.
+    pub fn add_user_intrinsic(
+        &mut self,
+        language: InstrLanguage,
+        opcode: raw::Opcode,
+        intrinsic: Sp<IntrinsicInstrKind>,
+    ) {
+        self.user_defined_intrinsics[language].push((opcode, intrinsic));
+    }
+
+    pub fn iter_user_intrinsics(&self, language: InstrLanguage) -> impl Iterator<Item=(raw::Opcode, Sp<IntrinsicInstrKind>)> + '_ {
+        self.user_defined_intrinsics[language].iter().copied()
     }
 }
 
@@ -479,7 +510,7 @@ enum VarKind {
 
 #[derive(Debug, Clone)]
 struct InsData {
-    abi: InstrAbi,
+    abi: Sp<InstrAbi>,
     sig: Signature,
 }
 
