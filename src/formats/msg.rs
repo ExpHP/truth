@@ -193,7 +193,7 @@ fn decompile(
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new(instr_format, &ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new(instr_format, &ctx.emitter, &ctx.defs, decompile_options)?;
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),

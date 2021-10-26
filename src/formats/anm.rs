@@ -458,7 +458,7 @@ fn decompile(
     let instr_format = format.instr_format();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&*instr_format, &ctx.emitter, decompile_options);
+    let mut raiser = llir::Raiser::new(&*instr_format, &ctx.emitter, &ctx.defs, decompile_options)?;
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -479,6 +479,7 @@ fn decompile(
             Ok(())
         }).collect_with_recovery()?;
     }
+
     let mut out = ast::ScriptFile {
         items,
         mapfiles: ctx.mapfiles_to_ast(),

@@ -67,6 +67,7 @@ pub struct Raiser<'a> {
     // Root emitter because we don't want any additional context beyond the filename.
     emitter_for_abi_warnings: &'a context::RootEmitter,
     options: &'a DecompileOptions,
+    intrinsic_instrs: IntrinsicInstrs,
 }
 
 impl Drop for Raiser<'_> {
@@ -76,13 +77,23 @@ impl Drop for Raiser<'_> {
 }
 
 impl<'a> Raiser<'a> {
-    pub fn new(instr_format: &'a dyn InstrFormat, emitter: &'a context::RootEmitter, options: &'a DecompileOptions) -> Self {
-        Raiser {
+    pub fn new(
+        instr_format: &'a dyn InstrFormat,
+        emitter: &'a context::RootEmitter,
+        defs: &context::Defs,
+        options: &'a DecompileOptions,
+    ) -> Result<Self, ErrorReported> {
+        Ok(Raiser {
             instr_format,
             opcodes_without_abis: Default::default(),
             emitter_for_abi_warnings: emitter,
+            // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
+            intrinsic_instrs: match options.intrinsics {
+                true => IntrinsicInstrs::from_format_and_mapfiles(instr_format, defs, emitter)?,
+                false => Default::default(),
+            },
             options,
-        }
+        })
     }
 
     pub fn raise_instrs_to_sub_ast(
@@ -132,15 +143,9 @@ fn _raise_instrs_to_sub_ast(
     let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
 
-    // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
-    let intrinsic_instrs = match raiser.options.intrinsics {
-        true => IntrinsicInstrs::from_format_and_mapfiles(instr_format, defs, emitter)?,
-        false => Default::default(),
-    };
-
     _raise_instrs_main_loop(
         emitter, defs, instr_format, &instr_offsets,
-        &script, &offset_labels, &intrinsic_instrs,
+        &script, &offset_labels, &raiser.intrinsic_instrs,
     )
 }
 

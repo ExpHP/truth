@@ -57,7 +57,7 @@ fn decompile(
     let timeline_format = &*format.timeline_format();
 
     let mut items = vec![];
-    let mut timeline_raiser = llir::Raiser::new(timeline_format, &ctx.emitter, decompile_options);
+    let mut timeline_raiser = llir::Raiser::new(timeline_format, &ctx.emitter, &ctx.defs, decompile_options)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Timeline {
             keyword: sp!(()),
@@ -68,7 +68,7 @@ fn decompile(
         }));
     }
 
-    let mut sub_raiser = llir::Raiser::new(instr_format, &ctx.emitter, decompile_options);
+    let mut sub_raiser = llir::Raiser::new(instr_format, &ctx.emitter, &ctx.defs, decompile_options)?;
     for (ident, instrs) in ecl.subs.iter() {
         items.push(sp!(ast::Item::Func {
             qualifier: None,

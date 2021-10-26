@@ -245,7 +245,7 @@ fn decompile_std(
     let script = &std.script;
 
     let code = {
-        llir::Raiser::new(instr_format, &ctx.emitter, decompile_options)
+        llir::Raiser::new(instr_format, &ctx.emitter, &ctx.defs, decompile_options)?
             .raise_instrs_to_sub_ast(emitter, script, &ctx.defs, &ctx.unused_node_ids)?
     };
 
