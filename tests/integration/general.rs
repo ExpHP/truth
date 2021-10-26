@@ -257,6 +257,14 @@ source_test!(
 );
 
 source_test!(
+    ANM_12, interrupt_register,
+    main_body: r#"
+        ins_64($I0);  // interrupt
+    "#,
+    expect_decompile_error: "register in interrupt",
+);
+
+source_test!(
     STD_08, arg_count_range,
     main_body: r#"
         ins_2();
@@ -515,19 +523,7 @@ script main {}
 
 #[test]
 #[ignore]
-fn need_tests_for_malformed_jump_signatures() {
-    panic!()
-}
-
-#[test]
-#[ignore]
 fn need_tests_for_eosd_regs() {
-    panic!()
-}
-
-#[test]
-#[ignore]
-fn need_tests_for_funny_broken_cmp_jmp_pairs() {
     panic!()
 }
 

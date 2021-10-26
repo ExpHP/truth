@@ -17,16 +17,6 @@ pub struct IntrinsicInstrs {
     opcode_intrinsics: IndexMap<raw::Opcode, Sp<IntrinsicInstrKind>>,
 }
 
-#[test]
-fn fix_from_instr_format() {
-    panic!("fix from_instr_format to add intrinsics from mapfiles");
-}
-
-#[test]
-fn fix_null_span() {
-    panic!("fix null span in IntrinsicInstrAbiProps::from_abi call (put spans on abis in Defs)");
-}
-
 impl IntrinsicInstrs {
     /// Build from the builtin intrinsics list of the format, and user mapfiles.
     ///
@@ -479,7 +469,7 @@ impl std::str::FromStr for IntrinsicInstrKind {
         let tag = prefix.parse::<Tag>().map_err(|s| fail(&s.to_string()))?;
         let mut args = args.into_iter();
         let mut next_arg = || {
-            args.next().ok_or_else(|| fail("not enough arguments to intrinsic"))
+            args.next().ok_or_else(|| fail("not enough arguments to intrinsic name"))
         };
         let out = match tag {
             Tag::Jmp => IKind::Jmp,
@@ -494,7 +484,7 @@ impl std::str::FromStr for IntrinsicInstrKind {
         };
 
         if let Some(_) = args.next() {
-            Err(fail("too many arguments to intrinsic"))
+            Err(fail("too many arguments to intrinsic name"))
         } else {
             Ok(out)
         }

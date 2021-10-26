@@ -1,6 +1,24 @@
 use crate::integration_impl::formats::*;
 
 source_test!(
+    ANM_10, seqmap_missing_section_header,
+    mapfile: r#"!anmmap
+300 ot
+"#,
+    main_body: r#""#,
+    expect_error: "missing section header",
+);
+
+source_test!(
+    ANM_10, seqmap_missing_magic,
+    mapfile: r#"
+300 ot
+"#,
+    main_body: r#""#,
+    expect_error: "missing magic",
+);
+
+source_test!(
     ANM_10, abi_multiple_o,
     mapfile: r#"!anmmap
 !ins_signatures
@@ -11,10 +29,76 @@ source_test!(
 );
 
 source_test!(
+    // NOTE: in the future this should be allowed but for now it is rejected because
+    //       it doesn't implement the right semantics. Note the desired semantics may
+    //       differ between different sections and require additional tests.
+    //       (it should behave similar to whatever you get from having multiple
+    //        separate mapfiles define conflicting keys for that section)
+    ANM_10, seqmap_duplicate_key,
+    mapfile: r#"!anmmap
+!ins_names
+10 blue
+10 bloo
+"#,
+    main_body: r#""#,
+    expect_error: "duplicate key error",
+);
+
+source_test!(
+    ANM_10, intrinsic_name_garbage,
+    mapfile: r#"!anmmap
+!ins_intrinsics
+4 lmfao
+"#,
+    main_body: r#""#,
+    expect_error: "invalid intrinsic name",
+);
+
+source_test!(
+    ANM_10, intrinsic_name_xkcd_859,
+    mapfile: r#"!anmmap
+!ins_intrinsics
+4 CondJmp(>,int
+"#,
+    main_body: r#""#,
+    expect_error: "invalid intrinsic name",
+);
+
+source_test!(
+    ANM_10, intrinsic_name_extra_arg,
+    mapfile: r#"!anmmap
+!ins_intrinsics
+4 Jmp(int)
+"#,
+    main_body: r#""#,
+    expect_error: "invalid intrinsic name",
+);
+
+source_test!(
+    ANM_10, intrinsic_name_missing_arg,
+    mapfile: r#"!anmmap
+!ins_intrinsics
+4 CondJmp(>=)
+"#,
+    main_body: r#""#,
+    expect_error: "invalid intrinsic name",
+);
+
+source_test!(
+    ANM_10, intrinsic_name_typo,
+    mapfile: r#"!anmmap
+!ins_intrinsics
+4 CondimentJmp(>=,int)
+"#,
+    main_body: r#""#,
+    expect_error: "invalid intrinsic name",
+);
+
+source_test!(
     ANM_10, intrinsic_jmp_needs_offset,
     mapfile: r#"!anmmap
 !ins_intrinsics
-4 Jmp()
+4 Jmp(+)
 !ins_signatures
 4 St
 "#,
@@ -118,17 +202,6 @@ script bbb { }
 "#,
     main_body: r#""#,
     expect_error: "has no signature",
-);
-
-source_test!(
-    STD_08, intrinsic_padding,
-    main_body: r#"
-    ins_4(offsetof(blah), timeof(blah), 50);  // 50 is padding
-blah:
-"#,
-    // NOTE: it would be better if this fell back to `ins_` syntax in order to
-    //       properly round-trip, instead of just warning about lost data...
-    expect_decompile_warning: "data in padding",
 );
 
 source_test!(

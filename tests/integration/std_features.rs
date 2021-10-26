@@ -150,7 +150,13 @@ script main {}
     expect_error: "both 'unknown' and 'layer'",
 );
 
-#[test]
-fn test_for_data_in_intrinsic_padding() {
-    panic!()
-}
+source_test!(
+    STD_08, intrinsic_padding,
+    main_body: r#"
+    ins_4(offsetof(blah), timeof(blah), 50);  // 50 is padding
+blah:
+"#,
+    // NOTE: it would be better if this fell back to `ins_` syntax in order to
+    //       properly round-trip, instead of just warning about lost data...
+    expect_decompile_warning: "data in padding",
+);
