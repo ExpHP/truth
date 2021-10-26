@@ -139,8 +139,9 @@ impl Format {
         self.compile_with_args(src, &[], mapfile)
     }
 
-    pub fn compile_and_capture(&self, src: &TestFile, mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
-        self._compile_with_args(src, &[], mapfile)
+    pub fn compile_and_capture(&self, src: &TestFile, args: &[impl AsRef<OsStr>], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
+        let args = args.into_iter().map(|arg| arg.as_ref()).collect::<Vec<_>>();
+        self._compile_with_args(src, &args, mapfile)
     }
 
     pub fn compile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {

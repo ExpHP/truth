@@ -113,14 +113,14 @@ pub mod anm_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truanm decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
         });
 
         wrap_decompile_to_stdout(fmt_config, |truth| {
-            decompile(truth, game, input.as_ref(), mapfile, &decompile_options)
+            decompile(truth, game, input.as_ref(), mapfiles, &decompile_options)
         });
     }
 
@@ -128,11 +128,11 @@ pub mod anm_decompile {
         truth: &mut Truth,
         game: Game,
         path: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         decompile_options: &DecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
-        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".anmm");
-        load_mapfiles(truth, game, InstrLanguage::Anm, map_path)?;
+        let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".anmm");
+        load_mapfiles(truth, game, &[InstrLanguage::Anm], mapfile_args)?;
 
         let anm = truth.read_anm(game, path, false)?;
         truth.decompile_anm(game, &anm, decompile_options)
@@ -169,17 +169,17 @@ pub mod anm_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (script_path, game, output, mapfile, image_sources, output_thecl_defs) = cli::parse_args(version, args, CmdSpec {
+        let (script_path, game, output, mapfiles, image_sources, output_thecl_defs) = cli::parse_args(version, args, CmdSpec {
             program: "truanm compile",
             usage_args: "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
                 cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfile(), cli::image_sources(),
+                cli::game(), cli::required_output(), cli::mapfiles(), cli::image_sources(),
                 cli::output_thecl_defs(),
             ),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &script_path, &output, &image_sources, mapfile, output_thecl_defs));
+        wrap_exit_code(|truth| run(truth, game, &script_path, &output, &image_sources, mapfiles, output_thecl_defs));
     }
 
     pub(super) fn run(
@@ -188,10 +188,10 @@ pub mod anm_compile {
         script_path: &Path,
         outpath: &Path,
         cli_image_source_paths: &[PathBuf],
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, InstrLanguage::Anm, map_path)?;
+        load_mapfiles(truth, game, &[InstrLanguage::Anm], mapfile_args)?;
 
         let ast = truth.read_script(&script_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -247,13 +247,13 @@ pub mod ecl_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, mapfiles, game) = cli::parse_args(version, args, CmdSpec {
             program: "truecl compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+            options: (cli::input(), cli::required_output(), cli::mapfiles(), cli::game()),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles));
     }
 
     fn run(
@@ -261,10 +261,9 @@ pub mod ecl_compile {
         game: Game,
         path: &Path,
         outpath: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, InstrLanguage::Ecl, map_path.clone())?;
-        load_mapfiles(truth, game, InstrLanguage::Timeline, map_path)?;
+        load_mapfiles(truth, game, &[InstrLanguage::Ecl, InstrLanguage::Timeline], mapfile_args)?;
 
         let ast = truth.read_script(&path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -280,14 +279,14 @@ pub mod ecl_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truecl decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
         });
 
         wrap_decompile_to_stdout(fmt_config, |truth| {
-            decompile(truth, game, input.as_ref(), mapfile, &decompile_options)
+            decompile(truth, game, input.as_ref(), mapfiles, &decompile_options)
         });
     }
 
@@ -295,11 +294,11 @@ pub mod ecl_decompile {
         truth: &mut Truth,
         game: Game,
         path: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         decompile_options: &DecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
-        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".eclm");
-        load_mapfiles(truth, game, InstrLanguage::Ecl, map_path)?;
+        let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".eclm");
+        load_mapfiles(truth, game, &[InstrLanguage::Ecl, InstrLanguage::Timeline], mapfile_args)?;
 
         let anm = truth.read_ecl(game, path)?;
         truth.decompile_ecl(game, &anm, decompile_options)
@@ -334,16 +333,16 @@ pub mod anm_benchmark {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (anm_path, script_path, game, output, mapfile, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (anm_path, script_path, game, output, mapfiles, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core anm-benchmark",
             usage_args: "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
                 cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfile(), cli::decompile_options(),
+                cli::game(), cli::required_output(), cli::mapfiles(), cli::decompile_options(),
             ),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, mapfile, &decompile_options))
+        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, mapfiles, &decompile_options))
     }
 
     fn run(
@@ -352,12 +351,12 @@ pub mod anm_benchmark {
         anm_path: &Path,
         script_path: &Path,
         outpath: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let image_source_paths = [anm_path.to_owned()];
         loop {
-            let ast = super::anm_decompile::decompile(truth, game, anm_path, map_path.clone(), &decompile_options)?;
+            let ast = super::anm_decompile::decompile(truth, game, anm_path, mapfile_args.clone(), &decompile_options)?;
 
             let fmt_config = crate::fmt::Config::new().max_columns(100);
             let mut script_out_utf8 = vec![];
@@ -367,7 +366,7 @@ pub mod anm_benchmark {
 
             truth.fs().write(script_path, &script_out_utf8)?;
 
-            super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, map_path.clone(), None)?;
+            super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, mapfile_args.clone(), None)?;
         }
     }
 }
@@ -376,13 +375,13 @@ pub mod std_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfile, game) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, mapfiles, game) = cli::parse_args(version, args, CmdSpec {
             program: "trustd compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game()),
+            options: (cli::input(), cli::required_output(), cli::mapfiles(), cli::game()),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile));
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles));
     }
 
     fn run(
@@ -390,9 +389,9 @@ pub mod std_compile {
         game: Game,
         path: &Path,
         outpath: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
     ) -> Result<(), ErrorReported> {
-        load_mapfiles(truth, game, InstrLanguage::Std, map_path)?;
+        load_mapfiles(truth, game, &[InstrLanguage::Std], mapfile_args)?;
 
         let ast = truth.read_script(&path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
@@ -408,23 +407,23 @@ pub mod std_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfile, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trustd decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
         });
-        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfile, &decompile_options))
+        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfiles, &decompile_options))
     }
 
     fn decompile(
         truth: &mut Truth,
         game: Game,
         path: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         decompile_options: &DecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
-        let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".stdm");
-        load_mapfiles(truth, game, InstrLanguage::Std, map_path)?;
+        let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".stdm");
+        load_mapfiles(truth, game, &[InstrLanguage::Std], mapfile_args)?;
 
         let std = truth.read_std(game, path)?;
         truth.decompile_std(game, &std, decompile_options)
@@ -460,13 +459,13 @@ pub mod msg_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfile, game, msg_mode) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, mapfiles, game, msg_mode) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfile(), cli::game(), cli::msg_mode()),
+            options: (cli::input(), cli::required_output(), cli::mapfiles(), cli::game(), cli::msg_mode()),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfile, msg_mode));
+        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles, msg_mode));
     }
 
     fn run(
@@ -474,7 +473,7 @@ pub mod msg_compile {
         game: Game,
         path: &Path,
         outpath: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         msg_mode: MsgMode,
     ) -> Result<(), ErrorReported> {
         let ast = truth.read_script(&path)?;
@@ -482,7 +481,7 @@ pub mod msg_compile {
 
         match msg_mode {
             MsgMode::Stage => {
-                load_mapfiles(truth, game, InstrLanguage::Msg, map_path)?;
+                load_mapfiles(truth, game, &[InstrLanguage::Msg], mapfile_args)?;
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
 
                 let msg = truth.compile_msg(game, InstrLanguage::Msg, &ast)?;
@@ -502,26 +501,26 @@ pub mod msg_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfile, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, fmt_config, mapfiles, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfile(), cli::game(), cli::msg_mode(), cli::decompile_options()),
+            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::msg_mode(), cli::decompile_options()),
         });
-        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfile, msg_mode, &decompile_options))
+        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfiles, msg_mode, &decompile_options))
     }
 
     fn decompile(
         truth: &mut Truth,
         game: Game,
         path: &Path,
-        map_path: Option<PathBuf>,
+        mapfile_args: Vec<PathBuf>,
         msg_mode: MsgMode,
         decompile_options: &DecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
         match msg_mode {
             MsgMode::Stage => {
-                let map_path = maybe_use_default_mapfile_for_decomp(map_path, ".msgm");
-                load_mapfiles(truth, game, InstrLanguage::Msg, map_path)?;
+                let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".msgm");
+                load_mapfiles(truth, game, &[InstrLanguage::Msg], mapfile_args)?;
 
                 let msg = truth.read_msg(game, InstrLanguage::Msg, path)?;
                 truth.decompile_msg(game, InstrLanguage::Msg, &msg, decompile_options)
@@ -537,26 +536,33 @@ pub mod msg_decompile {
 
 // =============================================================================
 
-/// Implements the automatic searching of the environment during decompilation when there's no `-m`.
-fn maybe_use_default_mapfile_for_decomp(
-    mapfile_arg: Option<PathBuf>,
+/// Implements the automatic searching of the environment during decompilation.
+fn add_env_mapfile_for_decomp(
+    mut mapfile_args: Vec<PathBuf>,
     mapfile_extension: &'static str,
-) -> Option<PathBuf> {
-    mapfile_arg.or_else(|| crate::Eclmap::decomp_map_file_from_env(mapfile_extension))
+) -> Vec<PathBuf> {
+    if let Some(env_mapfile) = crate::Eclmap::decomp_map_file_from_env(mapfile_extension) {
+        mapfile_args.insert(0, env_mapfile);
+    }
+    mapfile_args
 }
 
 /// Loads the user's mapfile and the core mapfile.
 fn load_mapfiles(
     truth: &mut Truth,
     game: Game,
-    language: InstrLanguage,
-    mapfile_arg: Option<PathBuf>,
+    // this takes multiple languages (rather than expecting multiple calls) so that all core
+    // mapfiles can be loaded before any CLI args
+    core_mapfile_languages: &[InstrLanguage],
+    mapfile_args: Vec<PathBuf>,
 ) -> Result<(), ErrorReported> {
-    let core_mapfile = crate::core_mapfiles::core_mapfile(game, language);
-    truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
+    for &language in core_mapfile_languages {
+        let core_mapfile = crate::core_mapfiles::core_mapfile(game, language);
+        truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
+    }
 
-    if let Some(mapfile_arg) = mapfile_arg {
-        truth.load_mapfile(&mapfile_arg, Some(game))?;
+    for path in mapfile_args {
+        truth.load_mapfile(&path, Some(game))?;
     }
     Ok(())
 }
@@ -597,11 +603,11 @@ mod cli {
     use super::*;
     use getopts::{Options, Matches};
 
-    pub fn mapfile() -> impl CliArg<Value=Option<PathBuf>> {
-        opts::Opt {
+    pub fn mapfiles() -> impl CliArg<Value=Vec<PathBuf>> {
+        opts::MultiOpt(opts::Opt {
             short: "m", long: "map", metavar: "MAPFILE",
             help: "use a mapfile to translate instruction names and argument types",
-        }.map(|opt| opt.map(Into::into))
+        }).map(|opts| opts.into_iter().map(Into::into).collect())
     }
 
     pub fn required_output() -> impl CliArg<Value=PathBuf> {

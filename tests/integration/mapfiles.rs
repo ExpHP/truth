@@ -231,3 +231,35 @@ blah:
     //       could be made more robust with the addition of a --no-default-intrinsics
     //       flag to guarantee that the opcode 5 pairing is completely forgotten.
 );
+
+source_test!(
+    ANM_10, intrinsic_float_op_like_eosd_ecl,
+    mapfile: r#"!anmmap
+!ins_signatures
+99  Sff   # EoSD ECL writes output regs as integers
+!ins_intrinsics
+99  BinOp(+,float)
+"#,
+    main_body: r#"
+    ins_99($REG[10], %REG[20], 3.5f);
+"#,
+    sbsb: |decompiled| {
+        // The raw ins_ used $REG but the decompiled op should use %REG syntax
+        assert!(decompiled.contains("%REG[10] = %REG[20] + 3.5"));
+    },
+    // NOTE: This test depends somewhat riskily on the fact that, currently, the last
+    //       opcode assigned to an intrinsic takes priority during compilation.
+);
+
+source_test!(
+    ANM_10, multiple_m_arguments,
+    compile_args: [
+        "-m", "tests/integration/resources/multiple-mapfiles-1.anmm",
+        "-m", "tests/integration/resources/multiple-mapfiles-2.anmm",
+    ],
+    main_body: r#"
+    aaa(2, 4);
+    bbb(5, 7);
+"#,
+    check_compiled: |_, _| {}, // just expecting no warnings/errors
+);

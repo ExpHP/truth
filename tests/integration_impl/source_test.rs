@@ -20,6 +20,7 @@ macro_rules! source_test {
         $format:expr, $test_name:ident
 
         $(, mapfile: $mapfile:expr)?
+        $(, compile_args: $compile_args:expr)?
         // -------------------------
         // args to make_source!
         $(, items: $items:expr)?
@@ -36,6 +37,7 @@ macro_rules! source_test {
         $(, expect_warning: $expect_warning_msg:expr)?
         // Compile the code and run the given closure on the compiled TestFile.
         $(, check_compiled: $check_fn:expr)?
+
 
         // Does an "SBSB" test to test decompilation of a file compiled from simple source.
         //
@@ -73,6 +75,7 @@ macro_rules! source_test {
                     $(, full_source: $full_source)?
                 ),
                 mapfile: question_kleene_to_option!( $($mapfile.to_string())? ),
+                compile_args: question_kleene_to_option!( $(&$compile_args)? ),
                 expect_error: question_kleene_to_option!( $($expect_error_msg.to_string())? ),
                 expect_warning: question_kleene_to_option!( $($expect_warning_msg.to_string())? ),
                 expect_decompile_error: question_kleene_to_option!( $($expect_decompile_error_msg.to_string())? ),
@@ -90,6 +93,7 @@ pub struct SourceTest {
     pub format: &'static Format,
     pub source: TestFile,
     pub mapfile: Option<String>,
+    pub compile_args: Option<&'static [&'static str]>,
     pub check_compiled: Option<fn(&TestFile, &Format)>,
     pub expect_warning: Option<String>,
     pub expect_error: Option<String>,
@@ -112,9 +116,10 @@ impl SourceTest {
         let mut did_something = false;
 
         let mapfile = self.mapfile.as_ref().map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s));
+        let compile_args = self.compile_args.unwrap_or(&[]);
 
         if self.check_compiled.is_some() || self.expect_warning.is_some() {
-            let (outfile, output) = self.format.compile_and_capture(&self.source, mapfile.as_ref());
+            let (outfile, output) = self.format.compile_and_capture(&self.source, compile_args, mapfile.as_ref());
             let stderr = String::from_utf8_lossy(&output.stderr);
             match &self.expect_warning {
                 Some(expected) => {

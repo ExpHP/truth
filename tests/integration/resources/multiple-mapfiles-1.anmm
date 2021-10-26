@@ -1,0 +1,6 @@
+!anmmap
+# Test file for multiple -m arguments
+!ins_signatures
+2000 SS
+!ins_names
+2000 aaa
