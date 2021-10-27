@@ -159,7 +159,7 @@ pub const ECL_06: Format = Format {
     cmd: "truecl",
     game: Game::Th06,
     script_head: r#"
-#pragma mapfile "map/debug.eclm"
+#pragma mapfile "map/any.eclm"
 
 timeline 0 {}
 "#,
@@ -171,18 +171,8 @@ void sub0() {{
 };
 
 pub const ECL_08: Format = Format {
-    cmd: "truecl",
     game: Game::Th08,
-    script_head: r#"
-#pragma mapfile "map/debug.eclm"
-
-timeline 0 {}
-"#,
-    make_main: |body| format!(r#"
-void sub0() {{
-    {}
-}}
-"#, body),
+    ..ECL_06
 };
 
 /// Variant of ECL_08 where main_body is inserted into a timeline instead.
@@ -190,10 +180,7 @@ void sub0() {{
 pub const ECL_TIMELINE_08: Format = Format {
     cmd: "truecl",
     game: Game::Th08,
-    script_head: r#"
-#pragma mapfile "map/debug.eclm"
-
-"#,
+    script_head: r#""#,
     make_main: |body| format!(r#"
 timeline 0 {{
     {}

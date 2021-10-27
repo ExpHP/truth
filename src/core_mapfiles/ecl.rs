@@ -196,7 +196,6 @@ static ECL_06: &'static CoreSignatures = &CoreSignatures {
 static TIMELINE_06: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
-        // FIXME: something is broken with timeline arg0
         (Th06, 0, Some("T(e)fffssS")),
         (Th06, 1, Some("T(e)fff")),
         (Th06, 2, Some("T(e)fffssS")),

@@ -478,13 +478,8 @@ fn raise_single_decoded_instr(
     }
 
     // Cannot raise as intrinsic.  Raise directly to `ins_*(...)` syntax.
-    let abi = expect_abi(language, instr, defs);
     emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
-        Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call {
-            name: sp!(ast::CallableName::Ins { opcode, language: Some(language) }),
-            pseudos: vec![],
-            args: raise_args(language, emitter, args, abi)?,
-        })))
+        raise_plain_ins(language, emitter, instr, args, defs)
     })
 }
 
@@ -510,7 +505,6 @@ fn possibly_raise_long_intrinsic(
     match intrinsic_instrs.get_intrinsic_and_props(instr_1.opcode) {
         Some((IKind::CondJmp2A(_), abi_info_1)) => match intrinsic_instrs.get_intrinsic_and_props(instr_2.opcode) {
             Some((IKind::CondJmp2B(op), abi_info_2)) => {
-
                 emitter.chain("while decompiling a two-step conditional jump", |emitter| {
                     let mut cmp_parts = RaisedIntrinsicParts::from_instr(instr_1, args_1, abi_1, abi_info_1, emitter, instr_format, offset_labels)?;
                     let mut jmp_parts = RaisedIntrinsicParts::from_instr(instr_2, args_2, abi_2, abi_info_2, emitter, instr_format, offset_labels)?;
@@ -530,27 +524,53 @@ fn possibly_raise_long_intrinsic(
 }
 
 /// Raise a list of args for `ins_` syntax. (i.e. not intrinsics)
-fn raise_args(language: InstrLanguage, emitter: &impl Emitter, args: &[SimpleArg], abi: &InstrAbi) -> Result<Vec<Sp<ast::Expr>>, ErrorReported> {
+fn raise_plain_ins(
+    language: InstrLanguage,
+    emitter: &impl Emitter,
+    instr: &RaiseInstr,
+    args: &[SimpleArg],  // args decoded from the blob
+    defs: &context::Defs,
+) -> Result<ast::StmtKind, ErrorReported> {
+    let abi = expect_abi(language, instr, defs);
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
     if args.len() != encodings.len() {
         return Err(emitter.emit(error!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len())));
     }
 
-    let mut out = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
+    let mut raised_args = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
         emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
             Ok(sp!(raise_arg(language, emitter, &arg, enc)?))
         })
     }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
-    // drop early STD padding args from the end as long as they're zero
+    // Move unused timeline arguments out of the argument list and into a pseudo-arg.
+    let mut pseudos = vec![];
+    if matches!(encodings.get(0), Some(ArgEncoding::TimelineArg(TimelineArgKind::Unused))) {
+        let arg0_expr = raised_args.remove(0);
+        if arg0_expr.as_const_int().unwrap() != 0 {
+            pseudos.push(sp!(ast::PseudoArg {
+                at_sign: sp!(()), eq_sign: sp!(()),
+                kind: sp!(ast::PseudoArgKind::ExtraArg),
+                value: arg0_expr,
+            }))
+        }
+    }
+
+    // drop early STD padding args from the end as long as they're zero.
+    //
+    // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
     for (enc, arg) in abi.arg_encodings().zip(args).rev() {
         match (enc, arg) {
-            (ArgEncoding::Padding, SimpleArg { value: ScalarValue::Int(0), .. }) => out.pop(),
+            (ArgEncoding::Padding, SimpleArg { value: ScalarValue::Int(0), .. }) => raised_args.pop(),
             _ => break,
         };
     }
-    Ok(out)
+    Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call {
+        name: sp!(ast::CallableName::Ins { opcode: instr.opcode, language: Some(language) }),
+        pseudos,
+        args: raised_args,
+    })))
 }
 
 /// General argument-raising routine that supports registers and uses the encoding in the ABI
@@ -573,6 +593,7 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Dword
         | ArgEncoding::JumpTime  // NOTE: might eventually want timeof(label)
         | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
+        | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
         => Ok(ast::Expr::from(raw.expect_int())),
 
         | ArgEncoding::Sprite
@@ -611,9 +632,6 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
 
         | ArgEncoding::String { .. }
         => Ok(ast::Expr::from(raw.expect_string().clone())),
-
-        | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
-        => unreachable!(), // we shouldn't be called in this case
     }
 }
 
@@ -807,7 +825,12 @@ fn decode_args_with_abi(
                 },
 
                 | ArgEncoding::TimelineArg { .. }
-                => return Ok(()),  // no value for this arg
+                => {
+                    // a check that non-timeline languages don't have timeline args in their signature
+                    // is done earlier so we can unwrap this
+                    let extra_arg = instr.extra_arg.expect("timeline arg in sig for non-timeline language");
+                    ScalarValue::Int(extra_arg as _)
+                },
             };
 
             let is_reg = match reg_style {

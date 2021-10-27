@@ -1,10 +1,29 @@
 use crate::integration_impl::{expected, formats::*};
 
+const TIMELINE_DEBUGGING_ECLMAP: &'static str = r#"!eclmap
+!ins_names
+10 eclOnly
+
+!ins_signatures
+10 SS
+
+!timeline_ins_names
+10 timelineOnly
+11 hasSubArg0
+12 hasMsgArg0
+13 hasUnusedArg0
+
+!timeline_ins_signatures
+10 T(_)ff
+11 T(e)SS
+12 T(m)SS
+13 T(_)SS
+"#;
+
 source_test!(
     ECL_08, wrong_lang,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     full_source: r#"
-#pragma mapfile "map/debug.eclm"
-
 timeline 0 {
     eclOnly(0, 3, 3);
 }
@@ -18,6 +37,7 @@ void bouba() {
 
 source_test!(
     ECL_TIMELINE_08, successful_sub_arg0s,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     items: r#"
     void bouba() {}
     void kiki() {}
@@ -34,6 +54,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, successful_msg_arg0s,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasMsgArg0(10, 3, 3);
 "#,
@@ -45,6 +66,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, successful_unused_arg0s,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(3, 3);
     hasUnusedArg0(@arg0=5, 3, 3);
@@ -58,6 +80,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, bad_arity_with_required_arg0,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     // arg0 cannot stand in for a positional arg, even if that positional arg technically serves the role of arg0
     hasMsgArg0(@arg0=10, 3, 3);
@@ -67,6 +90,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, warn_arg0_collision,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasMsgArg0(@arg0=10, 5, 3, 3);
 "#,
@@ -79,6 +103,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, bad_type_for_optional_arg0,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(@arg0=5.5, 3, 3);
 "#,
@@ -87,6 +112,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, blob_without_optional_arg0,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(@blob="FFFFFFFF FFFFFFFF");
 "#,
@@ -97,7 +123,47 @@ source_test!(
 );
 
 source_test!(
+    ECL_TIMELINE_08, optional_arg0_zero,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
+    main_body: r#"
+    hasUnusedArg0(3, 3);
+"#,
+    sbsb: |decompiled| assert!(decompiled.contains("(3, 3)")),
+);
+
+source_test!(
+    ECL_TIMELINE_08, optional_arg0_nonzero,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
+    main_body: r#"
+    hasUnusedArg0(@arg0=5, 3, 3);
+"#,
+    sbsb: |decompiled| assert!(decompiled.contains("(@arg0=5, 3, 3)")),
+);
+
+source_test!(
+    ECL_TIMELINE_08, optional_arg0_padding_edge_case,
+    mapfile: r#"!eclmap
+!timeline_ins_signatures
+200 T(m)S__
+"#,
+    // this is an edge case that arose in decompilation where the presence of a timeline
+    // arg could make the code that trims padding look at the wrong values
+    main_body: r#"
+    ins_200(1, 3, 0, 0);
+    ins_200(1, 4, 4, 0);
+    ins_200(1, 5, 5, 5);
+"#,
+    sbsb: |decompiled| {
+        // make sure it cut the padding off at the right index each time
+        assert!(decompiled.contains("(1, 3)"));
+        assert!(decompiled.contains("(1, 4, 4)"));
+        assert!(decompiled.contains("(1, 5, 5, 5)"));
+    },
+);
+
+source_test!(
     ECL_TIMELINE_08, blob_without_required_arg0,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasSubArg0(@blob="FFFFFFFF FFFFFFFF");
 "#,
@@ -111,6 +177,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, expr_as_positional_arg0,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasMsgArg0(10 + 5, 3, 3);
 "#,
@@ -122,6 +189,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, reg_as_positional_arg0,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasMsgArg0($REG[20], 3, 3);
 "#,
@@ -130,6 +198,7 @@ source_test!(
 
 source_test!(
     ECL_TIMELINE_08, reg_as_other_timeline_arg,
+    mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasMsgArg0(3, $REG[20], 3);
 "#,
@@ -166,8 +235,8 @@ source_test!(
     ECL_06, decompile_eosd_cmp_jmp_success,
     main_body: r#"
 label:
-    cmpInt(I0, 5);
-    jmpLt(timeof(label), offsetof(label));
+    cmp_int(I0, 5);
+    jump_lss(timeof(label), offsetof(label));
 "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains("while"));
@@ -179,9 +248,9 @@ source_test!(
     ECL_06, decompile_eosd_cmp_jmp_blocked_by_time,
     main_body: r#"
 label:
-    cmpInt(I0, 5);
+    cmp_int(I0, 5);
 +1:
-    jmpLt(timeof(label), offsetof(label));
+    jump_lss(timeof(label), offsetof(label));
 "#,
     sbsb: |decompiled| {
         assert!(!decompiled.contains("while"));
@@ -192,9 +261,9 @@ source_test!(
     ECL_06, decompile_eosd_cmp_jmp_blocked_by_difficulty,
     main_body: r#"
 label:
-    cmpInt(I0, 5);
+    cmp_int(I0, 5);
 difficulty[0x8]:
-    jmpLt(timeof(label), offsetof(label));
+    jump_lss(timeof(label), offsetof(label));
 "#,
     sbsb: |decompiled| {
         assert!(!decompiled.contains("while"));
@@ -205,9 +274,9 @@ source_test!(
     ECL_06, decompile_eosd_cmp_jmp_blocked_by_label,
     main_body: r#"
 label:
-    cmpInt(I0, 5);
+    cmp_int(I0, 5);
 otherLabelLol:
-    jmpLt(timeof(label), offsetof(label));
+    jump_lss(timeof(label), offsetof(label));
     goto otherLabelLol;
 "#,
     sbsb: |decompiled| {
