@@ -459,17 +459,16 @@ impl InstrFormat for InstrFormat06 {
                 let mut out = vec![
                     (I::Jmp, 2),
                     (I::CountJmp, 3),
+                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Int), 4),
+                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 5),
                     (I::CondJmp2A(ScalarType::Int), 27),
                     (I::CondJmp2A(ScalarType::Float), 28),
-                    // (I::CountJmp, 5),
-                    // (I::InterruptLabel, 21),
-                    // (I::UnOp(token![sin], ScalarType::Float), 61),
-                    // (I::UnOp(token![cos], ScalarType::Float), 62),
-                    // (I::UnOp(Un::Tan, ScalarType::Float), 63),
-                    // (I::UnOp(Un::Acos, ScalarType::Float), 64),
-                    // (I::UnOp(Un::Atan, ScalarType::Float), 65),
+                    // (I::Call, 35),
+                    // (I::Return, 36),
                 ];
-                I::register_olde_ecl_comp_ops(&mut out, 29, |op| I::CondJmp2B(op));
+                I::register_binary_ops_of_type(&mut out, 13, ScalarType::Int);
+                I::register_binary_ops_of_type(&mut out, 20, ScalarType::Float);
+                I::register_eosd_ecl_comp_ops(&mut out, 29, |op| I::CondJmp2B(op));
                 // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
                 out
             },
@@ -584,7 +583,7 @@ impl InstrFormat for TimelineInstrFormat {
     fn has_registers(&self) -> bool { false }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
-        vec![] // TODO
+        vec![]
     }
 
     fn instr_header_size(&self) -> usize { 8 }

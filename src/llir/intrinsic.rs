@@ -182,6 +182,17 @@ impl IntrinsicInstrKind {
         }
     }
 
+    /// Like [`Self::register_binary_ops`] but instead of alternating int/float pairs it's just one type.
+    pub fn register_binary_ops_of_type(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode, ty: ScalarType) {
+        use ast::BinOpKind as B;
+
+        let mut opcode = start;
+        for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
+            pairs.push((IntrinsicInstrKind::BinOp(op, ty), opcode));
+            opcode += 1;
+        }
+    }
+
     /// Add intrinsic pairs for assign ops in their cannonical order: `=, +=, -=, *=, /=, %=`,
     /// with each operator having an int version and a float version.
     pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
@@ -211,7 +222,7 @@ impl IntrinsicInstrKind {
     }
 
     /// Register a sequence of six comparison based ops in the order used by EoSD ECL: `<, <=, ==, >, >=, !=`
-    pub fn register_olde_ecl_comp_ops(
+    pub fn register_eosd_ecl_comp_ops(
         pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>,
         start: raw::Opcode,
         kind_fn: impl Fn(ast::BinOpKind) -> IntrinsicInstrKind,
