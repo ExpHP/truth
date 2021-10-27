@@ -810,6 +810,7 @@ entry {
 
 // =============================================================================
 
+// NOTE: This isn't a source test because it reads the contents of --output-thecl-defs.
 #[test]
 fn thecl_defs() {
     let format = &ANM_12;
@@ -843,10 +844,4 @@ global there = 1;
 global howyado = 2;
     "#;
     assert_eq!(actual.trim(), expected.trim());
-}
-
-#[test]
-#[ignore]
-fn why_isnt_that_a_source_test() {
-    panic!()
 }

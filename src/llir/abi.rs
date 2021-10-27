@@ -275,7 +275,8 @@ mod tests {
 
     fn parse(s: &str) -> Result<InstrAbi, ErrorReported> {
         let emitter = crate::diagnostic::RootEmitter::new_captured();
-        InstrAbi::parse(Span::NULL, s, &emitter)
+        let (file_id, s) = emitter.files.add("<input>", s.as_bytes()).unwrap();
+        InstrAbi::parse(Span::of_full_source(file_id, &s), &s, &emitter)
     }
 
     #[test]

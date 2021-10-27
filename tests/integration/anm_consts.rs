@@ -1,5 +1,4 @@
-use crate::integration_impl::formats::*;
-use crate::integration_impl::{TestFile, expected};
+use crate::integration_impl::{expected, formats::*};
 
 // This is the first written test of const vars that depend on other const vars.
 // (sprite IDs were the first const vars implemented in the compiler, even before
@@ -432,7 +431,9 @@ script 23 script23 {
     },
 );
 
-const SCRIPT_IDS_EXAMPLE: &'static str = r#"
+source_test!(
+    ANM_12, script_ids,
+    full_source: r#"
 #pragma mapfile "map/any.anmm"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
 
@@ -461,32 +462,15 @@ entry {
 script child {}
 
 script 101 another {}
-"#;
+"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[0].id, 0);
+        assert_eq!(anm.entries[0].scripts[1].id, 24);
+        assert_eq!(anm.entries[1].scripts[0].id, 25);
+        assert_eq!(anm.entries[1].scripts[1].id, 101);
 
-#[test]
-#[ignore]
-fn why_arent_those_source_tests() {
-    panic!("why aren't the below two tests source_tests?"); // FIXME XXX
-}
-
-#[test]
-fn script_ids() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", SCRIPT_IDS_EXAMPLE);
-    let anm = format.compile(&source, None).read_anm(&format);
-
-    assert_eq!(anm.entries[0].scripts[0].id, 0);
-    assert_eq!(anm.entries[0].scripts[1].id, 24);
-    assert_eq!(anm.entries[1].scripts[0].id, 25);
-    assert_eq!(anm.entries[1].scripts[1].id, 101);
-}
-
-#[test]
-fn scripts_as_consts() {
-    let format = ANM_12;
-    let source = TestFile::from_content("input", SCRIPT_IDS_EXAMPLE);
-    let anm = format.compile(&source, None).read_anm(&format);
-
-    // the value of the const should be the *index across all entries* (2), not the ID (25)
-    assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![2, 0, 0, 0]);
-}
+        // the value of the const should be the *index across all entries* (2), not the ID (25)
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![2, 0, 0, 0]);
+    },
+);

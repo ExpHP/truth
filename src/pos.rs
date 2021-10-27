@@ -6,6 +6,7 @@ use std::fmt;
 use std::borrow::Cow;
 use std::num::NonZeroU32;
 use std::cell::RefCell;
+use std::convert::TryFrom;
 use std::rc::Rc;
 
 use crate::diagnostic::Diagnostic;
@@ -183,6 +184,11 @@ impl Span {
         assert!(end >= start);
 
         Span { file_id, start, end }
+    }
+
+    /// Create a new span representing the full span of a source string, taken to start at position 0.
+    pub fn of_full_source(file_id: FileId, source: &str) -> Span {
+        Span { file_id, start: 0.into(), end: u32::try_from(source.len()).unwrap().into() }
     }
 
     /// Gives an empty span at the start of a source.

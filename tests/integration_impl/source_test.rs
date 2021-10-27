@@ -136,12 +136,14 @@ impl SourceTest {
 
         if let Some(sbsb_check_fn) = self.sbsb {
             // decompile test
+            assert!(self.compile_args.is_none(), "sbsb + compile_args not implemented");
             assert!(self.expect_decompile_warning.is_none(), "combining sbsb + expect_decompile_warning is not yet implemented");
             self.format.sbsb_test(&self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(), sbsb_check_fn);
             did_something = true;
 
         } else if self.expect_decompile_error.is_some() || self.expect_decompile_warning.is_some() {
             // decompile-fail test
+            assert!(self.compile_args.is_none(), "decompile-fail + compile_args not implemented");
             assert!(!(self.expect_decompile_error.is_some() && self.expect_decompile_warning.is_some()));
             let should_error = self.expect_decompile_error.is_some();
             let expect_msg = self.expect_decompile_error.as_deref().or(self.expect_decompile_warning.as_deref()).unwrap();
@@ -158,6 +160,7 @@ impl SourceTest {
         }
 
         if let Some(expect_error_msg) = &&self.expect_error {
+            assert!(self.compile_args.is_none(), "compile-fail + compile_args not implemented");
             let stderr = self.format.compile_fail_stderr(&self.source, mapfile.as_ref());
             check_compile_fail_output(&stderr, expect_error_msg);
             did_something = true;
