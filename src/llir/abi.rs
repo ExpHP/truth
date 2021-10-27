@@ -143,17 +143,21 @@ impl InstrAbi {
         abi_to_signature(self, ctx)
     }
 
-    pub fn validate_against_language(&self, language: InstrLanguage, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
+    pub fn validate_against_language(&self, abi_span: Span, language: InstrLanguage, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
         // NOTE: Normally the authority on timeline extra arguments is InstrFormat, but we want
         //       this check to run long before any InstrFormats are created.
         //
         //       Hence, we check based on the language instead.
+        let invalid_signature = |message| emitter.as_sized().emit(error!(
+            message("{}", message),
+            primary(abi_span, "{}", message),
+        ));
         let sig_has_arg0 = matches!(self.encodings.get(0), Some(ArgEncoding::TimelineArg { .. }));
         let lang_has_arg0 = language == InstrLanguage::Timeline;
         if sig_has_arg0 && !lang_has_arg0 {
-            return Err(emitter.as_sized().emit(error!("T(...) is invalid outside of timeline languages")));
+            return Err(invalid_signature("T(...) is invalid outside of timeline languages"));
         } else if !sig_has_arg0 && lang_has_arg0 {
-            return Err(emitter.as_sized().emit(error!("timeline instruction is missing T(...) argument")));
+            return Err(invalid_signature("timeline instruction is missing T(...) argument"));
         }
         Ok(())
     }

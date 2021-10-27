@@ -1,4 +1,7 @@
 !eclmap
+
+# mappings from zero318
+
 !ins_names
 0 nop
 1 enemy_delete

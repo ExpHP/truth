@@ -47,26 +47,12 @@ source_test!(
 
 source_test!(
     ANM_10, bad_signature_in_mapfile,
-    items: r#"
-        #pragma mapfile "tests/integration/resources/mapfile-with-bad-signature.anmm"
-    "#,
-    expect_error: "opcode 1000",
-);
-
-source_test!(
-    ECL_08, signature_without_arg0_in_timeline,
-    items: r#"
-        #pragma mapfile "tests/integration/resources/bad-timeline-in-timeline.eclm"
-    "#,
-    expect_error: "opcode 1000",
-);
-
-source_test!(
-    ECL_08, signature_with_arg0_in_not_timeline,
-    items: r#"
-        #pragma mapfile "tests/integration/resources/bad-timeline-in-ecl.eclm"
-    "#,
-    expect_error: "opcode 1000",
+    mapfile: r#"!anmmap
+!ins_signatures
+1000 z(bs=4)S
+"#,
+    main_body: "",
+    expect_error: "can only appear at the very end",
 );
 
 source_test!(

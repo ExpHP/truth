@@ -148,7 +148,8 @@ impl SourceTest {
             self.format.sbsb_fail_test(
                 &self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(),
                 should_error, |stderr| check_compile_fail_output(stderr, expect_msg),
-            )
+            );
+            did_something = true;
 
         } else {
             if self.sbsb_decompile_args.is_some() {

@@ -405,7 +405,7 @@ impl CompilerContext<'_> {
 
             signatures.iter().map(|(&opcode, abi_str)| {
                 let abi = sp!(abi_str.span => InstrAbi::parse(abi_str.span, abi_str, emitter)?);
-                abi.validate_against_language(language, emitter)?;
+                abi.validate_against_language(abi.span, language, emitter)?;
                 self.set_ins_abi(language, opcode as u16, abi);
                 Ok::<_, ErrorReported>(())
             }).collect_with_recovery::<()>()?;
