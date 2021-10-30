@@ -190,7 +190,7 @@ source_test!(
         $I0 = RAND % 3;
         if (I0 != 0) goto not0;
         sprite(2);
-        goto end:
+        goto end;
     not0:
         sprite(3);
     end:
@@ -554,3 +554,38 @@ source_test!(
         // don't care so long as it compiles back
     },
 );
+
+source_test!(
+    ANM_12, dont_decompile_if_with_interrupt,
+    main_body: r#"
+        if ($I0 == 0) {
+            pos(0.0, 4984.0, 20.0);
+    interrupt[5]:
+            pos(0.0, 4984.0, 20.0);
+        }
+    "#,
+    sbsb: |decompiled| {
+        // don't decompile a block
+        assert!(decompiled.contains("!= 0) goto"));
+        assert!(!decompiled.contains("== 0) {"));
+    },
+);
+
+source_test!(
+    ANM_12, dont_decompile_if_else_with_interrupt,
+    main_body: r#"
+        if ($I0 == 0) {
+            pos(0.0, 4924.0, 20.0);
+        } else {
+            pos(0.0, 4954.0, 20.0);
+    interrupt[5]:
+            pos(0.0, 4984.0, 20.0);
+        }
+    "#,
+    sbsb: |decompiled| {
+        // don't decompile a block
+        assert!(decompiled.contains("!= 0) goto"));
+        assert!(!decompiled.contains("== 0) {"));
+    },
+);
+

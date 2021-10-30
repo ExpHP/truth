@@ -159,6 +159,12 @@ struct CondBlockInfo {
 struct NoCondChain;
 
 fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainInfo, NoCondChain> {
+    let cond_chain = _gather_cond_chain(start, context)?;
+    reject_potentially_confusing_cond_chain(&cond_chain, context)?;
+    Ok(cond_chain)
+}
+
+fn _gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainInfo, NoCondChain> {
     let mut chain = vec![];
     let mut src = start;
     let mut known_end = None;
@@ -175,12 +181,6 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
             return Err(NoCondChain);
         }
         let (if_keyword, if_binop_expr) = if_jmp.kind.as_binop_cond().ok_or(NoCondChain)?;  // screw predecrement
-
-        // make sure there's only one reference to the dest label,
-        // because for 'else if' there will be no place for us to put it
-        if if_jmp.dest_refcount > 1 {
-            return Err(NoCondChain);
-        }
 
         chain.push({
             // 'if (<expr>) goto skip' becomes 'if (!<expr>) { <block> }'
@@ -223,6 +223,13 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
             Some(jmp) => jmp,
         };
         // There is an unconditional jump, so SOMETHING is coming up (either an `else` or `else if`)
+
+        // make sure there's only one reference to the dest label,
+        // because for 'else if' there will be no place for us to put it
+        if if_jmp.dest_refcount > 1 {
+            return Err(NoCondChain);
+        }
+
         if uncond_jmp.time_arg.is_some() {
             return Err(NoCondChain);
         }
@@ -251,16 +258,17 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
         return Err(NoCondChain);
     }
 
-    // abort if there's an interrupt label anywhere in the chain (it would look confusing)
-    // FIXME: should move this check out a bit so it applies to the case without any `else`
-    let stmt_range = chain[0].if_index..end_label_index;
-    if context.interrupt_label_indices.iter().any(|&i| stmt_range.contains(&i)) {
-        return Err(NoCondChain);
-    }
-
     Ok(CondChainInfo { chain, else_start_index: Some(else_start_index), end_label_index })
 }
 
+fn reject_potentially_confusing_cond_chain(cond_chain: &CondChainInfo, context: &BlockContext) -> Result<(), NoCondChain> {
+    // don't decompile if there's an interrupt label anywhere in the chain
+    let stmt_range = cond_chain.chain[0].if_index..cond_chain.end_label_index;
+    if context.interrupt_label_indices.iter().any(|&i| stmt_range.contains(&i)) {
+        return Err(NoCondChain);
+    }
+    Ok(())
+}
 
 // =============================================================================
 
@@ -304,6 +312,7 @@ impl BlockContext {
     }
 }
 
+#[derive(Debug)]
 struct LabelInfo {
     stmt_index: usize,
     refcount: u32,  // number of jumps to this label
@@ -408,6 +417,7 @@ fn maybe_decompile_jump(
 // =============================================================================
 
 // Information about a jump from one statement in a block to another in the same block.
+#[derive(Debug)]
 struct JmpInfo {
     dest: usize,
     dest_refcount: u32,
@@ -447,6 +457,7 @@ impl JmpInfo {
     }
 }
 
+#[derive(Debug)]
 enum JmpKind {
     Uncond,
     Cond { keyword: Sp<ast::CondKeyword>, cond: Sp<ast::Cond> },
