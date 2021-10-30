@@ -38,8 +38,9 @@ pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
     resolution::raw_to_aliases(script, ctx)?;
 
     if decompile_options.blocks {
-        decompile_loop::decompile_if_else(script, ctx)?;
+        // decompile loops before if/else for better detection of continue/break
         decompile_loop::decompile_loop(script, ctx)?;
+        decompile_loop::decompile_if_else(script, ctx)?;
         unused_labels::run(script)?;
     }
 
