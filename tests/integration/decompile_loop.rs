@@ -166,6 +166,74 @@ source_test!(
 // =============================================================================
 
 source_test!(
+    ANM_12, r#if,
+    main_body: r#"
+        $I0 = RAND % 3;
+        if (I0 != 0) goto end;
+        sprite(2);
+    end:
+        sprite(3);
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"
+    if ($REG[10000] == 0) {
+        ins_3(sprite2);
+    }
+    ins_3(sprite3);
+    "#.trim()));
+    },
+);
+
+source_test!(
+    ANM_12, if_else,
+    main_body: r#"
+        $I0 = RAND % 3;
+        if (I0 != 0) goto not0;
+        sprite(2);
+        goto end:
+    not0:
+        sprite(3);
+    end:
+        sprite(4);
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"
+    if ($REG[10000] == 0) {
+        ins_3(sprite2);
+    } else {
+        ins_3(sprite3);
+    }
+    ins_3(sprite4);
+    "#.trim()));
+    },
+);
+
+source_test!(
+    ANM_12, if_elseif,
+    main_body: r#"
+        $I0 = RAND % 3;
+        if (I0 != 0) goto not0;
+        sprite(2);
+        goto end;
+    not0:
+        if (I0 != 1) goto end;
+        sprite(3);
+    end:
+        sprite(4);
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"
+    if ($REG[10000] == 0) {
+        ins_3(sprite2);
+    } else if ($REG[10000] == 1) {
+        ins_3(sprite3);
+    }
+    ins_3(sprite4);
+    "#.trim()));
+    },
+);
+
+source_test!(
     ANM_12, if_elseif_else,
     main_body: r#"
         $I0 = RAND % 3;
@@ -400,6 +468,22 @@ source_test!(
     not2:
         sprite(1);
     end:
+    "#,
+    sbsb: |_decompiled| {
+        // don't care so long as it compiles back
+    },
+);
+
+source_test!(
+    ANM_12, no_else_referenced_again,
+    main_body: r#"
+        $I0 = RAND % 4;
+        if (I0 != 0) goto not0;
+        sprite(1);
+        if (I0 != 0) goto not0;
+        sprite(2);
+    not0:           // test is to make sure this guy doesn't get deleted
+        sprite(3);
     "#,
     sbsb: |_decompiled| {
         // don't care so long as it compiles back

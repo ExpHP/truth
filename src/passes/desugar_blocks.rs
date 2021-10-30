@@ -165,17 +165,24 @@ impl Desugarer<'_, '_> {
                     }
                 },
 
-                ast::StmtKind::CondChain(chain) => {
+                ast::StmtKind::CondChain(ast::StmtCondChain { cond_blocks, else_block }) => {
                     let veryend = self.ctx.gensym.gensym("@cond_veryend#");
 
-                    for ast::CondBlock { keyword, cond, block } in chain.cond_blocks {
+                    let num_blocks = cond_blocks.len();
+                    for (index, ast::CondBlock { keyword, cond, block }) in cond_blocks.into_iter().enumerate() {
+                        let is_final_if = index == num_blocks - 1;
+
                         let end_span = block.end_span();
                         self.desugar_conditional_region(cond.span, keyword, cond, |self_| {
                             self_.desugar_block(block);
-                            self_.make_goto(end_span, None, veryend.clone());
+
+                            // an unconditional jump over the rest of the blocks, if necessary
+                            if !(is_final_if && else_block.is_none()) {
+                                self_.make_goto(end_span, None, veryend.clone());
+                            }
                         });
                     }
-                    if let Some(block) = chain.else_block {
+                    if let Some(block) = else_block {
                         self.desugar_block(block);
                     }
 

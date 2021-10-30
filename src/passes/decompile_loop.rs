@@ -58,34 +58,58 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                 Ok(CondChainInfo { chain, else_start_index, end_label_index }) => {
                     let mut cond_block_asts = vec![];
                     for cond_block in chain {
-                        // read all of the statements from the jump to the label (inclusive of both)
+                        // read all of the statements from the jump (inclusive) to the label (exclusive).
                         assert_eq!(index, cond_block.if_index);
 
-                        let inner_block_len = cond_block.label_index + 1 - cond_block.if_index;
+                        let inner_block_len = cond_block.label_index - cond_block.if_index;
                         let mut inner_block = ast::Block(stmt_iter.by_ref().take(inner_block_len).collect());
                         index += inner_block_len;
 
                         let cond_block_span = inner_block.start_span().merge(inner_block.end_span());
 
-                        // get rid of the original jumps and the label
-                        assert!(matches!(inner_block.0.pop().unwrap().value.kind, ast::StmtKind::Label { .. }));  // remove label
-                        let last_stmt = inner_block.0.last_mut().unwrap();
-                        last_stmt.kind = ast::StmtKind::NoInstruction;  // replace unconditional jump with bookend
-                        last_stmt.span = cond_block_span.start_span();
-                        inner_block.0[0].kind = ast::StmtKind::NoInstruction;  // replace conditional jump with bookend
-                        inner_block.0[0].span = cond_block_span.end_span();
+                        // eliminate unconditional jumps to end
+                        if cond_block.label_index != end_label_index {
+                            let removed = inner_block.0.pop().unwrap();
+                            assert!(matches!(removed.kind, ast::StmtKind::Goto { .. }));
+                        }
+
+                        // surround with bookends;
+                        // we can replace the conditional jump at the start
+                        assert!(matches!(inner_block.0[0].kind, ast::StmtKind::CondGoto { .. }));
+                        inner_block.0[0].kind = ast::StmtKind::NoInstruction;
+                        inner_block.0[0].span = cond_block_span.start_span();
+                        inner_block.0.push(sp!(cond_block_span.end_span() => ast::Stmt {
+                            node_id: Some(self.ctx.next_node_id()),
+                            kind: ast::StmtKind::NoInstruction,
+                        }));
 
                         cond_block_asts.push(ast::CondBlock {
                             keyword: cond_block.keyword,
                             cond: cond_block.cond,
                             block: inner_block,
                         });
+
+                        // Handle the label very carefully!
+                        if cond_block.label_index != end_label_index {
+                            // There is another block after this one. (else or else if)
+                            //
+                            // For `else if` there is nowhere valid to put this label, but we already
+                            // checked its refcount earlier so it is safe to just skip it.
+                            assert!(matches!(stmt_iter.next().unwrap().kind, ast::StmtKind::Label { .. }));
+                            index += 1;
+                        } else {
+                            // This label is the end label.  This happens when there is no final `else`.
+                            //
+                            // We always want to emit this label because we do not in general verify
+                            // that nothing else outside of the construction refers to it.
+                            // Therefore, leave it in the iterator.
+                        }
                     }
 
                     let else_block;
 
-                    assert_eq!(index, else_start_index);
-                    if else_start_index <= end_label_index {
+                    if let Some(else_start_index) = else_start_index {
+                        assert_eq!(index, else_start_index);
                         let inner_block_len = end_label_index - else_start_index;
                         let inner_block = ast::Block(stmt_iter.by_ref().take(inner_block_len).collect());
                         assert_eq!(inner_block.0.len(), inner_block_len);
@@ -95,6 +119,7 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                     } else {
                         else_block = None;
                     }
+                    // The next iteration of the loop is expected to emit the end label.
                     assert_eq!(index, end_label_index);
 
                     let cond_chain = ast::StmtCondChain { cond_blocks: cond_block_asts, else_block };
@@ -114,17 +139,20 @@ impl VisitMut for IfElseVisitor<'_, '_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CondChainInfo {
     chain: Vec<CondBlockInfo>,
-    else_start_index: usize,  // body of else after label
+    else_start_index: Option<usize>,  // body of else after label
     end_label_index: usize,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CondBlockInfo {
     keyword: Sp<ast::CondKeyword>,
     cond: Sp<ast::Cond>,
     if_index: usize,
+    // Target label of the conditional jump.
+    // NOTE: any block where label_index != end_label_index will have an unconditional jump
+    //       to the end label as its final statement
     label_index: usize,
 }
 
@@ -154,23 +182,6 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
             return Err(NoCondChain);
         }
 
-        // just before the label, there should be an unconditional jump to the end of the construction.
-        let uncond_src = if_jmp.dest - 1;
-        let uncond_jmp = &context.jmp_info.get(&uncond_src).ok_or(NoCondChain)?;
-        if uncond_jmp.time_arg.is_some() {
-            return Err(NoCondChain);
-        }
-        if !matches!(uncond_jmp.kind, JmpKind::Uncond) {
-            return Err(NoCondChain);
-        }
-        if uncond_jmp.direction_given_src(uncond_src) == Direction::Backwards {
-            return Err(NoCondChain);
-        }
-        // all "jumps to end" must go to the same point, or else something's wrong.
-        if *known_end.get_or_insert(uncond_jmp.dest) != uncond_jmp.dest {
-            return Err(NoCondChain);
-        }
-
         chain.push({
             // 'if (<expr>) goto skip' becomes 'if (!<expr>) { <block> }'
             //
@@ -186,15 +197,54 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
             }
         });
 
+        // Now we find out what's coming up; an `else if`, an `else`, nothing?
+        // right before each conditional target label there will be an unconditional
+        // jump to the end of the entire construction.
+        //
+        // (except for the final block, when there is no `else`.)
+        let uncond_src = if_jmp.dest - 1;
+        let uncond_jmp = match context.jmp_info.get(&uncond_src) {
+            None => {
+                // This is a chain with no `else`.
+                //
+                // If there has been at least one `else if` so far, we already know the
+                // end label.  Validate that the conditional jump goes directly there.
+                if let Some(expected_end) = known_end {
+                    if if_jmp.dest != expected_end {
+                        return Err(NoCondChain);
+                    }
+                }
+                return Ok(CondChainInfo {
+                    chain,
+                    else_start_index: None,
+                    end_label_index: if_jmp.dest,
+                });
+            },
+            Some(jmp) => jmp,
+        };
+        // There is an unconditional jump, so SOMETHING is coming up (either an `else` or `else if`)
+        if uncond_jmp.time_arg.is_some() {
+            return Err(NoCondChain);
+        }
+        if !matches!(uncond_jmp.kind, JmpKind::Uncond) {
+            return Err(NoCondChain);
+        }
+        if uncond_jmp.direction_given_src(uncond_src) == Direction::Backwards {
+            return Err(NoCondChain);
+        }
+        // all "jumps to end" must go to the same point, or else something's wrong.
+        if *known_end.get_or_insert(uncond_jmp.dest) != uncond_jmp.dest {
+            return Err(NoCondChain);
+        }
+
         // is there another 'if' or was that it?
         src = if_jmp.dest + 1;
         if !matches!(context.jmp_info.get(&src), Some(JmpInfo { kind: JmpKind::Cond { .. }, .. })) {
-            break;
+            break;  // the next thing is an `else`
         }
     }
 
-    // now we find ourselves after the destination label of an 'if' with no 'else if'.
-    // this could potentially be the body of an 'else' block.
+    // now we find ourselves at an 'else' block.
     let else_start_index = src;
     let end_label_index = known_end.expect("we found at least one block so this was set");
     if end_label_index < else_start_index {
@@ -202,12 +252,13 @@ fn gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainIn
     }
 
     // abort if there's an interrupt label anywhere in the chain (it would look confusing)
+    // FIXME: should move this check out a bit so it applies to the case without any `else`
     let stmt_range = chain[0].if_index..end_label_index;
     if context.interrupt_label_indices.iter().any(|&i| stmt_range.contains(&i)) {
         return Err(NoCondChain);
     }
 
-    Ok(CondChainInfo { chain, else_start_index, end_label_index })
+    Ok(CondChainInfo { chain, else_start_index: Some(else_start_index), end_label_index })
 }
 
 
