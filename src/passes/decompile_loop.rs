@@ -65,6 +65,11 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                 },
 
                 Ok(CondChainInfo { chain, else_start_index, end_label_index }) => {
+                    let make_bookend = || ast::Stmt {
+                        node_id: Some(self.ctx.next_node_id()),
+                        kind: ast::StmtKind::NoInstruction,
+                    };
+
                     let mut cond_block_asts = vec![];
                     for cond_block in chain {
                         // read all of the statements from the jump (inclusive) to the label (exclusive).
@@ -82,37 +87,36 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                             assert!(matches!(removed.kind, ast::StmtKind::Jump { .. }));
                         }
 
+                        // After the block body comes the conditional jump target label.  Handle this carefully!
+                        let label_stmt = stmt_iter.next().unwrap();
+                        index += 1;
+                        assert!(matches!(label_stmt.kind, ast::StmtKind::Label { .. }));
+                        if cond_block.label_index == end_label_index {
+                            // This label is the end label.  This happens when there is no final `else`.
+                            // We want to keep this label because other things may also use it.
+                            //
+                            // Because we decompile things from the outside-inwards, we get better
+                            // results for nested if/elses if we put this label INSIDE the final block.
+                            inner_block.0.push(label_stmt);
+                        } else {
+                            // There is another block after this one. (else or else if)
+                            //
+                            // For `else if` there is nowhere valid to put this label, but we already
+                            // checked its refcount earlier so it is safe to just ignore it.
+                            drop(label_stmt);
+                        }
+
                         // surround with bookends;
                         // we can replace the conditional jump at the start
                         assert!(matches!(inner_block.0[0].kind, ast::StmtKind::CondJump { .. }));
-                        inner_block.0[0].kind = ast::StmtKind::NoInstruction;
-                        inner_block.0[0].span = cond_block_span.start_span();
-                        inner_block.0.push(sp!(cond_block_span.end_span() => ast::Stmt {
-                            node_id: Some(self.ctx.next_node_id()),
-                            kind: ast::StmtKind::NoInstruction,
-                        }));
+                        inner_block.0[0] = sp!(cond_block_span.start_span() => make_bookend());
+                        inner_block.0.push(sp!(cond_block_span.end_span() => make_bookend()));
 
                         cond_block_asts.push(ast::CondBlock {
                             keyword: cond_block.keyword,
                             cond: cond_block.cond,
                             block: inner_block,
                         });
-
-                        // Handle the label very carefully!
-                        if cond_block.label_index != end_label_index {
-                            // There is another block after this one. (else or else if)
-                            //
-                            // For `else if` there is nowhere valid to put this label, but we already
-                            // checked its refcount earlier so it is safe to just skip it.
-                            assert!(matches!(stmt_iter.next().unwrap().kind, ast::StmtKind::Label { .. }));
-                            index += 1;
-                        } else {
-                            // This label is the end label.  This happens when there is no final `else`.
-                            //
-                            // We always want to emit this label because we do not in general verify
-                            // that nothing else outside of the construction refers to it.
-                            // Therefore, leave it in the iterator.
-                        }
                     }
 
                     let else_block;
@@ -120,16 +124,26 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                     if let Some(else_start_index) = else_start_index {
                         assert_eq!(index, else_start_index);
                         let inner_block_len = end_label_index - else_start_index;
-                        let inner_block = ast::Block(stmt_iter.by_ref().take(inner_block_len).collect());
+                        let mut inner_block = ast::Block(stmt_iter.by_ref().take(inner_block_len).collect());
                         assert_eq!(inner_block.0.len(), inner_block_len);
                         index += inner_block_len;
+
+                        // as above, better results for putting the final label INSIDE the else instead of after
+                        let label_stmt = stmt_iter.next().unwrap();
+                        assert!(matches!(label_stmt.kind, ast::StmtKind::Label { .. }));
+                        inner_block.0.push(label_stmt);
+                        index += 1;
+
+                        // add bookends
+                        inner_block.0.insert(0, sp!(inner_block.start_span() => make_bookend()));
+                        inner_block.0.push(sp!(inner_block.end_span() => make_bookend()));
 
                         else_block = Some(inner_block);
                     } else {
                         else_block = None;
                     }
-                    // The next iteration of the loop is expected to emit the end label.
-                    assert_eq!(index, end_label_index);
+                    // The final label should be inside the last block, so we should be after it now.
+                    assert_eq!(index, end_label_index + 1);
 
                     let cond_chain = ast::StmtCondChain { cond_blocks: cond_block_asts, else_block };
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
