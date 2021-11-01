@@ -112,10 +112,10 @@ impl BreakContinueToGotoVisitor<'_> {
 impl VisitMut for BreakContinueToGotoVisitor<'_> {
     fn visit_jump(&mut self, jump: &mut ast::StmtJumpKind) {
         // replace 'continue' with a 'goto'
-        if let ast::StmtJumpKind::BreakContinue { keyword: sp_pat![token![break]], loop_id } = *jump {
+        if let ast::StmtJumpKind::BreakContinue { keyword: sp_pat![kw_span => token![break]], loop_id } = *jump {
             let loop_id = loop_id.expect("missing loop ID");
             *jump = ast::StmtJumpKind::Goto(ast::StmtGoto {
-                destination: sp!(self.loop_end_label_name(loop_id)),
+                destination: sp!(kw_span => self.loop_end_label_name(loop_id)),
                 time: None,
             });
         }
@@ -131,20 +131,18 @@ impl VisitMut for BreakContinueToGotoVisitor<'_> {
         };
 
         // Insert a label after every loop.
-        for (index, loop_id) in loop_id_indices {
-            let stmt_end_span = block.0[index].span.end_span();
-            block.0.insert(index, sp!(stmt_end_span => ast::Stmt {
+        for (loop_stmt_index, loop_id) in loop_id_indices {
+            let insertion_index = loop_stmt_index + 1;
+            let loop_end_span = block.0[loop_stmt_index].span.end_span();
+            block.0.insert(insertion_index, sp!(loop_end_span => ast::Stmt {
                 node_id: Some(self.unused_node_ids.next()),
-                kind: ast::StmtKind::Label(sp!(stmt_end_span => self.loop_end_label_name(loop_id))),
+                kind: ast::StmtKind::Label(sp!(loop_end_span => self.loop_end_label_name(loop_id))),
             }));
         }
 
         ast::walk_block_mut(self, block);  // recurse
     }
 }
-
-#[test]
-fn fixme_that_goto_needs_a_span() { panic!("why does visit_jump not take a span") }
 
 fn get_stmt_loop_id(stmt: &Sp<ast::Stmt>) -> Option<LoopId> {
     // An obscenely silly visitor that uses the visitor API to determine if a statement is a loop.

@@ -143,6 +143,7 @@ impl AstVm {
         let mut stmt_index = 0;
 
         'stmt: while stmt_index < stmts.len() {
+            // eprintln!("{:?}", stmts[stmt_index]);
             if let Some(max_iterations) = self.max_iterations {
                 if self.iterations >= max_iterations {
                     panic!("iteration limit exceeded!");

@@ -825,7 +825,6 @@ fn loop_break() {
     let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
         A = 5;
         B = 0;
-        D = 0;
         times(A = 6) {
             loop {
                 B += 1;
