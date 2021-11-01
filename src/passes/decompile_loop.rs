@@ -491,6 +491,8 @@ fn gather_loop_end_labels(root_block: &ast::Block) -> HashMap<Ident, LoopId> {
                     for stmt in &block.0[loop_stmt_index + 1..] {
                         if let ast::Stmt { kind: ast::StmtKind::Label(label), .. } = &stmt.value {
                             self.end_label_loop_ids.insert(label.value.clone(), loop_id);
+                        } else {
+                            break;
                         }
                     }
                 }

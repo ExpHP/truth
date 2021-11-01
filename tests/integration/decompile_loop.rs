@@ -163,6 +163,31 @@ source_test!(
     },
 );
 
+source_test!(
+    ANM_12, break_decompilation,
+    main_body: r#"
+        start:
+            if (I3 == 2) goto end;
+        if (--I0) goto start;
+        end:
+    "#,
+    sbsb: |decompiled| assert!(decompiled.contains("break;")),
+);
+
+source_test!(
+    ANM_12, break_decompilation_ruined_by_time,
+    main_body: r#"
+        start:
+            if (I3 == 2) goto end;
+        if (--I0) goto start;
+        +1:    // this should prevent decompilation of 'break'
+        end:
+    "#,
+    sbsb: |_decompiled| {
+        // don't care so long as it compiles back
+    },
+);
+
 // =============================================================================
 
 source_test!(
