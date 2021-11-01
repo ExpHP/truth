@@ -269,23 +269,24 @@ impl ast::VisitMut for AssignNodeIdsVisitor<'_> {
 
 // =============================================================================
 
-// Utility for tracking the current containing loop.
-struct LexicalLoopTracker {
+/// Utility for tracking the current containing loop.
+pub struct LexicalLoopTracker {
     stack: Vec<Vec<LoopId>>,  // stack by function, then loop
 }
 
 impl LexicalLoopTracker {
-    fn new() -> Self { LexicalLoopTracker {
+    pub fn new() -> Self { LexicalLoopTracker {
         stack: vec![vec![]], // begin as if already in a function body
     }}
     // nested functions get their own stack because you can't break out of a function
-    fn enter_function(&mut self) { self.stack.push(vec![]); }
-    fn exit_function(&mut self) { self.stack.pop().unwrap(); }
-    fn cur_function_stack(&mut self) -> &mut Vec<LoopId> { self.stack.last_mut().expect("not in func?") }
+    pub fn enter_function(&mut self) { self.stack.push(vec![]); }
+    pub fn exit_function(&mut self) { self.stack.pop().unwrap(); }
+    fn cur_stack(&self) -> &Vec<LoopId> { self.stack.last().expect("not in func?") }
+    fn cur_stack_mut(&mut self) -> &mut Vec<LoopId> { self.stack.last_mut().expect("not in func?") }
 
-    fn enter_loop(&mut self, loop_id: LoopId) { self.cur_function_stack().push(loop_id); }
-    fn exit_loop(&mut self) -> LoopId { self.cur_function_stack().pop().unwrap() }
-    fn current_loop(&mut self) -> Option<LoopId> { self.cur_function_stack().last().copied() }
+    pub fn enter_loop(&mut self, loop_id: LoopId) { self.cur_stack_mut().push(loop_id); }
+    pub fn exit_loop(&mut self) -> LoopId { self.cur_stack_mut().pop().unwrap() }
+    pub fn current_loop(&self) -> Option<LoopId> { self.cur_stack().last().copied() }
 }
 
 struct AssignLoopIdsVisitor<'a, 'ctx> {

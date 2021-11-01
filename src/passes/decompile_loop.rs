@@ -5,11 +5,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use crate::error::ErrorReported;
-use crate::ast::{self, VisitMut};
+use crate::ast::{self, VisitMut, Visit};
 use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::resolve::LoopId;
+use crate::passes::resolution::LexicalLoopTracker;
 
 /// Decompiles `if { ... } else if { ... } else { ... }` chains.
 pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
@@ -21,6 +22,13 @@ pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerConte
 /// Decompiles `loop { ... }` and `do { ... } while (<cond>)`.
 pub fn decompile_loop<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut visitor = LoopVisitor { label_refcounts_stack: vec![], ctx };
+    ast.visit_mut_with(&mut visitor);
+    Ok(())
+}
+
+/// Decompiles `break`s inside of existing loops.
+pub fn decompile_break<V: ast::Visitable>(ast: &mut V, _ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut visitor = MakeBreakVisitor { loop_tracker: LexicalLoopTracker::new(), loop_ids_by_end_label: vec![] };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
@@ -276,10 +284,8 @@ fn reject_potentially_confusing_cond_chain(cond_chain: &CondChainInfo, context: 
 // Get the number of jumps to each label.  Please be sure to only call this on the
 // largest, outermost block of a function, or some jumps may be missed!
 fn get_label_refcounts(block: &[Sp<ast::Stmt>]) -> HashMap<Ident, u32> {
-    use ast::Visit;
-
     struct Visitor(HashMap<Ident, u32>);
-    impl ast::Visit for Visitor {
+    impl Visit for Visitor {
         fn visit_jump(&mut self, jump: &ast::StmtJumpKind) {
             match jump {
                 ast::StmtJumpKind::Goto(ast::StmtGoto { destination, .. }) => {
@@ -418,6 +424,84 @@ fn maybe_decompile_jump(
     }));
     // suppress the default behavior of popping the next item
     true
+}
+
+// =============================================================================
+// Visitor for generating break/continue
+
+struct MakeBreakVisitor {
+    loop_tracker: LexicalLoopTracker,
+    loop_ids_by_end_label: Vec<HashMap<Ident, LoopId>>,  // stack is for nested functions
+}
+
+impl VisitMut for MakeBreakVisitor {
+    fn visit_root_block(&mut self, block: &mut ast::Block) {
+        self.loop_tracker.enter_function();
+        self.loop_ids_by_end_label.push(gather_loop_end_labels(block));
+        self.visit_block(block);
+        self.loop_ids_by_end_label.pop().expect("unbalanced stack usage!");
+        self.loop_tracker.exit_function();
+    }
+
+    fn visit_loop_begin(&mut self, loop_id: &mut Option<LoopId>) {
+        self.loop_tracker.enter_loop(loop_id.expect("loop has no loop id"));
+    }
+
+    fn visit_loop_end(&mut self, loop_id: &mut Option<LoopId>) {
+        assert_eq!(self.loop_tracker.exit_loop(), loop_id.expect("loop has no loop id"));
+    }
+
+    fn visit_jump(&mut self, jump: &mut ast::StmtJumpKind) {
+        // are we in a loop right now?
+        if let Some(cur_loop_id) = self.loop_tracker.current_loop() {
+
+            // does this jump go to the end of a loop?
+            if let ast::StmtJumpKind::Goto(ast::StmtGoto { destination, time: None }) = jump {
+                let loop_ids_by_end_label = self.loop_ids_by_end_label.last().expect("not in function?!");
+                if let Some(&jump_end_loop_id) = loop_ids_by_end_label.get(&destination.value) {
+
+                    // Fantastic! ...are they the same loop?
+                    if cur_loop_id == jump_end_loop_id {
+                        // convert to 'break'
+                        *jump = ast::StmtJumpKind::BreakContinue {
+                            keyword: sp!(token!(break)),
+                            loop_id: Some(cur_loop_id),
+                        };
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Find all labels that could be the destination of a `break`.
+fn gather_loop_end_labels(root_block: &ast::Block) -> HashMap<Ident, LoopId> {
+    struct Visitor {
+        end_label_loop_ids: HashMap<Ident, LoopId>,
+    }
+
+    impl Visit for Visitor {
+        fn visit_root_block(&mut self, _: &ast::Block) {}  // ignore inner functions
+
+        fn visit_block(&mut self, block: &ast::Block) {
+            // look for loops
+            for loop_stmt_index in 0..block.0.len() {
+                if let Some(loop_id) = ast::Stmt::get_loop_id(&block.0[loop_stmt_index]) {
+                    // gather all labels that appear immediately after the loop
+                    for stmt in &block.0[loop_stmt_index + 1..] {
+                        if let ast::Stmt { kind: ast::StmtKind::Label(label), .. } = &stmt.value {
+                            self.end_label_loop_ids.insert(label.value.clone(), loop_id);
+                        }
+                    }
+                }
+            }
+            ast::walk_block(self, block);  // look for more inside nested blocks
+        }
+    }
+
+    let mut visitor = Visitor { end_label_loop_ids: Default::default() };
+    visitor.visit_block(root_block);
+    visitor.end_label_loop_ids
 }
 
 // =============================================================================

@@ -125,7 +125,7 @@ impl VisitMut for BreakContinueToGotoVisitor<'_> {
         // Identify all loops in this block.
         let loop_id_indices = {
             block.0.iter().enumerate()
-                .filter_map(|(index, stmt)| get_stmt_loop_id(stmt).map(|loop_id| (index, loop_id)))
+                .filter_map(|(index, stmt)| ast::Stmt::get_loop_id(stmt).map(|loop_id| (index, loop_id)))
                 .rev()  // back to front for safe insertion order
                 .collect::<Vec<_>>()  // stop borrowing the block
         };
@@ -144,39 +144,42 @@ impl VisitMut for BreakContinueToGotoVisitor<'_> {
     }
 }
 
-fn get_stmt_loop_id(stmt: &Sp<ast::Stmt>) -> Option<LoopId> {
-    // An obscenely silly visitor that uses the visitor API to determine if a statement is a loop.
-    // (so that we don't need to repeat the matching logic for all the different loop types...)
-    struct GetStmtLoopIdVisitor {
-        loop_id: Option<LoopId>,
-        used: bool,
-    }
-
-    impl Visit for GetStmtLoopIdVisitor {
-        fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
-            // make sure we haven't recursed into anything; don't want to accidentally read
-            // a loop id from a child statement.
-            assert!(!self.used, "(bug!) StmtIsALoopVisitor looked at more than one statement!");
-            self.used = true;
-
-            // this will call visit_loop_end if and only if the current statement is a loop
-            ast::walk_stmt(self, stmt);
+impl ast::Stmt {
+    pub fn get_loop_id(stmt: &Sp<ast::Stmt>) -> Option<LoopId> {
+        // An obscenely silly visitor that uses the visitor API to determine if a statement is a loop.
+        // (so that we don't need to repeat the matching logic for all the different loop types...)
+        struct GetStmtLoopIdVisitor {
+            loop_id: Option<LoopId>,
+            used: bool,
         }
 
-        fn visit_loop_end(&mut self, loop_id: &Option<LoopId>) {
-            assert!(self.loop_id.is_none());
-            self.loop_id = Some(loop_id.expect("missing loop id on loop body"));
+        impl Visit for GetStmtLoopIdVisitor {
+            fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
+                // make sure we haven't recursed into anything; don't want to accidentally read
+                // a loop id from a child statement.
+                assert!(!self.used, "(bug!) StmtIsALoopVisitor looked at more than one statement!");
+                self.used = true;
+
+                // this will call visit_loop_end if and only if the current statement is a loop
+                ast::walk_stmt(self, stmt);
+            }
+
+            fn visit_loop_end(&mut self, loop_id: &Option<LoopId>) {
+                assert!(self.loop_id.is_none());
+                self.loop_id = Some(loop_id.expect("missing loop id on loop body"));
+            }
+
+            // dummy these out to prevent walk_stmt from recursing into anything, ideally this
+            // whole thing should mostly compile down to a single match?
+            fn visit_block(&mut self, _: &ast::Block) {}
+            fn visit_expr(&mut self, _: &Sp<ast::Expr>) {}
+            fn visit_item(&mut self, _: &Sp<ast::Item>) {}
         }
 
-        // dummy these out to prevent walk_stmt from recursing into anything
-        fn visit_block(&mut self, _: &ast::Block) {}
-        fn visit_expr(&mut self, _: &Sp<ast::Expr>) {}
-        fn visit_item(&mut self, _: &Sp<ast::Item>) {}
+        let mut visitor = GetStmtLoopIdVisitor { loop_id: None, used: false };
+        visitor.visit_stmt(stmt);
+        visitor.loop_id
     }
-
-    let mut visitor = GetStmtLoopIdVisitor { loop_id: None, used: false };
-    visitor.visit_stmt(stmt);
-    visitor.loop_id
 }
 
 // =============================================================================

@@ -41,6 +41,7 @@ pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
         // decompile loops before if/else for better detection of continue/break
         decompile_loop::decompile_loop(script, ctx)?;
         decompile_loop::decompile_if_else(script, ctx)?;
+        decompile_loop::decompile_break(script, ctx)?;
         unused_labels::run(script)?;
     }
 
