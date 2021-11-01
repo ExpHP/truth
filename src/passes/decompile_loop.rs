@@ -9,6 +9,7 @@ use crate::ast::{self, VisitMut};
 use crate::ident::Ident;
 use crate::pos::Sp;
 use crate::context::CompilerContext;
+use crate::resolve::LoopId;
 
 /// Decompiles `if { ... } else if { ... } else { ... }` chains.
 pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
@@ -70,12 +71,12 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                         // eliminate unconditional jumps to end
                         if cond_block.label_index != end_label_index {
                             let removed = inner_block.0.pop().unwrap();
-                            assert!(matches!(removed.kind, ast::StmtKind::Goto { .. }));
+                            assert!(matches!(removed.kind, ast::StmtKind::Jump { .. }));
                         }
 
                         // surround with bookends;
                         // we can replace the conditional jump at the start
-                        assert!(matches!(inner_block.0[0].kind, ast::StmtKind::CondGoto { .. }));
+                        assert!(matches!(inner_block.0[0].kind, ast::StmtKind::CondJump { .. }));
                         inner_block.0[0].kind = ast::StmtKind::NoInstruction;
                         inner_block.0[0].span = cond_block_span.start_span();
                         inner_block.0.push(sp!(cond_block_span.end_span() => ast::Stmt {
@@ -279,8 +280,13 @@ fn get_label_refcounts(block: &[Sp<ast::Stmt>]) -> HashMap<Ident, u32> {
 
     struct Visitor(HashMap<Ident, u32>);
     impl ast::Visit for Visitor {
-        fn visit_goto(&mut self, goto: &ast::StmtGoto) {
-            *self.0.entry(goto.destination.value.clone()).or_insert(0) += 1;
+        fn visit_jump(&mut self, jump: &ast::StmtJumpKind) {
+            match jump {
+                ast::StmtJumpKind::Goto(ast::StmtGoto { destination, .. }) => {
+                    *self.0.entry(destination.value.clone()).or_insert(0) += 1;
+                },
+                ast::StmtJumpKind::BreakContinue { .. } => {},
+            }
         }
         fn visit_root_block(&mut self, _: &ast::Block) {}  // ignore inner functions
     }
@@ -408,7 +414,7 @@ fn maybe_decompile_jump(
 
     reversed_out.push(sp!(inner_span => ast::Stmt {
         node_id: Some(ctx.next_node_id()),
-        kind: jmp_kind.make_loop(new_block),
+        kind: jmp_kind.make_loop(new_block, ctx.next_loop_id()),
     }));
     // suppress the default behavior of popping the next item
     true
@@ -430,15 +436,20 @@ enum Direction { Forwards, Backwards }
 
 impl JmpInfo {
     fn from_stmt(ast: &ast::Stmt, label_info: &HashMap<Ident, LabelInfo>) -> Option<Self> {
-        let (goto, kind) = match ast.kind {
-            ast::StmtKind::Goto(ref goto) => (goto, JmpKind::Uncond),
+        let (jump, kind) = match ast.kind {
+            ast::StmtKind::Jump(ref goto) => (goto, JmpKind::Uncond),
 
-            ast::StmtKind::CondGoto { keyword, ref cond, ref goto } => match keyword.value {
-                ast::CondKeyword::If => (goto, JmpKind::Cond { keyword, cond: cond.clone() }),
+            ast::StmtKind::CondJump { keyword, ref cond, ref jump } => match keyword.value {
+                ast::CondKeyword::If => (jump, JmpKind::Cond { keyword, cond: cond.clone() }),
                 ast::CondKeyword::Unless => unimplemented!(),  // not present in decompiled code
             }
 
             _ => return None,
+        };
+
+        let goto = match jump {
+            ast::StmtJumpKind::Goto(goto) => goto,
+            ast::StmtJumpKind::BreakContinue { .. } => unimplemented!(), // not present at this stage of decompilation
         };
 
         let label_entry = &label_info.get(&goto.destination.value)?;
@@ -475,12 +486,13 @@ impl JmpKind {
         }
     }
 
-    fn make_loop(&self, block: ast::Block) -> ast::StmtKind {
+    fn make_loop(&self, block: ast::Block, loop_id: LoopId) -> ast::StmtKind {
         match *self {
-            JmpKind::Uncond => ast::StmtKind::Loop { block, keyword: sp!(()) },
+            JmpKind::Uncond => ast::StmtKind::Loop { loop_id: Some(loop_id), block, keyword: sp!(()) },
 
             JmpKind::Cond { keyword: sp_pat![token![unless]], .. } => unimplemented!(),  // not present in decompiled code
             JmpKind::Cond { keyword: sp_pat![kw_span => token![if]], ref cond } => ast::StmtKind::While {
+                loop_id: Some(loop_id),
                 do_keyword: Some(sp!(kw_span => ())),
                 while_keyword: sp!(kw_span => ()),
                 cond: cond.clone(),

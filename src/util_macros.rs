@@ -165,3 +165,38 @@ fn error_macro_examples() {
         primary(some_ast_node, "yeah, you can have multiple, what about it"),
     )).ignore();
 }
+
+// =============================================================================
+
+/// Derives Debug, Display, and From for a newtyped Id type.
+macro_rules! newtype_id {
+    (
+        $(# $attr:tt)*
+        $vis:vis struct $IdType:ident($inner_vis:vis $InnerType:ty);
+    ) => {
+        $(# $attr)*
+        $vis struct $IdType($inner_vis $InnerType);
+
+        const _: () = {
+            use ::core::fmt;
+            use ::core::convert::From;
+
+            impl fmt::Debug for $IdType {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    fmt::Display::fmt(&self.0, f)
+                }
+            }
+
+            impl fmt::Display for $IdType {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    fmt::Display::fmt(&self.0, f)
+                }
+            }
+
+            impl From<$InnerType> for $IdType {
+                fn from(x: $InnerType) -> Self { $IdType(x) }
+            }
+        };
+
+    };
+}

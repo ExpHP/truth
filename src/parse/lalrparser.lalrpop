@@ -295,23 +295,23 @@ StmtKind: ast::StmtKind = {
     <chain:CondChain>
         => ast::StmtKind::CondChain(chain),
 
-    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <goto:StmtGoto> ";"
-        => ast::StmtKind::CondGoto { keyword, cond, goto },
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtJumpKind> ";"
+        => ast::StmtKind::CondJump { keyword, cond, jump },
 
     <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
-        => ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block },
+        => ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block, loop_id: None },
 
     <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => ast::StmtKind::While { do_keyword: None, while_keyword, cond, block },
+        => ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, loop_id: None },
 
     <keyword:TokenSpan<"times">> "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
-        => ast::StmtKind::Times { keyword, clobber, count, block },
+        => ast::StmtKind::Times { keyword, clobber, count, block, loop_id: None },
 
     <keyword:TokenSpan<"loop">> <block:StmtOrBlock>
-        => ast::StmtKind::Loop { keyword, block },
+        => ast::StmtKind::Loop { keyword, block, loop_id: None },
 
-    <goto:StmtGoto> ";"
-        => ast::StmtKind::Goto(goto),
+    <goto:StmtJumpKind> ";"
+        => ast::StmtKind::Jump(goto),
 
     <e:Sp<Expr>> ";"
         => ast::StmtKind::Expr(e),
@@ -340,9 +340,17 @@ StmtKind: ast::StmtKind = {
     StmtSpecialCall,
 }
 
-StmtGoto: ast::StmtGoto = {
+StmtJumpKind: ast::StmtJumpKind = {
     "goto" <destination:Sp<Ident>> <time:("@" <Sp<LitIntSigned>>)?>
-        => ast::StmtGoto { destination, time },
+        => ast::StmtJumpKind::Goto(ast::StmtGoto { destination, time }),
+
+    <keyword:Sp<BreakContinueKeyword>>
+        => ast::StmtJumpKind::BreakContinue { keyword, loop_id: None },
+};
+
+BreakContinueKeyword: ast::BreakContinueKeyword = {
+//    "continue" => token![continue],
+    "break" => token![break],
 };
 
 StmtSpecialCall: ast::StmtKind = {

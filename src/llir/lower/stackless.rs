@@ -46,7 +46,8 @@ impl Lowerer<'_, '_> {
             let stmt_data = self.stmt_data[&stmt.node_id.expect("stmt_data would've failed if missing")];
 
             match &stmt.kind {
-                ast::StmtKind::Goto(goto) => {
+                ast::StmtKind::Jump(jump) => {
+                    let goto = self.expect_simple_goto(jump)?;
                     self.lower_uncond_jump(stmt.span, stmt_data, goto)?;
                 },
 
@@ -64,7 +65,8 @@ impl Lowerer<'_, '_> {
                 },
 
 
-                ast::StmtKind::CondGoto { keyword, cond, goto } => {
+                ast::StmtKind::CondJump { keyword, cond, jump } => {
+                    let goto = self.expect_simple_goto(jump)?;
                     self.lower_cond_jump(stmt.span, stmt_data, keyword, cond, goto)?;
                 },
 
@@ -707,6 +709,13 @@ impl Lowerer<'_, '_> {
         self.out.push(LowerStmt::RegAlloc { def_id, cause: span });
 
         Ok((def_id, var))
+    }
+
+    fn expect_simple_goto<'a>(&self, jump: &'a ast::StmtJumpKind) -> Result<&'a ast::StmtGoto, ErrorReported> {
+        match jump {
+            ast::StmtJumpKind::Goto(goto) => Ok(goto),
+            ast::StmtJumpKind::BreakContinue { .. } => panic!("a break/continue made it to the lowering stage"),
+        }
     }
 
     fn unsupported(&self, span: &crate::pos::Span, what: &str) -> ErrorReported {

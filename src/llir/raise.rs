@@ -8,7 +8,7 @@ use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
-use crate::resolve::{RegId, UnusedNodeIds};
+use crate::resolve::{RegId, NodeId, UnusedIds};
 use crate::context::{self, Defs};
 use crate::game::InstrLanguage;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
@@ -101,7 +101,7 @@ impl<'a> Raiser<'a> {
         emitter: &dyn Emitter,
         raw_script: &[RawInstr],
         defs: &Defs,
-        unused_node_ids: &UnusedNodeIds,
+        unused_node_ids: &UnusedIds<NodeId>,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut stmts = _raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?;
         crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &unused_node_ids)?;

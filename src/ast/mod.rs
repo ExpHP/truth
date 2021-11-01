@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::raw;
-use crate::resolve::{DefId, RegId, NodeId};
+use crate::resolve::{DefId, RegId, NodeId, LoopId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::game::InstrLanguage;
@@ -105,13 +105,13 @@ pub enum StmtKind {
     Item(Box<Sp<Item>>),
 
     /// Unconditional goto.  `goto label @ time;`
-    Goto(StmtGoto),
+    Jump(StmtJumpKind),
 
     /// Conditional goto.  `if (a == b) goto label @ time;`
-    CondGoto {
+    CondJump {
         keyword: Sp<CondKeyword>,
         cond: Sp<Cond>,
-        goto: StmtGoto,
+        jump: StmtJumpKind,
     },
 
     /// `return;` or `return expr;`
@@ -125,12 +125,14 @@ pub enum StmtKind {
 
     /// Unconditional loop.  `loop { ... }`
     Loop {
+        loop_id: Option<LoopId>,
         keyword: TokenSpan,
         block: Block,
     },
 
     /// While loop.  `while (...) { ... }` or `do { ... } while (...);`
     While {
+        loop_id: Option<LoopId>,
         while_keyword: TokenSpan,
         do_keyword: Option<TokenSpan>,
         cond: Sp<Cond>,
@@ -139,6 +141,7 @@ pub enum StmtKind {
 
     /// Times loop.  `times(n) { ... }`
     Times {
+        loop_id: Option<LoopId>,
         keyword: TokenSpan,
         clobber: Option<Sp<Var>>,
         count: Sp<Expr>,
@@ -221,8 +224,10 @@ pub enum StmtKind {
 impl StmtKind {
     pub fn descr(&self) -> &'static str { match self {
         StmtKind::Item(item) => item.descr(),
-        StmtKind::Goto { .. } => "goto",
-        StmtKind::CondGoto { .. } => "conditional goto",
+        StmtKind::Jump(StmtJumpKind::Goto { .. }) => "goto",
+        StmtKind::Jump(StmtJumpKind::BreakContinue { .. }) => "loop jump",
+        StmtKind::CondJump { jump: StmtJumpKind::Goto { .. }, .. } => "conditional goto",
+        StmtKind::CondJump { jump: StmtJumpKind::BreakContinue { .. }, .. } => "conditional loop jump",
         StmtKind::Return { .. } => "return statement",
         StmtKind::CondChain { .. } => "conditional chain",
         StmtKind::Loop { .. } => "loop",
@@ -242,11 +247,33 @@ impl StmtKind {
     }}
 }
 
-/// The body of a `goto` statement, without the `;`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtJumpKind {
+    /// The body of a `goto` statement, without the `;`.
+    Goto(StmtGoto) ,
+    /// A `break` or `continue`.
+    BreakContinue {
+        keyword: Sp<BreakContinueKeyword>,
+        /// This is used to prevent or detect bugs where a `break` or `continue` could somehow
+        /// end up referring to the wrong loop after a code transformation.
+        loop_id: Option<LoopId>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtGoto {
     pub destination: Sp<Ident>,
     pub time: Option<Sp<raw::LangInt>>,
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum BreakContinueKeyword {
+        #[strum(serialize = "break")] Break,
+        // `continue` could be implemented in a variety of ways and there could be confusing
+        // inconsistencies between loops and while loops.  Hold off on it for now...
+        // #[strum(serialize = "continue")] Continue,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -824,13 +851,19 @@ macro_rules! generate_visitor_stuff {
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
             fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
-            fn visit_goto(&mut self, e: & $($mut)? StmtGoto) { walk_goto(self, e) }
+            fn visit_jump(&mut self, e: & $($mut)? StmtJumpKind) { walk_jump(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
             fn visit_callable_name(&mut self, e: & $($mut)? Sp<CallableName>) { walk_callable_name(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
             fn visit_res_ident(&mut self, _: & $($mut)? ResIdent) { }
             fn visit_node_id(&mut self, _: & $($mut)? Option<NodeId>) { }
+            // this is factored out like this because otherwise the caller would have to repeat
+            // the logic for matching over the different loop types.
+            /// Called immediately before [`Self::visit_block`] on a loop or switch body.
+            fn visit_loop_begin(&mut self, _: & $($mut)? Option<LoopId>) { }
+            /// Called immediately after [`Self::visit_block`] on a loop or switch body.
+            fn visit_loop_end(&mut self, _: & $($mut)? Option<LoopId>) { }
         }
 
         pub fn walk_file<V>(v: &mut V, x: & $($mut)? ScriptFile)
@@ -919,18 +952,22 @@ macro_rules! generate_visitor_stuff {
 
             match & $($mut)? x.kind {
                 StmtKind::Item(item) => v.visit_item(item),
-                StmtKind::Goto(goto) => {
-                    v.visit_goto(goto);
+                StmtKind::Jump(goto) => {
+                    v.visit_jump(goto);
                 },
                 StmtKind::Return { value, keyword: _ } => {
                     if let Some(value) = value {
                         v.visit_expr(value);
                     }
                 },
-                StmtKind::Loop { block, keyword: _ } => v.visit_block(block),
-                StmtKind::CondGoto { cond, goto, keyword: _ } => {
+                StmtKind::Loop { block, keyword: _, loop_id } => {
+                    v.visit_loop_begin(loop_id);
+                    v.visit_block(block);
+                    v.visit_loop_end(loop_id);
+                },
+                StmtKind::CondJump { cond, jump, keyword: _ } => {
                     v.visit_cond(cond);
-                    v.visit_goto(goto);
+                    v.visit_jump(jump);
                 },
                 StmtKind::CondChain(chain) => {
                     let StmtCondChain { cond_blocks, else_block } = chain;
@@ -942,20 +979,26 @@ macro_rules! generate_visitor_stuff {
                         v.visit_block(block);
                     }
                 },
-                StmtKind::While { do_keyword: Some(_), while_keyword: _, cond, block } => {
+                StmtKind::While { do_keyword: Some(_), while_keyword: _, loop_id, cond, block } => {
                     v.visit_cond(cond);
+                    v.visit_loop_begin(loop_id);
                     v.visit_block(block);
+                    v.visit_loop_end(loop_id);
                 },
-                StmtKind::While { do_keyword: None, while_keyword: _, cond, block } => {
+                StmtKind::While { do_keyword: None, while_keyword: _, loop_id, cond, block } => {
+                    v.visit_loop_begin(loop_id);
                     v.visit_block(block);
+                    v.visit_loop_end(loop_id);
                     v.visit_cond(cond);
                 },
-                StmtKind::Times { clobber, count, block, keyword: _ } => {
+                StmtKind::Times { clobber, count, block, loop_id, keyword: _ } => {
                     if let Some(clobber) = clobber {
                         v.visit_var(clobber);
                     }
                     v.visit_expr(count);
+                    v.visit_loop_begin(loop_id);
                     v.visit_block(block);
+                    v.visit_loop_end(loop_id);
                 },
                 StmtKind::Expr(e) => {
                     v.visit_expr(e);
@@ -987,7 +1030,7 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        pub fn walk_goto<V>(_: &mut V, _: & $($mut)? StmtGoto)
+        pub fn walk_jump<V>(_: &mut V, _: & $($mut)? StmtJumpKind)
         where V: ?Sized + $Visit,
         {
         }
@@ -1099,7 +1142,7 @@ pub use self::mut_::{
     walk_meta as walk_meta_mut,
     walk_block as walk_block_mut,
     walk_stmt as walk_stmt_mut,
-    walk_goto as walk_goto_mut,
+    walk_jump as walk_jump_mut,
     walk_expr as walk_expr_mut,
     walk_var as walk_var_mut,
     walk_callable_name as walk_callable_name_mut,
@@ -1109,6 +1152,6 @@ mod ref_ {
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_goto, walk_expr, walk_var,
+    Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_jump, walk_expr, walk_var,
     walk_callable_name,
 };

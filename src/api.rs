@@ -98,7 +98,7 @@ impl Truth<'_> {
 
     /// Parse a piece of text into any parse-able AST node.
     ///
-    /// This will automatically fill NodeIds and ResIds.
+    /// This will automatically fill [`NodeId`]s, [`ResId`]s, and [`LoopId`]s.
     ///
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
@@ -115,6 +115,7 @@ impl Truth<'_> {
             .and_then(|mut ast| {
                 crate::passes::resolution::fill_missing_node_ids(&mut ast, &self.ctx.unused_node_ids)?;
                 crate::passes::resolution::assign_res_ids(&mut ast, &mut self.ctx)?;
+                crate::passes::resolution::assign_loop_ids(&mut ast, &mut self.ctx)?;
                 Ok(ast)
             })
     }

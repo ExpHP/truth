@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::ident::GensymContext;
-use crate::resolve::{Resolutions, UnusedNodeIds};
+use crate::resolve::{Resolutions, UnusedIds, NodeId, LoopId};
 use crate::resolve::rib::Rib;
 
 pub use defs::Defs;
@@ -65,7 +65,8 @@ pub struct CompilerContext<'ctx> {
 
     /// [`CompilerContext::next_node_id`] is usually more convenient but this is public for
     /// when you can't call that.
-    pub unused_node_ids: UnusedNodeIds,
+    pub unused_node_ids: UnusedIds<NodeId>,
+    pub unused_loop_ids: UnusedIds<LoopId>,
 
     // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
     // may eventually have AST nodes inside a struct inside a RefCell), so let's force this constraint now.
@@ -83,7 +84,8 @@ impl<'ctx> CompilerContext<'ctx> {
             consts: Default::default(),
             initial_ribs: Default::default(),
             _scope: scope,
-            unused_node_ids: UnusedNodeIds::new(),
+            unused_node_ids: UnusedIds::new(),
+            unused_loop_ids: UnusedIds::new(),
             _make_invariant: Default::default(),
         }
     }

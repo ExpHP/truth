@@ -44,5 +44,7 @@ pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
         unused_labels::run(script)?;
     }
 
+    resolution::check_loop_id_integrity(script, ctx)?;
+
     Ok(())
 }

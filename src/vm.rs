@@ -94,12 +94,14 @@ impl fmt::Display for AstVm {
 enum RunResult {
     /// Nothing is out of the ordinary.
     Nominal,
+    /// A `break` was encountered
+    Breaking,
     /// A `return` was encountered.
     Return(Option<ScalarValue>),
     /// A nested run call is jumping to an outer label.
     ///
     /// (for technical reasons, you can't jump to an inner label)
-    IsJumping(ast::StmtGoto),
+    Jumping(ast::StmtGoto),
 }
 
 impl AstVm {
@@ -128,7 +130,8 @@ impl AstVm {
         match self._run(stmts, &ctx.resolutions, &stmt_data) {
             RunResult::Nominal => None,
             RunResult::Return(value) => value,
-            RunResult::IsJumping(goto) => panic!(
+            RunResult::Breaking => panic!("AST VM tried to break out of a loop, but wasn't in one!"),
+            RunResult::Jumping(goto) => panic!(
                 "AST VM tried to jump to {} but this label did not exist within the same or outer scopes! \
                 (note: for technical reasons, labels in inner scopes cannot be jumped to by this VM)",
                 goto.destination,
@@ -147,26 +150,32 @@ impl AstVm {
             }
             self.iterations += 1;
 
+            // Handle early returns for a goto.
+            // (this bubbles up to the block that contains the label and then resumes)
             macro_rules! handle_goto {
                 ($goto:expr) => { match $goto {
+                    // is the label defined at this nesting level?
                     goto => match self.try_goto(stmts, goto, stmt_data) {
                         Some(index) => {
                             stmt_index = index;
                             continue 'stmt;
                         },
-                        None => return RunResult::IsJumping(goto.clone()),
+                        // check an outer scope; all recursive callsites are wrapped in handle_block!,
+                        // which will trigger this macro again at the next level up.
+                        None => return RunResult::Jumping(goto.clone()),
                     },
                 }};
             }
 
-            macro_rules! handle_block {
-                ($block:expr) => {
-                    match self._run($block, resolutions, stmt_data) {
-                        RunResult::Nominal => {},
-                        RunResult::Return(value) => return RunResult::Return(value),
-                        RunResult::IsJumping(goto) => handle_goto!(&goto),
-                    }
-                };
+            // Handle early returns for a control-flow keyword.
+            macro_rules! handle_jump {
+                ($jump:expr) => { match $jump {
+                    | ast::StmtJumpKind::BreakContinue { keyword: sp_pat![token![break]], ..}
+                    => return RunResult::Breaking,
+
+                    | ast::StmtJumpKind::Goto(goto)
+                    => handle_goto!(goto),
+                }};
             }
 
             let stmt_node_id = stmts[stmt_index].node_id.unwrap();
@@ -180,17 +189,47 @@ impl AstVm {
             let start_time = |block: &ast::Block| stmt_data[&block.start_node_id()].time;
             let end_time = |block: &ast::Block| stmt_data[&block.end_node_id()].time;
 
+            // Recurse into a block, handling any form of early return.
+            macro_rules! handle_block {
+                ($block:expr) => {
+                    match self._run(&$block.0, resolutions, stmt_data) {
+                        RunResult::Nominal => {},
+                        RunResult::Breaking => return RunResult::Breaking,
+                        RunResult::Return(value) => return RunResult::Return(value),
+                        RunResult::Jumping(goto) => handle_goto!(&goto),
+                    }
+                };
+            }
+
+            // Recurse into a block, propagating most early returns but catching the `break` keyword.
+            macro_rules! handle_block_of_breakable_stmt {
+                ($block:expr) => {
+                    match self._run(&$block.0, resolutions, stmt_data) {
+                        RunResult::Nominal => {},
+                        RunResult::Breaking => {
+                            // this macro gets used at the nesting level outside the loop,
+                            // so exit the loop by simply advancing to the next statement.
+                            self.time = end_time($block);
+                            stmt_index += 1;
+                            continue 'stmt;
+                        },
+                        RunResult::Return(value) => return RunResult::Return(value),
+                        RunResult::Jumping(goto) => handle_goto!(&goto),
+                    }
+                };
+            }
+
             // N.B. this can't easily be factored out into a method because it would require
             //      some way of storing or communicating a "instruction pointer", which
             //      doesn't exist due to the nested nature of the AST.
             match &stmts[stmt_index].kind {
                 ast::StmtKind::Item(_) => {},
 
-                ast::StmtKind::Goto(goto) => handle_goto!(goto),
+                ast::StmtKind::Jump(jump) => handle_jump!(jump),
 
-                ast::StmtKind::CondGoto { keyword, cond, goto } => {
+                ast::StmtKind::CondJump { keyword, cond, jump } => {
                     if self.eval_cond(cond, resolutions) == (keyword == &token![if]) {
-                        handle_goto!(goto);
+                        handle_jump!(jump);
                     }
                 },
 
@@ -205,8 +244,8 @@ impl AstVm {
                     for ast::CondBlock { keyword, cond, block } in cond_blocks {
                         if self.eval_cond(cond, resolutions) == (keyword == &token![if]) {
                             branch_taken = true;
-                            self.time = start_time(&block);
-                            handle_block!(&block.0);
+                            self.time = start_time(block);
+                            handle_block!(block);
                             break;
                         }
                     }
@@ -214,7 +253,7 @@ impl AstVm {
                     if !branch_taken {
                         if let Some(else_block) = else_block {
                             self.time = start_time(else_block);
-                            handle_block!(&else_block.0);
+                            handle_block!(else_block);
                         }
                     }
                     self.time = end_time(chain.last_block());
@@ -222,7 +261,7 @@ impl AstVm {
 
                 ast::StmtKind::Loop { block, .. } => {
                     loop {
-                        handle_block!(&block.0);
+                        handle_block_of_breakable_stmt!(block);
                         self.time = start_time(block);
                     }
                 },
@@ -230,7 +269,7 @@ impl AstVm {
                 ast::StmtKind::While { do_keyword, cond, block, .. } => {
                     if do_keyword.is_some() || self.eval_cond(cond, resolutions) {
                         loop {
-                            handle_block!(&block.0);
+                            handle_block_of_breakable_stmt!(block);
                             if self.eval_cond(cond, resolutions) {
                                 self.time = start_time(block);
                                 continue;
@@ -251,7 +290,7 @@ impl AstVm {
                         count => {
                             for _ in 0..count {
                                 self.time = start_time(block);
-                                handle_block!(&block.0);
+                                handle_block_of_breakable_stmt!(block);
                             }
                         },
                     }
@@ -267,7 +306,7 @@ impl AstVm {
                     if count != 0 {
                         loop {
                             self.time = start_time(block);
-                            handle_block!(&block.0);
+                            handle_block_of_breakable_stmt!(block);
 
                             match self.read_var_by_ast(clobber, resolutions) {
                                 ScalarValue::Float(x) => panic!("float count {}", x),

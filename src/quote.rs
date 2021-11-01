@@ -66,10 +66,14 @@ macro_rules! token {
     ($(labelprop)? offsetof) => { $crate::ast::LabelPropertyKeyword::OffsetOf };
     ($(labelprop)? timeof) => { $crate::ast::LabelPropertyKeyword::TimeOf };
 
+    ($(loopjump)? continue) => { $crate::ast::BreakContinueKeyword::Continue };
+    ($(loopjump)? break) => { $crate::ast::BreakContinueKeyword::Break };
+
     ($(sigil)? $) => { $crate::ast::VarSigil::Int };
     (  sigil   %) => { $crate::ast::VarSigil::Float };
 
     // ambiguous ones; these will use Into, which may work in exprs, though you're SOL in patterns
+    // and will have to provide a disambiguating prefix there.  e.g. `token![unop -]`
     (-) => { ::core::convert::Into::into($crate::quote::MinusSign) };
     (%) => { ::core::convert::Into::into($crate::quote::PercentSign) };
 }

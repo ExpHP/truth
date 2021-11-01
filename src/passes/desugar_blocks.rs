@@ -1,10 +1,10 @@
 //! See [`run`].
 
 use crate::error::ErrorReported;
-use crate::ast::{self, VisitMut};
+use crate::ast::{self, Visit, VisitMut};
 use crate::pos::{Sp, Span};
 use crate::ident::Ident;
-use crate::resolve::{DefId, Resolutions, UnusedNodeIds};
+use crate::resolve::{DefId, NodeId, LoopId, Resolutions, UnusedIds};
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
 
@@ -14,8 +14,9 @@ use crate::context::CompilerContext;
 /// into a single block.
 ///
 /// This pass is not idempotent, because it inserts [`ast::StmtKind::ScopeEnd`] statements.
-pub fn run<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+pub fn run<V: ast::Visitable + core::fmt::Debug>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     insert_scope_ends(ast, ctx)?;
+    convert_continue_and_break(ast, ctx)?;
 
     let mut visitor = Visitor { ctx };
     ast.visit_mut_with(&mut visitor);
@@ -33,6 +34,12 @@ fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'
     Ok(())
 }
 
+fn convert_continue_and_break<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = BreakContinueToGotoVisitor { unused_node_ids: &ctx.unused_node_ids };
+    ast.visit_mut_with(&mut v);
+    Ok(())
+}
+
 // =============================================================================
 
 /// Inserts [`ast::StmtKind::ScopeEnd`] statements for locals declared in each block.  These allow the
@@ -40,7 +47,7 @@ fn insert_scope_ends<A: ast::Visitable>(ast: &mut A, ctx: &mut CompilerContext<'
 /// after block desugaring.
 struct InsertLocalScopeEndsVisitor<'a> {
     resolutions: &'a Resolutions,
-    unused_node_ids: &'a UnusedNodeIds,
+    unused_node_ids: &'a UnusedIds<NodeId>,
     stack: Vec<BlockState>,
 }
 
@@ -91,6 +98,91 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
 
 // =============================================================================
 
+struct BreakContinueToGotoVisitor<'a> {
+    unused_node_ids: &'a UnusedIds<NodeId>,
+}
+
+impl BreakContinueToGotoVisitor<'_> {
+    // this process is simple: since all loops already have unique IDs, we just use those to generate label names
+    fn loop_end_label_name(&self, loop_id: LoopId) -> Ident {
+        format!("@loop_end#{}", loop_id).parse::<Ident>().unwrap()
+    }
+}
+
+impl VisitMut for BreakContinueToGotoVisitor<'_> {
+    fn visit_jump(&mut self, jump: &mut ast::StmtJumpKind) {
+        // replace 'continue' with a 'goto'
+        if let ast::StmtJumpKind::BreakContinue { keyword: sp_pat![token![break]], loop_id } = *jump {
+            let loop_id = loop_id.expect("missing loop ID");
+            *jump = ast::StmtJumpKind::Goto(ast::StmtGoto {
+                destination: sp!(self.loop_end_label_name(loop_id)),
+                time: None,
+            });
+        }
+    }
+
+    fn visit_block(&mut self, block: &mut ast::Block) {
+        // Identify all loops in this block.
+        let loop_id_indices = {
+            block.0.iter().enumerate()
+                .filter_map(|(index, stmt)| get_stmt_loop_id(stmt).map(|loop_id| (index, loop_id)))
+                .rev()  // back to front for safe insertion order
+                .collect::<Vec<_>>()  // stop borrowing the block
+        };
+
+        // Insert a label after every loop.
+        for (index, loop_id) in loop_id_indices {
+            let stmt_end_span = block.0[index].span.end_span();
+            block.0.insert(index, sp!(stmt_end_span => ast::Stmt {
+                node_id: Some(self.unused_node_ids.next()),
+                kind: ast::StmtKind::Label(sp!(stmt_end_span => self.loop_end_label_name(loop_id))),
+            }));
+        }
+
+        ast::walk_block_mut(self, block);  // recurse
+    }
+}
+
+#[test]
+fn fixme_that_goto_needs_a_span() { panic!("why does visit_jump not take a span") }
+
+fn get_stmt_loop_id(stmt: &Sp<ast::Stmt>) -> Option<LoopId> {
+    // An obscenely silly visitor that uses the visitor API to determine if a statement is a loop.
+    // (so that we don't need to repeat the matching logic for all the different loop types...)
+    struct GetStmtLoopIdVisitor {
+        loop_id: Option<LoopId>,
+        used: bool,
+    }
+
+    impl Visit for GetStmtLoopIdVisitor {
+        fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
+            // make sure we haven't recursed into anything; don't want to accidentally read
+            // a loop id from a child statement.
+            assert!(!self.used, "(bug!) StmtIsALoopVisitor looked at more than one statement!");
+            self.used = true;
+
+            // this will call visit_loop_end if and only if the current statement is a loop
+            ast::walk_stmt(self, stmt);
+        }
+
+        fn visit_loop_end(&mut self, loop_id: &Option<LoopId>) {
+            assert!(self.loop_id.is_none());
+            self.loop_id = Some(loop_id.expect("missing loop id on loop body"));
+        }
+
+        // dummy these out to prevent walk_stmt from recursing into anything
+        fn visit_block(&mut self, _: &ast::Block) {}
+        fn visit_expr(&mut self, _: &Sp<ast::Expr>) {}
+        fn visit_item(&mut self, _: &Sp<ast::Item>) {}
+    }
+
+    let mut visitor = GetStmtLoopIdVisitor { loop_id: None, used: false };
+    visitor.visit_stmt(stmt);
+    visitor.loop_id
+}
+
+// =============================================================================
+
 struct Visitor<'a, 'ctx> {
     ctx: &'a mut CompilerContext<'ctx>,
 }
@@ -121,12 +213,12 @@ impl Desugarer<'_, '_> {
                     self.desugar_loop_body(block, None)
                 },
 
-                ast::StmtKind::While { do_keyword: Some(_), while_keyword, cond, block } => {
+                ast::StmtKind::While { do_keyword: Some(_), while_keyword, cond, block, .. } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
                     self.desugar_loop_body(block, Some((if_keyword, cond.value)))
                 },
 
-                ast::StmtKind::While { do_keyword: None, while_keyword, cond, block } => {
+                ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, .. } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
                     self.desugar_conditional_region(cond.span, if_keyword, cond.clone(), |self_| {
                         self_.desugar_loop_body(block, Some((if_keyword, cond.value)));

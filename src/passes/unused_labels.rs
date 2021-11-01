@@ -52,9 +52,9 @@ fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
             ast::walk_stmt(self, x);
 
             match &x.kind {
-                | ast::StmtKind::Goto(goto)
-                | ast::StmtKind::CondGoto { goto, .. }
-                => { self.labels.insert(goto.destination.value.clone()); }
+                | ast::StmtKind::Jump(ast::StmtJumpKind::Goto(goto))
+                | ast::StmtKind::CondJump { jump: ast::StmtJumpKind::Goto(goto), .. }
+                => { self.labels.insert(goto.destination.value.clone()); },
 
                 _ => {},
             };

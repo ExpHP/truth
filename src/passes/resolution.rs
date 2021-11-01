@@ -4,17 +4,17 @@ use crate::context::CompilerContext;
 use crate::error::{ErrorReported, ErrorFlag};
 use crate::game::InstrLanguage;
 use crate::ident::ResIdent;
-use crate::resolve::{NodeId, UnusedNodeIds};
+use crate::resolve::{NodeId, LoopId, UnusedIds};
 
 /// Generate brand new [`NodeId`]s for anything missing one in an AST node.
-pub fn fill_missing_node_ids<V: ast::Visitable + ?Sized>(ast: &mut V, unused_node_ids: &UnusedNodeIds) -> Result<(), ErrorReported> {
+pub fn fill_missing_node_ids<V: ast::Visitable + ?Sized>(ast: &mut V, unused_node_ids: &UnusedIds<NodeId>) -> Result<(), ErrorReported> {
     let mut v = AssignNodeIdsVisitor { unused_node_ids, only_missing: true };
     ast.visit_mut_with(&mut v);
     Ok(())
 }
 
 /// Generate brand new [`NodeId`]s for everything in an AST node.
-pub fn refresh_node_ids<V: ast::Visitable + ?Sized>(ast: &mut V, unused_node_ids: &UnusedNodeIds) -> Result<(), ErrorReported> {
+pub fn refresh_node_ids<V: ast::Visitable + ?Sized>(ast: &mut V, unused_node_ids: &UnusedIds<NodeId>) -> Result<(), ErrorReported> {
     let mut v = AssignNodeIdsVisitor { unused_node_ids, only_missing: false };
     ast.visit_mut_with(&mut v);
     Ok(())
@@ -101,6 +101,25 @@ pub fn aliases_to_raw<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerCon
 pub fn raw_to_aliases<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = RawToAliasesVisitor { ctx };
     ast.visit_mut_with(&mut v);
+    Ok(())
+}
+
+/// Assign fresh [`LoopId`]s to all loops/switches, and record the lexical parent of each `break`s and `continue`.
+///
+/// This will report errors to the user on control flow keywords with no parent.
+pub fn assign_loop_ids<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = AssignLoopIdsVisitor { loop_tracker: LexicalLoopTracker::new(), ctx, errors: ErrorFlag::new() };
+    ast.visit_mut_with(&mut v);
+    v.errors.into_result(())
+}
+
+/// Verifies that all `break`s and `continue`s have loop IDs matching the loop that lexically contains them,
+/// or else panic.
+///
+/// Useful to call before rendering an AST, in order to catch decompilation bugs.
+pub fn check_loop_id_integrity<A: ast::Visitable + ?Sized>(ast: &A, _: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = CheckLoopIntegrityVisitor { loop_tracker: LexicalLoopTracker::new() };
+    ast.visit_with(&mut v);
     Ok(())
 }
 
@@ -236,7 +255,7 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
 
 struct AssignNodeIdsVisitor<'a> {
     only_missing: bool,
-    unused_node_ids: &'a UnusedNodeIds,
+    unused_node_ids: &'a UnusedIds<NodeId>,
 }
 
 impl ast::VisitMut for AssignNodeIdsVisitor<'_> {
@@ -245,5 +264,101 @@ impl ast::VisitMut for AssignNodeIdsVisitor<'_> {
             return;
         }
         *node_id = Some(self.unused_node_ids.next());
+    }
+}
+
+// =============================================================================
+
+// Utility for tracking the current containing loop.
+struct LexicalLoopTracker {
+    stack: Vec<Vec<LoopId>>,  // stack by function, then loop
+}
+
+impl LexicalLoopTracker {
+    fn new() -> Self { LexicalLoopTracker {
+        stack: vec![vec![]], // begin as if already in a function body
+    }}
+    // nested functions get their own stack because you can't break out of a function
+    fn enter_function(&mut self) { self.stack.push(vec![]); }
+    fn exit_function(&mut self) { self.stack.pop().unwrap(); }
+    fn cur_function_stack(&mut self) -> &mut Vec<LoopId> { self.stack.last_mut().expect("not in func?") }
+
+    fn enter_loop(&mut self, loop_id: LoopId) { self.cur_function_stack().push(loop_id); }
+    fn exit_loop(&mut self) -> LoopId { self.cur_function_stack().pop().unwrap() }
+    fn current_loop(&mut self) -> Option<LoopId> { self.cur_function_stack().last().copied() }
+}
+
+struct AssignLoopIdsVisitor<'a, 'ctx> {
+    loop_tracker: LexicalLoopTracker,
+    ctx: &'a CompilerContext<'ctx>,
+    errors: ErrorFlag,
+}
+
+impl ast::VisitMut for AssignLoopIdsVisitor<'_, '_> {
+    fn visit_root_block(&mut self, block: &mut ast::Block) {
+        self.loop_tracker.enter_function();
+        ast::walk_block_mut(self, block);
+        self.loop_tracker.exit_function();
+    }
+
+    fn visit_loop_begin(&mut self, loop_id: &mut Option<LoopId>) {
+        let new_loop_id = self.ctx.next_loop_id();
+
+        *loop_id = Some(new_loop_id);
+        self.loop_tracker.enter_loop(new_loop_id);
+    }
+
+    fn visit_loop_end(&mut self, loop_id: &mut Option<LoopId>) {
+        assert_eq!(self.loop_tracker.exit_loop(), loop_id.expect("was just set earlier!"));
+    }
+
+    fn visit_jump(&mut self, jump: &mut ast::StmtJumpKind) {
+        match jump {
+            ast::StmtJumpKind::Goto { .. } => {},
+            ast::StmtJumpKind::BreakContinue { loop_id: jump_loop_id, keyword, .. } => {
+                if let Some(cur_loop_id) = self.loop_tracker.current_loop() {
+                    *jump_loop_id = Some(cur_loop_id);
+                } else {
+                    self.errors.set(self.ctx.emitter.emit(error!(
+                        message("{} outside of a loop", keyword),
+                        primary(keyword, "not valid outside of a loop"),
+                    )));
+                }
+            }
+        }
+    }
+}
+
+
+struct CheckLoopIntegrityVisitor {
+    loop_tracker: LexicalLoopTracker,
+}
+
+impl ast::Visit for CheckLoopIntegrityVisitor {
+    fn visit_root_block(&mut self, block: &ast::Block) {
+        self.loop_tracker.enter_function();
+        ast::walk_block(self, block);
+        self.loop_tracker.exit_function();
+    }
+
+    fn visit_loop_begin(&mut self, loop_id: &Option<LoopId>) {
+        self.loop_tracker.enter_loop(loop_id.expect("loop has no loop id"));
+    }
+
+    fn visit_loop_end(&mut self, loop_id: &Option<LoopId>) {
+        assert_eq!(self.loop_tracker.exit_loop(), loop_id.expect("loop has no loop id"));
+    }
+
+    fn visit_jump(&mut self, jump: &ast::StmtJumpKind) {
+        match jump {
+            ast::StmtJumpKind::Goto { .. } => {},
+            ast::StmtJumpKind::BreakContinue { loop_id: jump_loop_id, .. } => {
+                assert_eq!(
+                    jump_loop_id.expect("continue/break missing loop_id"),
+                    self.loop_tracker.current_loop().expect("continue/break outside of loop"),
+                    "loop integrity error: continue/break loop id does not match its lexical containing loop",
+                );
+            }
+        }
     }
 }

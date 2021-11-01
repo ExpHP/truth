@@ -33,13 +33,14 @@ pub trait Parse: Sized {
     /// This is for quick-and-dirty use only; the spans in the output will have incomplete
     /// information and [`crate::Files`] will be unable to locate the corresponding
     /// strings of text. For proper diagnostics you should prefer the helper method
-    /// [`crate::pos::NonUtf8Files::parse`] instead.
+    /// [`crate::api::Truth::parse`] instead.
     fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
         let mut state = State::new();
         Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
             .map(|x| x.value)
     }
 
+    /// Parse from lexed tokens, producing an AST node with correct span info.
     fn parse_stream<'input>(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>>;
 }
 

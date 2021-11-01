@@ -122,9 +122,9 @@ impl ast::Visit for Visitor<'_, '_> {
             // would already be done by recursively walking the node
             | ast::StmtKind::Item { .. }
             | ast::StmtKind::CondChain { .. }
-            | ast::StmtKind::CondGoto { .. }
+            | ast::StmtKind::CondJump { .. }
             | ast::StmtKind::While { .. }
-            | ast::StmtKind::Goto { .. }
+            | ast::StmtKind::Jump { .. }
             | ast::StmtKind::Loop { .. } => {
                 ast::walk_stmt(self, stmt)
             },
@@ -147,7 +147,7 @@ impl ast::Visit for Visitor<'_, '_> {
                 }
             },
 
-            ast::StmtKind::Times { clobber, count, block, keyword: _ } => {
+            ast::StmtKind::Times { clobber, count, block, keyword: _, loop_id: _ } => {
                 if let Err(e) = self.check_stmt_times(clobber, count) {
                     self.errors.set(e);
                 }
@@ -172,20 +172,23 @@ impl ast::Visit for Visitor<'_, '_> {
         }
     }
 
-    fn visit_goto(&mut self, goto: &ast::StmtGoto) {
-        ast::walk_goto(self, goto);
+    fn visit_jump(&mut self, jump: &ast::StmtJumpKind) {
+        ast::walk_jump(self, jump);
 
-        let ast::StmtGoto { destination, time } = goto;
-
-        // There is the remote possibility that at some point in the future, I may want to change
-        // either or both of these into full-fledged expressions (and subject them to const folding).
-        //
-        // In case that change is ever made, these statements will stop compiling and you will see
-        // this comment reminding you to fix this.  ;)
-        //
-        // (in particular, you need to check that the new expression(s) are of integer type).
-        let _: &Option<Sp<i32>> = time;
-        let _: &Sp<crate::ident::Ident> = destination;
+        match jump {
+            ast::StmtJumpKind::Goto(ast::StmtGoto { destination, time }) => {
+                // There is the remote possibility that at some point in the future, I may want to change
+                // either or both of these into full-fledged expressions (and subject them to const folding).
+                //
+                // In case that change is ever made, these statements will stop compiling and you will see
+                // this comment reminding you to fix this.  ;)
+                //
+                // (in particular, you need to check that the new expression(s) are of integer type).
+                let _: &Option<Sp<i32>> = time;
+                let _: &Sp<crate::ident::Ident> = destination;
+            },
+            ast::StmtJumpKind::BreakContinue { .. } => {},
+        }
     }
 
     fn visit_cond(&mut self, cond: &Sp<ast::Cond>) {

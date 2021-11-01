@@ -620,7 +620,7 @@ impl Format for ast::StmtKind {
         match self {
             ast::StmtKind::Item(item) => out.fmt(item),
 
-            ast::StmtKind::Goto(goto) => out.fmt((goto, ";")),
+            ast::StmtKind::Jump(goto) => out.fmt((goto, ";")),
 
             ast::StmtKind::Return { value, keyword: _ } => {
                 out.fmt("return")?;
@@ -630,11 +630,11 @@ impl Format for ast::StmtKind {
                 out.fmt(";")
             },
 
-            ast::StmtKind::CondGoto { keyword, cond, goto } => {
-                out.fmt((keyword, " (", SuppressParens(cond), ") ", goto, ";"))
+            ast::StmtKind::CondJump { keyword, cond, jump } => {
+                out.fmt((keyword, " (", SuppressParens(cond), ") ", jump, ";"))
             },
 
-            ast::StmtKind::Loop { block, keyword: _ } => {
+            ast::StmtKind::Loop { block, keyword: _, loop_id: _ } => {
                 out.fmt(("loop ", block))
             },
 
@@ -642,15 +642,15 @@ impl Format for ast::StmtKind {
                 out.fmt(chain)
             },
 
-            ast::StmtKind::While { do_keyword: Some(_), cond, block, while_keyword: _ } => {
+            ast::StmtKind::While { do_keyword: Some(_), cond, block, while_keyword: _, loop_id: _ } => {
                 out.fmt(("do ", block, " while (", SuppressParens(cond), ");"))
             },
 
-            ast::StmtKind::While { do_keyword: None, cond, block, while_keyword: _ } => {
+            ast::StmtKind::While { do_keyword: None, cond, block, while_keyword: _, loop_id: _ } => {
                 out.fmt(("while (", SuppressParens(cond), ") ", block))
             },
 
-            ast::StmtKind::Times { clobber, count, block, keyword: _ } => {
+            ast::StmtKind::Times { clobber, count, block, keyword: _, loop_id: _ } => {
                 out.fmt("times(")?;
                 if let Some(clobber) = clobber {
                     out.fmt((clobber, " = "))?;
@@ -742,6 +742,15 @@ impl Format for ast::StmtKind {
                 out.suppress_blank_line();
                 Ok(())
             },
+        }
+    }
+}
+
+impl Format for ast::StmtJumpKind {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        match self {
+            ast::StmtJumpKind::Goto(goto) => out.fmt(goto),
+            ast::StmtJumpKind::BreakContinue { keyword, loop_id: _ } => out.fmt(keyword),
         }
     }
 }

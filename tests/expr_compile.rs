@@ -819,3 +819,26 @@ fn times() {
         }"#).unwrap();
     }
 }
+
+#[test]
+fn loop_break() {
+    let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+        A = 5;
+        B = 0;
+        D = 0;
+        times(A = 6) {
+            loop {
+                B += 1;
+                C = B % 7;
+                if (C == 0) break;
+            }
+
+            while (A != 1000) { break; }
+            times(1000) { break; }
+
+            if (A == 3) break;
+        }
+    }"#).unwrap();
+    assert_eq!(new_vm.get_reg(REG_A), Some(ScalarValue::Int(3)));
+    assert_eq!(new_vm.get_reg(REG_B), Some(ScalarValue::Int(28)));
+}

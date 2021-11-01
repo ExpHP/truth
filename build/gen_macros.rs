@@ -39,10 +39,10 @@ pub fn gen_ast_macros() -> String {
                 ("goto_time", ArgKind::GotoTime),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtKind::Goto($crate::ast::StmtGoto {
+                $crate::ast::StmtKind::Jump($crate::ast::StmtJumpKind::Goto($crate::ast::StmtGoto {
                     destination: $goto_label,
                     time: $goto_time,
-                })
+                }))
             "#},
         ),
 
@@ -55,13 +55,13 @@ pub fn gen_ast_macros() -> String {
                 ("goto_time", ArgKind::GotoTime),
             ],
             FinalCasesType::Stmt { body: r#"
-                $crate::ast::StmtKind::CondGoto {
+                $crate::ast::StmtKind::CondJump {
                     keyword: $keyword,
                     cond: Into::into($cond),
-                    goto: $crate::ast::StmtGoto {
+                    jump: $crate::ast::StmtJumpKind::Goto($crate::ast::StmtGoto {
                         destination: $goto_label,
                         time: $goto_time,
-                    },
+                    }),
                 }
             "#},
         ),

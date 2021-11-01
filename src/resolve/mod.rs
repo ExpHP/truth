@@ -12,59 +12,75 @@ mod tests;
 
 pub type IdMap<K, V> = HashMap<K, V>; // probably want to get FxHashMap
 
-/// Identifies a node in the AST that may be interesting to semantic analysis.
-///
-/// Semantic analysis passes typically return data indexed by [`NodeId`], bypassing the need
-/// to store this information inside the AST or a similarly-shaped structure.
-///
-/// # Uniqueness and freshening
-///
-/// [`NodeId`]s must generally be unique within any AST node that [any semantic analysis pass][`crate::passes::semantics`]
-/// is called on.  This requirement is typically checked; otherwise, if a duplicate ID were to exist in the AST
-/// (due to e.g. an ill-advised clone), then the stored analysis result on that ID could end up different
-/// depending on the order in which the two duplicates are visited.
-///
-/// All [`NodeId`]s in the AST are [`Option`]s.  These can be set to `None` during the initial construction of
-/// an AST fragment (e.g. during parsing), but should be reassigned as soon as the fragment is complete by calling
-/// either [`crate::passes::resolution::fill_missing_node_ids`] or [`crate::passes::resolution::refresh_node_ids`].
-///
-/// When duplicating an AST node (for instance, inlining a function body or unrolling a loop), the copy should be
-/// reassigned new [`NodeId`]s using [`CompilerContext::refresh_node_ids`].
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NodeId(pub NonZeroU32);
+newtype_id!{
+    /// Identifies a node in the AST that may be interesting to semantic analysis.
+    ///
+    /// Semantic analysis passes typically return data indexed by [`NodeId`], bypassing the need
+    /// to store this information inside the AST or a similarly-shaped structure.
+    ///
+    /// # Uniqueness and freshening
+    ///
+    /// [`NodeId`]s must generally be unique within any AST node that [any semantic analysis pass][`crate::passes::semantics`]
+    /// is called on.  This requirement is typically checked; otherwise, if a duplicate ID were to exist in the AST
+    /// (due to e.g. an ill-advised clone), then the stored analysis result on that ID could end up different
+    /// depending on the order in which the two duplicates are visited.
+    ///
+    /// All [`NodeId`]s in the AST are [`Option`]s.  These can be set to `None` during the initial construction of
+    /// an AST fragment (e.g. during parsing), but should be reassigned as soon as the fragment is complete by calling
+    /// either [`crate::passes::resolution::fill_missing_node_ids`] or [`crate::passes::resolution::refresh_node_ids`].
+    ///
+    /// When duplicating an AST node (for instance, inlining a function body or unrolling a loop), the copy should be
+    /// reassigned new [`NodeId`]s using [`CompilerContext::refresh_node_ids`].
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct NodeId(pub NonZeroU32);
+}
 
-/// A "resolvable ID."  Identifies a instance in the source code of an identifier that *can*
-/// be resolved to something.
-///
-/// Name resolution is effectively the act of mapping [`ResId`]s to [`DefId`]s.
-///
-/// # Uniqueness
-///
-/// [`ResId`]s must be unique within any AST node that the [name resolution pass][`crate::passes::resolution::resolve_names`]
-/// is called on, but after that, they can be freely copied around; all copies will continue referring to the
-/// same definition.
-///
-/// There is not necessarily any association between the value of a [`ResId`] and a [`NodeId`].
-/// [`crate::passes::resolution::refresh_node_ids`] will reassign the latter, but not the former.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ResId(pub NonZeroU32);
+newtype_id! {
+    /// A "resolvable ID."  Identifies a instance in the source code of an identifier that *can*
+    /// be resolved to something.
+    ///
+    /// Name resolution is effectively the act of mapping [`ResId`]s to [`DefId`]s.
+    ///
+    /// # Uniqueness
+    ///
+    /// [`ResId`]s must be unique within any AST node that the [name resolution pass][`crate::passes::resolution::resolve_names`]
+    /// is called on, but after that, they can be freely copied around; all copies will continue referring to the
+    /// same definition.
+    ///
+    /// There is not necessarily any association between the value of a [`ResId`] and a [`NodeId`].
+    /// [`crate::passes::resolution::refresh_node_ids`] will reassign the latter, but not the former.
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct ResId(pub NonZeroU32);
+}
 
-/// Represents some sort of definition; a unique thing (an item, a local variable, a globally-defined
-/// register alias, etc.) that an identifier can possibly be resolved to.
-///
-/// [`DefId`]s are created by the methods on [`CompilerContext`], and can be obtained after creation
-/// from [`Resolutions`].
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DefId(pub NonZeroU32);
+newtype_id! {
+    /// Represents some sort of definition; a unique thing (an item, a local variable, a globally-defined
+    /// register alias, etc.) that an identifier can possibly be resolved to.
+    ///
+    /// [`DefId`]s are created by the methods on [`CompilerContext`], and can be obtained after creation
+    /// from [`Resolutions`].
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct DefId(pub NonZeroU32);
+}
 
-/// The number used to access a register as an instruction argument.  This uniquely identifies a register.
-///
-/// For instance, in TH17 ECL, the `TIME` register has an id of `-9988`.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RegId(pub raw::Register);
+newtype_id! {
+    /// A stable ID for a loop.
+    ///
+    /// The purpose of this is because code transformations may move `continue`/`break` around in ways that
+    /// cause a different loop to become their lexical parent.  Depending on the circumstance it may be
+    /// desirable to detect this as a bug or decay into `goto label` syntax.
+    ///
+    /// These should be filled in ASAP, ideally at node construction or just after parsing.
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct LoopId(pub NonZeroU32);
+}
 
-impl From<raw::Register> for RegId {
-    fn from(x: raw::Register) -> Self { RegId(x) }
+newtype_id! {
+    /// The number used to access a register as an instruction argument.  This uniquely identifies a register.
+    ///
+    /// For instance, in TH17 ECL, the `TIME` register has an id of `-9988`.
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct RegId(pub raw::Register);
 }
 
 /// Identifies a scope in which a set of names are visible.
@@ -97,22 +113,24 @@ impl Namespace {
 /// This can't be passed between threads, but uses internal mutability
 /// as the single-threadedness eliminates most bugs related to misuse.
 #[derive(Debug)]
-pub struct UnusedNodeIds {
+pub struct UnusedIds<T> {
     next: std::cell::Cell<u32>,
+    _covariant: std::marker::PhantomData<T>,
     _explicitly_single_threaded: std::marker::PhantomData<*mut ()>,
 }
 
-impl UnusedNodeIds {
+impl<T: From<NonZeroU32>> UnusedIds<T> {
     pub fn new() -> Self {
-        UnusedNodeIds {
+        UnusedIds {
             next: 1.into(),
+            _covariant: Default::default(),
             _explicitly_single_threaded: Default::default(),
         }
     }
 
-    pub fn next(&self) -> NodeId {
+    pub fn next(&self) -> T {
         self.next.set(self.next.get().checked_add(1).expect("too many node ids!"));
-        NodeId(std::num::NonZeroU32::new(self.next.get() - 1).unwrap())
+        std::num::NonZeroU32::new(self.next.get() - 1).unwrap().into()
     }
 }
 
@@ -600,30 +618,6 @@ pub mod rib {
 
 // =============================================================================
 
-impl fmt::Debug for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Display for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Display for RegId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Debug for RegId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
-
 impl fmt::Display for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.0.map(|x| x.0.get()).unwrap_or(0), f)
@@ -633,30 +627,6 @@ impl fmt::Display for ScopeId {
 impl fmt::Debug for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
-    }
-}
-
-impl fmt::Debug for ResId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Display for ResId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Debug for DefId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl fmt::Display for DefId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
     }
 }
 

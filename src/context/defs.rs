@@ -9,7 +9,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::game::InstrLanguage;
 use crate::ident::{Ident, ResIdent};
-use crate::resolve::{RegId, Namespace, DefId, NodeId, rib};
+use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, rib};
 use crate::eclmap::Eclmap;
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::llir::{InstrAbi, IntrinsicInstrKind};
@@ -211,8 +211,13 @@ impl CompilerContext<'_> {
     ///
     /// If you're unable to use this because a smaller portion of [`CompilerContext`] is
     /// already borrowed, you may alternatively borrow [`CompilerContext::unused_node_ids`].
-    pub fn next_node_id(&mut self) -> NodeId {
+    pub fn next_node_id(&self) -> NodeId {
         self.unused_node_ids.next()
+    }
+
+    /// Get a fresh loop ID for a newly constructed AST loop or switch in the AST.
+    pub fn next_loop_id(&self) -> LoopId {
+        self.unused_loop_ids.next()
     }
 }
 

@@ -73,6 +73,38 @@ source_test!(
 );
 
 source_test!(
+    STD_08, break_outside_loop,
+    main_body: r#"
+        break;
+    "#,
+    expect_error: "outside of a loop",
+);
+
+source_test!(
+    STD_08, break_used_properly,
+    main_body: r#"
+        loop {
+            break;
+        }
+    "#,
+    // more in-depth tests of break semantics in expr_compile.rs,
+    // this is just here as a test control
+    check_compiled: |_, _| {},
+);
+
+source_test!(
+    STD_08, break_outside_loop_in_nested_func,
+    main_body: r#"
+        loop {
+            const void nowHeyWhatsThis() {
+                break;
+            }
+        }
+    "#,
+    expect_error: "outside of a loop",
+);
+
+source_test!(
     STD_08, local_in_std,
     main_body: r#"
         int x = 4;
