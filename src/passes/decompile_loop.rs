@@ -384,64 +384,99 @@ impl VisitMut for LoopVisitor<'_, '_> {
         self.label_refcounts_stack.pop();
     }
 
-    fn visit_block(&mut self, outer_stmts: &mut ast::Block) {
-        let mut reversed_out = vec![];
+    fn visit_block(&mut self, outer_block: &mut ast::Block) {
+        ast::walk_block_mut(self, outer_block);  // do inner blocks
 
-        let label_info = get_label_info(&outer_stmts.0, self.label_refcounts_stack.last().expect("must use on a function body!"));
-        let interrupt_label_indices = get_interrupt_label_indices(&outer_stmts.0);
+        let label_info = get_label_info(&outer_block.0, self.label_refcounts_stack.last().expect("must use on a function body!"));
+        let interrupt_label_indices = get_interrupt_label_indices(&outer_block.0);
 
-        // Dumb strategy: We just greedily replace the first backwards jump we find.
-        while let Some(last_stmt) = outer_stmts.0.last() {
-            match JmpInfo::from_stmt(&last_stmt, &label_info) {
-                Some(JmpInfo { kind: jmp_kind, dest, time_arg: None, .. }) => {
-                    let did_decompile = maybe_decompile_jump(self.ctx, outer_stmts, &mut reversed_out, &interrupt_label_indices, dest, jmp_kind);
-                    if did_decompile { continue; }
+        // We get best results for nested loops and mixed if/else/loop structures if we decompile
+        // innermost loops before outer loops.  However, decompiling things in this order will
+        // invalidate our indices, so we track the original index of each statement.
+        let mut out_stmts = vec![];
+        let mut out_indices = vec![];
+
+        // Read statements in forward order.
+        // An iterator is used to avoid O(n^2) cost of repeated removals from the middle of a vector.
+        for (scan_index, scan_stmt) in outer_block.0.drain(..).enumerate() {
+            // Perform the "fallback" behavior now of simply adding the statement to the output,
+            // so that we can simply 'continue' or do nothing if we don't want to decompile a loop.
+            out_indices.push(scan_index);
+            out_stmts.push(scan_stmt);
+            assert_eq!(out_indices.len(), out_stmts.len());
+
+            match JmpInfo::from_stmt(&out_stmts.last().expect("we just pushed it!"), &label_info) {
+                None => continue,  // not a jump
+                Some(jmp) => match should_decompile_loop(&interrupt_label_indices, &out_indices, scan_index, &jmp) {
+                    ShouldDecompileLoop::No => continue,  // the stars have not aligned
+                    ShouldDecompileLoop::Yes { label_pos_in_current_output } => {
+                        // consolidate everything after the label into a loop
+                        let trim_from = label_pos_in_current_output + 1;
+
+                        let mut new_block = ast::Block(out_stmts.drain(trim_from..).collect());
+
+                        // (the loop jump guarantees we have at least one statement so this won't panic)
+                        let inner_span = new_block.start_span().merge(new_block.end_span());
+
+                        // Don't need the jump anymore.
+                        new_block.0.pop().unwrap();
+
+                        // Construct the loop statement.
+                        out_stmts.push(sp!(inner_span => ast::Stmt {
+                            node_id: Some(self.ctx.next_node_id()),
+                            kind: jmp.kind.make_loop(new_block, self.ctx.next_loop_id()),
+                        }));
+
+                        // Give it the index of the jump since that uniquely represents it.
+                        out_indices.truncate(trim_from);
+                        out_indices.push(scan_index);
+                    },
                 },
-                _ => {},
             };
-            // doesn't match what we're looking for
-            reversed_out.push(outer_stmts.0.pop().unwrap());
         }
-        // put them in the right order
-        reversed_out.reverse();
-        outer_stmts.0 = reversed_out;
 
-        ast::walk_block_mut(self, outer_stmts);
+        outer_block.0 = out_stmts;
     }
 }
 
-fn maybe_decompile_jump(
-    ctx: &mut CompilerContext<'_>,
-    outer_stmts: &mut ast::Block,
-    reversed_out: &mut Vec<Sp<ast::Stmt>>,
+enum ShouldDecompileLoop {
+    No,
+    Yes { label_pos_in_current_output: usize },
+}
+
+fn should_decompile_loop(
     interrupt_label_indices: &[usize],
-    dest_index: usize,
-    jmp_kind: JmpKind,
-) -> bool {
-    // Is the label before the jump?
-    let src_index = outer_stmts.0.len() - 1;
-    if src_index < dest_index {
-        return false;
+    // for each statement in the current loop decompilation output, its original index
+    out_stmt_indices: &[usize],
+    jmp_src_index: usize,
+    jmp: &JmpInfo,
+) -> ShouldDecompileLoop {
+    if jmp.time_arg.is_some() {
+        return ShouldDecompileLoop::No;
     }
-    // Don't let a loop contain an interrupt label because it's confusing to read.
+
+    // is it backwards?
+    if jmp.direction_given_src(jmp_src_index) != Direction::Backwards {
+        return ShouldDecompileLoop::No;
+    }
+    // does the destination label still exist at this nesting level?
+    let label_pos_in_current_output = match out_stmt_indices.binary_search(&jmp.dest) {
+        Ok(pos) => pos,
+        Err(_) => {
+            // The destination label was already moved into the body of another loop.
+            // This happens when multiple backwards jumps overlap.
+            return ShouldDecompileLoop::No;
+        },
+    };
+
+    // don't let a loop contain an interrupt label because it's confusing to read.
     if interrupt_label_indices.iter().any(|&interrupt_i| {
-        dest_index <= interrupt_i && interrupt_i < src_index
+        jmp.dest <= interrupt_i && interrupt_i < jmp_src_index
     }) {
-        return false;
+        return ShouldDecompileLoop::No;
     }
 
-    // replace the goto with an EndOfBlock, preserving its time
-    outer_stmts.0.last_mut().unwrap().kind = ast::StmtKind::NoInstruction;
-
-    let new_block = ast::Block(outer_stmts.0.drain(dest_index..).collect());
-    let inner_span = new_block.start_span().merge(new_block.end_span());
-
-    reversed_out.push(sp!(inner_span => ast::Stmt {
-        node_id: Some(ctx.next_node_id()),
-        kind: jmp_kind.make_loop(new_block, ctx.next_loop_id()),
-    }));
-    // suppress the default behavior of popping the next item
-    true
+    ShouldDecompileLoop::Yes { label_pos_in_current_output }
 }
 
 // =============================================================================

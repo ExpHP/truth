@@ -147,6 +147,30 @@ source_test!(
     },
 );
 
+// A test specifically engineered for the forward-iterating consolidation algorithm
+// for loop decompilation, which needs to be careful with its use of indices.
+source_test!(
+    ECL_06, loop_index_invalidation_check,
+    main_body: r#"
+    A:
+        // numerous statements so that indices change by a fair amount
+        ins_0();
+        ins_0();
+        ins_0();
+        ins_0();
+        goto A;
+    B:
+        // the forward-iterating algorithm for loop decompilation could be broken
+        // by this next loop if it were to not correctly account for index invalidation.
+        ins_0();
+        goto B;
+    "#,
+    sbsb: |decompiled| {
+        assert_eq!(decompiled.matches("loop {").count(), 2);
+    },
+);
+
+// In the absence of other jumps, forward unconditional gotos shouldn't become anything.
 source_test!(
     STD_08, forward_jump,
     main_body: r#"
@@ -632,3 +656,60 @@ source_test!(
     },
 );
 
+// =============================================================================
+
+source_test!(
+    // this shows up in vanilla EoSD ECL files
+    ECL_06, nested_loops_after_if,
+    main_body: r#"
+        if ($I0 == 0) {
+            ins_0();
+        } else {
+            ins_0();
+        }
+        loop {
+            loop {
+                loop {
+                }
+            }
+        }
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"
+    if ($REG[-10001] == 0) {
+        ins_0();
+    } else {
+        ins_0();
+    }
+    loop {
+        loop {
+            loop {
+            }
+        }
+    }
+    "#.trim()));
+    },
+);
+
+source_test!(
+    // this shows up in vanilla EoSD files
+    ECL_06, loop_at_end_of_else_if,
+    main_body: r#"
+        if ($I0 == 0) {
+        } else {
+            do {
+                ins_0();
+            } while ($I0 == 2);
+        }
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"
+    if ($REG[-10001] == 0) {
+    } else {
+        do {
+            ins_0();
+        } while ($REG[-10001] == 2);
+    }
+    "#.trim()));
+    },
+);
