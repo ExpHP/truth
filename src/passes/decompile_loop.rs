@@ -227,7 +227,12 @@ fn _gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainI
         // (except for the final block, when there is no `else`.)
         let uncond_src = if_jmp.dest - 1;
         let uncond_jmp = match context.jmp_info.get(&uncond_src) {
-            None => {
+            // Note: The if guard is checking for a silly edge case where there's an empty if
+            //       not followed by an else.  In this case the original conditional jump is at
+            //       the index we're checking now, and we want to take the "no else" branch instead.
+            Some(jmp) if src != uncond_src => jmp,
+
+            _ => {
                 // This is a chain with no `else`.
                 //
                 // If there has been at least one `else if` so far, we already know the
@@ -243,7 +248,6 @@ fn _gather_cond_chain(start: usize, context: &BlockContext) -> Result<CondChainI
                     end_label_index: if_jmp.dest,
                 });
             },
-            Some(jmp) => jmp,
         };
         // There is an unconditional jump, so SOMETHING is coming up (either an `else` or `else if`)
 

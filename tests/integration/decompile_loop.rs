@@ -210,6 +210,24 @@ source_test!(
 );
 
 source_test!(
+    ANM_12, if_empty,
+    main_body: r#"
+        $I0 = RAND % 3;
+        if (I0 != 0) goto end;
+        // empty if is annoying edge case
+    end:
+        sprite(3);
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"
+    if ($REG[10000] == 0) {
+    }
+    ins_3(sprite3);
+    "#.trim()));
+    },
+);
+
+source_test!(
     ANM_12, if_else,
     main_body: r#"
         $I0 = RAND % 3;
