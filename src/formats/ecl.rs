@@ -1,15 +1,17 @@
 use indexmap::{IndexMap};
+use enum_map::EnumMap;
 
 use crate::raw;
 use crate::ast;
 use crate::pos::Sp;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
-use crate::error::{ErrorReported};
+use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
 use crate::value::{ScalarType, ScalarValue};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions, RegisterEncodingStyle};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
+use crate::resolve::RegId;
 use crate::context::CompilerContext;
 
 // =============================================================================
@@ -124,9 +126,14 @@ fn compile(
     // Compilation pass
     let emitter = ctx.emitter;
     let emit = |e| emitter.emit(e);
+    let mut errors = ErrorFlag::new(); // delay returns for panic bombs
     let mut subs = IndexMap::new();
     let mut timelines = vec![];
-    for item in &ast.items {
+    let mut ecl_lowerer = llir::Lowerer::new(&*instr_format);
+    let mut timeline_lowerer = llir::Lowerer::new(&*timeline_format);
+
+    ast.items.iter().map(|item| {
+        // eprintln!("{:?}", item);
         match &item.value {
             ast::Item::Meta { keyword, .. } => return Err(emit(error!(
                 message("unexpected '{}' in old ECL format file", keyword),
@@ -139,10 +146,11 @@ fn compile(
             ast::Item::ConstVar { .. } => {},
             ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
             ast::Item::Timeline { code, .. } => {
-                let instrs = llir::lower_sub_ast_to_instrs(&*timeline_format, &code.0, ctx)?;
+                let instrs = timeline_lowerer.lower_sub(&code.0, ctx)?;
                 timelines.push(instrs)
             },
-            ast::Item::Func { qualifier: None, code: None, .. } => {
+            ast::Item::Func { qualifier: None, code: None, ref ident, .. } => {
+                subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                 return Err(emit(error!(
                     message("extern functions are not supported in old-style ECL file"),
                     primary(item, "unsupported extern function"),
@@ -154,6 +162,7 @@ fn compile(
                 assert_eq!(sub_ids.get_index_of(ident.as_raw()).unwrap(), subs.len());
 
                 if params.len() > 0 {
+                    subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                     let (_, first_param_name) = &params[0];
                     return Err(emit(error!(
                         message("parameters are not supported in old-style ECL subs like '{}'", ident),
@@ -162,20 +171,29 @@ fn compile(
                 }
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
+                    subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                     return Err(emit(error!(
                         message("return types are not supported in old-style ECL subs like '{}'", ident),
                         primary(ty_keyword, "unsupported return type"),
                     )));
                 }
 
-                let instrs = llir::lower_sub_ast_to_instrs(&*instr_format, &code.0, ctx)?;
+                let instrs = ecl_lowerer.lower_sub(&code.0, ctx).unwrap_or_else(|e| {
+                    errors.set(e);
+                    vec![]
+                });
                 subs.insert(ident.value.as_raw().clone(), instrs);
             }
 
             // TODO: support inline and const
             ast::Item::Func { qualifier: Some(_), .. } => return Err(emit(unsupported(&item.span))),
         } // match item
-    }; // for item in script
+        Ok(())
+    }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
+
+    ecl_lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+    timeline_lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+    errors.into_result(())?;
 
     Ok(OldeEclFile { subs, timelines, binary_filename: None })
 }
@@ -564,6 +582,30 @@ impl InstrFormat for InstrFormat06 {
         } else {
             RegisterEncodingStyle::ByParamMask
         }
+    }
+
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
+        use RegId as R;
+
+        match self.game {
+            Game::Th06 => enum_map::enum_map!{
+                ScalarType::Int => vec![
+                    R(-10001), R(-10002), R(-10003), R(-10004),
+                    R(-10009), R(-100010), R(-100011), R(-100012)
+                ],
+                ScalarType::Float => vec![R(-10005), R(-10006), R(-10007), R(-10008)],
+                ScalarType::String => vec![],
+            },
+            _ => enum_map::enum_map!{
+                _ => vec![],
+            },
+        }
+    }
+
+    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
+        // that one that disables the callstack
+        (self.game == Game::Th06 && opcode == 130)
+            .then(|| HowBadIsIt::ItsWaterElf)
     }
 }
 

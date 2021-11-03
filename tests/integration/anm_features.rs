@@ -810,6 +810,54 @@ entry {
 // =============================================================================
 
 source_test!(
+    ANM_16, anti_scratch_bad_in_func,
+    items: r#"
+    script grandparent {
+        F2 = 1.0;
+        scriptNew(parent);
+    +100:
+        nop();
+    }
+
+    script parent {
+        // Even though this sub has no mention of F2, it is NOT safe to
+        // use it for scratch purposes.
+        F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+        copyVars();
+        scriptNew(child);
+    +100:
+        nop();
+    }
+
+    script child {
+        copyVars();
+        F0 = F2;  // this uses the value of F2 set in grandparent
+    }
+"#,
+    expect_error: "scratch registers are disabled",
+);
+
+source_test!(
+    ANM_16, anti_scratch_okay_in_other_func,
+    items: r#"
+    script grandparent {
+        // using F2 is okay here, we don't call copyParentVars
+        F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+        scriptNew(parent);
+    +100:
+        nop();
+    }
+
+    script parent {
+        copyVars();
+    }
+"#,
+    check_compiled: |_, _| {},
+);
+
+// =============================================================================
+
+source_test!(
     // KNOWN FAILURE:
     //    Truth currently silently miscompiles this. :(
     #[ignore]

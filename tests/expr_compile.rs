@@ -253,7 +253,12 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let emitter = truth.emitter();
     let ctx = truth.ctx();
     let old_stmts = parsed_block.0;
-    let instrs = llir::lower_sub_ast_to_instrs(&instr_format, &old_stmts, ctx)?;
+    let mut errors = truth::error::ErrorFlag::new();
+    let mut lowerer = llir::Lowerer::new(&instr_format);
+    let instrs = lowerer.lower_sub(&old_stmts, ctx).unwrap_or_else(|e| { errors.set(e); vec![] });
+    lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+
+    errors.into_result(())?;
 
     // decompile back to primitive operations (this gives an "actual" output)
     let new_block = {
@@ -300,7 +305,15 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         block
     };
 
-    llir::lower_sub_ast_to_instrs(&instr_format, &parsed_block.0, truth.ctx()).unwrap_err().ignore();
+    // IIFE to catch either of these two function calls failing
+    (|| {
+        let mut lowerer = llir::Lowerer::new(&instr_format);
+        let mut errors = truth::error::ErrorFlag::new();
+
+        lowerer.lower_sub(&parsed_block.0, truth.ctx()).unwrap_or_else(|e| { errors.set(e); vec![] });
+        lowerer.finish(truth.ctx()).unwrap_or_else(|e| errors.set(e));
+        errors.into_result(())
+    })().unwrap_err().ignore();
     let err_s = truth.get_captured_diagnostics().unwrap();
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }

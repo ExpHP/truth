@@ -5,7 +5,7 @@ use crate::ast::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
-use crate::error::{GatherErrorIteratorExt, ErrorReported};
+use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
 use crate::game::{Game, InstrLanguage};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
@@ -330,10 +330,17 @@ fn compile(
         SparseScriptTable::from_fields(meta).map_err(|e| ctx.emitter.emit(e))?
     };
 
-    let scripts = script_code.iter().map(|(name, code)| {
-        let instrs = crate::llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
-        Ok((name.value.clone(), instrs))
-    }).collect_with_recovery()?;
+    let mut errors = ErrorFlag::new();
+    let mut lowerer = crate::llir::Lowerer::new(instr_format);
+    let mut scripts = IndexMap::new();
+    script_code.iter().map(|(name, code)| {
+        let instrs = lowerer.lower_sub(&code.0, ctx)?;
+        scripts.insert(name.value.clone(), instrs);
+        Ok(())
+    }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
+
+    lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+    errors.into_result(())?;
 
     let unused_table_keys = {
         sparse_table.table.keys().copied()

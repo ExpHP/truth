@@ -9,9 +9,9 @@ use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 // FIXME: Ideally this module wouldn't depend on this type (so the stackful
 //        lowerer can also use it) but until the other lowerer exists,
 //        doing anything else would be premature abstraction.
-use super::stackless::Lowerer;
+use super::stackless::SingleSubLowerer;
 
-impl Lowerer<'_, '_> {
+impl SingleSubLowerer<'_, '_> {
     /// Factored out common code for beginning to construct an intrinsic.
     pub(in crate::llir::lower) fn lower_intrinsic<'a>( // lifetime to prevent forall quantification
         &mut self,
@@ -31,13 +31,13 @@ impl Lowerer<'_, '_> {
         // convert them into a vec using the validated abi info
         let args = LowerArgs::Known(builder.into_vec(abi_parts)?);
 
-        self.out.push(LowerStmt::Instr(LowerInstr {
+        self.out.push(sp!(span => LowerStmt::Instr(LowerInstr {
             stmt_data,
             opcode,
             explicit_extra_arg: None,
             user_param_mask: None,
             args,
-        }));
+        })));
         Ok(())
     }
 }

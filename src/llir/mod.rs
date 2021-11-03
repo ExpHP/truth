@@ -10,7 +10,7 @@ use crate::resolve::{RegId};
 pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind};
 mod abi;
 
-pub use lower::lower_sub_ast_to_instrs;
+pub use lower::Lowerer;
 mod lower;
 
 pub use raise::{Raiser, DecompileOptions};
@@ -320,13 +320,21 @@ pub trait InstrFormat {
         enum_map::enum_map!(_ => vec![])
     }
 
-    /// Should return `true` if this instruction implicitly uses registers not mentioned in the
-    /// argument list.  This will disable scratch register allocation.
+    /// Should return `true` if this instruction makes it dangerous to use scratch registers.
     ///
-    /// This is used for ANM ins_509 which copies all variables from the parent.  (basically,
-    /// a script in the middle of a `grandparent->parent->child` ancestry could be using it to
-    /// communicate registers it doesn't even mention, if both `parent` and `child` are using it!)
-    fn instr_disables_scratch_regs(&self, _opcode: raw::Opcode) -> bool { false }
+    /// Normally, most things that are implicitly read by an instruction must also be set by the
+    /// caller, and anything set by an instruction can be typically assumed to be meaningless unless
+    /// it is read by the caller.  Thus, the standard "register usage" analysis suffices for 99% of
+    /// instructions.
+    ///
+    /// But there are some particularly *evil* instructions that can cause action at a distance,
+    /// typically in a setup involving at least 3 functions.
+    ///
+    /// For instance, ANM `ins_509` copies all variables from the parent.  If you have three
+    /// scripts set up like `grandparent->parent->child` and this is used by both `parent` and `child`,
+    /// then there could be registers that are dangerous to modify in `parent` despite not being
+    /// mentioned at all in its script!
+    fn instr_disables_scratch_regs(&self, _opcode: raw::Opcode) -> Option<HowBadIsIt> { None }
 
     /// Used by TH06 to indicate that an instruction must be the last instruction in the script.
     fn is_th06_anm_terminating_instr(&self, _opcode: raw::Opcode) -> bool { false }
@@ -348,6 +356,13 @@ pub trait InstrFormat {
     /// In EoSD ECL, the value of an argument can, in some cases, decide if it is
     /// a literal or a register.
     fn register_style(&self) -> RegisterEncodingStyle { RegisterEncodingStyle::ByParamMask }
+}
+
+/// How bad is the scratch-disabling-ness of this instruction?
+#[derive(Copy, Clone)]
+pub enum HowBadIsIt {
+    OhItsJustThisOneFunction,
+    ItsWaterElf,
 }
 
 #[derive(Copy, Clone)]
@@ -393,8 +408,8 @@ impl InstrFormat for TestFormat {
     fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
     fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
-    fn instr_disables_scratch_regs(&self, opcode: raw::Opcode) -> bool {
-        self.anti_scratch_opcode == Some(opcode)
+    fn instr_disables_scratch_regs(&self, opcode: raw::Opcode) -> Option<HowBadIsIt> {
+        (self.anti_scratch_opcode == Some(opcode)).then(|| HowBadIsIt::OhItsJustThisOneFunction)
     }
 
     fn has_registers(&self) -> bool { true }

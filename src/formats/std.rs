@@ -5,7 +5,7 @@ use crate::ast;
 use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Diagnostic, Emitter};
-use crate::error::ErrorReported;
+use crate::error::{ErrorReported, ErrorFlag};
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
@@ -343,9 +343,18 @@ fn compile_std(
         }
     };
 
+    let instr_format = format.instr_format();
     let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.emitter.emit(e))?;
-    out.script = crate::llir::lower_sub_ast_to_instrs(format.instr_format(), &main_sub.0, ctx)?;
-    Ok(out)
+    let mut errors = ErrorFlag::new();
+    let mut lowerer = crate::llir::Lowerer::new(instr_format);
+    out.script = lowerer.lower_sub(&main_sub.0, ctx).unwrap_or_else(|e| {
+        errors.set(e);
+        vec![] // dummy instructions so we can call lowerer.finish before returning
+    });
+
+    lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+
+    errors.into_result(out)
 }
 
 // =============================================================================

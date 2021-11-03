@@ -11,11 +11,11 @@ use crate::ast;
 use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
 use crate::diagnostic::{Diagnostic, Emitter};
-use crate::error::{GatherErrorIteratorExt, ErrorReported};
+use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
 use crate::game::{Game, InstrLanguage};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions, HowBadIsIt};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
@@ -878,15 +878,23 @@ fn compile(
         Some(cur_entry) => groups.push((cur_entry, cur_group)),  // last group
     }
 
-    let entries = groups.into_iter().map(|(mut entry, ast_scripts)| {
+    let mut errors = ErrorFlag::new();
+    let mut lowerer = llir::Lowerer::new(instr_format);
+    let mut entries = vec![];
+    groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
             let (_, sp_pat![id]) = script_ids[&name.value];
-            let instrs = llir::lower_sub_ast_to_instrs(instr_format, &code.0, ctx)?;
+            let instrs = lowerer.lower_sub(&code.0, ctx)?;
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }
-        Ok::<_, ErrorReported>(entry)
-    }).collect_with_recovery()?;
+        entries.push(entry);
+        Ok::<_, ErrorReported>(())
+    }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
+
+    lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+    errors.into_result(())?;
+
     Ok(AnmFile { entries, binary_filename: None })
 }
 
@@ -1831,8 +1839,9 @@ impl InstrFormat for InstrFormat07 {
         f.write_u16(0)
     }
 
-    fn instr_disables_scratch_regs(&self, opcode: u16) -> bool {
+    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
         // copyParentVars
-        Game::Th14 <= self.game && opcode == 509
+        (Game::Th14 <= self.game && opcode == 509)
+            .then(|| HowBadIsIt::OhItsJustThisOneFunction)
     }
 }

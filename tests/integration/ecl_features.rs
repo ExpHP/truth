@@ -304,6 +304,43 @@ otherLabelLol:
     },
 );
 
+source_test!(
+    ECL_06, eosd_var_float_scratch_allocation,
+    main_body: r#"
+    // complex enough to require both F1 and F2
+    F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+"#,
+    sbsb: |decompiled| {
+        // should use F1 and F2 for temporaries, and not integer variables
+        // (even though the instructions written to file use integer outputs)
+        assert!(decompiled.contains("%REG[-10006]"));
+        assert!(decompiled.contains("%REG[-10007]"));
+    },
+);
+
+source_test!(
+    ECL_06, eosd_patchy_is_goddamn_dangerous,
+    items: r#"
+    void Sub10() {
+        F2 = 1.0;
+        ins_130(1);  // that one that disables the call stack
+        call(Sub11, 0, 1.0);
+    }
+
+    void Sub11() {
+        // Even though this sub has no mention of F2, it is NOT safe to
+        // use it for scratch purposes.
+        F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+        call(Sub12, 0, 1.0);
+    }
+
+    void Sub12() {
+        F0 = F2;  // this uses the value of F2 set in Sub10
+    }
+"#,
+    expect_error: "scratch registers are disabled",
+);
+
 // source_test!(
 //     ECL_10, extern_conflict,
 //     full_source: r#"

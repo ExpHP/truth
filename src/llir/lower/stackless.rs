@@ -7,7 +7,7 @@ use std::collections::{HashMap, BTreeSet};
 use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
-use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
+use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, HowBadIsIt};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -19,15 +19,15 @@ use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use IntrinsicInstrKind as IKind;
 
 /// Helper responsible for converting an AST into [`LowLevelStmt`]s.
-pub (in crate::llir::lower) struct Lowerer<'a, 'ctx> {
-    pub out: Vec<LowerStmt>,
+pub (in crate::llir::lower) struct SingleSubLowerer<'a, 'ctx> {
+    pub out: Vec<Sp<LowerStmt>>,
     pub intrinsic_instrs: IntrinsicInstrs,
     pub instr_format: &'a dyn InstrFormat,
     pub ctx: &'a mut CompilerContext<'ctx>,
     pub stmt_data: IdMap<NodeId, TimeAndDifficulty>,
 }
 
-impl Lowerer<'_, '_> {
+impl SingleSubLowerer<'_, '_> {
     pub fn lower_sub_ast(
         &mut self,
         code: &[Sp<ast::Stmt>],
@@ -78,7 +78,7 @@ impl Lowerer<'_, '_> {
 
                 ast::StmtKind::Expr(expr) => match &expr.value {
                     ast::Expr::Call { name, pseudos, args } => {
-                        let opcode = self.lower_func_stmt(stmt_data, name, pseudos, args)?;
+                        let opcode = self.lower_func_stmt(stmt.span, stmt_data, name, pseudos, args)?;
                         if self.instr_format.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(name);
                         }
@@ -86,9 +86,13 @@ impl Lowerer<'_, '_> {
                     _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
                 }, // match expr
 
-                ast::StmtKind::Label(ident) => self.out.push(LowerStmt::Label { time: stmt_data.time, label: ident.clone() }),
+                ast::StmtKind::Label(ident) => {
+                    self.out.push(sp!(stmt.span => LowerStmt::Label { time: stmt_data.time, label: ident.clone() }));
+                },
 
-                &ast::StmtKind::ScopeEnd(def_id) => self.out.push(LowerStmt::RegFree { def_id }),
+                &ast::StmtKind::ScopeEnd(def_id) => {
+                    self.out.push(sp!(stmt.span => LowerStmt::RegFree { def_id }));
+                },
 
                 ast::StmtKind::NoInstruction => {},
 
@@ -109,6 +113,7 @@ impl Lowerer<'_, '_> {
     /// Lowers `func(<ARG1>, <ARG2>, <...>);`
     fn lower_func_stmt<'a>(
         &mut self,
+        stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         name: &Sp<ast::CallableName>,
         pseudos: &[Sp<ast::PseudoArg>],
@@ -118,12 +123,13 @@ impl Lowerer<'_, '_> {
         let (lang, opcode) = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
         assert_eq!(lang, self.instr_format.language());
 
-        self.lower_instruction(stmt_data, opcode as _, pseudos, args)
+        self.lower_instruction(stmt_span, stmt_data, opcode as _, pseudos, args)
     }
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
     fn lower_instruction(
         &mut self,
+        stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         opcode: raw::Opcode,
         pseudos: &[Sp<ast::PseudoArg>],
@@ -159,7 +165,7 @@ impl Lowerer<'_, '_> {
                             let (def_id, _) = self.define_temporary(stmt_data, &data)?;
                             let lowered = sp!(expr.span => LowerArg::Local { def_id, storage_ty: data.read_ty });
 
-                            temp_def_ids.push(def_id); // so we can free the register later
+                            temp_def_ids.push((expr.span.end_span(), def_id)); // so we can free the register later
                             lowered
                         },
                     };
@@ -168,16 +174,16 @@ impl Lowerer<'_, '_> {
             },
         };
 
-        self.out.push(LowerStmt::Instr(LowerInstr {
+        self.out.push(sp!(stmt_span => LowerStmt::Instr(LowerInstr {
             stmt_data,
             opcode: opcode as _,
             user_param_mask: pseudo_param_mask.map(|x| x.value),
             explicit_extra_arg: pseudo_extra_arg.map(|x| x.value),
             args: low_level_args,
-        }));
+        })));
 
-        for id in temp_def_ids.into_iter().rev() {
-            self.undefine_temporary(id)?;
+        for (span, id) in temp_def_ids.into_iter().rev() {
+            self.undefine_temporary(span, id)?;
         }
 
         Ok(opcode)
@@ -199,7 +205,7 @@ impl Lowerer<'_, '_> {
             let (var, expr) = &pair.value;
             let ident = var.name.expect_ident();
             let def_id = self.ctx.resolutions.expect_def(ident);
-            self.out.push(LowerStmt::RegAlloc { def_id, cause: var.span });
+            self.out.push(sp!(var.span => LowerStmt::RegAlloc { def_id }));
 
             if let Some(expr) = expr {
                 let assign_op = sp!(pair.span => token![=]);
@@ -245,7 +251,7 @@ impl Lowerer<'_, '_> {
             // (i.e.:    `float tmp = <expr>;  a = $tmp;`
             let (tmp_def_id, tmp_as_expr) = self.define_temporary(stmt_data, &data_rhs)?;
             self.lower_assign_op(span, stmt_data, var, assign_op, &tmp_as_expr)?;
-            self.undefine_temporary(tmp_def_id)?;
+            self.undefine_temporary(span.end_span(), tmp_def_id)?;
             return Ok(());
         }
 
@@ -275,7 +281,7 @@ impl Lowerer<'_, '_> {
                     _ => {
                         let (tmp_def_id, tmp_var_expr) = self.define_temporary(stmt_data, &data_rhs)?;
                         self.lower_assign_op(span, stmt_data, var, assign_op, &tmp_var_expr)?;
-                        self.undefine_temporary(tmp_def_id)?;
+                        self.undefine_temporary(span.end_span(), tmp_def_id)?;
                         Ok(())
                     },
                 }
@@ -319,7 +325,7 @@ impl Lowerer<'_, '_> {
                     // we need a temporary, either due to the type cast or to avoid invalidating the other subexpression
                     let (tmp_def_id, tmp_as_expr) = self.define_temporary(stmt_data, &data_a)?;
                     self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, &tmp_as_expr, binop, b)?;
-                    self.undefine_temporary(tmp_def_id)?;
+                    self.undefine_temporary(span.end_span(), tmp_def_id)?;
                 }
                 return Ok(());
             },
@@ -340,7 +346,7 @@ impl Lowerer<'_, '_> {
                     // we need a temporary, either due to the type cast or to avoid invalidating the other subexpression
                     let (tmp_def_id, tmp_as_expr) = self.define_temporary(stmt_data, &data_b)?;
                     self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, a, binop, &tmp_as_expr)?;
-                    self.undefine_temporary(tmp_def_id)?;
+                    self.undefine_temporary(span.end_span(), tmp_def_id)?;
                 }
                 return Ok(());
             },
@@ -392,7 +398,7 @@ impl Lowerer<'_, '_> {
                     //               a = sin(temp);
                     let (tmp_def_id, tmp_as_expr) = self.define_temporary(stmt_data, &data_b)?;
                     self.lower_assign_direct_unop(span, stmt_data, var, eq_sign, rhs_span, unop, &tmp_as_expr)?;
-                    self.undefine_temporary(tmp_def_id)?;
+                    self.undefine_temporary(span.end_span(), tmp_def_id)?;
                 }
                 Ok(())
             },
@@ -481,7 +487,7 @@ impl Lowerer<'_, '_> {
 
                 self.lower_cond_jump_predecrement(stmt_span, stmt_data, &if_keyword, var, &if_goto)?;
                 self.lower_uncond_jump(stmt_span, stmt_data, goto)?;
-                self.out.push(LowerStmt::Label { time: stmt_data.time, label: skip_label });
+                self.out.push(sp!(stmt_span => LowerStmt::Label { time: stmt_data.time, label: skip_label }));
                 Ok(())
             },
         }
@@ -543,7 +549,7 @@ impl Lowerer<'_, '_> {
             (ExprClass::NeedsTemp(data_a), _) => {
                 let (id, var_expr) = self.define_temporary(stmt_data, &data_a)?;
                 self.lower_cond_jump_comparison(stmt_span, stmt_data, keyword, &var_expr, binop, b, goto)?;
-                self.undefine_temporary(id)?;
+                self.undefine_temporary(stmt_span.end_span(), id)?;
             },
 
             // `if (a != <B>) ...` (or `unless (a != <B>) ...`)
@@ -551,7 +557,7 @@ impl Lowerer<'_, '_> {
             (ExprClass::Simple(_), ExprClass::NeedsTemp(data_b)) => {
                 let (id, var_expr) = self.define_temporary(stmt_data, &data_b)?;
                 self.lower_cond_jump_comparison(stmt_span, stmt_data, keyword, a, binop, &var_expr, goto)?;
-                self.undefine_temporary(id)?;
+                self.undefine_temporary(stmt_span.end_span(), id)?;
             },
 
             // `if (a != b) ...` (or `unless (a != b) ...`)
@@ -643,7 +649,7 @@ impl Lowerer<'_, '_> {
             self.lower_cond_jump_expr(stmt_span, stmt_data, &negated_kw, a, &skip_goto)?;
             self.lower_cond_jump_expr(stmt_span, stmt_data, &negated_kw, b, &skip_goto)?;
             self.lower_uncond_jump(stmt_span, stmt_data, goto)?;
-            self.out.push(LowerStmt::Label { time: stmt_data.time, label: skip_label });
+            self.out.push(sp!(binop.span => LowerStmt::Label { time: stmt_data.time, label: skip_label }));
             Ok(())
         }
     }
@@ -685,8 +691,8 @@ impl Lowerer<'_, '_> {
     }
 
     /// Emits an intrinsic that cleans up a register-allocated temporary.
-    fn undefine_temporary(&mut self, def_id: DefId) -> Result<(), ErrorReported> {
-        self.out.push(LowerStmt::RegFree { def_id });
+    fn undefine_temporary(&mut self, span: Span, def_id: DefId) -> Result<(), ErrorReported> {
+        self.out.push(sp!(span => LowerStmt::RegFree { def_id }));
         Ok(())
     }
 
@@ -706,7 +712,7 @@ impl Lowerer<'_, '_> {
         let sigil = get_temporary_read_ty(tmp_ty, span).map_err(|e| self.ctx.emitter.emit(e))?;
 
         let var = sp!(span => ast::Var { ty_sigil: Some(sigil), name: ast::VarName::new_non_reg(ident.value) });
-        self.out.push(LowerStmt::RegAlloc { def_id, cause: span });
+        self.out.push(sp!(span => LowerStmt::RegAlloc { def_id }));
 
         Ok((def_id, var))
     }
@@ -845,9 +851,31 @@ fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
 
 // =============================================================================
 
+#[derive(Default)]
+pub (in crate::llir::lower) struct PersistentState {
+    has_used_scratch: Option<Span>,
+    has_anti_scratch_ins: Option<Span>,
+}
+
+impl PersistentState {
+    pub (in crate::llir::lower) fn finish(self, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
+        if let Some(anti_span) = self.has_anti_scratch_ins {
+            if let Some(used_span) = self.has_used_scratch {
+                return Err(ctx.emitter.emit(error!(
+                    message("scratch registers are disabled in this entire file"),
+                    primary(used_span, "this fancy expression requires a scratch register"),
+                    secondary(anti_span, "Patchouli has tainted this entire file"),
+                )))
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Eliminates all `LowerArg::Local`s by allocating registers for them.
 pub (in crate::llir::lower) fn assign_registers(
-    code: &mut [LowerStmt],
+    code: &mut [Sp<LowerStmt>],
+    global_scratch_results: &mut PersistentState,
     format: &dyn InstrFormat,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
@@ -861,21 +889,21 @@ pub (in crate::llir::lower) fn assign_registers(
 
     let mut local_regs = HashMap::<DefId, (RegId, ScalarType, Span)>::new();
     let mut has_used_scratch: Option<Span> = None;
-    let mut has_anti_scratch_ins = false;
+    let mut has_anti_scratch_ins: Option<Span> = None;
 
     for stmt in code {
-        match stmt {
-            LowerStmt::RegAlloc { def_id, ref cause } => {
-                has_used_scratch.get_or_insert(*cause);
+        match &mut stmt.value {
+            &mut LowerStmt::RegAlloc { def_id } => {
+                has_used_scratch.get_or_insert(stmt.span);
 
-                let required_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
+                let required_ty = ctx.defs.var_inherent_ty(def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
                     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(format.language(), reg));
 
                     let mut error = error!(
                         message("script too complex to compile"),
-                        primary(cause, "no more registers of this type!"),
+                        primary(stmt.span, "no more registers of this type!"),
                     );
                     for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
                         if scratch_ty == required_ty {
@@ -897,7 +925,7 @@ pub (in crate::llir::lower) fn assign_registers(
                     ctx.emitter.emit(error)
                 })?;
 
-                assert!(local_regs.insert(*def_id, (reg, required_ty, *cause)).is_none());
+                assert!(local_regs.insert(def_id, (reg, required_ty, stmt.span)).is_none());
             },
             LowerStmt::RegFree { def_id } => {
                 let inherent_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) we allocated a reg so it must have a type");
@@ -905,8 +933,15 @@ pub (in crate::llir::lower) fn assign_registers(
                 unused_regs[inherent_ty].push(reg);
             },
             LowerStmt::Instr(instr) => {
-                if format.instr_disables_scratch_regs(instr.opcode) {
-                    has_anti_scratch_ins = true;
+                if let Some(how_bad) = format.instr_disables_scratch_regs(instr.opcode) {
+                    match how_bad {
+                        HowBadIsIt::OhItsJustThisOneFunction => {
+                            has_anti_scratch_ins.get_or_insert(stmt.span);
+                        },
+                        HowBadIsIt::ItsWaterElf => {
+                            global_scratch_results.has_anti_scratch_ins.get_or_insert(stmt.span);
+                        },
+                    }
                 }
 
                 if let LowerArgs::Known(args) = &mut instr.args {
@@ -921,22 +956,27 @@ pub (in crate::llir::lower) fn assign_registers(
         }
     }
 
-    if has_anti_scratch_ins {
-        if let Some(span) = has_used_scratch {
+    if let Some(anti_span) = has_anti_scratch_ins {
+        if let Some(used_span) = has_used_scratch {
             return Err(ctx.emitter.emit(error!(
                 message("scratch registers are disabled in this script"),
-                primary(span, "this requires a scratch register"),
+                primary(used_span, "this fancy expression requires a scratch register"),
+                primary(anti_span, "this disables scratch registers"),
             )))
         }
+    }
+
+    if let Some(span) = has_used_scratch {
+        global_scratch_results.has_used_scratch.get_or_insert(span);
     }
 
     Ok(())
 }
 
 // Gather all explicitly-used registers in the source. (so that we can avoid using them for scratch)
-fn get_used_regs(func_body: &[LowerStmt]) -> BTreeSet<RegId> {
+fn get_used_regs(func_body: &[Sp<LowerStmt>]) -> BTreeSet<RegId> {
     func_body.iter()
-        .filter_map(|stmt| match stmt {
+        .filter_map(|stmt| match &stmt.value {
             LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. }) => Some(args),
             _ => None
         }).flat_map(|args| args.iter().filter_map(|arg| match &arg.value {

@@ -5,7 +5,7 @@ use super::{unsupported, SimpleArg};
 use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
-use crate::pos::{Sp, Span};
+use crate::pos::{Sp};
 use crate::ast;
 use crate::resolve::DefId;
 use crate::ident::{Ident};
@@ -28,7 +28,7 @@ enum LowerStmt {
     /// An intrinsic that represents a label that can be jumped to.
     Label { time: raw::Time, label: Sp<Ident> },
     /// An intrinsic that begins the scope of a register-allocated local.
-    RegAlloc { def_id: DefId, cause: Span },
+    RegAlloc { def_id: DefId },
     /// An intrinsic that ends the scope of a register-allocated local.
     RegFree { def_id: DefId },
 }
@@ -102,31 +102,71 @@ impl LowerArg {
     }
 }
 
-pub fn lower_sub_ast_to_instrs(
-    instr_format: &dyn InstrFormat,
+/// Type that provides methods to lower function bodies to instructions.
+///
+/// It tracks some state related to diagnostics, so that some consolidated errors/warnings
+/// can be given at the end of compilation.
+///
+/// Each language should have a separate instance.
+/// This is a panic-bomb, so `.finish()` must be called.
+pub struct Lowerer<'a> {
+    instr_format: &'a dyn InstrFormat,
+    // NOTE: later this can become Box<dyn Trait> and just let the implementations downcast
+    inner: stackless::PersistentState,
+}
+
+impl Drop for Lowerer<'_> {
+    #[track_caller]
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            panic!("Lowerer::finish() was not called, this is a bug!");
+        }
+    }
+}
+
+impl<'a> Lowerer<'a> {
+    pub fn new(instr_format: &'a dyn InstrFormat) -> Self {
+        Lowerer { instr_format, inner: Default::default() }
+    }
+
+    pub fn lower_sub(&mut self, code: &[Sp<ast::Stmt>], ctx: &mut CompilerContext<'_>) -> Result<Vec<RawInstr>, ErrorReported> {
+        lower_sub_ast_to_instrs(self, code, ctx)
+    }
+
+    /// Report any errors that can only be reported once all functions have been compiled.
+    pub fn finish(mut self, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
+        let inner = std::mem::replace(&mut self.inner, Default::default());
+        std::mem::forget(self);  // disable the panic bomb
+        inner.finish(ctx)
+    }
+}
+
+fn lower_sub_ast_to_instrs(
+    lowerer: &mut Lowerer,
     code: &[Sp<ast::Stmt>],
     ctx: &mut CompilerContext<'_>,
 ) -> Result<Vec<RawInstr>, ErrorReported> {
-    use stackless::{Lowerer, assign_registers};
+    use stackless::{SingleSubLowerer, assign_registers};
 
-    let mut lowerer = Lowerer {
+    let instr_format = lowerer.instr_format;
+    let mut sub_lowerer = SingleSubLowerer {
         out: vec![],
         intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(instr_format, &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
         ctx,
         instr_format,
     };
-    lowerer.lower_sub_ast(code)?;
-    let mut out = lowerer.out;
+    sub_lowerer.lower_sub_ast(code)?;
+    let mut out = sub_lowerer.out;
 
     // And now postprocess
-    assign_registers(&mut out, instr_format, &ctx)?;
+    assign_registers(&mut out, &mut lowerer.inner, lowerer.instr_format, &ctx)?;
 
     let label_info = gather_label_info(instr_format, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, instr_format, &label_info, &ctx.emitter)?;
 
     let mut encoding_state = ArgEncodingState::new();
-    Ok(out.into_iter().filter_map(|x| match x {
+    Ok(out.into_iter().filter_map(|x| match x.value {
         LowerStmt::Instr(instr) => Some({
             // this is the second time we're using encode_args (first time was to get labels), so suppress warnings
             let null_emitter = ctx.emitter.with_writer(crate::diagnostic::dev_null());
@@ -154,7 +194,7 @@ struct RawLabelInfo {
 fn gather_label_info(
     format: &dyn InstrFormat,
     initial_offset: raw::BytePos,
-    code: &[LowerStmt],
+    code: &[Sp<LowerStmt>],
     defs: &context::Defs,
     emitter: &context::RootEmitter,
 ) -> Result<LabelInfoverse, ErrorReported> {
@@ -185,7 +225,7 @@ fn gather_label_info(
 
     code.iter().enumerate().map(|(index, thing)| {
         stmt_offsets.push(offset);
-        match *thing {
+        match thing.value {
             LowerStmt::Instr(ref instr) => {
                 emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
                     // encode the instruction with dummy values
@@ -219,7 +259,7 @@ fn gather_label_info(
 
 /// Eliminates all `LowerArg::Label`s by replacing them with their dword values.
 fn encode_labels(
-    code: &mut [LowerStmt],
+    code: &mut [Sp<LowerStmt>],
     format: &dyn InstrFormat,
     label_info: &LabelInfoverse,
     emitter: &context::RootEmitter,
@@ -229,7 +269,7 @@ fn encode_labels(
     assert_eq!(code.len(), stmt_offsets.len());
     code.iter_mut().enumerate().map(|(stmt_index, stmt)| {
         let cur_offset = stmt_offsets[stmt_index];
-        if let LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) = stmt {
+        if let LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. } ) = &mut stmt.value {
             for arg in args {
                 match arg.value {
                     | LowerArg::Label(ref label)
