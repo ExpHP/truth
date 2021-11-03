@@ -1,0 +1,11 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: missing magic for mapfile
+  ┌─ <mapfile>:1:1
+  │
+1 │ 
+  │ ^ line does not begin with '!'
+
+

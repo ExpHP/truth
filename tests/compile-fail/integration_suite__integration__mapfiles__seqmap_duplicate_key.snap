@@ -1,0 +1,13 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: in section 'ins_names': duplicate key error for id 10
+  ┌─ <mapfile>:4:4
+  │
+3 │ 10 blue
+  │    ---- previous definition
+4 │ 10 bloo
+  │    ^^^^ redefinition
+
+

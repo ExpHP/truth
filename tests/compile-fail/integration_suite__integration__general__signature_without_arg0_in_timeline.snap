@@ -1,7 +1,0 @@
----
-source: tests/integration/general.rs
-expression: stderr
----
-error: tests/integration/resources/bad-timeline-in-timeline.eclm: in signature for ECL Timeline opcode 1000: timeline instruction is missing T(...) argument
-
-

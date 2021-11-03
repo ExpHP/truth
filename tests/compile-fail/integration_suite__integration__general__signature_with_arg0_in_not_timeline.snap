@@ -1,7 +1,0 @@
----
-source: tests/integration/general.rs
-expression: stderr
----
-error: tests/integration/resources/bad-timeline-in-ecl.eclm: in signature for ECL opcode 1000: T(...) is invalid outside of timeline languages
-
-

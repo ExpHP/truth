@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: timeline instruction is missing T(...) argument
+  ┌─ <mapfile>:3:6
+  │
+3 │ 1000 SS
+  │      ^^ timeline instruction is missing T(...) argument
+
+

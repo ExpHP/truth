@@ -1,0 +1,11 @@
+---
+source: tests/integration/general.rs
+expression: stderr
+---
+error: break outside of a loop
+   ┌─ <input>:23:17
+   │
+23 │                 break;
+   │                 ^^^^^ not valid outside of a loop
+
+

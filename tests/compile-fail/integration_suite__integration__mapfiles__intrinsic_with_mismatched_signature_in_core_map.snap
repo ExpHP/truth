@@ -1,0 +1,8 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: bad ABI for intrinsic: missing jump offset ('o')
+ = the built-in signature for ANM opcode 3 is "n"
+
+

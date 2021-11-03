@@ -1,0 +1,11 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: mapfile missing section header
+  ┌─ <mapfile>:2:1
+  │
+2 │ 300 ot
+  │ ^^^^^^ entry without section header
+
+
