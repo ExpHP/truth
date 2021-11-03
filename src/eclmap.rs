@@ -23,10 +23,18 @@ pub struct Eclmap {
     /// instead of [`Self::language`].
     pub timeline_ins_names: BTreeMap<i32, Sp<Ident>>,
     pub timeline_ins_signatures: BTreeMap<i32, Sp<String>>,
+
+    /// Indicates that this mapfile contains builtin definitions.
+    ///
+    /// Core mapfiles are allowed to contain null spans, so care must be taken when using them
+    /// in diagnostics.  (since core mapfiles can be trusted to contain valid definitions,
+    /// this issue really only comes up when showing messages of the "expected X due to definition
+    /// of Y located here in this mapfile" variety)
+    pub is_core_mapfile: bool,
 }
 
 impl Eclmap {
-    pub fn new(language: InstrLanguage) -> Self {
+    pub fn new_core_mapfile(language: InstrLanguage) -> Self {
         Eclmap {
             language,
             ins_names: Default::default(),
@@ -34,10 +42,10 @@ impl Eclmap {
             ins_rets: Default::default(),
             gvar_names: Default::default(),
             gvar_types: Default::default(),
-            /// Legacy `timeline` sections. These will always apply to [`InstrLanguage::Timeline`] instead of [`Self::language`].
             timeline_ins_names: Default::default(),
             timeline_ins_signatures: Default::default(),
             ins_intrinsics: Default::default(),
+            is_core_mapfile: true,
         }
     }
 
@@ -172,6 +180,7 @@ impl Eclmap {
             timeline_ins_names: pop_ident_map!("timeline_ins_names")?,
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
             ins_intrinsics: pop_map("ins_intrinsics"),
+            is_core_mapfile: false,
         };
         for (key, _) in maps {
             emitter.emit(warning!(

@@ -328,7 +328,7 @@ fn encode_args(
         }
     }
 
-    let abi = {
+    let (abi, _) = {
         defs.ins_abi(instr_format.language(), instr.opcode)
             .expect("(bug!) we already checked sigs for known args")
     };

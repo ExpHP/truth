@@ -152,12 +152,12 @@ impl CompilerContext<'_> {
     /// Set the low-level ABI of an instruction.
     ///
     /// A high-level [`Signature`] will also be generated from the ABI.
-    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: raw::Opcode, abi: Sp<InstrAbi>) {
+    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: raw::Opcode, abi: InstrAbi, abi_loc: InstrAbiLoc) {
         // also update the high-level signature
         let sig = abi.create_signature(self);
         sig.validate(self).expect("invalid signature from InstrAbi");
 
-        self.defs.instrs.insert((language, opcode), InsData { abi, sig });
+        self.defs.instrs.insert((language, opcode), InsData { abi, abi_loc, sig });
     }
 
     /// Add an alias for an instruction from a mapfile.
@@ -256,8 +256,8 @@ impl Defs {
     }
 
     /// Recovers the ABI of an opcode, if it is known.
-    pub fn ins_abi(&self, language: InstrLanguage, opcode: raw::Opcode) -> Option<&Sp<InstrAbi>> {
-        self.instrs.get(&(language, opcode)).map(|x| &x.abi)
+    pub fn ins_abi(&self, language: InstrLanguage, opcode: raw::Opcode) -> Option<(&InstrAbi, &InstrAbiLoc)> {
+        self.instrs.get(&(language, opcode)).map(|x| (&x.abi, &x.abi_loc))
     }
 }
 
@@ -393,7 +393,11 @@ impl CompilerContext<'_> {
     /// Add info from an eclmap.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
-    pub fn extend_from_eclmap(&mut self, path: Option<&std::path::Path>, mapfile: &Eclmap) -> Result<(), ErrorReported> {
+    pub fn extend_from_eclmap(
+        &mut self,
+        path: Option<&std::path::Path>,
+        mapfile: &Eclmap,
+    ) -> Result<(), ErrorReported> {
         let emitter = self.emitter;
 
         if let Some(path) = path {
@@ -409,9 +413,16 @@ impl CompilerContext<'_> {
             }
 
             signatures.iter().map(|(&opcode, abi_str)| {
-                let abi = sp!(abi_str.span => InstrAbi::parse(abi_str.span, abi_str, emitter)?);
-                abi.validate_against_language(abi.span, language, emitter)?;
-                self.set_ins_abi(language, opcode as u16, abi);
+                let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
+                abi.validate_against_language(abi_str.span, language, emitter)?;
+
+                let abi_loc = match mapfile.is_core_mapfile {
+                    false => InstrAbiLoc::Span(abi_str.span),
+                    true => InstrAbiLoc::CoreMapfile {
+                        language, opcode: opcode as u16, abi_str: abi_str[..].into(),
+                    },
+                };
+                self.set_ins_abi(language, opcode as u16, abi, abi_loc);
                 Ok::<_, ErrorReported>(())
             }).collect_with_recovery::<()>()?;
         }
@@ -501,7 +512,7 @@ enum VarKind {
         ident: ResIdent,
         language: InstrLanguage,
         reg: RegId,
-        // TODO: location where alias is defined
+        // TODO: location where alias is defined, follow the example set by InstrAbiLoc
     },
     Local {
         /// NOTE: For auto-generated temporaries, the span may point to their expression instead.
@@ -515,8 +526,20 @@ enum VarKind {
 
 #[derive(Debug, Clone)]
 struct InsData {
-    abi: Sp<InstrAbi>,
+    abi_loc: InstrAbiLoc,
+    abi: InstrAbi,
     sig: Signature,
+}
+
+/// Diagnostic information about where an instruction ABI is defined.
+#[derive(Debug, Clone)]
+pub enum InstrAbiLoc {
+    Span(Span),  // string in a mapfile
+    CoreMapfile {
+        language: InstrLanguage,
+        opcode: raw::Opcode,
+        abi_str: String,
+    },
 }
 
 #[derive(Debug, Clone)]

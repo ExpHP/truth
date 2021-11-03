@@ -92,13 +92,12 @@ fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, Diagnostic> {
         ));
     }
 
-    // XXX EoSD ECL violates this :/
-    // if out.len() % 4 != 0 {
-    //     return Err(error!(
-    //         message("number of bytes in blob not divisible by 4 (remainder: {})", out.len() % 4),
-    //         primary(str, "invalid blob literal"),
-    //     ))
-    // }
+    if out.len() % 4 != 0 {
+        return Err(error!(
+            message("number of bytes in blob not divisible by 4"),
+            primary(str, "blob literal of length {}", out.len()),
+        ))
+    }
 
     Ok(out)
 }

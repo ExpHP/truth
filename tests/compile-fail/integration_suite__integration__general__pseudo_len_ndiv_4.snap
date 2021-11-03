@@ -2,10 +2,10 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: number of bytes in blob not divisible by 4 (remainder: 3)
+error: number of bytes in blob not divisible by 4
    ┌─ <input>:28:20
    │
 28 │         wait(@blob="0f0000");
-   │                    ^^^^^^^^ invalid blob literal
+   │                    ^^^^^^^^ blob literal of length 3
 
 

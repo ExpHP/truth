@@ -334,7 +334,7 @@ fn extract_jump_args_by_signature(
         RaiseArgs::Unknown(_) => return None,
     };
 
-    let abi = defs.ins_abi(instr_format.language(), instr.opcode).expect("decoded, so abi is known");
+    let (abi, _) = defs.ins_abi(instr_format.language(), instr.opcode).expect("decoded, so abi is known");
     for (arg, encoding) in zip!(args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset
@@ -782,7 +782,7 @@ impl RaisedIntrinsicParts {
 impl Raiser<'_> {
     fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, instr_offset: raw::BytePos, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         if self.options.arguments {
-            if let Some(abi) = defs.ins_abi(self.instr_format.language(), instr.opcode) {
+            if let Some((abi, _)) = defs.ins_abi(self.instr_format.language(), instr.opcode) {
                 return decode_args_with_abi(emitter, self.instr_format, instr, instr_offset, abi);
             } else {
                 self.opcodes_without_abis.insert(instr.opcode);
@@ -922,7 +922,7 @@ fn expect_abi<'a>(language: InstrLanguage, instr: &RaiseInstr, defs: &'a Defs) -
     // so we can just panic
     defs.ins_abi(language, instr.opcode).unwrap_or_else(|| {
         unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
-    })
+    }).0
 }
 
 // =============================================================================

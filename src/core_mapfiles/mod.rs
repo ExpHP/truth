@@ -69,7 +69,7 @@ impl CoreSignatures {
     };
 
     fn to_mapfile(&self, language: InstrLanguage, game: Game) -> Eclmap {
-        let mut mapfile = Eclmap::new(language);
+        let mut mapfile = Eclmap::new_core_mapfile(language);
         self.apply_to_mapfile(game, &mut mapfile);
         mapfile
     }

@@ -3,6 +3,7 @@ use indexmap::IndexMap;
 use crate::raw;
 use crate::ast;
 use crate::context;
+use crate::context::defs::InstrAbiLoc;
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{InstrFormat, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
@@ -35,12 +36,12 @@ impl IntrinsicInstrs {
         let intrinsic_abi_props = {
             opcode_intrinsics.iter()
                 .map(|(&opcode, &kind)| {
-                    let abi = defs.ins_abi(instr_format.language(), opcode)
+                    let (abi, abi_loc) = defs.ins_abi(instr_format.language(), opcode)
                         .ok_or_else(|| emitter.as_sized().emit(error!(
                             message("opcode {} is an intrinsic but has no signature", opcode),
                             primary(kind, "defined as an intrinsic here"),
                         )))?;
-                    let abi_props = IntrinsicInstrAbiParts::from_abi(kind.value, abi)
+                    let abi_props = IntrinsicInstrAbiParts::from_abi(kind.value, abi, abi_loc)
                         .map_err(|e| emitter.as_sized().emit(e))?;
                     Ok((kind.value, abi_props))
                 })
@@ -289,11 +290,15 @@ pub mod abi_parts {
     }
 }
 
-fn intrinsic_abi_error(abi_span: Span, message: &str) -> Diagnostic {
-    error!(
-        message("bad ABI for intrinsic: {}", message),
-        primary(abi_span, "{}", message),
-    )
+fn intrinsic_abi_error(abi_loc: &InstrAbiLoc, message: &str) -> Diagnostic {
+    let mut diag = error!(message("bad ABI for intrinsic: {}", message));
+    match abi_loc {
+        InstrAbiLoc::Span(span) => diag.primary(span, message.to_string()),
+        InstrAbiLoc::CoreMapfile { language, opcode, abi_str } => {
+            diag.note(format!("the built-in signature for {} opcode {} is \"{}\"", language.descr(), opcode, abi_str))
+        },
+    };
+    diag
 }
 
 fn remove_first_where<T>(vec: &mut Vec<T>, pred: impl FnMut(&T) -> bool) -> Option<T> {
@@ -303,7 +308,7 @@ fn remove_first_where<T>(vec: &mut Vec<T>, pred: impl FnMut(&T) -> bool) -> Opti
     }
 }
 
-fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, ArgEncoding)>, _abi_span: Span) -> Result<abi_parts::PaddingInfo, Diagnostic> {
+fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, ArgEncoding)>, _abi_loc: &InstrAbiLoc) -> Result<abi_parts::PaddingInfo, Diagnostic> {
     let mut count = 0;
     let mut first_index = arg_encodings.len();
     while let Some(&(index, ArgEncoding::Padding)) = arg_encodings.last() {
@@ -317,7 +322,7 @@ fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, ArgEncoding)>, _abi_s
     Ok(abi_parts::PaddingInfo { count, index: first_index })
 }
 
-fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
+fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
     let offset_data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::JumpOffset);
     let time_data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::JumpTime);
 
@@ -341,7 +346,7 @@ fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span:
     }
 }
 
-fn remove_out_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
+fn remove_out_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
     // it is expected that previous detect_and_remove functions have already removed everything before the out operand.
     let (index, encoding) = match arg_encodings.len() {
         0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
@@ -360,7 +365,7 @@ fn remove_out_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span,
     }
 }
 
-fn remove_plain_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Span, ty_in_ast: ScalarType) -> Result<usize, Diagnostic> {
+fn remove_plain_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<usize, Diagnostic> {
     let (index, encoding) = match arg_encodings.len() {
         0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
         _ => arg_encodings.remove(0),
@@ -376,13 +381,13 @@ fn remove_plain_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: Spa
 }
 
 impl IntrinsicInstrAbiParts {
-    pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: &Sp<InstrAbi>) -> Result<Self, Diagnostic> {
+    pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: &InstrAbi, abi_loc: &InstrAbiLoc) -> Result<Self, Diagnostic> {
         use IntrinsicInstrKind as I;
 
         let mut encodings = abi.arg_encodings().enumerate().collect::<Vec<_>>();
         let num_instr_args = encodings.len();
 
-        let padding = find_and_remove_padding(&mut encodings, abi.span)?;
+        let padding = find_and_remove_padding(&mut encodings, abi_loc)?;
         let mut out = IntrinsicInstrAbiParts {
             num_instr_args, padding,
             plain_args: vec![], outputs: vec![], jump: None,
@@ -390,45 +395,45 @@ impl IntrinsicInstrAbiParts {
 
         match intrinsic {
             I::Jmp => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi.span)?);
+                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
             },
             I::InterruptLabel => {
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ScalarType::Int)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
             }
             I::AssignOp(_op, ty) => {
-                out.outputs.push(remove_out_arg(&mut encodings, abi.span, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
+                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
             },
             I::BinOp(op, arg_ty) => {
                 let out_ty = ast::Expr::binop_ty_from_arg_ty(op, arg_ty);
-                out.outputs.push(remove_out_arg(&mut encodings, abi.span, out_ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, arg_ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, arg_ty)?);
+                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, out_ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
             },
             I::UnOp(_op, ty) => {
-                out.outputs.push(remove_out_arg(&mut encodings, abi.span, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
+                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
             },
             I::CountJmp => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi.span)?);
-                out.outputs.push(remove_out_arg(&mut encodings, abi.span, ScalarType::Int)?);
+                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
+                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, ScalarType::Int)?);
             },
             I::CondJmp(_op, ty) => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi.span)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
+                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
             },
             I::CondJmp2A(ty) => {
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi.span, ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
             },
             I::CondJmp2B(_op) => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi.span)?);
+                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
             },
         };
 
         if let Some(&(index, encoding)) = encodings.get(0) {
-            return Err(intrinsic_abi_error(abi.span, &format!("unexpected {} arg at index {}", encoding.descr(), index + 1)));
+            return Err(intrinsic_abi_error(abi_loc, &format!("unexpected {} arg at index {}", encoding.descr(), index + 1)));
         }
         Ok(out)
     }
