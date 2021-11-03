@@ -544,21 +544,3 @@ script main {}
 fn need_tests_for_eosd_regs() {
     panic!()
 }
-
-#[test]
-#[ignore]
-fn need_to_decompile_offsetof_timeof() {
-    panic!()
-}
-
-#[test]
-#[ignore]
-fn test_with_non_default_time_arg_in_old_std_jump() {
-    panic!()
-}
-
-#[test]
-#[ignore]
-fn test_with_compiling_label_at_prev_instruction_time_in_old_std_jump() {
-    panic!("evil, this should fail but i don't think we check for it")
-}

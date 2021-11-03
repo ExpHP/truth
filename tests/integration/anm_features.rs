@@ -1,7 +1,6 @@
 use truth::sp;
 
-use crate::integration_impl::formats::*;
-use crate::integration_impl::{TestFile};
+use crate::integration_impl::{TestFile, expected, formats::*};
 
 // =============================================================================
 // ANM file image sources
@@ -806,6 +805,37 @@ entry {
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
     expect_warning: "too small for",
+);
+
+// =============================================================================
+
+source_test!(
+    // KNOWN FAILURE:
+    //    Truth currently silently miscompiles this. :(
+    #[ignore]
+    ANM_06, eosd_anm_explicit_jump_at_time,
+    main_body: r#"
+    label:
+        goto label @ 100;
+"#,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+);
+
+source_test!(
+    // KNOWN FAILURE:
+    //    Truth currently silently miscompiles this. :(
+    #[ignore]
+    ANM_06, eosd_anm_evil_jump_at_prev_time,
+    // This test *implicitly* creates a jump whose time argument does not match the
+    // time of the instruction at that offset. This cannot be represented in EoSD ANM!
+    main_body: r#"
+        nop();
+        loop {
+    +10:
+            nop();
+        }
+"#,
+    expect_error: "try inserting a nop before",
 );
 
 // =============================================================================
