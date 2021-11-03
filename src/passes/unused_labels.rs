@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use crate::Ident;
 use crate::error::ErrorReported;
@@ -9,64 +9,73 @@ use crate::pos::Sp;
 ///
 /// To use this, you must call a method whose scope is at least as large as [`VisitMut::visit_root_block`].
 pub fn run<V: ast::Visitable>(ast: &mut V) -> Result<(), ErrorReported> {
-    let mut visitor = Visitor { used_labels_stack: vec![] };
+    let mut visitor = Visitor { label_refcounts_stack: vec![] };
     ast.visit_mut_with(&mut visitor);
     Ok(())
 }
 
 struct Visitor {
-    // This is a stack.  If we ever get nested functions this might become relevant,
-    // but for now this is always 0 to 1 elements.
-    used_labels_stack: Vec<HashSet<Ident>>,
+    // This is a stack for dealing with nested functions.
+    label_refcounts_stack: Vec<HashMap<Ident, u32>>,
 }
 
 impl VisitMut for Visitor {
     fn visit_root_block(&mut self, func_body: &mut ast::Block) {
-        let used_labels = get_used_labels(func_body);
-
-        self.used_labels_stack.push(used_labels);
+        self.label_refcounts_stack.push(get_label_refcounts(&func_body.0));
         self.visit_block(func_body);
-        self.used_labels_stack.pop();
+        self.label_refcounts_stack.pop();
     }
 
     fn visit_block(&mut self, x: &mut ast::Block) {
         ast::walk_block_mut(self, x);
         x.0.retain(|stmt| match &stmt.kind {
             ast::StmtKind::Label(ident) => {
-                self.used_labels_stack
+                self.label_refcounts_stack
                     .last().expect("must be visiting a function body!")
-                    .contains(&ident.value)
+                    .get(&ident.value).copied()
+                    .unwrap_or(0) > 0
             },
             _ => true,
         });
     }
 }
 
-fn get_used_labels(func_body: &ast::Block) -> HashSet<Ident> {
-    struct UsedVisitor {
-        labels: HashSet<Ident>,
-    }
-
-    impl Visit for UsedVisitor {
-        fn visit_stmt(&mut self, x: &Sp<ast::Stmt>) {
-            ast::walk_stmt(self, x);
-
-            match &x.kind {
-                | ast::StmtKind::Jump(ast::StmtJumpKind::Goto(goto))
-                | ast::StmtKind::CondJump { jump: ast::StmtJumpKind::Goto(goto), .. }
-                => { self.labels.insert(goto.destination.value.clone()); },
-
-                _ => {},
-            };
+/// Get the total number of times each label in a block is mentioned in a goto or instruction.
+///
+/// This should only be called on the outermost block of a function!
+pub fn get_label_refcounts(block: &[Sp<ast::Stmt>]) -> HashMap<Ident, u32> {
+    struct Visitor(HashMap<Ident, u32>);
+    impl Visit for Visitor {
+        fn visit_jump(&mut self, jump: &ast::StmtJumpKind) {
+            ast::walk_jump(self, jump);
+            match jump {
+                ast::StmtJumpKind::Goto(ast::StmtGoto { destination, .. }) => {
+                    *self.0.entry(destination.value.clone()).or_insert(0) += 1;
+                },
+                ast::StmtJumpKind::BreakContinue { .. } => {},
+            }
         }
 
-        // in case we ever get nested functions, don't visit them
-        fn visit_item(&mut self, _: &Sp<ast::Item>) {}
+        fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
+            ast::walk_expr(self, expr);
+            match &expr.value {
+                // count offsetof(label) and timeof(label)
+                ast::Expr::LabelProperty { label, .. } => {
+                    *self.0.entry(label.value.clone()).or_insert(0) += 1;
+                },
+                _ => {},
+            }
+        }
+
+        // ignore inner functions
+        fn visit_root_block(&mut self, _: &ast::Block) {}
     }
 
-    let mut v = UsedVisitor { labels: HashSet::new() };
-    v.visit_root_block(func_body);
-    v.labels
+    let mut visitor = Visitor(HashMap::new());
+    for stmt in block {
+        visitor.visit_stmt(stmt);
+    }
+    visitor.0
 }
 
 #[cfg(test)]

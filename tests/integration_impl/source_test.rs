@@ -17,7 +17,8 @@ macro_rules! first_token {
 /// to do something not supported by the macro.
 macro_rules! source_test {
     (
-        $format:expr, $test_name:ident
+        $(# $attr:tt)*
+        $format:ident, $test_name:ident
 
         $(, mapfile: $mapfile:expr)?
         $(, compile_args: $compile_args:expr)?
@@ -64,6 +65,7 @@ macro_rules! source_test {
         $(,)?
     ) => {
         #[test]
+        $(# $attr)*
         fn $test_name() {
             let format = &$format;
             crate::integration_impl::source_test::SourceTest {

@@ -212,17 +212,17 @@ fn _raise_instrs_main_loop(
 }
 
 // =============================================================================
+// Label-generating pass
 
 #[derive(Debug, Clone, PartialEq)]
 struct Label {
-    time_label: i32,
+    time_label: raw::Time,
     label: Ident
 }
 
-// Data-gathering pass
 struct JumpData {
     /// For each offset that has at least one jump to it, all of the time arguments for those jumps.
-    all_offset_args: BTreeMap<u64, BTreeSet<Option<i32>>>,
+    all_offset_args: BTreeMap<raw::BytePos, BTreeSet<Option<raw::Time>>>,
 }
 
 fn gather_instr_offsets(
@@ -255,12 +255,15 @@ fn gather_jump_time_args(
     Ok(JumpData { all_offset_args })
 }
 
+/// Maps offsets to their labels.
+type OffsetLabels = BTreeMap<raw::BytePos, Label>;
+
 fn generate_offset_labels(
     emitter: &impl Emitter,
     script: &[RaiseInstr],
-    instr_offsets: &[u64],
+    instr_offsets: &[raw::BytePos],
     jump_data: &JumpData,
-) -> Result<BTreeMap<u64, Label>, ErrorReported> {
+) -> Result<OffsetLabels, ErrorReported> {
     let mut offset_labels = BTreeMap::new();
     for (&offset, time_args) in &jump_data.all_offset_args {
         let dest_index = {
@@ -272,8 +275,8 @@ fn generate_offset_labels(
         let dest_time = script.get(dest_index).unwrap_or_else(|| script.last().unwrap()).time;
         let next = (instr_offsets[dest_index], dest_time);
         let prev = match dest_index {
-            0 => None,
-            i => Some((instr_offsets[i - 1], script[i - 1].time)),
+            0 => (0, 0), // scripts implicitly start at time 0.  (test 'time_loop_at_beginning_of_script')
+            i => (instr_offsets[i - 1], script[i - 1].time),
         };
         offset_labels.insert(offset, generate_label_at_offset(prev, next, time_args));
     }
@@ -283,14 +286,12 @@ fn generate_offset_labels(
 /// Given all of the different time args used when jumping to `next_offset`,
 /// determine what to call the label at this offset (and what time label to give it).
 fn generate_label_at_offset(
-    prev: Option<(u64, i32)>,  // info about previous instruction, None for first instruction
-    (next_offset, next_time): (u64, i32),
-    time_args: &BTreeSet<Option<i32>>,
+    (prev_offset, prev_time): (raw::BytePos, raw::Time),
+    (next_offset, next_time): (raw::BytePos, raw::Time),
+    time_args: &BTreeSet<Option<raw::Time>>,
 ) -> Label {
     let time_args = time_args.iter().map(|&x| x.unwrap_or(next_time)).collect::<BTreeSet<_>>();
 
-    // see test time_loop_at_beginning_of_script.  Scripts implicitly start at time 0.
-    let (prev_offset, prev_time) = prev.unwrap_or((0, 0));
     // If the only time used with this label is the time of the previous instruction
     // (which is less than this instruction), put the label before the relative time increase.
     if prev_time < next_time && time_args.len() == 1 && time_args.iter().next().unwrap() == &prev_time {
@@ -305,19 +306,19 @@ fn test_generate_label_at_offset() {
     let set = |times: &[Option<i32>]| times.iter().copied().collect();
     let label = |str: &str, time_label: i32| Label { label: str.parse().unwrap(), time_label };
 
-    assert_eq!(check(None, (0, 10), &set(&[Some(10)])), (label("label_0", 10)));
-    assert_eq!(check(Some((100, 10)), (116, 20), &set(&[Some(20)])), (label("label_116", 20)));
-    assert_eq!(check(Some((100, 10)), (116, 20), &set(&[None])), (label("label_116", 20)));
+    assert_eq!(check((0, 0), (0, 10), &set(&[Some(10)])), (label("label_0", 10)));
+    assert_eq!(check((100, 10), (116, 20), &set(&[Some(20)])), (label("label_116", 20)));
+    assert_eq!(check((100, 10), (116, 20), &set(&[None])), (label("label_116", 20)));
     // make sure label doesn't get 'r' label if two instructions have equal times
-    assert_eq!(check(Some((100, 10)), (116, 10), &set(&[Some(10)])), (label("label_116", 10)));
+    assert_eq!(check((100, 10), (116, 10), &set(&[Some(10)])), (label("label_116", 10)));
     // time label decrease means no 'r' label
-    assert_eq!(check(Some((100, 20)), (116, 10), &set(&[Some(20)])), (label("label_116", 10)));
+    assert_eq!(check((100, 20), (116, 10), &set(&[Some(20)])), (label("label_116", 10)));
     // multiple different time args means no 'r' label
-    assert_eq!(check(Some((100, 10)), (116, 20), &set(&[Some(10), Some(20)])), (label("label_116", 20)));
-    assert_eq!(check(Some((100, 10)), (116, 20), &set(&[Some(10), Some(16)])), (label("label_116", 20)));
+    assert_eq!(check((100, 10), (116, 20), &set(&[Some(10), Some(20)])), (label("label_116", 20)));
+    assert_eq!(check((100, 10), (116, 20), &set(&[Some(10), Some(16)])), (label("label_116", 20)));
 
     // the case where an r label is created
-    assert_eq!(check(Some((100, 10)), (116, 20), &set(&[Some(10)])), (label("label_100r", 10)));
+    assert_eq!(check((100, 10), (116, 20), &set(&[Some(10)])), (label("label_100r", 10)));
 }
 
 fn extract_jump_args_by_signature(
@@ -346,6 +347,8 @@ fn extract_jump_args_by_signature(
 
     jump_offset.map(|offset| (offset, jump_time))
 }
+
+// =============================================================================
 
 macro_rules! ensure {
     ($emitter:ident, $cond:expr, $($arg:tt)+) => {
@@ -400,7 +403,7 @@ fn raise_single_decoded_instr(
     args: &[SimpleArg],
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
-    offset_labels: &BTreeMap<u64, Label>,
+    offset_labels: &OffsetLabels,
 ) -> Result<ast::StmtKind, ErrorReported> {
     let language = instr_format.language();
     let opcode = instr.opcode;
@@ -479,7 +482,7 @@ fn raise_single_decoded_instr(
 
     // Cannot raise as intrinsic.  Raise directly to `ins_*(...)` syntax.
     emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
-        raise_plain_ins(language, emitter, instr, args, defs)
+        raise_plain_ins(instr_format, emitter, instr, args, defs, offset_labels)
     })
 }
 
@@ -493,7 +496,7 @@ fn possibly_raise_long_intrinsic(
     args_2: &[SimpleArg],
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
-    offset_labels: &BTreeMap<u64, Label>,
+    offset_labels: &OffsetLabels,
 ) -> Result<Option<ast::StmtKind>, ErrorReported> {
     assert_eq!(instr_1.time, instr_2.time, "already checked by caller");
     assert_eq!(instr_1.difficulty_mask, instr_2.difficulty_mask, "already checked by caller");
@@ -523,14 +526,20 @@ fn possibly_raise_long_intrinsic(
     }
 }
 
+/// Indicates that a jump offset did not point to an instruction.
+#[derive(Debug, Clone, Copy)]
+struct IllegalOffset;
+
 /// Raise a list of args for `ins_` syntax. (i.e. not intrinsics)
 fn raise_plain_ins(
-    language: InstrLanguage,
+    instr_format: &dyn InstrFormat,
     emitter: &impl Emitter,
     instr: &RaiseInstr,
     args: &[SimpleArg],  // args decoded from the blob
     defs: &context::Defs,
+    offset_labels: &OffsetLabels,
 ) -> Result<ast::StmtKind, ErrorReported> {
+    let language = instr_format.language();
     let abi = expect_abi(language, instr, defs);
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
@@ -538,9 +547,21 @@ fn raise_plain_ins(
         return Err(emitter.emit(error!("provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len())));
     }
 
+    // in case this is a jump that didn't decompile to an intrinsic, scan ahead for an offset arg
+    // so we can use this info when decompiling the time arg.
+    let dest_label = {
+        encodings.iter().zip(args)
+            .find(|(&enc, _)| enc == ArgEncoding::JumpOffset)
+            .map(|(_, arg)| {
+                let offset = instr_format.decode_label(instr.offset, arg.expect_int() as u32);
+                offset_labels.get(&offset)
+                    .ok_or(IllegalOffset)  // if it was a valid offset, it would have a label
+            })
+    };
+
     let mut raised_args = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
         emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
-            Ok(sp!(raise_arg(language, emitter, &arg, enc)?))
+            Ok(sp!(raise_arg(language, emitter, &arg, enc, dest_label)?))
         })
     }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
@@ -575,23 +596,33 @@ fn raise_plain_ins(
 
 /// General argument-raising routine that supports registers and uses the encoding in the ABI
 /// to possibly guide how to express the output. This is what is used for e.g. args in `ins_` syntax.
-fn raise_arg(language: InstrLanguage, emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
+fn raise_arg(
+    language: InstrLanguage,
+    emitter: &impl Emitter,
+    raw: &SimpleArg,
+    enc: ArgEncoding,
+    dest_label: Option<Result<&Label, IllegalOffset>>,
+) -> Result<ast::Expr, ErrorReported> {
     if raw.is_reg {
         Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, enc, abi_parts::OutputArgMode::Natural)?)))
     } else {
-        raise_arg_to_literal(emitter, raw, enc)
+        raise_arg_to_literal(emitter, raw, enc, dest_label)
     }
 }
 
 /// Raise an immediate arg, using the encoding to guide the formatting of the output.
-fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncoding) -> Result<ast::Expr, ErrorReported> {
+fn raise_arg_to_literal(
+    emitter: &impl Emitter,
+    raw: &SimpleArg,
+    enc: ArgEncoding,
+    dest_label: Option<Result<&Label, IllegalOffset>>,
+) -> Result<ast::Expr, ErrorReported> {
     ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
 
     match enc {
         | ArgEncoding::Padding
         | ArgEncoding::Word
         | ArgEncoding::Dword
-        | ArgEncoding::JumpTime  // NOTE: might eventually want timeof(label)
         | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
         | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
         => Ok(ast::Expr::from(raw.expect_int())),
@@ -624,14 +655,30 @@ fn raise_arg_to_literal(emitter: &impl Emitter, raw: &SimpleArg, enc: ArgEncodin
         | ArgEncoding::Color
         => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
 
-        | ArgEncoding::JumpOffset // NOTE: might eventually want offsetof(label)
-        => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex }),
-
         | ArgEncoding::Float
         => Ok(ast::Expr::from(raw.expect_float())),
 
         | ArgEncoding::String { .. }
         => Ok(ast::Expr::from(raw.expect_string().clone())),
+
+        | ArgEncoding::JumpTime
+        => match dest_label {
+            | Some(Ok(Label { time_label, label })) if *time_label == raw.expect_int()
+            => Ok(ast::Expr::LabelProperty { label: sp!(label.clone()), keyword: sp!(token![timeof]) }),
+
+            _ => Ok(ast::Expr::from(raw.expect_int())),
+        },
+
+        | ArgEncoding::JumpOffset
+        => match dest_label.unwrap() {
+            | Ok(Label { label, .. })
+            => Ok(ast::Expr::LabelProperty { label: sp!(label.clone()), keyword: sp!(token![offsetof]) }),
+
+            | Err(IllegalOffset) => {
+                emitter.emit(warning!("invalid offset in a jump instruction")).ignore();
+                Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex })
+            },
+        },
     }
 }
 
@@ -722,7 +769,8 @@ impl RaisedIntrinsicParts {
         }
 
         for &index in plain_args_info {
-            let expr = raise_arg(instr_format.language(), emitter, &args[index], encodings[index])?;
+            let dest_label = None;  // offset and time are not plain args so this is irrelevant
+            let expr = raise_arg(instr_format.language(), emitter, &args[index], encodings[index], dest_label)?;
             out.plain_args.push(expr);
         }
         Ok(out)

@@ -435,7 +435,7 @@ source_test!(
     decompile_args: ["--no-intrinsics"],
     sbsb: |decompiled| {
         assert!(decompiled.contains("ins_64(10)"));
-        assert!(decompiled.contains("ins_4(0xc, 0)"));
+        assert!(decompiled.contains("ins_4(offsetof("));
         assert!(decompiled.contains("ins_18($REG[10000], $REG[10002], 3)"));
     },
 );

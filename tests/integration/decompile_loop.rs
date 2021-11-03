@@ -713,3 +713,62 @@ source_test!(
     "#.trim()));
     },
 );
+
+// =============================================================================
+
+source_test!(
+    ECL_06, label_created_by_offsetof_timeof,
+    main_body: r#"
+    +20:
+        loop {
+            nop();
+        }
+    "#,
+    decompile_args: ["--no-intrinsics"],
+    sbsb: |decompiled| {
+        // --nointrinsics should result in these
+        assert!(decompiled.contains(r"offsetof"));
+        assert!(decompiled.contains(r"timeof"));
+        // and those should result in a label
+        assert!(regex!(r#"label_\w+:"#).find(decompiled).is_some());
+    },
+);
+
+source_test!(
+    ECL_06, label_that_cant_use_timeof,
+    main_body: r#"
+    +20:
+    label0:
+        nop();
+        goto label0 @ 30;
+    "#,
+    decompile_args: ["--no-intrinsics"],
+    sbsb: |decompiled| {
+        // --nointrinsics should result in this
+        assert!(decompiled.contains(r"offsetof"));
+        // but this can't use timeof in this case
+        assert!(decompiled.contains(r"(30,"));
+    },
+);
+
+source_test!(
+    // Known failure for two reasons:
+    //  * expect_decompile_warning + sbsb not implemented
+    //  * even though a fallback to print hex for invalid offset arguments in `ins_`
+    //    syntax is implemented, decompilation fails long before this point because all offsets
+    //    are validated to guarantee that intrinsics can decompile.
+    //   (so this is blocked on the ability to have intrinsics fall back to `ins_` syntax.)
+    #[ignore]
+    ECL_06, label_that_cant_use_offsetof,
+    main_body: r#"
+    +20:
+        nop();
+        jump(20, -0x40);
+    "#,
+    decompile_args: ["--no-intrinsics"],
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r"-0x40"));
+        assert!(decompiled.contains(r"(30,"));
+    },
+    expect_decompile_warning: "invalid offset",
+);

@@ -4,6 +4,10 @@
 #[macro_use]
 mod integration_impl;
 
+macro_rules! regex {
+    ($s:expr) => { regex::Regex::new($s).unwrap() }
+}
+
 mod integration {
     mod general;
     mod anm_consts;

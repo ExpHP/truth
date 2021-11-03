@@ -11,6 +11,7 @@ use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::resolve::LoopId;
 use crate::passes::resolution::LexicalLoopTracker;
+use crate::passes::unused_labels::get_label_refcounts;
 
 /// Decompiles `if { ... } else if { ... } else { ... }` chains.
 pub fn decompile_if_else<V: ast::Visitable>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
@@ -298,29 +299,6 @@ fn reject_potentially_confusing_cond_chain(cond_chain: &CondChainInfo, context: 
 }
 
 // =============================================================================
-
-// Get the number of jumps to each label.  Please be sure to only call this on the
-// largest, outermost block of a function, or some jumps may be missed!
-fn get_label_refcounts(block: &[Sp<ast::Stmt>]) -> HashMap<Ident, u32> {
-    struct Visitor(HashMap<Ident, u32>);
-    impl Visit for Visitor {
-        fn visit_jump(&mut self, jump: &ast::StmtJumpKind) {
-            match jump {
-                ast::StmtJumpKind::Goto(ast::StmtGoto { destination, .. }) => {
-                    *self.0.entry(destination.value.clone()).or_insert(0) += 1;
-                },
-                ast::StmtJumpKind::BreakContinue { .. } => {},
-            }
-        }
-        fn visit_root_block(&mut self, _: &ast::Block) {}  // ignore inner functions
-    }
-
-    let mut visitor = Visitor(HashMap::new());
-    for stmt in block {
-        visitor.visit_stmt(stmt);
-    }
-    visitor.0
-}
 
 // Records information about all of the jumps in a block that go to labels within the same block.
 struct BlockContext {
