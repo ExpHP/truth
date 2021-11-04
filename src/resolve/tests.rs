@@ -2,7 +2,7 @@ use crate::api::Truth;
 use crate::parse::Parse;
 use crate::pos::Sp;
 use crate::fmt::Format;
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::ast;
 
 const ECLMAP: &'static str = r#"!eclmap
@@ -67,7 +67,7 @@ where
     let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap();
 
     let ctx = truth.ctx();
-    crate::passes::resolution::assign_languages(&mut parsed, InstrLanguage::Ecl, ctx).unwrap();
+    crate::passes::resolution::assign_languages(&mut parsed, LanguageKey::Ecl, ctx).unwrap();
     match crate::passes::resolution::resolve_names(&parsed, ctx) {
         Ok(()) => Ok(parsed),
         Err(e) => {

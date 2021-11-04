@@ -116,12 +116,12 @@ impl fmt::Display for Game {
 /// do not have any instruction sets at all.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[derive(enum_map::Enum)]
-pub enum InstrLanguage {
+pub enum LanguageKey {
     Ecl, Anm, Msg, End, Std, Timeline,
     Dummy, // used in unit tests
 }
 
-impl InstrLanguage {
+impl LanguageKey {
     /// A human-readable name for the language, in title case. (`"ECL"`, `"Stage MSG"`...)
     pub fn descr(&self) -> &'static str {
         match self {

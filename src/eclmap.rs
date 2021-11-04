@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap};
 
 use crate::pos::{Sp, FileId};
-use crate::game::{Game, InstrLanguage};
+use crate::game::{Game, LanguageKey};
 use crate::diagnostic::{RootEmitter, Emitter};
 use crate::ident::Ident;
 use crate::io::Fs;
@@ -11,7 +11,7 @@ use crate::error::{ErrorReported, GatherErrorIteratorExt};
 /// FIXME: Rename to Mapfile, how have I not done this already?!  - Exp
 #[derive(Debug)]
 pub struct Eclmap {
-    pub language: InstrLanguage,
+    pub language: LanguageKey,
     pub ins_names: BTreeMap<i32, Sp<Ident>>,
     pub ins_signatures: BTreeMap<i32, Sp<String>>,
     pub ins_rets: BTreeMap<i32, Sp<String>>,
@@ -34,7 +34,7 @@ pub struct Eclmap {
 }
 
 impl Eclmap {
-    pub fn new_core_mapfile(language: InstrLanguage) -> Self {
+    pub fn new_core_mapfile(language: LanguageKey) -> Self {
         Eclmap {
             language,
             ins_names: Default::default(),
@@ -144,10 +144,10 @@ impl Eclmap {
         // Neither is a clear winner at this point in time, but deciding it from the magic is a smaller
         // diff so we do that for now.    - Exp
         let language = match &magic[..] {
-            "!eclmap" => InstrLanguage::Ecl,
-            "!anmmap" => InstrLanguage::Anm,
-            "!stdmap" => InstrLanguage::Std,
-            "!msgmap" => InstrLanguage::Msg,
+            "!eclmap" => LanguageKey::Ecl,
+            "!anmmap" => LanguageKey::Anm,
+            "!stdmap" => LanguageKey::Std,
+            "!msgmap" => LanguageKey::Msg,
             _ => return Err(emitter.emit(error!(
                 message("bad magic: {:?}", magic),
                 primary(magic, "bad magic"),

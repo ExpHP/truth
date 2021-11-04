@@ -2,7 +2,7 @@ use crate::ast;
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::error::{ErrorReported, ErrorFlag};
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::ident::ResIdent;
 use crate::resolve::{NodeId, LoopId, UnusedIds};
 
@@ -44,7 +44,7 @@ pub fn assign_res_ids<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &mut Compile
 ///
 /// If called directly on [`ast::Block`] instead of a script file, it is assumed to be the body of a `script` and thus paints
 /// with the specified language.  (this behavior is for use by tests)
-pub fn assign_languages<A: ast::Visitable + ?Sized>(ast: &mut A, primary_language: InstrLanguage, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+pub fn assign_languages<A: ast::Visitable + ?Sized>(ast: &mut A, primary_language: LanguageKey, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = AssignLanguagesVisitor {
         ctx,
         primary_language,
@@ -188,8 +188,8 @@ impl ast::VisitMut for RawToAliasesVisitor<'_, '_> {
 
 struct AssignLanguagesVisitor<'a, 'ctx> {
     ctx: &'a CompilerContext<'ctx>,
-    primary_language: InstrLanguage,
-    language_stack: Vec<Option<InstrLanguage>>,
+    primary_language: LanguageKey,
+    language_stack: Vec<Option<LanguageKey>>,
     errors: ErrorFlag,
 }
 
@@ -237,9 +237,9 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
 
             | ast::Item::Timeline { .. }
             => {
-                self.language_stack.push(Some(InstrLanguage::Timeline));
+                self.language_stack.push(Some(LanguageKey::Timeline));
                 ast::walk_item_mut(self, item);
-                assert_eq!(self.language_stack.pop().unwrap(), Some(InstrLanguage::Timeline), "unbalanced stack usage!");
+                assert_eq!(self.language_stack.pop().unwrap(), Some(LanguageKey::Timeline), "unbalanced stack usage!");
             },
 
             _ => {

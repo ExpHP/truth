@@ -12,10 +12,10 @@ use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING, Fs};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
-use crate::game::{Game, InstrLanguage};
+use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, IntrinsicInstrKind, DecompileOptions, HowBadIsIt};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, IntrinsicInstrKind, DecompileOptions, HowBadIsIt};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
@@ -455,10 +455,10 @@ fn decompile(
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
-    let instr_format = format.instr_format();
+    let hooks = format.language_hooks();
 
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(&*instr_format, &ctx.emitter, &ctx.defs, decompile_options)?;
+    let mut raiser = llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -811,10 +811,10 @@ fn compile(
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<AnmFile, ErrorReported> {
-    let instr_format = format.instr_format();
+    let hooks = format.language_hooks();
 
     let mut ast = ast.clone();
-    crate::passes::resolution::assign_languages(&mut ast, instr_format.language(), ctx)?;
+    crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
 
     define_color_format_consts(ctx);
 
@@ -879,7 +879,7 @@ fn compile(
     }
 
     let mut errors = ErrorFlag::new();
-    let mut lowerer = llir::Lowerer::new(instr_format);
+    let mut lowerer = llir::Lowerer::new(hooks);
     let mut entries = vec![];
     groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
@@ -1075,7 +1075,7 @@ fn read_entry(
     with_images: bool,
     next_script_index: &mut u32,
 ) -> ReadResult<(Entry, ControlFlow)> {
-    let instr_format = format.instr_format();
+    let instr_format = format.language_hooks().instr_format();
 
     let entry_pos = reader.pos()?;
 
@@ -1243,7 +1243,7 @@ fn write_entry(
     // automatic numbering state that needs to persist from one entry to the next
     next_auto_sprite_id: &mut u32,
 ) -> Result<(), ErrorReported> {
-    let instr_format = file_format.instr_format();
+    let instr_format = file_format.language_hooks().instr_format();
 
     let entry_pos = w.pos()?;
 
@@ -1519,21 +1519,21 @@ impl Version {
 
 fn game_format(game: Game) -> FileFormat {
     let version = Version::from_game(game);
-    let instr_format: Box<dyn InstrFormat> = match version.has_vars() {
-        true => Box::new(InstrFormat07 { version, game }),
-        false => Box::new(InstrFormat06),
+    let hooks: Box<dyn LanguageHooks> = match version.has_vars() {
+        true => Box::new(AnmHooks07 { version, game }),
+        false => Box::new(AnmHooks06),
     };
-    FileFormat { version, game, instr_format }
+    FileFormat { version, game, hooks }
 }
 
 /// Type responsible for dealing with version differences in the format.
 struct FileFormat {
     version: Version,
     game: Game,
-    instr_format: Box<dyn InstrFormat>,
+    hooks: Box<dyn LanguageHooks>,
 }
-struct InstrFormat06;
-struct InstrFormat07 { version: Version, game: Game }
+struct AnmHooks06;
+struct AnmHooks07 { version: Version, game: Game }
 
 impl FileFormat {
     fn read_header(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<EntryHeaderData> {
@@ -1671,7 +1671,7 @@ impl FileFormat {
         if self.version.is_old_header() { 0x30 } else { 0x1c }
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat { &*self.instr_format }
+    fn language_hooks(&self) -> &dyn LanguageHooks { &*self.hooks }
 
     fn default_memory_priority(&self) -> u32 {
         match self.version {
@@ -1681,8 +1681,8 @@ impl FileFormat {
     }
 }
 
-impl InstrFormat for InstrFormat06 {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+impl LanguageHooks for AnmHooks06 {
+    fn language(&self) -> LanguageKey { LanguageKey::Anm }
 
     fn has_registers(&self) -> bool { false }
 
@@ -1693,6 +1693,16 @@ impl InstrFormat for InstrFormat06 {
         ]
     }
 
+    fn is_th06_anm_terminating_instr(&self, opcode: raw::Opcode) -> bool {
+        // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
+        // Basically, the first `delete` or `static` marks the end of the script.
+        opcode == 0 || opcode == 15
+    }
+
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for AnmHooks06 {
     fn instr_header_size(&self) -> usize { 4 }
 
     fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
@@ -1722,19 +1732,13 @@ impl InstrFormat for InstrFormat06 {
         Ok(())
     }
 
-    fn is_th06_anm_terminating_instr(&self, opcode: raw::Opcode) -> bool {
-        // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
-        // Basically, the first `delete` or `static` marks the end of the script.
-        opcode == 0 || opcode == 15
-    }
-
     fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         f.write_u32(0)
     }
 }
 
-impl InstrFormat for InstrFormat07 {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Anm }
+impl LanguageHooks for AnmHooks07 {
+    fn language(&self) -> LanguageKey { LanguageKey::Anm }
 
     fn has_registers(&self) -> bool { true }
 
@@ -1807,6 +1811,16 @@ impl InstrFormat for InstrFormat07 {
         }
     }
 
+    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
+        // copyParentVars
+        (Game::Th14 <= self.game && opcode == 509)
+            .then(|| HowBadIsIt::OhItsJustThisOneFunction)
+    }
+
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for AnmHooks07 {
     fn instr_header_size(&self) -> usize { 8 }
 
     fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
@@ -1837,11 +1851,5 @@ impl InstrFormat for InstrFormat07 {
         f.write_u16(0)?;
         f.write_u16(0)?;
         f.write_u16(0)
-    }
-
-    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
-        // copyParentVars
-        (Game::Th14 <= self.game && opcode == 509)
-            .then(|| HowBadIsIt::OhItsJustThisOneFunction)
     }
 }

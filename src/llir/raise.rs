@@ -6,11 +6,11 @@ use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
-use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
+use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, NodeId, UnusedIds};
 use crate::context::{self, Defs};
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
@@ -62,7 +62,7 @@ struct UnknownArgsData {
 /// It tracks some state related to diagnostics, so that some consolidated warnings
 /// can be given at the end of decompilation.
 pub struct Raiser<'a> {
-    instr_format: &'a dyn InstrFormat,
+    hooks: &'a dyn LanguageHooks,
     opcodes_without_abis: BTreeSet<u16>,
     // Root emitter because we don't want any additional context beyond the filename.
     emitter_for_abi_warnings: &'a context::RootEmitter,
@@ -78,18 +78,18 @@ impl Drop for Raiser<'_> {
 
 impl<'a> Raiser<'a> {
     pub fn new(
-        instr_format: &'a dyn InstrFormat,
+        hooks: &'a dyn LanguageHooks,
         emitter: &'a context::RootEmitter,
         defs: &context::Defs,
         options: &'a DecompileOptions,
     ) -> Result<Self, ErrorReported> {
         Ok(Raiser {
-            instr_format,
+            hooks,
             opcodes_without_abis: Default::default(),
             emitter_for_abi_warnings: emitter,
             // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
             intrinsic_instrs: match options.intrinsics {
-                true => IntrinsicInstrs::from_format_and_mapfiles(instr_format, defs, emitter)?,
+                true => IntrinsicInstrs::from_format_and_mapfiles(hooks, defs, emitter)?,
                 false => Default::default(),
             },
             options,
@@ -111,7 +111,7 @@ impl<'a> Raiser<'a> {
     pub fn generate_warnings(&mut self) {
         if !self.opcodes_without_abis.is_empty() {
             self.emitter_for_abi_warnings.emit(warning!(
-                message("{} instructions with unknown signatures were decompiled to byte blobs.", self.instr_format.language().descr()),
+                message("{} instructions with unknown signatures were decompiled to byte blobs.", self.hooks.language().descr()),
                 note(
                     "The following opcodes were affected: {}",
                     self.opcodes_without_abis.iter()
@@ -130,8 +130,8 @@ fn _raise_instrs_to_sub_ast(
     raw_script: &[RawInstr],
     defs: &Defs,
 ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-    let instr_format = raiser.instr_format;
-    let instr_offsets = gather_instr_offsets(raw_script, instr_format);
+    let hooks = raiser.hooks;
+    let instr_offsets = gather_instr_offsets(raw_script, hooks);
 
     // Preprocess by using mapfile signatures to parse arguments
     let script: Vec<RaiseInstr> = {
@@ -140,11 +140,11 @@ fn _raise_instrs_to_sub_ast(
             .collect::<Result<_, _>>()?
     };
 
-    let jump_data = gather_jump_time_args(&script, defs, instr_format)?;
+    let jump_data = gather_jump_time_args(&script, defs, hooks)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
 
     _raise_instrs_main_loop(
-        emitter, defs, instr_format, &instr_offsets,
+        emitter, defs, hooks, &instr_offsets,
         &script, &offset_labels, &raiser.intrinsic_instrs,
     )
 }
@@ -152,7 +152,7 @@ fn _raise_instrs_to_sub_ast(
 fn _raise_instrs_main_loop(
     emitter: &impl Emitter,
     defs: &Defs,
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     instr_offsets: &Vec<raw::BytePos>,
     script: &[RaiseInstr],
     offset_labels: &BTreeMap<raw::BytePos, Label>,
@@ -168,7 +168,7 @@ fn _raise_instrs_main_loop(
         let args = match &instr.args {
             RaiseArgs::Unknown(args) => {
                 // Unknown signature, fall back to pseudos.
-                let kind = raise_unknown_instr(instr_format.language(), instr, args)?;
+                let kind = raise_unknown_instr(hooks.language(), instr, args)?;
                 out.push(sp!(ast::Stmt { node_id: None, kind }));
                 continue;
             },
@@ -182,7 +182,7 @@ fn _raise_instrs_main_loop(
                 // FIXME don't do this check on every instr, or maybe benchmark?
                 if !label_gen.would_emit_labels(next_offset, next_instr.time, next_instr.difficulty_mask) {
                     if let Some(kind) = possibly_raise_long_intrinsic(
-                        emitter, instr_format, instr, next_instr,
+                        emitter, hooks, instr, next_instr,
                         args, next_args, defs, intrinsic_instrs, offset_labels,
                     )? {
                         // Success! It's a two-instruction intrinsic.
@@ -196,7 +196,7 @@ fn _raise_instrs_main_loop(
 
         // We have a single instruction with known signature.
         let kind = raise_single_decoded_instr(
-            emitter, instr_format, instr, args, defs,
+            emitter, hooks, instr, args, defs,
             &intrinsic_instrs, &offset_labels,
         )?;
         out.push(sp!(ast::Stmt { node_id: None, kind }));
@@ -227,11 +227,12 @@ struct JumpData {
 
 fn gather_instr_offsets(
     script: &[RawInstr],
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
 ) -> Vec<u64> {
     let mut out = vec![0];
     let mut offset = 0;
 
+    let instr_format = hooks.instr_format();
     for instr in script {
         offset += instr_format.instr_size(instr) as u64;
         out.push(offset);
@@ -242,12 +243,12 @@ fn gather_instr_offsets(
 fn gather_jump_time_args(
     script: &[RaiseInstr],
     defs: &Defs,
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
 ) -> Result<JumpData, ErrorReported> {
     let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
 
     for instr in script {
-        if let Some((jump_offset, jump_time)) = extract_jump_args_by_signature(instr_format, instr, defs) {
+        if let Some((jump_offset, jump_time)) = extract_jump_args_by_signature(hooks, instr, defs) {
             all_offset_args.entry(jump_offset).or_default().insert(jump_time);
         }
     }
@@ -322,7 +323,7 @@ fn test_generate_label_at_offset() {
 }
 
 fn extract_jump_args_by_signature(
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     instr: &RaiseInstr,
     defs: &Defs,
 ) -> Option<(raw::BytePos, Option<raw::Time>)> {
@@ -334,11 +335,11 @@ fn extract_jump_args_by_signature(
         RaiseArgs::Unknown(_) => return None,
     };
 
-    let (abi, _) = defs.ins_abi(instr_format.language(), instr.opcode).expect("decoded, so abi is known");
+    let (abi, _) = defs.ins_abi(hooks.language(), instr.opcode).expect("decoded, so abi is known");
     for (arg, encoding) in zip!(args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset
-                => jump_offset = Some(instr_format.decode_label(instr.offset, arg.expect_immediate_int() as u32)),
+                => jump_offset = Some(hooks.decode_label(instr.offset, arg.expect_immediate_int() as u32)),
             ArgEncoding::JumpTime
                 => jump_time = Some(arg.expect_immediate_int()),
             _ => {},
@@ -362,7 +363,7 @@ macro_rules! warn_unless {
 }
 
 fn raise_unknown_instr(
-    language: InstrLanguage,
+    language: LanguageKey,
     instr: &RaiseInstr,
     args: &UnknownArgsData,
 ) -> Result<ast::StmtKind, ErrorReported> {
@@ -398,20 +399,20 @@ fn raise_unknown_instr(
 
 fn raise_single_decoded_instr(
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     instr: &RaiseInstr,
     args: &[SimpleArg],
     defs: &Defs,
     intrinsic_instrs: &IntrinsicInstrs,
     offset_labels: &OffsetLabels,
 ) -> Result<ast::StmtKind, ErrorReported> {
-    let language = instr_format.language();
+    let language = hooks.language();
     let opcode = instr.opcode;
     let abi = expect_abi(language, instr, defs);
 
     if let Some((kind, abi_info)) = intrinsic_instrs.get_intrinsic_and_props(opcode) {
         let mut parts = emitter.chain_with(|f| write!(f, "while decompiling a {}", kind.heavy_descr()), |emitter| {
-            RaisedIntrinsicParts::from_instr(instr, args, abi, abi_info, emitter, instr_format, offset_labels)
+            RaisedIntrinsicParts::from_instr(instr, args, abi, abi_info, emitter, hooks, offset_labels)
         })?;
 
         match kind {
@@ -482,14 +483,14 @@ fn raise_single_decoded_instr(
 
     // Cannot raise as intrinsic.  Raise directly to `ins_*(...)` syntax.
     emitter.chain_with(|f| write!(f, "while decompiling ins_{}", opcode), |emitter| {
-        raise_plain_ins(instr_format, emitter, instr, args, defs, offset_labels)
+        raise_plain_ins(hooks, emitter, instr, args, defs, offset_labels)
     })
 }
 
 /// Raise an intrinsic that is two instructions long.
 fn possibly_raise_long_intrinsic(
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     instr_1: &RaiseInstr,
     instr_2: &RaiseInstr,
     args_1: &[SimpleArg],
@@ -501,7 +502,7 @@ fn possibly_raise_long_intrinsic(
     assert_eq!(instr_1.time, instr_2.time, "already checked by caller");
     assert_eq!(instr_1.difficulty_mask, instr_2.difficulty_mask, "already checked by caller");
 
-    let language = instr_format.language();
+    let language = hooks.language();
     let abi_1 = expect_abi(language, instr_1, defs);
     let abi_2 = expect_abi(language, instr_2, defs);
 
@@ -509,8 +510,8 @@ fn possibly_raise_long_intrinsic(
         Some((IKind::CondJmp2A(_), abi_info_1)) => match intrinsic_instrs.get_intrinsic_and_props(instr_2.opcode) {
             Some((IKind::CondJmp2B(op), abi_info_2)) => {
                 emitter.chain("while decompiling a two-step conditional jump", |emitter| {
-                    let mut cmp_parts = RaisedIntrinsicParts::from_instr(instr_1, args_1, abi_1, abi_info_1, emitter, instr_format, offset_labels)?;
-                    let mut jmp_parts = RaisedIntrinsicParts::from_instr(instr_2, args_2, abi_2, abi_info_2, emitter, instr_format, offset_labels)?;
+                    let mut cmp_parts = RaisedIntrinsicParts::from_instr(instr_1, args_1, abi_1, abi_info_1, emitter, hooks, offset_labels)?;
+                    let mut jmp_parts = RaisedIntrinsicParts::from_instr(instr_2, args_2, abi_2, abi_info_2, emitter, hooks, offset_labels)?;
 
                     let goto = jmp_parts.jump.take().unwrap();
                     let b = cmp_parts.plain_args.pop().unwrap();
@@ -532,14 +533,14 @@ struct IllegalOffset;
 
 /// Raise a list of args for `ins_` syntax. (i.e. not intrinsics)
 fn raise_plain_ins(
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     emitter: &impl Emitter,
     instr: &RaiseInstr,
     args: &[SimpleArg],  // args decoded from the blob
     defs: &context::Defs,
     offset_labels: &OffsetLabels,
 ) -> Result<ast::StmtKind, ErrorReported> {
-    let language = instr_format.language();
+    let language = hooks.language();
     let abi = expect_abi(language, instr, defs);
     let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
@@ -553,7 +554,7 @@ fn raise_plain_ins(
         encodings.iter().zip(args)
             .find(|(&enc, _)| enc == ArgEncoding::JumpOffset)
             .map(|(_, arg)| {
-                let offset = instr_format.decode_label(instr.offset, arg.expect_int() as u32);
+                let offset = hooks.decode_label(instr.offset, arg.expect_int() as u32);
                 offset_labels.get(&offset)
                     .ok_or(IllegalOffset)  // if it was a valid offset, it would have a label
             })
@@ -597,7 +598,7 @@ fn raise_plain_ins(
 /// General argument-raising routine that supports registers and uses the encoding in the ABI
 /// to possibly guide how to express the output. This is what is used for e.g. args in `ins_` syntax.
 fn raise_arg(
-    language: InstrLanguage,
+    language: LanguageKey,
     emitter: &impl Emitter,
     raw: &SimpleArg,
     enc: ArgEncoding,
@@ -683,7 +684,7 @@ fn raise_arg_to_literal(
 }
 
 fn raise_arg_to_reg(
-    language: InstrLanguage,
+    language: LanguageKey,
     emitter: &impl Emitter,
     raw: &SimpleArg,
     encoding: ArgEncoding,
@@ -730,7 +731,7 @@ impl RaisedIntrinsicParts {
         abi: &InstrAbi,
         abi_parts: &IntrinsicInstrAbiParts,
         emitter: &impl Emitter,
-        instr_format: &dyn InstrFormat,
+        hooks: &dyn LanguageHooks,
         offset_labels: &BTreeMap<u64, Label>,
     ) -> Result<Self, ErrorReported> {
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
@@ -755,7 +756,7 @@ impl RaisedIntrinsicParts {
                 abi_parts::JumpArgOrder::Loc => (&args[index], None),
             };
 
-            let offset = instr_format.decode_label(instr.offset, offset_arg.expect_immediate_int() as u32);
+            let offset = hooks.decode_label(instr.offset, offset_arg.expect_immediate_int() as u32);
             let label = &offset_labels[&offset];
             out.jump = Some(ast::StmtGoto {
                 destination: sp!(label.label.clone()),
@@ -764,13 +765,13 @@ impl RaisedIntrinsicParts {
         }
 
         for &(index, mode) in outputs_info {
-            let var = raise_arg_to_reg(instr_format.language(), emitter, &args[index], encodings[index], mode)?;
+            let var = raise_arg_to_reg(hooks.language(), emitter, &args[index], encodings[index], mode)?;
             out.outputs.push(var);
         }
 
         for &index in plain_args_info {
             let dest_label = None;  // offset and time are not plain args so this is irrelevant
-            let expr = raise_arg(instr_format.language(), emitter, &args[index], encodings[index], dest_label)?;
+            let expr = raise_arg(hooks.language(), emitter, &args[index], encodings[index], dest_label)?;
             out.plain_args.push(expr);
         }
         Ok(out)
@@ -782,8 +783,8 @@ impl RaisedIntrinsicParts {
 impl Raiser<'_> {
     fn decode_args(&mut self, emitter: &impl Emitter, instr: &RawInstr, instr_offset: raw::BytePos, defs: &Defs) -> Result<RaiseInstr, ErrorReported> {
         if self.options.arguments {
-            if let Some((abi, _)) = defs.ins_abi(self.instr_format.language(), instr.opcode) {
-                return decode_args_with_abi(emitter, self.instr_format, instr, instr_offset, abi);
+            if let Some((abi, _)) = defs.ins_abi(self.hooks.language(), instr.opcode) {
+                return decode_args_with_abi(emitter, self.hooks, instr, instr_offset, abi);
             } else {
                 self.opcodes_without_abis.insert(instr.opcode);
             }
@@ -806,7 +807,7 @@ impl Raiser<'_> {
 
 fn decode_args_with_abi(
     emitter: &impl Emitter,
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     instr: &RawInstr,
     instr_offset: raw::BytePos,
     siggy: &InstrAbi,
@@ -826,7 +827,7 @@ fn decode_args_with_abi(
         Ok(())
     }
 
-    let reg_style = instr_format.register_style();
+    let reg_style = hooks.register_style();
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
         let param_mask_bit = param_mask % 2 == 1;
         param_mask /= 2;
@@ -917,7 +918,7 @@ fn decode_args_with_abi(
     })
 }
 
-fn expect_abi<'a>(language: InstrLanguage, instr: &RaiseInstr, defs: &'a Defs) -> &'a InstrAbi {
+fn expect_abi<'a>(language: LanguageKey, instr: &RaiseInstr, defs: &'a Defs) -> &'a InstrAbi {
     // if we have Instr then we already must have used the signature earlier to decode the arg bytes,
     // so we can just panic
     defs.ins_abi(language, instr.opcode).unwrap_or_else(|| {

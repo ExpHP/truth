@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use std::collections::HashMap;
 
 use crate::raw;
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::ident::{Ident, ResIdent};
 use crate::context::CompilerContext;
 
@@ -98,7 +98,7 @@ pub enum Namespace {
 }
 
 impl Namespace {
-    pub fn noun_long(self, alias_language: Option<InstrLanguage>) -> String {
+    pub fn noun_long(self, alias_language: Option<LanguageKey>) -> String {
         match (self, alias_language) {
             (Namespace::Vars, Some(language)) => format!("{} register or variable", language.descr()),
             (Namespace::Funcs, Some(language)) => format!("{} instruction or function", language.descr()),
@@ -457,7 +457,7 @@ pub mod rib {
         Items,
 
         /// A rib created from entries in a mapfile.
-        Mapfile { language: InstrLanguage },
+        Mapfile { language: LanguageKey },
 
         /// A set of names generated from e.g. meta.
         Generated,
@@ -555,11 +555,11 @@ pub mod rib {
         }
 
         /// Resolve an identifier by walking backwards through the stack of ribs.
-        pub fn resolve(&self, ns: Namespace, cur_span: Span, alias_language: Option<InstrLanguage>, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
+        pub fn resolve(&self, ns: Namespace, cur_span: Span, alias_language: Option<LanguageKey>, cur_ident: &Ident) -> Result<DefId, Diagnostic> {
             // set to e.g. `Some("function")` when we first cross pass the threshold of a function or const.
             let mut crossed_local_border = None::<&str>;
             // set to Some(_) if we find a match for a reg/instr alias that isn't usable here
-            let mut language_with_ident = None::<InstrLanguage>;
+            let mut language_with_ident = None::<LanguageKey>;
 
             'ribs: for rib in self.ribs[ns].iter().rev() {
                 if let Some(cause) = rib.kind.local_barrier_cause() {

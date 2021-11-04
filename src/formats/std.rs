@@ -6,9 +6,9 @@ use crate::ast::meta::{self, FromMeta, FromMetaError, Meta, ToMeta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag};
-use crate::game::{Game, InstrLanguage};
+use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
+use crate::llir::{self, ReadInstr, RawInstr, LanguageHooks, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 
@@ -241,11 +241,11 @@ fn decompile_std(
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
-    let instr_format = format.instr_format();
+    let hooks = format.language_hooks();
     let script = &std.script;
 
     let code = {
-        llir::Raiser::new(instr_format, &ctx.emitter, &ctx.defs, decompile_options)?
+        llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?
             .raise_instrs_to_sub_ast(emitter, script, &ctx.defs, &ctx.unused_node_ids)?
     };
 
@@ -284,7 +284,7 @@ fn compile_std(
     let script = {
         let mut script = script.clone();
 
-        crate::passes::resolution::assign_languages(&mut script, format.instr_format().language(), ctx)?;
+        crate::passes::resolution::assign_languages(&mut script, format.language_hooks().language(), ctx)?;
         crate::passes::resolution::resolve_names(&script, ctx)?;
         crate::passes::type_check::run(&script, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
@@ -343,10 +343,10 @@ fn compile_std(
         }
     };
 
-    let instr_format = format.instr_format();
+    let hooks = format.language_hooks();
     let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.emitter.emit(e))?;
     let mut errors = ErrorFlag::new();
-    let mut lowerer = crate::llir::Lowerer::new(instr_format);
+    let mut lowerer = crate::llir::Lowerer::new(hooks);
     out.script = lowerer.lower_sub(&main_sub.0, ctx).unwrap_or_else(|e| {
         errors.set(e);
         vec![] // dummy instructions so we can call lowerer.finish before returning
@@ -394,7 +394,8 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
     };
 
     reader.seek_to(start_pos + script_offset)?;
-    let script = llir::read_instrs(reader, emitter, format.instr_format(), 0, None)?;
+    let instr_format = format.language_hooks().instr_format();
+    let script = llir::read_instrs(reader, emitter, instr_format, 0, None)?;
 
     let binary_filename = Some(reader.display_filename().to_string());
     Ok(StdFile { unknown, extra, objects, instances, script, binary_filename })
@@ -437,9 +438,8 @@ fn write_std(
     }
     write_terminal_instance(f)?;
 
-    let instr_format = format.instr_format();
-
     let script_offset = f.pos()? - start_pos;
+    let instr_format = format.language_hooks().instr_format();
     llir::write_instrs(f, emitter, instr_format, &std.script)?;
 
     let end_pos = f.pos()?;
@@ -597,8 +597,8 @@ fn write_terminal_instance(f: &mut BinWriter) -> WriteResult {
 
 fn game_format(game: Game) -> Box<dyn FileFormat> {
     if Game::Th095 <= game {
-        let instr_format = InstrFormat10 { game };
-        Box::new(FileFormat10 { instr_format })
+        let hooks = StdHooks10 { game };
+        Box::new(FileFormat10 { hooks })
     } else {
         let has_strips = match game {
             Game::Th06 | Game::Th07 => false,
@@ -606,8 +606,8 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
             _ => unreachable!(),
         };
 
-        let instr_format = InstrFormat06 { game };
-        Box::new(FileFormat06 { has_strips, instr_format })
+        let hooks = StdHooks06 { game };
+        Box::new(FileFormat06 { has_strips, hooks })
     }
 }
 
@@ -616,11 +616,11 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
 /// STD format, EoSD to PoFV.
 struct FileFormat06 {
     has_strips: bool,
-    instr_format: InstrFormat06,
+    hooks: StdHooks06,
 }
 /// STD format, StB to present.
 struct FileFormat10 {
-    instr_format: InstrFormat10,
+    hooks: StdHooks10,
 }
 
 trait FileFormat {
@@ -628,7 +628,7 @@ trait FileFormat {
     fn extra_to_meta(&self, extra: &StdExtra, b: &mut meta::BuildObject);
     fn read_extra(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<StdExtra>;
     fn write_extra(&self, f: &mut BinWriter, emitter: &dyn Emitter, x: &StdExtra) -> WriteResult;
-    fn instr_format(&self) -> &dyn InstrFormat;
+    fn language_hooks(&self) -> &dyn LanguageHooks;
     fn has_strips(&self) -> bool;
 }
 
@@ -676,7 +676,7 @@ impl FileFormat for FileFormat06 {
         Ok(())
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat { &self.instr_format }
+    fn language_hooks(&self) -> &dyn LanguageHooks { &self.hooks }
     fn has_strips(&self) -> bool { self.has_strips }
 }
 
@@ -706,15 +706,15 @@ impl FileFormat for FileFormat10 {
         Ok(())
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat { &self.instr_format }
+    fn language_hooks(&self) -> &dyn LanguageHooks { &self.hooks }
     fn has_strips(&self) -> bool { false }
 }
 
-pub struct InstrFormat06 { game: Game }
-pub struct InstrFormat10 { game: Game }
+pub struct StdHooks06 { game: Game }
+pub struct StdHooks10 { game: Game }
 
-impl InstrFormat for InstrFormat06 {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+impl LanguageHooks for StdHooks06 {
+    fn language(&self) -> LanguageKey { LanguageKey::Std }
 
     fn has_registers(&self) -> bool { false }
 
@@ -729,6 +729,18 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
+    fn encode_label(&self, _cur: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
+        assert_eq!(dest_offset % 20, 0);
+        (dest_offset / 20) as u32
+    }
+    fn decode_label(&self, _cur: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
+        (bits * 20) as u64
+    }
+
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for StdHooks06 {
     fn instr_header_size(&self) -> usize { 8 }
 
     fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
@@ -759,18 +771,10 @@ impl InstrFormat for InstrFormat06 {
         }
         Ok(())
     }
-
-    fn encode_label(&self, _cur: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
-        assert_eq!(dest_offset % 20, 0);
-        (dest_offset / 20) as u32
-    }
-    fn decode_label(&self, _cur: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
-        (bits * 20) as u64
-    }
 }
 
-impl InstrFormat for InstrFormat10 {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Std }
+impl LanguageHooks for StdHooks10 {
+    fn language(&self) -> LanguageKey { LanguageKey::Std }
 
     fn has_registers(&self) -> bool { false }
 
@@ -784,6 +788,10 @@ impl InstrFormat for InstrFormat10 {
         out
     }
 
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for StdHooks10 {
     fn instr_header_size(&self) -> usize { 8 }
 
     fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {

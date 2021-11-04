@@ -382,7 +382,7 @@ mod tests {
     use crate::resolve::RegId;
     use crate::vm::{AstVm, LoggedCall};
     use crate::value::{ScalarValue::{Int}, ScalarType as Ty};
-    use crate::game::InstrLanguage::Dummy;
+    use crate::game::LanguageKey::Dummy;
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId, Ty)>,

@@ -7,7 +7,7 @@ use crate::ast;
 use crate::context::CompilerContext;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, rib};
 use crate::eclmap::Eclmap;
@@ -27,26 +27,26 @@ use crate::llir::{InstrAbi, IntrinsicInstrKind};
 /// more easily record information for name resolution.
 #[derive(Debug, Clone)]
 pub struct Defs {
-    regs: HashMap<(InstrLanguage, RegId), RegData>,
-    instrs: HashMap<(InstrLanguage, raw::Opcode), InsData>,
+    regs: HashMap<(LanguageKey, RegId), RegData>,
+    instrs: HashMap<(LanguageKey, raw::Opcode), InsData>,
 
     vars: HashMap<DefId, VarData>,
     funcs: HashMap<DefId, FuncData>,
 
     /// Preferred alias (i.e. the one we decompile to) for each register.
-    reg_aliases: HashMap<(InstrLanguage, RegId), DefId>,
+    reg_aliases: HashMap<(LanguageKey, RegId), DefId>,
     /// Preferred alias (i.e. the one we decompile to) for each instruction.
-    ins_aliases: HashMap<(InstrLanguage, raw::Opcode), DefId>,
+    ins_aliases: HashMap<(LanguageKey, raw::Opcode), DefId>,
 
     /// Some of the initial ribs for name resolution, containing register aliases from mapfiles.
-    reg_alias_ribs: EnumMap<InstrLanguage, rib::Rib>,
+    reg_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
     /// Some of the initial ribs for name resolution, containing instruction aliases from mapfiles.
-    ins_alias_ribs: EnumMap<InstrLanguage, rib::Rib>,
+    ins_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
     /// One of the initial ribs for name resolution, containing consts from meta.
     auto_const_rib: rib::Rib,
 
     /// Intrinsics from mapfiles.
-    user_defined_intrinsics: EnumMap<InstrLanguage, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
+    user_defined_intrinsics: EnumMap<LanguageKey, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
 }
 
 // =============================================================================
@@ -77,14 +77,14 @@ impl Defs {
 /// # Definitions
 impl CompilerContext<'_> {
     /// Set the inherent type of a register.
-    pub fn set_reg_ty(&mut self, language: InstrLanguage, reg: RegId, ty: VarType) {
+    pub fn set_reg_ty(&mut self, language: LanguageKey, reg: RegId, ty: VarType) {
         self.defs.regs.insert((language, reg), RegData { ty });
     }
 
     /// Add an alias for a register from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that register.
-    pub fn define_global_reg_alias(&mut self, language: InstrLanguage, reg: RegId, ident: Sp<Ident>) -> DefId {
+    pub fn define_global_reg_alias(&mut self, language: LanguageKey, reg: RegId, ident: Sp<Ident>) -> DefId {
         let res_ident = self.resolutions.attach_fresh_res(ident.value.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
@@ -152,7 +152,7 @@ impl CompilerContext<'_> {
     /// Set the low-level ABI of an instruction.
     ///
     /// A high-level [`Signature`] will also be generated from the ABI.
-    pub fn set_ins_abi(&mut self, language: InstrLanguage, opcode: raw::Opcode, abi: InstrAbi, abi_loc: InstrAbiLoc) {
+    pub fn set_ins_abi(&mut self, language: LanguageKey, opcode: raw::Opcode, abi: InstrAbi, abi_loc: InstrAbiLoc) {
         // also update the high-level signature
         let sig = abi.create_signature(self);
         sig.validate(self).expect("invalid signature from InstrAbi");
@@ -163,7 +163,7 @@ impl CompilerContext<'_> {
     /// Add an alias for an instruction from a mapfile.
     ///
     /// The alias will also become the new preferred alias for decompiling that instruction.
-    pub fn define_global_ins_alias(&mut self, language: InstrLanguage, opcode: raw::Opcode, ident: Sp<Ident>) -> DefId {
+    pub fn define_global_ins_alias(&mut self, language: LanguageKey, opcode: raw::Opcode, ident: Sp<Ident>) -> DefId {
         let res_ident = self.resolutions.attach_fresh_res(ident.value.clone());
         let def_id = self.create_new_def_id(&res_ident);
 
@@ -234,7 +234,7 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_reg(&self, def_id: DefId) -> Option<(InstrLanguage, RegId)> {
+    pub fn var_reg(&self, def_id: DefId) -> Option<(LanguageKey, RegId)> {
         match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { reg, language, .. }, .. } => Some((language, reg)),
             _ => None,
@@ -248,7 +248,7 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a function.
-    pub fn func_opcode(&self, def_id: DefId) -> Option<(InstrLanguage, raw::Opcode)> {
+    pub fn func_opcode(&self, def_id: DefId) -> Option<(LanguageKey, raw::Opcode)> {
         match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { opcode, language, .. }, .. } => Some((language, opcode)),
             _ => None,
@@ -256,7 +256,7 @@ impl Defs {
     }
 
     /// Recovers the ABI of an opcode, if it is known.
-    pub fn ins_abi(&self, language: InstrLanguage, opcode: raw::Opcode) -> Option<(&InstrAbi, &InstrAbiLoc)> {
+    pub fn ins_abi(&self, language: LanguageKey, opcode: raw::Opcode) -> Option<(&InstrAbi, &InstrAbiLoc)> {
         self.instrs.get(&(language, opcode)).map(|x| (&x.abi, &x.abi_loc))
     }
 }
@@ -318,7 +318,7 @@ impl Defs {
     }
 
     /// Get the inherent type of a register.
-    fn reg_inherent_ty(&self, language: InstrLanguage, reg: RegId) -> VarType {
+    fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> VarType {
         match self.regs.get(&(language, reg)) {
             Some(&RegData { ty }) => ty,
             // This is a register whose type is not in any mapfile.
@@ -342,7 +342,7 @@ impl Defs {
     }
 
     /// Get the high-level signature of an instruction.
-    fn ins_signature(&self, language: InstrLanguage, opcode: raw::Opcode) -> Result<&Signature, InsMissingSigError> {
+    fn ins_signature(&self, language: LanguageKey, opcode: raw::Opcode) -> Result<&Signature, InsMissingSigError> {
         match self.instrs.get(&(language, opcode)) {
             Some(InsData { sig, .. }) => Ok(sig),
             None => Err(InsMissingSigError { language, opcode }),
@@ -406,7 +406,7 @@ impl CompilerContext<'_> {
 
         for (names, signatures, language) in vec![
             (&mapfile.ins_names, &mapfile.ins_signatures, mapfile.language),
-            (&mapfile.timeline_ins_names, &mapfile.timeline_ins_signatures, InstrLanguage::Timeline),
+            (&mapfile.timeline_ins_names, &mapfile.timeline_ins_signatures, LanguageKey::Timeline),
         ] {
             for (&opcode, ident) in names {
                 self.define_global_ins_alias(language, opcode as u16, ident.clone());
@@ -482,14 +482,14 @@ impl Defs {
     /// Add a user-defined intrinsic mapping from a mapfile.
     pub fn add_user_intrinsic(
         &mut self,
-        language: InstrLanguage,
+        language: LanguageKey,
         opcode: raw::Opcode,
         intrinsic: Sp<IntrinsicInstrKind>,
     ) {
         self.user_defined_intrinsics[language].push((opcode, intrinsic));
     }
 
-    pub fn iter_user_intrinsics(&self, language: InstrLanguage) -> impl Iterator<Item=(raw::Opcode, Sp<IntrinsicInstrKind>)> + '_ {
+    pub fn iter_user_intrinsics(&self, language: LanguageKey) -> impl Iterator<Item=(raw::Opcode, Sp<IntrinsicInstrKind>)> + '_ {
         self.user_defined_intrinsics[language].iter().copied()
     }
 }
@@ -510,7 +510,7 @@ struct VarData {
 enum VarKind {
     RegisterAlias {
         ident: ResIdent,
-        language: InstrLanguage,
+        language: LanguageKey,
         reg: RegId,
         // TODO: location where alias is defined, follow the example set by InstrAbiLoc
     },
@@ -536,7 +536,7 @@ struct InsData {
 pub enum InstrAbiLoc {
     Span(Span),  // string in a mapfile
     CoreMapfile {
-        language: InstrLanguage,
+        language: LanguageKey,
         opcode: raw::Opcode,
         abi_str: String,
     },
@@ -553,7 +553,7 @@ struct FuncData {
 pub enum FuncKind {
     InstructionAlias {
         ident: ResIdent,
-        language: InstrLanguage,
+        language: LanguageKey,
         opcode: raw::Opcode,
         // TODO: location where alias is defined
     },
@@ -599,7 +599,7 @@ impl CompilerContext<'_> {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<(InstrLanguage, RegId), DefId> {
+    pub fn var_reg_from_ast(&self, var: &ast::VarName) -> Result<(LanguageKey, RegId), DefId> {
         match var {
             &ast::VarName::Reg { reg, language, .. } => {
                 Ok((language.expect("must run assign_languages pass!"), reg)) // register
@@ -618,7 +618,7 @@ impl CompilerContext<'_> {
     ///
     /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
     /// name resolution id is returned.
-    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<(InstrLanguage, u16), DefId> {
+    pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<(LanguageKey, u16), DefId> {
         match name {
             &ast::CallableName::Ins { opcode, language, .. } => {
                 Ok((language.expect("must run assign_languages pass!"), opcode)) // instruction
@@ -657,7 +657,7 @@ impl CompilerContext<'_> {
 
     /// Generate an AST node with the ideal appearance for a register, automatically using
     /// an alias if one exists.
-    pub fn reg_to_ast(&self, language: InstrLanguage, reg: RegId) -> ast::VarName {
+    pub fn reg_to_ast(&self, language: LanguageKey, reg: RegId) -> ast::VarName {
         match self.defs.reg_aliases.get(&(language, reg)) {
             None => ast::VarName::Reg { reg, language: Some(language) },
             Some(&def_id) => {
@@ -669,7 +669,7 @@ impl CompilerContext<'_> {
 
     /// Generate an AST node with the ideal appearance for an instruction call,
     /// automatically using an alias if one exists.
-    pub fn ins_to_ast(&self, language: InstrLanguage, opcode: raw::Opcode) -> ast::CallableName {
+    pub fn ins_to_ast(&self, language: LanguageKey, opcode: raw::Opcode) -> ast::CallableName {
         match self.defs.ins_aliases.get(&(language, opcode)) {
             None => ast::CallableName::Ins { opcode, language: Some(language) },
             Some(&def_id) => {
@@ -689,7 +689,7 @@ impl CompilerContext<'_> {
 /// are actually used...)
 #[derive(Debug, Clone)]
 pub struct InsMissingSigError {
-    pub language: InstrLanguage,
+    pub language: LanguageKey,
     pub opcode: raw::Opcode,
 }
 

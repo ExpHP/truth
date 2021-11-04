@@ -7,10 +7,10 @@ use crate::pos::Sp;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
-use crate::game::{Game, InstrLanguage};
+use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::value::{ScalarType, ScalarValue};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
 use crate::resolve::RegId;
 use crate::context::CompilerContext;
 
@@ -55,11 +55,11 @@ fn decompile(
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
-    let instr_format = &*format.instr_format();
-    let timeline_format = &*format.timeline_format();
+    let ecl_hooks = &*format.ecl_hooks;
+    let timeline_hooks = &*format.timeline_hooks;
 
     let mut items = vec![];
-    let mut timeline_raiser = llir::Raiser::new(timeline_format, &ctx.emitter, &ctx.defs, decompile_options)?;
+    let mut timeline_raiser = llir::Raiser::new(timeline_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Timeline {
             keyword: sp!(()),
@@ -70,7 +70,7 @@ fn decompile(
         }));
     }
 
-    let mut sub_raiser = llir::Raiser::new(instr_format, &ctx.emitter, &ctx.defs, decompile_options)?;
+    let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     for (ident, instrs) in ecl.subs.iter() {
         items.push(sp!(ast::Item::Func {
             qualifier: None,
@@ -99,11 +99,8 @@ fn compile(
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<OldeEclFile, ErrorReported> {
-    let instr_format = format.instr_format();
-    let timeline_format = format.timeline_format();
-
     let mut ast = ast.clone();
-    crate::passes::resolution::assign_languages(&mut ast, instr_format.language(), ctx)?;
+    crate::passes::resolution::assign_languages(&mut ast, LanguageKey::Ecl, ctx)?;
 
     // an early pass to define global constants for sub names
     let sub_ids = gather_sub_ids(&ast, ctx)?;
@@ -129,8 +126,8 @@ fn compile(
     let mut errors = ErrorFlag::new(); // delay returns for panic bombs
     let mut subs = IndexMap::new();
     let mut timelines = vec![];
-    let mut ecl_lowerer = llir::Lowerer::new(&*instr_format);
-    let mut timeline_lowerer = llir::Lowerer::new(&*timeline_format);
+    let mut ecl_lowerer = llir::Lowerer::new(&*format.ecl_hooks);
+    let mut timeline_lowerer = llir::Lowerer::new(&*format.timeline_hooks);
 
     ast.items.iter().map(|item| {
         // eprintln!("{:?}", item);
@@ -238,8 +235,8 @@ fn read_olde_ecl(
     emitter: &impl Emitter,
     format: &OldeFileFormat,
 ) -> ReadResult<OldeEclFile> {
-    let instr_format = &*format.instr_format();
-    let timeline_format = &*format.timeline_format();
+    let ecl_format = format.ecl_hooks.instr_format();
+    let timeline_format = format.timeline_hooks.instr_format();
 
     let start_pos = reader.pos()?;
 
@@ -297,7 +294,7 @@ fn read_olde_ecl(
 
         reader.seek_to(start_pos + sub_offset as u64)?;
         let instrs = emitter.chain_with(|f| write!(f, "in sub {}", index), |emitter| {
-            llir::read_instrs(reader, emitter, instr_format, sub_offset as u64, None)
+            llir::read_instrs(reader, emitter, ecl_format, sub_offset as u64, None)
         })?;
         Ok((name, instrs))
     }).collect::<ReadResult<_>>()?;
@@ -324,8 +321,8 @@ fn write_olde_ecl(
     format: &OldeFileFormat,
     ecl: &OldeEclFile,
 ) -> WriteResult {
-    let instr_format = &*format.instr_format();
-    let timeline_format = &*format.timeline_format();
+    let ecl_format = format.ecl_hooks.instr_format();
+    let timeline_format = format.timeline_hooks.instr_format();
 
     let start_pos = w.pos()?;
 
@@ -365,7 +362,7 @@ fn write_olde_ecl(
     for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(w.pos()? - start_pos);
         emitter.chain_with(|f| write!(f, "in sub {} (index {})", ident, index), |emitter| {
-            llir::write_instrs(w, emitter, instr_format, instrs)
+            llir::write_instrs(w, emitter, ecl_format, instrs)
         })?;
     }
 
@@ -400,7 +397,7 @@ fn write_olde_ecl(
 fn game_format(game: Game) -> Result<OldeFileFormat, ErrorReported> {
     match game {
         | Game::Th06 | Game::Th07 | Game::Th08 | Game::Th09 | Game::Th095
-        => Ok(OldeFileFormat { game }),
+        => Ok(OldeFileFormat::new(game)),
 
         _ => unimplemented!("game {} not yet supported", game),
     }
@@ -408,7 +405,11 @@ fn game_format(game: Game) -> Result<OldeFileFormat, ErrorReported> {
 
 // =============================================================================
 
-struct OldeFileFormat { game: Game }
+struct OldeFileFormat {
+    game: Game,
+    ecl_hooks: Box<dyn LanguageHooks>,
+    timeline_hooks: Box<dyn LanguageHooks>,
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum TimelineArrayKind {
@@ -434,6 +435,13 @@ impl TimelineArrayKind {
 }
 
 impl OldeFileFormat {
+    fn new(game: Game) -> Self {
+        assert!(game < Game::Th10);
+        let ecl_hooks = Box::new(OldeEclHooks { game });
+        let timeline_hooks = Box::new(TimelineHooks { game });
+        Self { game, ecl_hooks, timeline_hooks }
+    }
+
     fn magic(&self) -> Option<u32> {
         match self.game {
             | Game::Th06 | Game::Th07 => None,
@@ -455,15 +463,12 @@ impl OldeFileFormat {
             _ => unimplemented!("game not yet supported"),
         }
     }
-
-    fn instr_format(&self) -> Box<dyn InstrFormat> { Box::new(InstrFormat06 { game: self.game }) }
-    fn timeline_format(&self) -> Box<dyn InstrFormat> { Box::new(TimelineInstrFormat { game: self.game }) }
 }
 
-struct InstrFormat06 { game: Game }
+struct OldeEclHooks { game: Game }
 
-impl InstrFormat for InstrFormat06 {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Ecl }
+impl LanguageHooks for OldeEclHooks {
+    fn language(&self) -> LanguageKey { LanguageKey::Ecl }
 
     fn has_registers(&self) -> bool { true }
 
@@ -498,6 +503,59 @@ impl InstrFormat for InstrFormat06 {
         }
     }
 
+    // offsets are written as relative in these files
+    fn encode_label(&self, current_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
+        let relative = dest_offset as i64 - current_offset as i64;
+        relative as i32 as u32
+    }
+    fn decode_label(&self, current_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
+        let relative = bits as i32 as i64; // double cast for sign-extension
+        (current_offset as i64 + relative) as u64
+    }
+
+    fn register_style(&self) -> RegisterEncodingStyle {
+        if self.game == Game::Th06 {
+            RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register: |value| {
+                let id = match *value {
+                    ScalarValue::Int(x) => x,
+                    ScalarValue::Float(x) => x as i32,
+                    ScalarValue::String(_) => return false,
+                };
+                -10_025 <= id && id <= -10_001
+            }}
+        } else {
+            RegisterEncodingStyle::ByParamMask
+        }
+    }
+
+    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
+        use RegId as R;
+
+        match self.game {
+            Game::Th06 => enum_map::enum_map!{
+                ScalarType::Int => vec![
+                    R(-10001), R(-10002), R(-10003), R(-10004),
+                    R(-10009), R(-100010), R(-100011), R(-100012)
+                ],
+                ScalarType::Float => vec![R(-10005), R(-10006), R(-10007), R(-10008)],
+                ScalarType::String => vec![],
+            },
+            _ => enum_map::enum_map!{
+                _ => vec![],
+            },
+        }
+    }
+
+    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
+        // that one that disables the callstack
+        (self.game == Game::Th06 && opcode == 130)
+            .then(|| HowBadIsIt::ItsWaterElf)
+    }
+
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for OldeEclHooks {
     fn instr_header_size(&self) -> usize { 12 }
 
     fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
@@ -558,69 +616,20 @@ impl InstrFormat for InstrFormat06 {
         f.write_u16(0x00ff)?; // param_mask
         Ok(())
     }
-
-    // offsets are written as relative in these files
-    fn encode_label(&self, current_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
-        let relative = dest_offset as i64 - current_offset as i64;
-        relative as i32 as u32
-    }
-    fn decode_label(&self, current_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
-        let relative = bits as i32 as i64; // double cast for sign-extension
-        (current_offset as i64 + relative) as u64
-    }
-
-    fn register_style(&self) -> RegisterEncodingStyle {
-        if self.game == Game::Th06 {
-            RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register: |value| {
-                let id = match *value {
-                    ScalarValue::Int(x) => x,
-                    ScalarValue::Float(x) => x as i32,
-                    ScalarValue::String(_) => return false,
-                };
-                -10_025 <= id && id <= -10_001
-            }}
-        } else {
-            RegisterEncodingStyle::ByParamMask
-        }
-    }
-
-    fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
-        use RegId as R;
-
-        match self.game {
-            Game::Th06 => enum_map::enum_map!{
-                ScalarType::Int => vec![
-                    R(-10001), R(-10002), R(-10003), R(-10004),
-                    R(-10009), R(-100010), R(-100011), R(-100012)
-                ],
-                ScalarType::Float => vec![R(-10005), R(-10006), R(-10007), R(-10008)],
-                ScalarType::String => vec![],
-            },
-            _ => enum_map::enum_map!{
-                _ => vec![],
-            },
-        }
-    }
-
-    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
-        // that one that disables the callstack
-        (self.game == Game::Th06 && opcode == 130)
-            .then(|| HowBadIsIt::ItsWaterElf)
-    }
 }
 
 // ------------
 
-struct TimelineInstrFormat { game: Game }
-impl TimelineInstrFormat {
+struct TimelineHooks { game: Game }
+impl TimelineHooks {
     /// In some games, the terminal instruction is shorter than an actual instruction.
     fn has_short_terminal(&self) -> bool {
         self.game < Game::Th08
     }
 }
 
-impl InstrFormat for TimelineInstrFormat {
-    fn language(&self) -> InstrLanguage { InstrLanguage::Timeline }
+impl LanguageHooks for TimelineHooks {
+    fn language(&self) -> LanguageKey { LanguageKey::Timeline }
 
     fn has_registers(&self) -> bool { false }
 
@@ -628,6 +637,10 @@ impl InstrFormat for TimelineInstrFormat {
         vec![]
     }
 
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for TimelineHooks {
     fn instr_header_size(&self) -> usize { 8 }
 
     fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {

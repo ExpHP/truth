@@ -2,7 +2,7 @@ use ::std::collections::BTreeMap;
 
 use crate::raw;
 use crate::pos::Sp;
-use crate::game::{Game, InstrLanguage};
+use crate::game::{Game, LanguageKey};
 use crate::eclmap::Eclmap;
 
 mod anm;
@@ -12,15 +12,15 @@ mod std;
 
 /// Obtain a mapfile with signatures and types for all vanilla instructions and registers
 /// for a single InstrLanguage.
-pub fn core_mapfile(game: Game, language: InstrLanguage) -> Eclmap {
+pub fn core_mapfile(game: Game, language: LanguageKey) -> Eclmap {
     let signatures = match language {
-        InstrLanguage::Anm => self::anm::core_signatures(game),
-        InstrLanguage::Std => self::std::core_signatures(game),
-        InstrLanguage::Msg => self::msg::core_signatures(game),
-        InstrLanguage::Ecl => self::ecl::core_signatures(game),
-        InstrLanguage::Timeline => self::ecl::timeline_core_signatures(game),
-        InstrLanguage::End => CoreSignatures::EMPTY, // TODO
-        InstrLanguage::Dummy => CoreSignatures::EMPTY,
+        LanguageKey::Anm => self::anm::core_signatures(game),
+        LanguageKey::Std => self::std::core_signatures(game),
+        LanguageKey::Msg => self::msg::core_signatures(game),
+        LanguageKey::Ecl => self::ecl::core_signatures(game),
+        LanguageKey::Timeline => self::ecl::timeline_core_signatures(game),
+        LanguageKey::End => CoreSignatures::EMPTY, // TODO
+        LanguageKey::Dummy => CoreSignatures::EMPTY,
     };
 
     signatures.to_mapfile(language, game)
@@ -68,7 +68,7 @@ impl CoreSignatures {
         inherit: &[], ins: &[], var: &[],
     };
 
-    fn to_mapfile(&self, language: InstrLanguage, game: Game) -> Eclmap {
+    fn to_mapfile(&self, language: LanguageKey, game: Game) -> Eclmap {
         let mut mapfile = Eclmap::new_core_mapfile(language);
         self.apply_to_mapfile(game, &mut mapfile);
         mapfile

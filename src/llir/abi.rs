@@ -3,7 +3,7 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, defs};
 use crate::value::{self, ScalarType};
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 
 use ArgEncoding as Enc;
 
@@ -143,7 +143,7 @@ impl InstrAbi {
         abi_to_signature(self, ctx)
     }
 
-    pub fn validate_against_language(&self, abi_span: Span, language: InstrLanguage, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
+    pub fn validate_against_language(&self, abi_span: Span, language: LanguageKey, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
         // NOTE: Normally the authority on timeline extra arguments is InstrFormat, but we want
         //       this check to run long before any InstrFormats are created.
         //
@@ -153,7 +153,7 @@ impl InstrAbi {
             primary(abi_span, "{}", message),
         ));
         let sig_has_arg0 = matches!(self.encodings.get(0), Some(ArgEncoding::TimelineArg { .. }));
-        let lang_has_arg0 = language == InstrLanguage::Timeline;
+        let lang_has_arg0 = language == LanguageKey::Timeline;
         if sig_has_arg0 && !lang_has_arg0 {
             return Err(invalid_signature("T(...) is invalid outside of timeline languages"));
         } else if !sig_has_arg0 && lang_has_arg0 {

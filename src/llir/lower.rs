@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use crate::raw;
 use super::{unsupported, SimpleArg};
-use crate::llir::{RawInstr, InstrFormat, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
+use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp};
@@ -110,7 +110,7 @@ impl LowerArg {
 /// Each language should have a separate instance.
 /// This is a panic-bomb, so `.finish()` must be called.
 pub struct Lowerer<'a> {
-    instr_format: &'a dyn InstrFormat,
+    hooks: &'a dyn LanguageHooks,
     // NOTE: later this can become Box<dyn Trait> and just let the implementations downcast
     inner: stackless::PersistentState,
 }
@@ -125,8 +125,8 @@ impl Drop for Lowerer<'_> {
 }
 
 impl<'a> Lowerer<'a> {
-    pub fn new(instr_format: &'a dyn InstrFormat) -> Self {
-        Lowerer { instr_format, inner: Default::default() }
+    pub fn new(hooks: &'a dyn LanguageHooks) -> Self {
+        Lowerer { hooks, inner: Default::default() }
     }
 
     pub fn lower_sub(&mut self, code: &[Sp<ast::Stmt>], ctx: &mut CompilerContext<'_>) -> Result<Vec<RawInstr>, ErrorReported> {
@@ -148,29 +148,29 @@ fn lower_sub_ast_to_instrs(
 ) -> Result<Vec<RawInstr>, ErrorReported> {
     use stackless::{SingleSubLowerer, assign_registers};
 
-    let instr_format = lowerer.instr_format;
+    let hooks = lowerer.hooks;
     let mut sub_lowerer = SingleSubLowerer {
         out: vec![],
-        intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(instr_format, &ctx.defs, ctx.emitter)?,
+        intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
         ctx,
-        instr_format,
+        hooks,
     };
     sub_lowerer.lower_sub_ast(code)?;
     let mut out = sub_lowerer.out;
 
     // And now postprocess
-    assign_registers(&mut out, &mut lowerer.inner, lowerer.instr_format, &ctx)?;
+    assign_registers(&mut out, &mut lowerer.inner, hooks, &ctx)?;
 
-    let label_info = gather_label_info(instr_format, 0, &out, &ctx.defs, &ctx.emitter)?;
-    encode_labels(&mut out, instr_format, &label_info, &ctx.emitter)?;
+    let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
+    encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
 
     let mut encoding_state = ArgEncodingState::new();
     Ok(out.into_iter().filter_map(|x| match x.value {
         LowerStmt::Instr(instr) => Some({
             // this is the second time we're using encode_args (first time was to get labels), so suppress warnings
             let null_emitter = ctx.emitter.with_writer(crate::diagnostic::dev_null());
-            encode_args(&mut encoding_state, instr_format, &instr, &ctx.defs, &null_emitter)
+            encode_args(&mut encoding_state, hooks, &instr, &ctx.defs, &null_emitter)
                 .expect("we encoded this successfully before!")
         }),
         LowerStmt::Label { .. } => None,
@@ -192,7 +192,7 @@ struct RawLabelInfo {
 
 /// A quick pass near the end of a subroutine's compilation that collects the offsets of all labels.
 fn gather_label_info(
-    format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     initial_offset: raw::BytePos,
     code: &[Sp<LowerStmt>],
     defs: &context::Defs,
@@ -217,6 +217,8 @@ fn gather_label_info(
     //
     // I doubt that the extra encoding is a big issue in the grand scheme of things.  - Exp
 
+    let instr_format = hooks.instr_format();
+
     let mut offset = initial_offset;
     let mut labels = HashMap::new();
     let mut stmt_offsets = vec![];
@@ -230,8 +232,8 @@ fn gather_label_info(
                 emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
                     // encode the instruction with dummy values
                     let same_size_instr = substitute_dummy_args(instr);
-                    let raw_instr = encode_args(&mut encoding_state, format, &same_size_instr, defs, emitter)?;
-                    offset += format.instr_size(&raw_instr) as u64;
+                    let raw_instr = encode_args(&mut encoding_state, hooks, &same_size_instr, defs, emitter)?;
+                    offset += instr_format.instr_size(&raw_instr) as u64;
                     Ok(())
                 })?;
             },
@@ -260,7 +262,7 @@ fn gather_label_info(
 /// Eliminates all `LowerArg::Label`s by replacing them with their dword values.
 fn encode_labels(
     code: &mut [Sp<LowerStmt>],
-    format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     label_info: &LabelInfoverse,
     emitter: &context::RootEmitter,
 ) -> Result<(), ErrorReported> {
@@ -276,7 +278,7 @@ fn encode_labels(
                     | LowerArg::TimeOf(ref label)
                     => match labels.get(label) {
                         Some(info) => match arg.value {
-                            LowerArg::Label(_) => arg.value = LowerArg::Raw((format.encode_label(cur_offset, info.offset) as i32).into()),
+                            LowerArg::Label(_) => arg.value = LowerArg::Raw((hooks.encode_label(cur_offset, info.offset) as i32).into()),
                             LowerArg::TimeOf(_) => arg.value = LowerArg::Raw(info.time.into()),
                             _ => unreachable!(),
                         },
@@ -333,7 +335,7 @@ impl ArgEncodingState {
 /// Implements the encoding of argument values into byte blobs according to an instruction's ABI.
 fn encode_args(
     state: &mut ArgEncodingState,
-    instr_format: &dyn InstrFormat,
+    hooks: &dyn LanguageHooks,
     instr: &LowerInstr,
     defs: &context::Defs,
     emitter: &impl Emitter,
@@ -359,7 +361,7 @@ fn encode_args(
 
     // From this point onwards, we are working with a standard list of arguments and
     // now need to convert these into a blob of bytes.
-    if !instr_format.has_registers() {
+    if !hooks.has_registers() {
         if let Some(arg_that_is_reg) = args.iter().find(|arg| arg.expect_raw().is_reg) {
             return Err(emitter.emit(error!(
                 message("non-constant expression in language without registers"),
@@ -369,7 +371,7 @@ fn encode_args(
     }
 
     let (abi, _) = {
-        defs.ins_abi(instr_format.language(), instr.opcode)
+        defs.ins_abi(hooks.language(), instr.opcode)
             .expect("(bug!) we already checked sigs for known args")
     };
 

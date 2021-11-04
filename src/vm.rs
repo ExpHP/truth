@@ -496,7 +496,7 @@ impl AstVm {
 mod tests {
     use super::*;
     use crate::value::{ScalarValue::{Int, Float}, ScalarType as Ty};
-    use crate::game::InstrLanguage::Dummy;
+    use crate::game::LanguageKey::Dummy;
 
     struct TestSpec<S> {
         globals: Vec<(&'static str, RegId, Ty)>,

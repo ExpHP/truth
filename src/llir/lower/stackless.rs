@@ -7,7 +7,7 @@ use std::collections::{HashMap, BTreeSet};
 use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::diagnostic::Diagnostic;
-use crate::llir::{InstrFormat, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, HowBadIsIt};
+use crate::llir::{LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, HowBadIsIt};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -22,7 +22,7 @@ use IntrinsicInstrKind as IKind;
 pub (in crate::llir::lower) struct SingleSubLowerer<'a, 'ctx> {
     pub out: Vec<Sp<LowerStmt>>,
     pub intrinsic_instrs: IntrinsicInstrs,
-    pub instr_format: &'a dyn InstrFormat,
+    pub hooks: &'a dyn LanguageHooks,
     pub ctx: &'a mut CompilerContext<'ctx>,
     pub stmt_data: IdMap<NodeId, TimeAndDifficulty>,
 }
@@ -79,7 +79,7 @@ impl SingleSubLowerer<'_, '_> {
                 ast::StmtKind::Expr(expr) => match &expr.value {
                     ast::Expr::Call { name, pseudos, args } => {
                         let opcode = self.lower_func_stmt(stmt.span, stmt_data, name, pseudos, args)?;
-                        if self.instr_format.is_th06_anm_terminating_instr(opcode) {
+                        if self.hooks.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(name);
                         }
                     },
@@ -121,7 +121,7 @@ impl SingleSubLowerer<'_, '_> {
     ) -> Result<raw::Opcode, ErrorReported> {
         // all function statements currently refer to single instructions
         let (lang, opcode) = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
-        assert_eq!(lang, self.instr_format.language());
+        assert_eq!(lang, self.hooks.language());
 
         self.lower_instruction(stmt_span, stmt_data, opcode as _, pseudos, args)
     }
@@ -876,7 +876,7 @@ impl PersistentState {
 pub (in crate::llir::lower) fn assign_registers(
     code: &mut [Sp<LowerStmt>],
     global_scratch_results: &mut PersistentState,
-    format: &dyn InstrFormat,
+    format: &dyn LanguageHooks,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
     let used_regs = get_used_regs(code);

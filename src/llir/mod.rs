@@ -1,7 +1,7 @@
 use enum_map::EnumMap;
 
 use crate::raw;
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::value::{ScalarValue, ScalarType};
@@ -249,68 +249,23 @@ pub fn write_instrs(
 }
 
 // =============================================================================
+// Hooks for use during raising/lowering
 
-#[derive(Debug)]
-pub enum ReadInstr {
-    /// A regular instruction was read that belongs in the script.
-    Instr(RawInstr),
-    /// A terminal instruction was read.  This is a dummy instruction at the end of every script
-    /// that can be easily distinguished from real instructions, due to e.g. an opcode of -1
-    /// or similar.
-    ///
-    /// When this is returned, the read cursor may be left in an indeterminate state.
-    Terminal,
-    /// In some formats, the terminal instruction is indistinguishable from a real instruction.
-    /// (e.g. it is all zeros).  In that case, this variant is returned instead of [`Self::Terminal`].
-    ///
-    /// The script reader will only consider this to be the terminal instruction if it ends at
-    /// the expected "script end offset" (or if it is followed by [`Self::EoF`]).
-    MaybeTerminal(RawInstr),
-    /// No instruction was read because we are at EOF.
-    ///
-    /// (This is only for EOF at the *beginning* of an instruction; EOF in the middle of an
-    /// instruction should report `Err` instead.)
-    ///
-    /// Implementations of [`InstrFormat::read_instr`] are only required to report this if they
-    /// use [`Self::MaybeTerminal`].  Otherwise, it is preferred to return `Err`.
-    EndOfFile,
-}
-
-/// The trait that handles most differences between languages in their instruction formats.
+/// The trait that provides hooks for dealing with most differences between script languages.
 ///
-/// It is responsible for:
+/// In this context, "language" is referring to a property of a single item/script within a file.
+/// E.g. ECL and ECL Timeline are two different languages that can appear in the same file.
 ///
-/// * Parsing instruction headers from bytestreams (or similarly, writing them).
-/// * Extracting the blob of bytes for the args of an instruction.
-/// * Mapping language features to instruction opcodes and vice versa.
-/// * Declaratively describing the availability of language features like the stack, jumps, and stack registers.
-///   (this information gets used by the `lower` and `raise` modules to determine how to compile/decompile things)
-///
-/// It is expressly NOT responsible for:
-///
-/// * Parsing the headers of the files themselves, or any other data that isn't instruction-related.
-///   That is all done in e.g. `format/anm`.
-/// * The actual implementation of the check for where a script ends.
-/// * Parsing the actual instruction args from the byte blobs.
-pub trait InstrFormat {
+/// It is responsible for mapping language features to instruction opcodes (FIXME: move to core mapfiles?),
+/// and declaratively describing the availability of language features like the stack, jumps, and stack registers.
+/// (this information gets used by the `lower` and `raise` modules to determine how to compile/decompile things)
+pub trait LanguageHooks {
     /// Language key, so that signatures can be looked up for the right type of instruction (e.g. ECL vs timeline).
-    fn language(&self) -> InstrLanguage;
+    fn language(&self) -> LanguageKey;
 
     fn has_registers(&self) -> bool;
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)>;
-
-    /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).
-    fn instr_header_size(&self) -> usize;
-
-    /// Read a single script instruction from an input stream, which may be a terminal instruction.
-    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr>;
-
-    /// Write a single script instruction into an output stream.
-    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult;
-
-    /// Write a marker that goes after the final instruction in a function or script.
-    fn write_terminal_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter) -> WriteResult;
 
     // ---------------------------------------------------
     // Special purpose functions only overridden by a few formats
@@ -346,16 +301,16 @@ pub trait InstrFormat {
     fn encode_label(&self, _cur_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits { dest_offset as _ }
     fn decode_label(&self, _cur_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos { bits as _ }
 
-    /// Helper method that returns the total instruction size, including the arguments.
-    /// There should be no need to override this.
-    fn instr_size(&self, instr: &RawInstr) -> usize { self.instr_header_size() + instr.args_blob.len() }
-
     /// Initial difficulty mask.  In languages without difficulty, this returns `None.
     fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { None }
 
     /// In EoSD ECL, the value of an argument can, in some cases, decide if it is
     /// a literal or a register.
     fn register_style(&self) -> RegisterEncodingStyle { RegisterEncodingStyle::ByParamMask }
+
+    /// Get the [`InstrFormat`].  One might've expected that the raising/lowering phases *shouldn't*
+    /// need this, but they do need it in order to deal with jump offsets.
+    fn instr_format(&self) -> &dyn InstrFormat;
 }
 
 /// How bad is the scratch-disabling-ness of this instruction?
@@ -373,10 +328,73 @@ pub enum RegisterEncodingStyle {
     EosdEcl { does_value_look_like_a_register: fn(&ScalarValue) -> bool },
 }
 
-/// An implementation of InstrFormat for testing the raising and lowering phases of compilation.
+// =============================================================================
+// For dealing with instructions <-> bytestreams
+
+/// Trait for reading and writing single instructions in raw form.
+///
+/// It is responsible for:
+///
+/// * Parsing instruction headers from bytestreams (or similarly, writing them).
+/// * Extracting the blob of bytes for the args of an instruction.
+///
+/// It is expressly NOT responsible for:
+///
+/// * Parsing the headers of the files themselves, or any other data that isn't instruction-related.
+///   That is all done in e.g. `format/anm`.
+/// * The actual implementation of the check for where a script ends.
+/// * Converting the byte blobs to/from argument lists.
+pub trait InstrFormat {
+    /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).
+    fn instr_header_size(&self) -> usize;
+
+    /// Read a single script instruction from an input stream, which may be a terminal instruction.
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr>;
+
+    /// Write a single script instruction into an output stream.
+    fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult;
+
+    /// Write a marker that goes after the final instruction in a function or script.
+    fn write_terminal_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter) -> WriteResult;
+
+    /// Helper method that returns the total instruction size, including the arguments.
+    /// There should be no need to override this.
+    fn instr_size(&self, instr: &RawInstr) -> usize { self.instr_header_size() + instr.args_blob.len() }
+}
+
+#[derive(Debug)]
+pub enum ReadInstr {
+    /// A regular instruction was read that belongs in the script.
+    Instr(RawInstr),
+    /// A terminal instruction was read.  This is a dummy instruction at the end of every script
+    /// that can be easily distinguished from real instructions, due to e.g. an opcode of -1
+    /// or similar.
+    ///
+    /// When this is returned, the read cursor may be left in an indeterminate state.
+    Terminal,
+    /// In some formats, the terminal instruction is indistinguishable from a real instruction.
+    /// (e.g. it is all zeros).  In that case, this variant is returned instead of [`Self::Terminal`].
+    ///
+    /// The script reader will only consider this to be the terminal instruction if it ends at
+    /// the expected "script end offset" (or if it is followed by [`Self::EoF`]).
+    MaybeTerminal(RawInstr),
+    /// No instruction was read because we are at EOF.
+    ///
+    /// (This is only for EOF at the *beginning* of an instruction; EOF in the middle of an
+    /// instruction should report `Err` instead.)
+    ///
+    /// Implementations of [`InstrFormat::read_instr`] are only required to report this if they
+    /// use [`Self::MaybeTerminal`].  Otherwise, it is preferred to return `Err`.
+    EndOfFile,
+}
+
+// =============================================================================
+
+/// An implementation of [`LanguageHooks`] and [`InstrFormat`] for testing the raising
+/// and lowering phases of compilation.
 #[derive(Debug, Clone)]
-pub struct TestFormat {
-    pub language: InstrLanguage,
+pub struct TestLanguage {
+    pub language: LanguageKey,
     pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, raw::Opcode)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
@@ -384,10 +402,10 @@ pub struct TestFormat {
     pub anti_scratch_opcode: Option<raw::Opcode>,
 }
 
-impl Default for TestFormat {
+impl Default for TestLanguage {
     fn default() -> Self {
-        TestFormat {
-            language: InstrLanguage::Dummy,
+        TestLanguage {
+            language: LanguageKey::Dummy,
             intrinsic_opcode_pairs: Default::default(),
             general_use_int_regs: Default::default(),
             general_use_float_regs: Default::default(),
@@ -396,17 +414,12 @@ impl Default for TestFormat {
     }
 }
 
-impl InstrFormat for TestFormat {
-    fn language(&self) -> InstrLanguage { self.language }
+impl LanguageHooks for TestLanguage {
+    fn language(&self) -> LanguageKey { self.language }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
         self.intrinsic_opcode_pairs.clone()
     }
-
-    fn instr_header_size(&self) -> usize { 4 }
-    fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
-    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 
     fn instr_disables_scratch_regs(&self, opcode: raw::Opcode) -> Option<HowBadIsIt> {
         (self.anti_scratch_opcode == Some(opcode)).then(|| HowBadIsIt::OhItsJustThisOneFunction)
@@ -421,6 +434,15 @@ impl InstrFormat for TestFormat {
             ScalarType::String => vec![],
         }
     }
+
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for TestLanguage {
+    fn instr_header_size(&self) -> usize { 4 }
+    fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing") }
+    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("TestInstrFormat does not implement reading or writing")  }
 }
 
 #[cfg(test)]
@@ -440,13 +462,10 @@ mod test_reader {
     }
 
     impl InstrFormat for SimpleInstrReader {
-        fn language(&self) -> InstrLanguage { InstrLanguage::Dummy }
-        fn has_registers(&self) -> bool { true }
         fn instr_header_size(&self) -> usize { 0x10 }
         fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
             Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))
         }
-        fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> { vec![] }
         fn write_instr(&self, _: &mut BinWriter, _: &dyn Emitter, _: &RawInstr) -> WriteResult { panic!("SimpleInstrReader does not implement reading or writing") }
         fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult { panic!("SimpleInstrReader does not implement reading or writing")  }
     }

@@ -41,7 +41,7 @@ pub use formats::std::{self, StdFile};
 pub use formats::ecl::{self, OldeEclFile as EclFile};
 mod formats;
 
-pub use game::{Game, InstrLanguage};
+pub use game::{Game, LanguageKey};
 mod game;
 
 #[doc(hidden)]

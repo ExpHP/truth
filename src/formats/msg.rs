@@ -6,8 +6,8 @@ use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult
 use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
-use crate::game::{Game, InstrLanguage};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, DecompileOptions};
+use crate::game::{Game, LanguageKey};
+use crate::llir::{self, ReadInstr, RawInstr, LanguageHooks, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::value::ScalarValue;
@@ -26,24 +26,24 @@ pub struct MsgFile {
 }
 
 impl MsgFile {
-    pub fn decompile_to_ast(&self, game: Game, language: InstrLanguage, ctx: &mut CompilerContext<'_>, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+    pub fn decompile_to_ast(&self, game: Game, language: LanguageKey, ctx: &mut CompilerContext<'_>, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let format = game_format(game, language, &ctx.emitter)?;
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, &format, ctx, decompile_options)
     }
 
-    pub fn compile_from_ast(game: Game, language: InstrLanguage, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
+    pub fn compile_from_ast(game: Game, language: LanguageKey, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
         let format = game_format(game, language, &ctx.emitter)?;
         compile(&format, script, ctx)
     }
 
-    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game, language: InstrLanguage) -> WriteResult {
+    pub fn write_to_stream(&self, w: &mut BinWriter, game: Game, language: LanguageKey) -> WriteResult {
         let format = game_format(game, language, &w.emitter()._root_emitter())?;
         let emitter = w.emitter();
         write_msg(w, &emitter, &format, self)
     }
 
-    pub fn read_from_stream(r: &mut BinReader, game: Game, language: InstrLanguage) -> ReadResult<Self> {
+    pub fn read_from_stream(r: &mut BinReader, game: Game, language: LanguageKey) -> ReadResult<Self> {
         let format = game_format(game, language, &r.emitter()._root_emitter())?;
         let emitter = r.emitter();
         read_msg(r, &emitter, &format)
@@ -189,11 +189,11 @@ fn decompile(
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
-    let instr_format = &*format.instr_format();
+    let hooks = &*format.language_hooks();
 
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new(instr_format, &ctx.emitter, &ctx.defs, decompile_options)?;
+    let mut raiser = llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
@@ -269,11 +269,11 @@ fn compile(
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<MsgFile, ErrorReported> {
-    let instr_format = &*format.instr_format();
+    let hooks = &*format.language_hooks();
     let ast = {
         let mut ast = ast.clone();
 
-        crate::passes::resolution::assign_languages(&mut ast, instr_format.language(), ctx)?;
+        crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
@@ -331,7 +331,7 @@ fn compile(
     };
 
     let mut errors = ErrorFlag::new();
-    let mut lowerer = crate::llir::Lowerer::new(instr_format);
+    let mut lowerer = crate::llir::Lowerer::new(hooks);
     let mut scripts = IndexMap::new();
     script_code.iter().map(|(name, code)| {
         let instrs = lowerer.lower_sub(&code.0, ctx)?;
@@ -400,7 +400,8 @@ fn read_msg(
     emitter: &impl Emitter,
     format: &FileFormat,
 ) -> ReadResult<MsgFile> {
-    let instr_format = &*format.instr_format();
+    let hooks = format.language_hooks();
+    let instr_format = hooks.instr_format();
 
     let start_pos = reader.pos()?;
 
@@ -496,7 +497,8 @@ fn write_msg(
     format: &FileFormat,
     msg: &MsgFile,
 ) -> WriteResult {
-    let instr_format = &*format.instr_format();
+    let hooks = format.language_hooks();
+    let instr_format = hooks.instr_format();
 
     let start_pos = w.pos()?;
 
@@ -553,10 +555,10 @@ fn write_msg(
 
 // =============================================================================
 
-fn game_format(game: Game, language: InstrLanguage, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
+fn game_format(game: Game, language: LanguageKey, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
     match (game, language) {
-        | (Game::Th095, InstrLanguage::Msg)
-        | (Game::Th125, InstrLanguage::Msg)
+        | (Game::Th095, LanguageKey::Msg)
+        | (Game::Th125, LanguageKey::Msg)
         => Err(emitter.emit(error!("{} does not have stage MSG files; maybe try 'trumsg --mission'?", game))),
 
         _ => Ok(FileFormat { game, language })
@@ -567,7 +569,7 @@ fn game_format(game: Game, language: InstrLanguage, emitter: &RootEmitter) -> Re
 
 struct FileFormat {
     game: Game,
-    language: InstrLanguage, // Msg or End
+    language: LanguageKey, // Msg or End
 }
 
 impl FileFormat {
@@ -575,7 +577,7 @@ impl FileFormat {
         self.game >= Game::Th09
     }
 
-    fn instr_format(&self) -> Box<dyn InstrFormat> {
+    fn language_hooks(&self) -> Box<dyn LanguageHooks> {
         match self.game {
             | Game::Th06 | Game::Th07 | Game::Th08
             | Game::Th09 | Game::Th10 | Game::Alcostg | Game::Th11
@@ -583,7 +585,7 @@ impl FileFormat {
             | Game::Th14 | Game::Th143 | Game::Th15
             | Game::Th16 | Game::Th165 | Game::Th17
             | Game::Th18
-            => Box::new(InstrFormat06 { language: self.language }),
+            => Box::new(MsgHooks { language: self.language }),
 
             | Game::Th095 | Game::Th125
             => unreachable!(),
@@ -591,11 +593,11 @@ impl FileFormat {
     }
 }
 
-/// MSG format, EoSD.
-struct InstrFormat06 { language: InstrLanguage }
+/// MSG format.
+struct MsgHooks { language: LanguageKey }
 
-impl InstrFormat for InstrFormat06 {
-    fn language(&self) -> InstrLanguage { self.language }
+impl LanguageHooks for MsgHooks {
+    fn language(&self) -> LanguageKey { self.language }
 
     fn has_registers(&self) -> bool { false }
 
@@ -603,6 +605,10 @@ impl InstrFormat for InstrFormat06 {
         vec![]  // msg is vapid
     }
 
+    fn instr_format(&self) -> &dyn InstrFormat { self }
+}
+
+impl InstrFormat for MsgHooks {
     fn instr_header_size(&self) -> usize { 4 }
 
     fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {

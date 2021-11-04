@@ -120,11 +120,11 @@ fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec
     with_more
 }
 
-fn make_instr_format(vars: &[Var]) -> impl llir::InstrFormat {
+fn make_language(vars: &[Var]) -> impl llir::LanguageHooks {
     use llir::IntrinsicInstrKind as I;
 
-    let mut format = llir::TestFormat::default();
-    format.language = truth::InstrLanguage::Anm;
+    let mut format = llir::TestLanguage::default();
+    format.language = truth::LanguageKey::Anm;
     format.intrinsic_opcode_pairs.push((I::Jmp, JUMP_OPCODE));
     format.intrinsic_opcode_pairs.push((I::CountJmp, COUNT_JUMP_OPCODE));
     format.intrinsic_opcode_pairs.push((I::UnOp(ast::UnOpKind::Sin, Ty::Float), SINE_OPCODE));
@@ -234,14 +234,14 @@ fn run_randomized_test(vars: &[Var], text: &str) -> Result<(AstVm, AstVm), Strin
 fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(AstVm, AstVm), truth::ErrorReported> {
     load_eclmap(truth, vars);
 
-    let instr_format = make_instr_format(vars);
+    let hooks = make_language(vars);
     let base_vm = make_randomized_vm(vars);
 
     let parsed_block = {
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref())?.value;
 
         let ctx = truth.ctx();
-        truth::passes::resolution::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx)?;
+        truth::passes::resolution::assign_languages(&mut block, truth::LanguageKey::Anm, ctx)?;
         truth::passes::resolution::resolve_names(&block, ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut block, ctx)?;
         truth::passes::desugar_blocks::run(&mut block, ctx)?;
@@ -254,7 +254,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let ctx = truth.ctx();
     let old_stmts = parsed_block.0;
     let mut errors = truth::error::ErrorFlag::new();
-    let mut lowerer = llir::Lowerer::new(&instr_format);
+    let mut lowerer = llir::Lowerer::new(&hooks);
     let instrs = lowerer.lower_sub(&old_stmts, ctx).unwrap_or_else(|e| { errors.set(e); vec![] });
     lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
 
@@ -263,7 +263,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     // decompile back to primitive operations (this gives an "actual" output)
     let new_block = {
         let options = Default::default();
-        let mut raiser = llir::Raiser::new(&instr_format, &ctx.emitter, &ctx.defs, &options)?;
+        let mut raiser = llir::Raiser::new(&hooks, &ctx.emitter, &ctx.defs, &options)?;
         let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.defs, &ctx.unused_node_ids)?;
         truth::passes::resolution::aliases_to_raw(&mut stmts[..], ctx)?;
         ast::Block(stmts)
@@ -292,13 +292,13 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     let mut truth = scope.truth();
     load_eclmap(&mut truth, vars);
 
-    let instr_format = make_instr_format(vars);
+    let hooks = make_language(vars);
 
     let parsed_block = {
         let mut block = truth.parse::<ast::Block>("<input>", text.as_ref()).unwrap().value;
 
         let ctx = truth.ctx();
-        truth::passes::resolution::assign_languages(&mut block, truth::InstrLanguage::Anm, ctx).unwrap();
+        truth::passes::resolution::assign_languages(&mut block, truth::LanguageKey::Anm, ctx).unwrap();
         truth::passes::resolution::resolve_names(&block, ctx).unwrap();
         truth::passes::resolution::aliases_to_raw(&mut block, ctx).unwrap();
         truth::passes::desugar_blocks::run(&mut block, ctx).unwrap();
@@ -307,7 +307,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
 
     // IIFE to catch either of these two function calls failing
     (|| {
-        let mut lowerer = llir::Lowerer::new(&instr_format);
+        let mut lowerer = llir::Lowerer::new(&hooks);
         let mut errors = truth::error::ErrorFlag::new();
 
         lowerer.lower_sub(&parsed_block.0, truth.ctx()).unwrap_or_else(|e| { errors.set(e); vec![] });

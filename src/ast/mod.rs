@@ -4,7 +4,7 @@ use crate::raw;
 use crate::resolve::{DefId, RegId, NodeId, LoopId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
-use crate::game::InstrLanguage;
+use crate::game::LanguageKey;
 use crate::value;
 
 pub use meta::Meta;
@@ -488,7 +488,7 @@ pub enum CallableName {
         ///
         /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
         /// as all useful information can be found through the resolved [`DefId`].
-        language_if_ins: Option<InstrLanguage>,
+        language_if_ins: Option<LanguageKey>,
     },
     Ins {
         opcode: u16,
@@ -496,7 +496,7 @@ pub enum CallableName {
         /// It exists to help a variety of other passes look up e.g. type info about raw registers.
         ///
         /// Notably, in ECL, some of these may be set to [`InstrLanguage::Timeline`] instead of [`InstrLanguage::ECL`].
-        language: Option<InstrLanguage>,
+        language: Option<LanguageKey>,
     },
 }
 
@@ -543,13 +543,13 @@ pub enum VarName {
         ///
         /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
         /// as all useful information can be found through the resolved [`DefId`].
-        language_if_reg: Option<InstrLanguage>,
+        language_if_reg: Option<LanguageKey>,
     },
     Reg {
         reg: RegId,
         /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it is guaranteed to be `Some`).
         /// It exists to help a variety of other passes look up e.g. type info about raw instructions.
-        language: Option<InstrLanguage>,
+        language: Option<LanguageKey>,
     },
 }
 

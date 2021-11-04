@@ -5,7 +5,7 @@ use crate::ast;
 use crate::context;
 use crate::context::defs::InstrAbiLoc;
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
-use crate::llir::{InstrFormat, InstrAbi, ArgEncoding};
+use crate::llir::{LanguageHooks, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::pos::{Span, Sp};
 use crate::value::{ScalarType};
@@ -22,7 +22,7 @@ impl IntrinsicInstrs {
     /// Build from the builtin intrinsics list of the format, and user mapfiles.
     ///
     /// This will perform verification of the signatures for each intrinsic.
-    pub fn from_format_and_mapfiles(instr_format: &dyn InstrFormat, defs: &context::Defs, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
+    pub fn from_format_and_mapfiles(instr_format: &dyn LanguageHooks, defs: &context::Defs, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
         let native_pairs = instr_format.intrinsic_opcode_pairs();
         let iter_pairs = || {
             native_pairs.iter().copied()
