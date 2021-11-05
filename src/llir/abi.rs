@@ -264,7 +264,7 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
             let var_ty = value::VarType::Typed(ty);
             ctx.define_local(name.clone(), var_ty);
 
-            Some(defs::SignatureParam { default, name, ty: sp!(var_ty) })
+            Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier: None })
         }).collect(),
     }
 }

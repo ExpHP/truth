@@ -92,7 +92,7 @@ impl ast::Visit for Visitor<'_, '_> {
 
     fn visit_item(&mut self, item: &Sp<ast::Item>) {
         match &item.value {
-            ast::Item::Func { ident, ty_keyword, .. } => {
+            ast::Item::Func(ast::ItemFunc { ident, ty_keyword, .. }) => {
                 let func_def_id = self.ctx.resolutions.expect_def(ident);
                 self.cur_func_stack.push(FuncState {
                     func_def_id,

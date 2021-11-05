@@ -30,14 +30,7 @@ pub struct ScriptFile {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
-    Func {
-        qualifier: Option<Sp<FuncQualifier>>,
-        ty_keyword: Sp<TypeKeyword>,
-        ident: Sp<ResIdent>,
-        params: Vec<FuncParam>,
-        /// `Some` for definitions, `None` for declarations.
-        code: Option<Block>,
-    },
+    Func(ItemFunc),
     AnmScript {
         keyword: TokenSpan,
         number: Option<Sp<raw::LangInt>>,
@@ -59,13 +52,32 @@ pub enum Item {
     },
 }
 
-pub type FuncParam = (Sp<TypeKeyword>, Sp<ResIdent>);
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemFunc {
+    pub qualifier: Option<Sp<FuncQualifier>>,
+    pub ty_keyword: Sp<TypeKeyword>,
+    pub ident: Sp<ResIdent>,
+    pub params: Vec<Sp<FuncParam>>,
+    /// `Some` for definitions, `None` for declarations.
+    pub code: Option<Block>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FuncParam {
+    pub qualifier: Option<Sp<ParamQualifier>>,
+    pub ty_keyword: Sp<TypeKeyword>,
+    pub ident: Sp<ResIdent>,
+}
+
+// 'const' parameters will exist *some day*, this is here now to reduce churn.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParamQualifier {}
 
 impl Item {
     pub fn descr(&self) -> &'static str { match self {
-        Item::Func { qualifier: Some(sp_pat![token![const]]), .. } => "const function definition",
-        Item::Func { qualifier: Some(sp_pat![token![inline]]), .. } => "inline function definition",
-        Item::Func { qualifier: None, .. } => "exported function definition",
+        Item::Func(ItemFunc { qualifier: Some(sp_pat![token![const]]), .. }) => "const function definition",
+        Item::Func(ItemFunc { qualifier: Some(sp_pat![token![inline]]), .. }) => "inline function definition",
+        Item::Func(ItemFunc { qualifier: None, .. }) => "exported function definition",
         Item::AnmScript { .. } => "script",
         Item::Timeline { .. } => "timeline",
         Item::Meta { .. } => "meta",
@@ -878,15 +890,15 @@ macro_rules! generate_visitor_stuff {
         where V: ?Sized + $Visit,
         {
             match & $($mut)? x.value {
-                Item::Func {
+                Item::Func(ItemFunc {
                     code, qualifier: _, ty_keyword: _, ident, params,
-                } => {
+                }) => {
                     v.visit_res_ident(ident);
                     if let Some(code) = code {
                         v.visit_root_block(code);
                     }
 
-                    for (_, ident) in params {
+                    for sp_pat!(FuncParam { ident, ty_keyword: _, qualifier: _ }) in params {
                         v.visit_res_ident(ident);
                     }
                 },

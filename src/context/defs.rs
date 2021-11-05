@@ -712,10 +712,11 @@ pub struct SignatureParam {
     pub ty: Sp<VarType>,
     pub name: Sp<ResIdent>,
     pub default: Option<Sp<ast::Expr>>,
+    pub qualifier: Option<Sp<ast::ParamQualifier>>,
 }
 
 impl Signature {
-    pub fn from_func_params(ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Self {
+    pub fn from_func_params(ty_keyword: Sp<ast::TypeKeyword>, params: &[Sp<ast::FuncParam>]) -> Self {
         signature_from_func_ast(ty_keyword, params)
     }
 
@@ -752,11 +753,12 @@ impl Signature {
     }
 }
 
-fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[ast::FuncParam]) -> Signature {
+fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[Sp<ast::FuncParam>]) -> Signature {
     Signature {
-        params: params.iter().map(|(ty_keyword, ident)| SignatureParam {
+        params: params.iter().map(|sp_pat!(ast::FuncParam { ty_keyword, ident, qualifier })| SignatureParam {
             ty: ty_keyword.sp_map(ast::TypeKeyword::var_ty),
             name: ident.clone(),
+            qualifier: qualifier.clone(),
             default: None,
         }).collect(),
         return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::expr_ty),

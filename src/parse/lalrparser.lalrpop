@@ -205,22 +205,18 @@ ItemConstVar: ast::Item = {
         => ast::Item::ConstVar { ty_keyword, vars },
 };
 
-ItemFunc: ast::Item = {
-    <item:ItemFuncHeader> ";" => item,
+ItemFunc: ast::Item = <func:ItemFunc_> => ast::Item::Func(func);
 
-    <item:ItemFuncHeader> <code:Block> => {
-        match item {
-            ast::Item::Func { qualifier, ty_keyword, ident, params, code: _ }
-                => ast::Item::Func { qualifier, ty_keyword, ident, params, code: Some(code) },
-            _ => unreachable!(),
-        }
-    },
+ItemFunc_: ast::ItemFunc = {
+    <func:ItemFuncHeader> ";" => func,
+
+    <func:ItemFuncHeader> <code:Block> => ast::ItemFunc { code: Some(code), ..func },
 };
 
-ItemFuncHeader: ast::Item = {
+ItemFuncHeader: ast::ItemFunc = {
     <qualifier:Sp<SingleFuncQualifier>?> <ty_keyword:Sp<FuncTypeKeyword>> <ident:Sp<ResIdent>>
-        "(" <params:SeparatedTrailing<FuncParam, ",">> ")"
-        => ast::Item::Func { qualifier, ty_keyword, ident, params, code: None },
+        "(" <params:SeparatedTrailing<Sp<FuncParam>, ",">> ")"
+        => ast::ItemFunc { qualifier, ty_keyword, ident, params, code: None },
 
     Sp<SingleFuncQualifier> <second:Sp<SingleFuncQualifier>> ! =>? Err(error!(
         message("too many function qualifiers"),
@@ -234,8 +230,9 @@ SingleFuncQualifier: ast::FuncQualifier = {
     "inline" => ast::FuncQualifier::Inline,
 };
 
-FuncParam: (Sp<ast::TypeKeyword>, Sp<ResIdent>) = {
-    <Sp<LocalVarTypeKeyword>> <Sp<ResIdent>>,
+FuncParam: ast::FuncParam = {
+    <ty_keyword:Sp<LocalVarTypeKeyword>> <ident:Sp<ResIdent>>
+        => ast::FuncParam { ty_keyword, ident, qualifier: None },
 };
 
 MetaKeyword: ast::MetaKeyword = {

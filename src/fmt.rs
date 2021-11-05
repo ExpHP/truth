@@ -557,22 +557,7 @@ impl Format for meta::Fields {
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
-            ast::Item::Func { qualifier, ty_keyword, ident, params, code, } => {
-                if let Some(qualifier) = qualifier {
-                    out.fmt((qualifier, " "))?;
-                }
-
-                out.fmt((ty_keyword, " ", ident))?;
-                out.fmt_comma_separated("(", ")", params.iter().map(|(ty, param)| (ty, " ", param)))?;
-
-                out.state.time_stack.push(0);
-                match code {
-                    None => out.fmt(";")?,
-                    Some(code) => out.fmt((" ", code))?,
-                }
-                out.state.time_stack.pop();
-                out.next_line()
-            },
+            ast::Item::Func(func) => out.fmt(func),
             ast::Item::AnmScript { keyword: _, number, ident, code } => {
                 out.fmt("script ")?;
                 if let Some(number) = number {
@@ -603,6 +588,42 @@ impl Format for ast::Item {
                 out.fmt(";")
             },
         }
+    }
+}
+
+impl Format for ast::ItemFunc {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
+        let ast::ItemFunc { qualifier, ty_keyword, ident, params, code, } = self;
+        if let Some(qualifier) = qualifier {
+            out.fmt((qualifier, " "))?;
+        }
+
+        out.fmt((ty_keyword, " ", ident))?;
+        out.fmt_comma_separated("(", ")", params.iter())?;
+
+        out.state.time_stack.push(0);
+        match code {
+            None => out.fmt(";")?,
+            Some(code) => out.fmt((" ", code))?,
+        }
+        out.state.time_stack.pop();
+        out.next_line()
+    }
+}
+
+impl Format for ast::FuncParam {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
+        let ast::FuncParam { ty_keyword, ident, qualifier } = self;
+        if let Some(qualifier) = qualifier {
+            out.fmt((qualifier, " "))?;
+        }
+        out.fmt((ty_keyword, " ", ident))
+    }
+}
+
+impl Format for ast::ParamQualifier {
+    fn fmt<W: Write>(&self, _: &mut Formatter<W>) -> Result<()> {
+        match *self { }
     }
 }
 

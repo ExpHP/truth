@@ -226,7 +226,7 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
 
     fn visit_item(&mut self, item: &mut Sp<ast::Item>) {
         match &mut item.value {
-            | ast::Item::Func { qualifier: Some(sp_pat![token![const]]), .. }
+            | ast::Item::Func(ast::ItemFunc { qualifier: Some(sp_pat![token![const]]), .. })
             | ast::Item::ConstVar { .. }
             | ast::Item::Meta { .. }
             => {

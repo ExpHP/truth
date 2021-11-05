@@ -224,14 +224,14 @@ mod resolve_vars {
 
         fn visit_item(&mut self, item: &Sp<ast::Item>) {
             match &item.value {
-                | ast::Item::Func { params, code, .. }
+                | ast::Item::Func(ast::ItemFunc { params, code, .. })
                 => {
                     if let Some(code) = code {
                         // we have to put the parameters in scope
                         self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "function" });
                         self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Params);
 
-                        for (ty_keyword, ident) in params {
+                        for sp_pat!(ast::FuncParam { ty_keyword, ident, qualifier: _ }) in params {
                             let var_ty = ty_keyword.value.var_ty();
                             let def_id = self.ctx.define_local(ident.clone(), var_ty);
                             self.add_to_rib_with_redefinition_check(
@@ -372,7 +372,7 @@ mod resolve_vars {
         /// This is called extremely early on items in a block, allowing items to be defined after they are used.
         fn add_item_to_scope<'b>(&mut self, item: &Sp<ast::Item>) {
             match item.value {
-                ast::Item::Func { ref ident, ty_keyword, ref params, qualifier, code: _ } => {
+                ast::Item::Func(ast::ItemFunc { ref ident, ty_keyword, ref params, qualifier, code: _ }) => {
                     let siggy = crate::context::defs::Signature::from_func_params(ty_keyword, params);
                     let def_id = self.ctx.define_user_func(ident.clone(), qualifier, siggy);
                     self.add_to_rib_with_redefinition_check(

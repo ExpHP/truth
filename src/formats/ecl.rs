@@ -72,7 +72,7 @@ fn decompile(
 
     let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     for (ident, instrs) in ecl.subs.iter() {
-        items.push(sp!(ast::Item::Func {
+        items.push(sp!(ast::Item::Func(ast::ItemFunc {
             qualifier: None,
             ty_keyword: sp!(ast::TypeKeyword::Void),
             ident: sp!(ResIdent::new_null(ident.clone())),
@@ -80,7 +80,7 @@ fn decompile(
             code: Some(ast::Block({
                 sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
             })),
-        }));
+        })));
     }
 
     let mut out = ast::ScriptFile {
@@ -146,7 +146,7 @@ fn compile(
                 let instrs = timeline_lowerer.lower_sub(&code.0, ctx)?;
                 timelines.push(instrs)
             },
-            ast::Item::Func { qualifier: None, code: None, ref ident, .. } => {
+            ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
                 subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                 return Err(emit(error!(
                     message("extern functions are not supported in old-style ECL file"),
@@ -154,13 +154,13 @@ fn compile(
                 )));
             },
 
-            ast::Item::Func { qualifier: None, code: Some(code), ref ident, ref params, ty_keyword } => {
+            ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, ref params, ty_keyword }) => {
                 // make double sure that the order of the subs we're compiling matches the numbers we assigned them
                 assert_eq!(sub_ids.get_index_of(ident.as_raw()).unwrap(), subs.len());
 
                 if params.len() > 0 {
                     subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
-                    let (_, first_param_name) = &params[0];
+                    let ast::FuncParam { ident: first_param_name, ..} = &params[0].value;
                     return Err(emit(error!(
                         message("parameters are not supported in old-style ECL subs like '{}'", ident),
                         primary(first_param_name, "unsupported parameter"),
@@ -183,7 +183,7 @@ fn compile(
             }
 
             // TODO: support inline and const
-            ast::Item::Func { qualifier: Some(_), .. } => return Err(emit(unsupported(&item.span))),
+            ast::Item::Func(ast::ItemFunc { qualifier: Some(_), .. }) => return Err(emit(unsupported(&item.span))),
         } // match item
         Ok(())
     }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
@@ -199,7 +199,7 @@ fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<In
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
         match &item.value {
-            &ast::Item::Func { qualifier: None, ref ident, .. } => {
+            &ast::Item::Func(ast::ItemFunc { qualifier: None, ref ident, .. }) => {
                 // give a better error on redefinitions than the generic "ambiguous auto const" message
                 match script_ids.entry(ident.value.as_raw().clone()) {
                     indexmap::map::Entry::Vacant(e) => {
@@ -391,6 +391,23 @@ fn write_olde_ecl(
     w.seek_to(end_pos)?;
     Ok(())
 }
+
+// =============================================================================
+
+// struct EosdSignature {
+//     int_param: Option<(usize, Sp<ast::FuncParam>)>,
+//     float_param: Option<(usize, Sp<ast::FuncParam>)>,
+// }
+//
+// impl EosdSignature {
+//     fn validate(func: &ast::ItemFunc) -> Result<Self, ErrorReported> {
+//         Ok(())
+//     }
+// }
+//
+// fn eosd_function_validate(items: &ast::ItemFunc) {
+//
+// }
 
 // =============================================================================
 
