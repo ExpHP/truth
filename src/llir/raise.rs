@@ -473,6 +473,11 @@ fn raise_single_decoded_instr(
             },
 
 
+            IKind::CallEosd => {
+                unimplemented!();
+            },
+
+
             // Individual pieces of multipart intrinsics, which can show up in this method when
             // they appear alone or with e.g. time labels in-between.
             | IKind::CondJmp2A { .. }
@@ -737,7 +742,7 @@ impl RaisedIntrinsicParts {
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
         let IntrinsicInstrAbiParts {
             num_instr_args: _, padding: ref padding_info, outputs: ref outputs_info,
-            jump: ref jump_info, plain_args: ref plain_args_info,
+            jump: ref jump_info, plain_args: ref plain_args_info, sub_id: ref sub_id_info,
         } = abi_parts;
 
         let mut out = RaisedIntrinsicParts { jump: None, outputs: vec![], plain_args: vec![] };
@@ -762,6 +767,10 @@ impl RaisedIntrinsicParts {
                 destination: sp!(label.label.clone()),
                 time: time_arg.map(|arg| sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label),
             });
+        }
+
+        if let Some(_index) = sub_id_info {
+            unimplemented!();
         }
 
         for &(index, mode) in outputs_info {

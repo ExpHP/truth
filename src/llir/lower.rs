@@ -111,6 +111,7 @@ impl LowerArg {
 /// This is a panic-bomb, so `.finish()` must be called.
 pub struct Lowerer<'a> {
     hooks: &'a dyn LanguageHooks,
+    export_info: Option<&'a crate::ecl::EosdExportedSubs>,
     // NOTE: later this can become Box<dyn Trait> and just let the implementations downcast
     inner: stackless::PersistentState,
 }
@@ -126,7 +127,13 @@ impl Drop for Lowerer<'_> {
 
 impl<'a> Lowerer<'a> {
     pub fn new(hooks: &'a dyn LanguageHooks) -> Self {
-        Lowerer { hooks, inner: Default::default() }
+        Lowerer { hooks, inner: Default::default(), export_info: None }
+    }
+
+    /// Add information about exported subroutines.
+    pub fn with_export_info(mut self, export_info: &'a crate::ecl::EosdExportedSubs) -> Self {
+        self.export_info = Some(export_info);
+        self
     }
 
     pub fn lower_sub(&mut self, code: &[Sp<ast::Stmt>], ctx: &mut CompilerContext<'_>) -> Result<Vec<RawInstr>, ErrorReported> {
@@ -153,6 +160,7 @@ fn lower_sub_ast_to_instrs(
         out: vec![],
         intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
+        export_info: lowerer.export_info,
         ctx,
         hooks,
     };

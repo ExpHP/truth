@@ -47,6 +47,7 @@ impl SingleSubLowerer<'_, '_> {
 #[derive(Default)]
 pub(in crate::llir::lower) struct IntrinsicBuilder<'a> {
     pub(in crate::llir::lower) jump: Option<&'a ast::StmtGoto>,
+    pub(in crate::llir::lower) sub_id: Option<Sp<LowerArg>>,
     pub(in crate::llir::lower) plain_args: Vec<Sp<LowerArg>>,
     pub(in crate::llir::lower) outputs: Vec<Sp<LowerArg>>,
 }
@@ -60,10 +61,11 @@ impl IntrinsicBuilder<'_> {
         // full pattern match to fail when new fields are added
         let &IntrinsicInstrAbiParts {
             num_instr_args, padding: ref padding_info, plain_args: ref plain_args_info,
-            outputs: ref outputs_info, jump: ref jump_info,
+            outputs: ref outputs_info, jump: ref jump_info, sub_id: sub_id_info,
         } = abi_parts;
         // check that the caller's 'build' closure put all of the right things for this intrinsic
         assert_eq!(self.jump.is_some(), jump_info.is_some());
+        assert_eq!(self.sub_id.is_some(), sub_id_info.is_some());
         assert_eq!(self.plain_args.len(), plain_args_info.len());
         assert_eq!(self.outputs.len(), outputs_info.len());
 
@@ -80,6 +82,11 @@ impl IntrinsicBuilder<'_> {
         }
 
         for (value, &index) in self.plain_args.into_iter().zip(plain_args_info) {
+            assert!(out_args[index].is_none());
+            out_args[index] = Some(value);
+        }
+
+        if let Some((value, index)) = self.sub_id.zip(sub_id_info) {
             assert!(out_args[index].is_none());
             out_args[index] = Some(value);
         }

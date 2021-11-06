@@ -621,12 +621,6 @@ impl Format for ast::FuncParam {
     }
 }
 
-impl Format for ast::ParamQualifier {
-    fn fmt<W: Write>(&self, _: &mut Formatter<W>) -> Result<()> {
-        match *self { }
-    }
-}
-
 // =============================================================================
 // Statements
 

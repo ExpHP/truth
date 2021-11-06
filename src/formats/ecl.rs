@@ -9,9 +9,9 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::value::{ScalarType, ScalarValue};
+use crate::value::{ScalarType, ScalarValue, VarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
-use crate::resolve::RegId;
+use crate::resolve::{RegId, DefId};
 use crate::context::CompilerContext;
 
 // =============================================================================
@@ -102,17 +102,20 @@ fn compile(
     let mut ast = ast.clone();
     crate::passes::resolution::assign_languages(&mut ast, LanguageKey::Ecl, ctx)?;
 
-    // an early pass to define global constants for sub names
-    let sub_ids = gather_sub_ids(&ast, ctx)?;
-    for (index, sub_name) in sub_ids.values().enumerate() {
-        let const_value: Sp<ast::Expr> = sp!(sub_name.span => (index as i32).into());
-        ctx.define_auto_const_var(sub_name.clone(), ScalarType::Int, const_value);
-    }
-
     // preprocess
+    let sub_info;
     let ast = {
         let mut ast = ast;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
+
+        // gather information about exported subs
+        sub_info = EosdExportedSubs::extract_from_items(&ast.items, ctx)?;
+        // define global constants for sub names, for use in places where call sugar is unavailable.
+        for sub in sub_info.subs.values() {
+            let const_value: Sp<ast::Expr> = sp!(sub.name.span => (sub.index).into());
+            ctx.define_auto_const_var(sub.name.clone(), ScalarType::Int, const_value);
+        }
+
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
@@ -156,7 +159,8 @@ fn compile(
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, ref params, ty_keyword }) => {
                 // make double sure that the order of the subs we're compiling matches the numbers we assigned them
-                assert_eq!(sub_ids.get_index_of(ident.as_raw()).unwrap(), subs.len());
+                let def_id = ctx.resolutions.expect_def(ident);
+                assert_eq!(sub_info.subs.get_index_of(&def_id).unwrap(), subs.len());
 
                 if params.len() > 0 {
                     subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
@@ -195,31 +199,31 @@ fn compile(
     Ok(OldeEclFile { subs, timelines, binary_filename: None })
 }
 
-fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
-    let mut script_ids = IndexMap::new();
-    for item in &ast.items {
-        match &item.value {
-            &ast::Item::Func(ast::ItemFunc { qualifier: None, ref ident, .. }) => {
-                // give a better error on redefinitions than the generic "ambiguous auto const" message
-                match script_ids.entry(ident.value.as_raw().clone()) {
-                    indexmap::map::Entry::Vacant(e) => {
-                        e.insert(ident.clone());
-                    },
-                    indexmap::map::Entry::Occupied(e) => {
-                        let prev_ident = e.get();
-                        return Err(ctx.emitter.emit(error!(
-                            message("duplicate script '{}'", ident),
-                            primary(ident, "redefined here"),
-                            secondary(prev_ident, "originally defined here"),
-                        )));
-                    },
-                }
-            },
-            _ => {},
-        }
-    }
-    Ok(script_ids)
-}
+// fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
+//     let mut script_ids = IndexMap::new();
+//     for item in &ast.items {
+//         match &item.value {
+//             &ast::Item::Func(ast::ItemFunc { qualifier: None, ref ident, .. }) => {
+//                 // give a better error on redefinitions than the generic "ambiguous auto const" message
+//                 match script_ids.entry(ident.value.as_raw().clone()) {
+//                     indexmap::map::Entry::Vacant(e) => {
+//                         e.insert(ident.clone());
+//                     },
+//                     indexmap::map::Entry::Occupied(e) => {
+//                         let prev_ident = e.get();
+//                         return Err(ctx.emitter.emit(error!(
+//                             message("duplicate script '{}'", ident),
+//                             primary(ident, "redefined here"),
+//                             secondary(prev_ident, "originally defined here"),
+//                         )));
+//                     },
+//                 }
+//             },
+//             _ => {},
+//         }
+//     }
+//     Ok(script_ids)
+// }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
     error!(
@@ -394,20 +398,79 @@ fn write_olde_ecl(
 
 // =============================================================================
 
-// struct EosdSignature {
-//     int_param: Option<(usize, Sp<ast::FuncParam>)>,
-//     float_param: Option<(usize, Sp<ast::FuncParam>)>,
-// }
-//
-// impl EosdSignature {
-//     fn validate(func: &ast::ItemFunc) -> Result<Self, ErrorReported> {
-//         Ok(())
-//     }
-// }
-//
-// fn eosd_function_validate(items: &ast::ItemFunc) {
-//
-// }
+pub struct EosdExportedSubs {
+    pub subs: IndexMap<DefId, EosdExportedSub>,
+}
+
+pub struct EosdExportedSub {
+    pub index: raw::LangInt,
+    pub name: Sp<ResIdent>,
+    // EoSD params have at most one of each type.
+    pub int_param: Option<(usize, Sp<ast::FuncParam>)>,
+    pub float_param: Option<(usize, Sp<ast::FuncParam>)>,
+}
+
+impl EosdExportedSubs {
+    fn extract_from_items(items: &[Sp<ast::Item>], ctx: &CompilerContext<'_>) -> Result<Self, ErrorReported> {
+        let mut subs = IndexMap::new();
+        let mut sub_index = 0;
+        let mut errors = ErrorFlag::new();
+        for item in items {
+            if let ast::Item::Func(func@ast::ItemFunc { qualifier: None, ident, .. }) = &item.value {
+                match EosdExportedSub::from_item(func, sub_index, ctx) {
+                    Ok(sub) => {
+                        subs.insert(ctx.resolutions.expect_def(ident), sub);
+                        sub_index += 1;
+                    },
+                    Err(e) => errors.set(e),
+                };
+            }
+        }
+        errors.into_result(EosdExportedSubs { subs })
+    }
+}
+
+impl EosdExportedSub {
+    fn from_item(func: &ast::ItemFunc, sub_index: usize, ctx: &CompilerContext<'_>) -> Result<Self, ErrorReported> {
+        assert!(func.qualifier.is_none());  // shouldn't be called on const/inline
+
+        let mut out = EosdExportedSub {
+            index: sub_index as _,
+            name: func.ident.clone(),
+            int_param: None, float_param: None,
+        };
+
+        for (param_index, param) in func.params.iter().enumerate() {
+            if let Some(qualifier) = &param.qualifier {
+                return Err(ctx.emitter.emit(error!(
+                    message("unexpected {} param in exported function", qualifier),
+                    primary(qualifier, ""),
+                )));
+            }
+
+            let dest_option = match param.ty_keyword.var_ty() {
+                VarType::Typed(ScalarType::Int) => &mut out.int_param,
+                VarType::Typed(ScalarType::Float) => &mut out.float_param,
+                _ => return Err(ctx.emitter.emit(error!(
+                    message("invalid type for param in EoSD ECL"),
+                    primary(param.ty_keyword, ""),
+                ))),
+            };
+
+            if dest_option.is_some() {
+                return Err(ctx.emitter.emit(error!(
+                    message("too many {} params for EoSD ECL function", param.ty_keyword),
+                    primary(param, "second {} param", param.ty_keyword),
+                    note("EoSD ECL functions are limited to 1 int and 1 float"),
+                )))
+            }
+            *dest_option = Some((param_index, param.clone()))
+        }
+        Ok(out)
+    }
+
+
+}
 
 // =============================================================================
 

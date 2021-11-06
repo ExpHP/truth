@@ -367,8 +367,77 @@ source_test!(
 //     },
 // );
 
-#[test]
-#[ignore]
-fn test_olde_ecl_register_allocation_correctly_uses_float_regs() {
-    panic!()
-}
+// =============================================================================
+
+source_test!(
+    ECL_06, eosd_exported_fn_bad_siggies,
+    items: r#"
+void bad1(string arg) {}
+
+void bad2(var x) {}
+
+void bad3(int x, int y) {}
+
+void bad4(float x, int y, float z) {}
+"#,
+    expect_error: "EoSD",
+);
+
+const EOSD_CALL_TEST_FUNCS: &'static str = r#"
+void i_f(int x, float y) {}
+void f_i(float y, int x) {}
+void i(int x) {}
+void f(float x) {}
+"#;
+
+source_test!(
+    ECL_06, eosd_exported_fn_param_order,
+    items: EOSD_CALL_TEST_FUNCS,
+    main_body: r#"
+    i_f(30, 42.0);
+    f_i(42.0, 30);
+    i(30);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+
+    },
+);
+
+source_test!(
+    ECL_06, eosd_exported_fn_no_blob,
+    items: EOSD_CALL_TEST_FUNCS,
+    main_body: r#"
+    i(@blob="ffffffff");
+"#,
+    expect_error: "TODO",
+);
+
+source_test!(
+    ECL_06, eosd_exported_fn_no_pseudos,
+    items: EOSD_CALL_TEST_FUNCS,
+    main_body: r#"
+    i(@mask=3);
+"#,
+    expect_error: "TODO",
+);
+
+source_test!(
+    ECL_06, eosd_exported_fn_offsetof,
+    items: EOSD_CALL_TEST_FUNCS,
+    // not sure what this should do but make shure it doesn't panic
+    main_body: r#"
+        i(offsetof(label));
+    label:
+"#,
+    expect_error: "TODO",
+);
+
+source_test!(
+    ECL_06, eosd_exported_fn_const_fn_name_clash,
+    items: r#"
+    void name() {}
+    const void name() {}
+    "#,
+    expect_error: "TODO",
+);

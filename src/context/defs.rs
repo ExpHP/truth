@@ -560,7 +560,7 @@ pub enum FuncKind {
     User {
         ident: Sp<ResIdent>,
         qualifier: Option<Sp<ast::FuncQualifier>>,
-    }
+    },
 }
 
 // =============================================================================
@@ -616,7 +616,7 @@ impl CompilerContext<'_> {
 
     /// If the function name is an instruction or instruction alias, gets the associated register id.
     ///
-    /// Otherwise, it must be something else (e.g. a local, a const...), whose unique
+    /// Otherwise, it must be something else (e.g. an exported or const function...), whose unique
     /// name resolution id is returned.
     pub fn func_opcode_from_ast(&self, name: &ast::CallableName) -> Result<(LanguageKey, u16), DefId> {
         match name {

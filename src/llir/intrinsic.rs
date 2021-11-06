@@ -76,26 +76,18 @@ impl IntrinsicInstrs {
 #[strum_discriminants(name(IntrinsicInstrTag))]
 pub enum IntrinsicInstrKind {
     /// Like `goto label @ t;` (and `goto label;`)
-    ///
-    /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     #[strum_discriminants(strum(serialize = "Jmp"))]
     Jmp,
 
     /// Like `interrupt[n]:`
-    ///
-    /// Args: `n`.
     #[strum_discriminants(strum(serialize = "Interrupt"))]
     InterruptLabel,
 
     /// Like `a = b;` or `a += b;`
-    ///
-    /// Args: `a, b`.
     #[strum_discriminants(strum(serialize = "AssignOp"))]
     AssignOp(ast::AssignOpKind, ScalarType),
 
     /// Like `a = b + c;`
-    ///
-    /// Args: `a, b, c`.
     #[strum_discriminants(strum(serialize = "BinOp"))]
     BinOp(ast::BinOpKind, ScalarType),
 
@@ -103,42 +95,37 @@ pub enum IntrinsicInstrKind {
     ///
     /// This is not used for casts like `a = _S(b);`.  Casts have no explicit representation in
     /// a compiled script; they're just a fundamental part of how the engine reads variables.
-    ///
-    /// Args: `a, b`.
     #[strum_discriminants(strum(serialize = "UnOp"))]
     UnOp(ast::UnOpKind, ScalarType),
 
     /// Like `if (--x) goto label @ t`.
-    ///
-    /// Args: `x, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     #[strum_discriminants(strum(serialize = "CountJmp"))]
     CountJmp,
 
     /// Like `if (a == c) goto label @ t;`
-    ///
-    /// Args: `a, b, label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     #[strum_discriminants(strum(serialize = "CondJmp"))]
     CondJmp(ast::BinOpKind, ScalarType),
 
     /// First part of a conditional jump in languages where it is comprised of 2 instructions.
     /// Sets a hidden compare register.
-    ///
-    /// Args: `a, b`
     #[strum_discriminants(strum(serialize = "DedicatedCmp"))]
     CondJmp2A(ScalarType),
 
     /// Second part of a 2-instruction conditional jump in languages where it is comprised of 2 instructions.
     /// Jumps based on the hidden compare register.
-    ///
-    /// Args: `label, t`, in an order defined by the ABI. (use [`JumpIntrinsicArgOrder`])
     #[strum_discriminants(strum(serialize = "DedicatedCmpJmp"))]
     CondJmp2B(ast::BinOpKind),
+
+    /// Calls a sub in EoSD.  Takes two immediates for `I0` and `F0`.
+    #[strum_discriminants(strum(serialize = "CallEosd"))]
+    CallEosd,
 }
 
 impl IntrinsicInstrKind {
     pub fn descr(&self) -> &'static str {
         match self {
             Self::Jmp { .. } => "unconditional jump",
+            Self::CallEosd { .. } => "call (EoSD)",
             Self::InterruptLabel { .. } => "interrupt label",
             Self::AssignOp { .. } => "assign op",
             Self::BinOp { .. } => "binary op",
@@ -154,6 +141,7 @@ impl IntrinsicInstrKind {
     pub fn heavy_descr(&self) -> String {
         match self {
             | Self::Jmp { .. }
+            | Self::CallEosd { .. }
             | Self::InterruptLabel { .. }
             | Self::CountJmp { .. }
             | Self::CondJmp2A { .. }
@@ -262,6 +250,8 @@ pub struct IntrinsicInstrAbiParts {
     pub outputs: Vec<(usize, abi_parts::OutputArgMode)>,
     /// Location and arrangement of offset and time args.
     pub jump: Option<(usize, abi_parts::JumpArgOrder)>,
+    /// Location of a called sub id (an index or a string name).
+    pub sub_id: Option<usize>
 }
 
 pub mod abi_parts {
@@ -346,6 +336,15 @@ fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span:
     }
 }
 
+fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
+    let data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::Sub);
+    let index = data.map(|(index, _)| index);
+    let index = index.ok_or_else(|| {
+        intrinsic_abi_error(abi_span, "missing sub id ('E')")
+    })?;
+    Ok(index)
+}
+
 fn remove_out_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
     // it is expected that previous detect_and_remove functions have already removed everything before the out operand.
     let (index, encoding) = match arg_encodings.len() {
@@ -390,12 +389,17 @@ impl IntrinsicInstrAbiParts {
         let padding = find_and_remove_padding(&mut encodings, abi_loc)?;
         let mut out = IntrinsicInstrAbiParts {
             num_instr_args, padding,
-            plain_args: vec![], outputs: vec![], jump: None,
+            plain_args: vec![], outputs: vec![], jump: None, sub_id: None,
         };
 
         match intrinsic {
             I::Jmp => {
                 out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
+            },
+            I::CallEosd => {
+                out.sub_id = Some(find_and_remove_sub_id(&mut encodings, abi_loc)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Float)?);
             },
             I::InterruptLabel => {
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
@@ -489,6 +493,7 @@ impl std::str::FromStr for IntrinsicInstrKind {
         };
         let out = match tag {
             Tag::Jmp => IKind::Jmp,
+            Tag::CallEosd => IKind::CallEosd,
             Tag::InterruptLabel => IKind::InterruptLabel,
             Tag::AssignOp => IKind::AssignOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
             Tag::BinOp => IKind::BinOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
@@ -519,6 +524,7 @@ impl std::fmt::Display for IntrinsicInstrKind {
         let tag = IntrinsicInstrTag::from(self);
         match self {
             IKind::Jmp => write!(f, "{}()", tag),
+            IKind::CallEosd => write!(f, "{}()", tag),
             IKind::InterruptLabel => write!(f, "{}()", tag),
             IKind::AssignOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
             IKind::BinOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),

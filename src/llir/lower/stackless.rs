@@ -5,9 +5,9 @@
 use std::collections::{HashMap, BTreeSet};
 
 use crate::raw;
-use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
+use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg, SimpleArg};
 use crate::diagnostic::Diagnostic;
-use crate::llir::{LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg, HowBadIsIt};
+use crate::llir::{LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, HowBadIsIt};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -25,6 +25,7 @@ pub (in crate::llir::lower) struct SingleSubLowerer<'a, 'ctx> {
     pub hooks: &'a dyn LanguageHooks,
     pub ctx: &'a mut CompilerContext<'ctx>,
     pub stmt_data: IdMap<NodeId, TimeAndDifficulty>,
+    pub export_info: Option<&'a crate::ecl::EosdExportedSubs>,
 }
 
 impl SingleSubLowerer<'_, '_> {
@@ -77,12 +78,7 @@ impl SingleSubLowerer<'_, '_> {
 
 
                 ast::StmtKind::Expr(expr) => match &expr.value {
-                    ast::Expr::Call(ast::ExprCall { name, pseudos, args }) => {
-                        let opcode = self.lower_func_stmt(stmt.span, stmt_data, name, pseudos, args)?;
-                        if self.hooks.is_th06_anm_terminating_instr(opcode) {
-                            th06_anm_end_span = Some(name);
-                        }
-                    },
+                    ast::Expr::Call(call) => self.lower_call_stmt(&mut th06_anm_end_span, stmt.span, stmt_data, call)?,
                     _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
                 }, // match expr
 
@@ -111,19 +107,55 @@ impl SingleSubLowerer<'_, '_> {
     // Methods for lowering specific types of statement bodies.
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);`
-    fn lower_func_stmt<'a>(
+    fn lower_call_stmt<'a>(
+        &mut self,
+        th06_anm_end_span: &mut Option<Span>,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        call: &ast::ExprCall,
+    ) -> Result<(), ErrorReported> {
+        match self.ctx.func_opcode_from_ast(&call.name) {
+            Ok((lang, opcode)) => {
+                // single instruction
+                assert_eq!(lang, self.hooks.language());
+                self.lower_instruction(stmt_span, stmt_data, opcode as _, call)?;
+
+                if self.hooks.is_th06_anm_terminating_instr(opcode) {
+                    *th06_anm_end_span = Some(call.name.span);
+                }
+                Ok(())
+            },
+            Err(def_id) => {
+                // exported sub
+                let export_info = self.export_info.unwrap();
+                self.lower_eosd_call(stmt_span, stmt_data, call, &export_info.subs[&def_id])
+            },
+        }
+    }
+
+    fn lower_eosd_call(
         &mut self,
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
-        name: &Sp<ast::CallableName>,
-        pseudos: &[Sp<ast::PseudoArg>],
-        args: &[Sp<ast::Expr>],
-    ) -> Result<raw::Opcode, ErrorReported> {
-        // all function statements currently refer to single instructions
-        let (lang, opcode) = self.ctx.func_opcode_from_ast(name).expect("non-instr func still present at lowering!");
-        assert_eq!(lang, self.hooks.language());
+        call: &ast::ExprCall,
+        sub: &crate::ecl::EosdExportedSub,
+    ) -> Result<(), ErrorReported> {
+        let int = sub.int_param.as_ref().map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0).into()));
+        let float = sub.float_param.as_ref().map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0.0).into()));
 
-        self.lower_instruction(stmt_span, stmt_data, opcode as _, pseudos, args)
+        // EoSD args must be const
+        let lowered_int = classify_expr(&int, self.ctx)?.expect_simple().lowered.clone();
+        let lowered_float = classify_expr(&float, self.ctx)?.expect_simple().lowered.clone();
+        let lowered_sub_id = sp!(call.name.span => LowerArg::Raw(sub.index.into()));
+
+        self.lower_intrinsic(
+            stmt_span, stmt_data, IKind::CallEosd, "sub call",
+            |bld| {
+                bld.sub_id = Some(lowered_sub_id);
+                bld.plain_args.push(lowered_int);
+                bld.plain_args.push(lowered_float);
+            },
+        )
     }
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
@@ -132,9 +164,9 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         opcode: raw::Opcode,
-        pseudos: &[Sp<ast::PseudoArg>],
-        args: &[Sp<ast::Expr>],
+        call: &ast::ExprCall,
     ) -> Result<raw::Opcode, ErrorReported> {
+        let ast::ExprCall { pseudos, args, .. } = call;
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
             pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask, extra_arg: pseudo_extra_arg,
@@ -744,17 +776,30 @@ fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarSigil, Di
     ))
 }
 
+#[derive(Debug)]
 enum ExprClass<'a> {
     Simple(SimpleExpr),
     NeedsTemp(TemporaryExpr<'a>),
 }
 
+#[derive(Debug)]
 struct SimpleExpr {
     lowered: Sp<LowerArg>,
     /// Type in the AST. This *can* contradict the type of `lowered`. (e.g. float registers in EoSD ECL are ints)
     ty: ScalarType,
 }
 
+impl ExprClass<'_> {
+    #[track_caller]
+    fn expect_simple(&self) -> &SimpleExpr {
+        match self {
+            ExprClass::Simple(e) => e,
+            _ => panic!("not simple: {:?}", self),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct TemporaryExpr<'a> {
     /// The part that must be stored to a temporary. Usually the whole expression, but for a cast we
     /// only store the inner part as a temporary.

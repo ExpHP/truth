@@ -69,9 +69,11 @@ pub struct FuncParam {
     pub ident: Sp<ResIdent>,
 }
 
-// 'const' parameters will exist *some day*, this is here now to reduce churn.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParamQualifier {}
+string_enum! {
+    // 'const' parameters will exist *some day*, this is here now to reduce churn.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ParamQualifier {}
+}
 
 impl Item {
     pub fn descr(&self) -> &'static str { match self {
