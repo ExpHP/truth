@@ -853,7 +853,7 @@ impl Format for ast::Expr {
                 out.fmt_optional_parens((cond, " ? ", left, " : ", right))
             },
             ast::Expr::BinOp(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
-            ast::Expr::Call { name, pseudos, args } => {
+            ast::Expr::Call(ast::ExprCall { name, pseudos, args }) => {
                 out.fmt(name)?;
                 out.fmt_comma_separated("(", ")", Iterator::chain(
                     pseudos.iter().map(Either::This),

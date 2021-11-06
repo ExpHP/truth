@@ -324,7 +324,7 @@ impl AstVm {
 
                 ast::StmtKind::Expr(expr) => {
                     match &expr.value {
-                        ast::Expr::Call { name, pseudos, args } => {
+                        ast::Expr::Call(ast::ExprCall { name, pseudos, args }) => {
                             if pseudos.len() > 0 {
                                 unimplemented!("VM pseudo-args");  // TODO: we'd have to let LoggedCall potentially hold a blob
                             }
@@ -398,7 +398,7 @@ impl AstVm {
 
             ast::Expr::BinOp(a, op, b) => op.const_eval(self.eval(a, resolutions), self.eval(b, resolutions)),
 
-            ast::Expr::Call { .. } => unimplemented!("func calls in VM exprs"),
+            ast::Expr::Call(ast::ExprCall { .. }) => unimplemented!("func calls in VM exprs"),
 
             ast::Expr::UnOp(op, x) => op.const_eval(self.eval(x, resolutions)),
 

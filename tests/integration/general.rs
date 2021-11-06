@@ -259,6 +259,18 @@ source_test!(
 );
 
 source_test!(
+    ECL_06, jump_offsetof_expression,
+    // this check is currently preventing this from compiling into some weird multistatement thing
+    // that tries to stick a register in an offset argument and that doesn't even really use the
+    // correct offset to begin with (since ECL offsets are relative)
+    main_body: r#"
+        jump(30, (offsetof(label) + 4) * 2);
+    label:
+    "#,
+    expect_error: "constant",
+);
+
+source_test!(
     STD_08, interrupt_new_lines,
     // This tests that a user provided @mask overrides the one that gets automatically computed.
     main_body: r#"
@@ -301,7 +313,7 @@ source_test!(
 source_test!(
     MSG_06, reg_in_unsupported_lang,
     main_body: r#"  textSet(0, $REG[0], "cheese");  "#,
-    expect_error: "register",
+    expect_error: "constant",
 );
 
 // TODO: STD script requirements (single sub called main...)

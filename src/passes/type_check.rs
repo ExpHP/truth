@@ -360,8 +360,8 @@ impl ExprTypeChecker<'_, '_> {
             ast::Expr::LabelProperty { keyword: _, label: _ }
             => ExprType::Value(ScalarType::Int),
 
-            ast::Expr::Call { ref name, ref pseudos, ref args, }
-            => self.check_expr_call(name, pseudos, args)?,
+            ast::Expr::Call(ref call)
+            => self.check_expr_call(call)?,
         };
 
         // Most code after this will be using compute_ty, which has a separate implementation.
@@ -422,10 +422,10 @@ impl ExprTypeChecker<'_, '_> {
     /// Check a function call, and get its return type.
     fn check_expr_call(
         &self,
-        name: &Sp<ast::CallableName>,
-        pseudos: &[Sp<ast::PseudoArg>],
-        args: &[Sp<ast::Expr>],
+        call: &ast::ExprCall,
     ) -> ImplResult<ExprType> {
+        let ast::ExprCall { name, pseudos, args } = call;
+
         // type check pseudos
         pseudos.iter().map(|pseudo| {
             let ast::PseudoArg { kind, ref value, at_sign: _, eq_sign: _ } = pseudo.value;
@@ -434,19 +434,17 @@ impl ExprTypeChecker<'_, '_> {
         }).collect_with_recovery()?;
 
         // '@blob=' is incompatible with normal args
-        for pseudo in pseudos {
-            if pseudo.kind.value == token![blob] {
-                if let Some(normal_arg) = args.get(0) {
-                    return Err(self.emit(error!(
-                        message("cannot supply both normal arguments and an args blob"),
-                        primary(normal_arg, "redundant normal argument"),
-                        secondary(&pseudo.value.value, "represents all args"),
-                    )));
-                }
-
-                // Since there are no normal args to type check, we are done.
-                return Ok(ExprType::Void);  // always void when providing a blob
+        if let Some(pseudo) = call.blob() {
+            if let Some(normal_arg) = args.get(0) {
+                return Err(self.emit(error!(
+                    message("cannot supply both normal arguments and an args blob"),
+                    primary(normal_arg, "redundant normal argument"),
+                    secondary(&pseudo.value.value, "represents all args"),
+                )));
             }
+
+            // Since there are no normal args to type check, we are done.
+            return Ok(ExprType::Void);  // always void when providing a blob
         }
 
         // Type-check normal args.
@@ -520,11 +518,11 @@ impl ast::Expr {
             ast::Expr::LabelProperty { .. }
             => ExprType::Value(ScalarType::Int),
 
-            ast::Expr::Call { ref pseudos, ref name, .. } => {
-                if pseudos.iter().any(|x| matches!(x.kind.value, token![blob])) {
+            ast::Expr::Call(call) => {
+                if call.blob().is_some() {
                     ExprType::Void  // args blob always produces void
                 } else {
-                    ctx.func_signature_from_ast(name).expect("already type-checked")
+                    ctx.func_signature_from_ast(&call.name).expect("already type-checked")
                         .return_ty.value
                 }
             },

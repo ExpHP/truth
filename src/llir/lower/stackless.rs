@@ -77,7 +77,7 @@ impl SingleSubLowerer<'_, '_> {
 
 
                 ast::StmtKind::Expr(expr) => match &expr.value {
-                    ast::Expr::Call { name, pseudos, args } => {
+                    ast::Expr::Call(ast::ExprCall { name, pseudos, args }) => {
                         let opcode = self.lower_func_stmt(stmt.span, stmt_data, name, pseudos, args)?;
                         if self.hooks.is_th06_anm_terminating_instr(opcode) {
                             th06_anm_end_span = Some(name);

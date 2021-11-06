@@ -541,7 +541,7 @@ ExprTerm: ast::Expr = {
         => ast::Expr::LabelProperty { label, keyword },
 
     <name:Sp<CallableName>> <args:ExprCallParenArgsWithPseudos>
-        => ast::Expr::Call { name, pseudos: args.0, args: args.1 },
+        => ast::Expr::Call(ast::ExprCall { name, pseudos: args.0, args: args.1 }),
 
     <v:Sp<Var>> => ast::Expr::Var(v),
 

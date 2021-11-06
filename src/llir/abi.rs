@@ -1,4 +1,5 @@
-use crate::pos::Span;
+use crate::ast;
+use crate::pos::{Sp, Span};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, defs};
@@ -232,13 +233,21 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
 }
 
 fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Signature {
+    struct Info {
+        ty: ScalarType,
+        default: Option<Sp<ast::Expr>>,
+        reg_ok: bool,
+    }
+
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
         params: abi.encodings.iter().enumerate().flat_map(|(index, &enc)| {
-            let (ty, default) = match enc {
+            let Info { ty, default, reg_ok } = match enc {
                 | ArgEncoding::Dword
-                | ArgEncoding::Word
                 | ArgEncoding::Color
+                => Info { ty: ScalarType::Int, default: None, reg_ok: true },
+
+                | ArgEncoding::Word
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
                 | ArgEncoding::Sprite
@@ -246,25 +255,28 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
                 | ArgEncoding::Sub
                 | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
                 | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
-                => (ScalarType::Int, None),
+                => Info { ty: ScalarType::Int, default: None, reg_ok: false },
 
                 | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
                 => return None,
 
                 | ArgEncoding::Padding
-                => (ScalarType::Int, Some(sp!(0.into()))),
+                => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true },
 
                 | ArgEncoding::Float
-                => (ScalarType::Float, None),
+                => Info { ty: ScalarType::Float, default: None, reg_ok: true },
 
                 | ArgEncoding::String { .. }
-                => (ScalarType::String, None),
+                => Info { ty: ScalarType::String, default: None, reg_ok: true },
             };
             let name = sp!(ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
             let var_ty = value::VarType::Typed(ty);
             ctx.define_local(name.clone(), var_ty);
 
-            Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier: None })
+            let const_arg_reason = (!reg_ok).then(|| crate::context::defs::ConstArgReason::Encoding(enc));
+            let qualifier = None; // irrelevant, there's no function body for an instruction
+
+            Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier, const_arg_reason })
         }).collect(),
     }
 }

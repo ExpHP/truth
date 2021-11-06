@@ -321,7 +321,7 @@ mod resolve_vars {
         }
 
         fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
-            if let ast::Expr::Call { name, .. } = &expr.value {
+            if let ast::Expr::Call(ast::ExprCall { name, .. }) = &expr.value {
                 if let ast::CallableName::Normal { ref ident, language_if_ins, .. } = name.value {
                     match self.rib_stacks.resolve(Namespace::Funcs, name.span, language_if_ins, ident) {
                         Err(e) => self.errors.set(self.ctx.emitter.emit(e)),

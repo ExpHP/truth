@@ -390,11 +390,11 @@ fn raise_unknown_instr(
         value: sp!(pseudo::format_blob(&args.blob).into()),
     }));
 
-    Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call {
+    Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
         name: sp!(ast::CallableName::Ins { opcode: instr.opcode, language: Some(language) }),
         pseudos,
         args: vec![],
-    })))
+    }))))
 }
 
 fn raise_single_decoded_instr(
@@ -588,11 +588,11 @@ fn raise_plain_ins(
             _ => break,
         };
     }
-    Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call {
+    Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
         name: sp!(ast::CallableName::Ins { opcode: instr.opcode, language: Some(language) }),
         pseudos,
         args: raised_args,
-    })))
+    }))))
 }
 
 /// General argument-raising routine that supports registers and uses the encoding in the ABI

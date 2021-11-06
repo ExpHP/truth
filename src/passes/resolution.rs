@@ -149,7 +149,7 @@ impl ast::VisitMut for AliasesToRawVisitor<'_, '_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
-        if let ast::Expr::Call { name, .. } = &mut expr.value {
+        if let ast::Expr::Call(ast::ExprCall { name, .. }) = &mut expr.value {
             if let Ok((language, opcode)) = self.ctx.func_opcode_from_ast(name) {
                 name.value = ast::CallableName::Ins { opcode, language: Some(language) };
             }
@@ -176,7 +176,7 @@ impl ast::VisitMut for RawToAliasesVisitor<'_, '_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
-        if let ast::Expr::Call { name, .. } = &mut expr.value {
+        if let ast::Expr::Call(ast::ExprCall { name, .. }) = &mut expr.value {
             if let ast::CallableName::Ins { opcode, language, .. } = name.value {
                 let language = language.expect("must run assign_languages pass!");
                 name.value = self.ctx.ins_to_ast(language, opcode);

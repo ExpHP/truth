@@ -33,7 +33,7 @@
 
 use crate::value::ScalarValue;
 use crate::ast;
-use crate::error::{ErrorReported, ErrorFlag};
+use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 
@@ -209,7 +209,44 @@ impl ast::VisitMut for Visitor<'_, '_> {
                 Some(_) => uncaught_type_error(),
                 _ => return, // can't simplify if subexpr is not const
             },
+
+            ast::Expr::Call(call) => {
+                // FIXME is this the right place to do this?
+                validate_call_const_args(call, self.ctx).unwrap_or_else(|e| self.errors.set(e))
+            },
+
             _ => return, // can't simplify other expressions
         }
     }
+}
+
+fn validate_call_const_args(call: &ast::ExprCall, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
+    use crate::context::defs::{MatchedArgs, ConstArgReason};
+
+    if !call.actually_has_args() {
+        return Ok(());
+    }
+
+    let siggy = ctx.func_signature_from_ast(&call.name).expect("already type-checked");
+    let MatchedArgs { positional_pairs } = siggy.match_params_to_args(&call.args);
+
+    positional_pairs.map(|(param, arg)| {
+        if let Some(const_arg_reason) = &param.const_arg_reason {
+            // FIXME: I don't think this condition will work well for inline funcs?
+            //        But we need to allow offsetof and timeof...
+            if !arg.can_lower_to_immediate() {
+                let mut diag = error!(
+                    message("argument must be a compile-time constant"),
+                    primary(arg, "not constant"),
+                );
+
+                match const_arg_reason {
+                    ConstArgReason::Encoding(enc) => diag.note(format!("because the argument is a {}", enc.descr())),
+                    ConstArgReason::EosdEcl => diag.note(format!("this is a limitation of calls in EoSD ECL")),
+                };
+                return Err(ctx.emitter.emit(diag));
+            }
+        }
+        Ok(())
+    }).collect_with_recovery()
 }

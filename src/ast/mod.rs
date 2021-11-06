@@ -431,14 +431,7 @@ pub enum Expr {
         right: Box<Sp<Expr>>,
     },
     BinOp(Box<Sp<Expr>>, Sp<BinOpKind>, Box<Sp<Expr>>),
-    Call {
-        // note: deliberately called 'name' instead of 'ident' so that you can
-        //       match both this and the inner ident without shadowing
-        name: Sp<CallableName>,
-        /// Args beginning with `@` that represent raw pieces of an instruction.
-        pseudos: Vec<Sp<PseudoArg>>,
-        args: Vec<Sp<Expr>>,
-    },
+    Call(ExprCall),
     UnOp(Sp<UnOpKind>, Box<Sp<Expr>>),
     LitInt {
         value: raw::LangInt,
@@ -478,7 +471,7 @@ impl Expr {
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
         Expr::BinOp { .. } => "binary operator",
-        Expr::Call { .. } => "call expression",
+        Expr::Call(ExprCall { .. }) => "call expression",
         Expr::UnOp { .. } => "unary operator",
         Expr::LitInt { .. } => "literal integer",
         Expr::LabelProperty { .. } => "label property",
@@ -486,6 +479,39 @@ impl Expr {
         Expr::LitString { .. } => "literal string",
         Expr::Var { .. } => "var expression",
     }}
+    pub fn can_lower_to_immediate(&self) -> bool { match self {
+        Expr::LabelProperty { .. } => true,
+        Expr::LitInt { .. } => true,
+        Expr::LitFloat { .. } => true,
+        Expr::LitString { .. } => true,
+        _ => false,
+    }}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExprCall {
+    // note: deliberately called 'name' instead of 'ident' so that you can
+    //       match both this and the inner ident without shadowing
+    pub name: Sp<CallableName>,
+    /// Args beginning with `@` that represent raw pieces of an instruction.
+    pub pseudos: Vec<Sp<PseudoArg>>,
+    /// Positional args.  One should check [`Self::actually_has_args`] before using this.
+    pub args: Vec<Sp<Expr>>,
+}
+
+impl ExprCall {
+    /// Extract a `@blob` pseudo-arg if one exists.
+    pub fn blob(&self) -> Option<&Sp<PseudoArg>> {
+        self.pseudos.iter().find(|p| matches!(p.kind.value, token![blob]))
+    }
+
+    /// This returns `true` if [`Self::args`] actually represents a list of arguments.
+    ///
+    /// A counter-example would be a call with `@blob`.  Such a function call will have an
+    /// empty argument list, but should not be misinterpreted as a call with 0 arity.
+    pub fn actually_has_args(&self) -> bool {
+        self.blob().is_none()
+    }
 }
 
 /// An identifier in a function call.
@@ -1069,7 +1095,7 @@ macro_rules! generate_visitor_stuff {
                     v.visit_expr(a);
                     v.visit_expr(b);
                 },
-                Expr::Call { name, args, pseudos } => {
+                Expr::Call(ExprCall { name, args, pseudos }) => {
                     v.visit_callable_name(name);
                     for sp_pat![PseudoArg { value, kind: _, at_sign: _, eq_sign: _ }] in pseudos {
                         v.visit_expr(value);

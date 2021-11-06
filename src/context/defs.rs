@@ -295,7 +295,7 @@ impl Defs {
     ///
     /// # Panics
     ///
-    /// Panics if the ID does not correspond to a variable.
+    /// Panics if the ID does not correspond to a function.
     pub fn func_name(&self, def_id: DefId) -> &ResIdent {
         match self.funcs[&def_id] {
             FuncData { kind: FuncKind::InstructionAlias { ref ident, .. }, .. } => ident,
@@ -713,6 +713,21 @@ pub struct SignatureParam {
     pub name: Sp<ResIdent>,
     pub default: Option<Sp<ast::Expr>>,
     pub qualifier: Option<Sp<ast::ParamQualifier>>,
+    /// This is `Some(_)` if for any reason, arguments in this position must be compile-time constants.
+    ///
+    /// (this is distinct from the question of "is the variable declared by this param a compile-time
+    /// constant", which should be answered by instead checking [`Self::qualifier`].)
+    ///
+    /// Args will be checked for const-ness during one of the early compile passes.
+    pub const_arg_reason: Option<ConstArgReason>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstArgReason {
+    /// The encoding of this parameter does not permit registers.
+    Encoding(crate::llir::ArgEncoding),
+    /// Exported functions in EoSD ECL can only take `const` values due to limitations of the `call` instruction.
+    EosdEcl,
 }
 
 impl Signature {
@@ -751,6 +766,20 @@ impl Signature {
     pub fn max_args(&self) -> usize {
         self.params.len()
     }
+
+    /// Matches arguments at a call site to their corresponding parameters.
+    /// (assuming that the argument count has already been checked)
+    pub fn match_params_to_args<'a>(&'a self, args: &'a [Sp<ast::Expr>]) -> MatchedArgs<'_> {
+        // TODO: variadics, keywords?
+        let positional_pairs = Box::new(self.params.iter().zip(args));
+        MatchedArgs { positional_pairs }
+    }
+}
+
+pub struct MatchedArgs<'a> {
+    // FIXME: Unbox once existential types are a thing.
+    /// Individual (non-variadic), positional arguments.
+    pub positional_pairs: Box<dyn Iterator<Item=(&'a SignatureParam, &'a Sp<ast::Expr>)> + 'a>,
 }
 
 fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[Sp<ast::FuncParam>]) -> Signature {
@@ -760,6 +789,8 @@ fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[Sp
             name: ident.clone(),
             qualifier: qualifier.clone(),
             default: None,
+            // FIXME the match is to remind us to add a new ConstArgReason when inline funcs with 'const' params exist
+            const_arg_reason: qualifier.as_ref().map(|q| match q.value { }),
         }).collect(),
         return_ty: return_ty_keyword.sp_map(ast::TypeKeyword::expr_ty),
     }
