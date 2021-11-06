@@ -922,9 +922,12 @@ pub (in crate::llir::lower) fn assign_registers(
     code: &mut [Sp<LowerStmt>],
     global_scratch_results: &mut PersistentState,
     hooks: &dyn LanguageHooks,
-    this_sub_info: Option<&crate::ecl::EosdExportedSub>,
+    export_info: Option<&crate::ecl::EosdExportedSubs>,
+    def_id: Option<DefId>,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
+    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(hooks.language(), reg));
+
     let mut local_regs = IdMap::<DefId, (RegId, ScalarType, Span)>::new();
     let mut has_used_scratch: Option<Span> = None;
     let mut has_anti_scratch_ins: Option<Span> = None;
@@ -935,8 +938,9 @@ pub (in crate::llir::lower) fn assign_registers(
     // as those parameters may alias registers.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     enum UsedName { RegId(RegId), DefId(DefId) }
+    struct UsedNameData<'a> { span: Span, note: Option<&'a str> }
 
-    let mut names_used_for_regs = IdMap::<RegId, IdMap<UsedName, Span>>::new();
+    let mut names_used_for_regs = IdMap::<RegId, IdMap<UsedName, UsedNameData>>::new();
 
     let used_regs = get_used_regs(code);
 
@@ -948,16 +952,21 @@ pub (in crate::llir::lower) fn assign_registers(
 
     for (&reg, &span) in &used_regs {
         names_used_for_regs.entry(reg).or_insert_with(Default::default)
-            .insert(UsedName::RegId(reg), span);
+            .insert(UsedName::RegId(reg), UsedNameData { span, note: None });
     }
 
     // assign registers to the params in accordance with however calls in this game work
-    if let Some(this_sub_info) = this_sub_info {
+    let param_note; // defined out here for lifetime purposes
+    assert_eq!(export_info.is_some(), def_id.is_some());
+    if let (Some(export_info), Some(def_id)) = (export_info, def_id) {
+        param_note = export_info.reg_usage_explanation(ctx);
+        let this_sub_info = &export_info.subs[&def_id];
+
         for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers() {
             local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
 
             names_used_for_regs.entry(param_reg).or_insert_with(Default::default)
-                .insert(UsedName::DefId(param_def_id), param_span);
+                .insert(UsedName::DefId(param_def_id), UsedNameData { note: param_note.as_deref(), span: param_span });
 
             // make the register ineligible for scratch.  This only really affects EoSD.
             for vec in unused_regs.values_mut() {
@@ -1024,9 +1033,12 @@ pub (in crate::llir::lower) fn assign_registers(
     // it is already in use.
     for (reg, used_names) in names_used_for_regs {
         if used_names.len() > 1 {
-            let mut diag = warning!("register {} used under multiple names", reg);
-            for (_, span) in used_names {
+            let mut diag = warning!("register {} used under multiple names", stringify_reg(reg));
+            for (_, UsedNameData { span, note }) in used_names {
                 diag.primary(span, format!(""));
+                if let Some(note) = note {
+                    diag.note(format!("{}", note));
+                }
             }
             ctx.emitter.emit(diag).ignore();
         }

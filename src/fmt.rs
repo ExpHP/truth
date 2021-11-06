@@ -4,7 +4,11 @@ use crate::ast::{self, meta, Meta};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::Sp;
 
-/// Trait for displaying Touhou script code.
+/// Trait for pretty-printing truth AST nodes.
+///
+/// This is not provided via [`std::fmt::Display`] because additional pretty-printing
+/// state must be tracked.  Error messages wishing to display something may use the
+/// [`stringify`] function.
 ///
 /// Typically you do not need to import this if you want to display stuff; instead,
 /// construct a [`Formatter`] and use the [`Formatter::fmt`] inherent method.
@@ -12,14 +16,14 @@ pub trait Format {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result;
 }
 
-/// Lossily write a value to string, for `eprintln` debugging.
+/// Write a value to string, for `eprintln` debugging.
 ///
 /// Defaults to a fairly large max width, mostly to reduce console spam for `eprintln`.
 pub fn stringify<T: Format>(value: &T) -> String {
     stringify_with(value, Config::new().max_columns(1000))
 }
 
-/// Lossily write a value to string, for `eprintln` debugging and `insta` tests.
+/// Write a value to string, for `eprintln` debugging and `insta` tests.
 pub fn stringify_with<T: Format>(value: &T, config: Config) -> String {
     let mut f = Formatter::with_config(vec![], config);
     f.fmt(value).expect("failed to write to vec!?");

@@ -438,6 +438,11 @@ impl EosdExportedSubs {
         }
         errors.into_result(EosdExportedSubs { subs })
     }
+
+    pub fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
+        let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, RegId(reg)));
+        Some(format!("EoSD ECL subs pass their arguments in {} and {}", stringify_reg(-10001), stringify_reg(-10005)))
+    }
 }
 
 impl EosdExportedSub {

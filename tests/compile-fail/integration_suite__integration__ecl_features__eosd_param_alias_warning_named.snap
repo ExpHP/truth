@@ -2,12 +2,14 @@
 source: tests/integration/ecl_features.rs
 expression: stderr
 ---
-warning: register -10005 used under multiple names
+warning: register F0 used under multiple names
   ┌─ <input>:7:10
   │
 7 │ void foo(float x, int a) {
   │          ^^^^^^^
 8 │     %F0 = 24.0;
   │     ^^^
+  │
+  = EoSD ECL subs pass their arguments in I0 and F0
 
 

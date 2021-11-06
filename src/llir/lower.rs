@@ -172,11 +172,8 @@ fn lower_sub_ast_to_instrs(
     sub_lowerer.lower_sub_ast(code)?;
     let mut out = sub_lowerer.out;
 
-    assert_eq!(lowerer.export_info.is_some(), def_id.is_some());
-    let this_sub_info = lowerer.export_info.map(|info| &info.subs[&def_id.unwrap()]);
-
     // And now postprocess
-    assign_registers(&mut out, &mut lowerer.inner, hooks, this_sub_info, &ctx)?;
+    assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.export_info, def_id, &ctx)?;
 
     let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
