@@ -293,7 +293,7 @@ script script0 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![10]);
     },
 );
 
@@ -319,7 +319,7 @@ script script0 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![10]);
     },
 );
 
@@ -348,7 +348,7 @@ script script0 {
         let anm = output.read_anm(format);
         assert_eq!(anm.entries[0].sprites[0].id, Some(42));
         assert_eq!(anm.entries[0].sprites[1].id, Some(12));
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![10, 0, 0, 0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![10]);
     },
 );
 
@@ -427,7 +427,7 @@ script 23 script23 {
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![42, 0, 0, 0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![42]);
     },
 );
 
@@ -471,6 +471,6 @@ script 101 another {}
         assert_eq!(anm.entries[1].scripts[1].id, 101);
 
         // the value of the const should be the *index across all entries* (2), not the ID (25)
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, vec![2, 0, 0, 0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![2]);
     },
 );

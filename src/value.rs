@@ -103,11 +103,7 @@ impl ScalarType {
     }
 
     pub fn sigil(self) -> Option<ast::VarSigil> {
-        match self {
-            ScalarType::Int => Some(ast::VarSigil::Int),
-            ScalarType::Float => Some(ast::VarSigil::Float),
-            ScalarType::String => None,
-        }
+        ast::VarSigil::from_ty(self)
     }
 }
 
@@ -116,8 +112,17 @@ impl ScalarType {
 pub enum VarType { Untyped, Typed(ScalarType) }
 
 /// The type of an expression, which can be void. (but is never untyped)
+///
+/// This includes all types that can appear in the abstract language, including strings.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ExprType { Void, Value(ScalarType) }
+
+/// The type of a register at a specific read or write site.
+///
+/// In contrast to [`ExprType`] and [`VarType`], there is only int and float.
+// FIXME: historically VarSigil has been 'abused' for this meaning.  At this time however I don't see
+//        any compelling reason to split the two up.
+pub use ast::VarSigil as ReadType;
 
 impl VarType {
     pub fn as_known_ty(self) -> Option<ScalarType> {

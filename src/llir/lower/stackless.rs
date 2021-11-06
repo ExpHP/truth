@@ -12,7 +12,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
 use crate::resolve::{DefId, RegId, NodeId, IdMap};
-use crate::value::ScalarType;
+use crate::value::{ScalarType, ReadType};
 use crate::context::CompilerContext;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 
@@ -769,7 +769,7 @@ impl SingleSubLowerer<'_, '_> {
 // Basically, this function performs this check at the time that we are trying to generate the Var expression
 // that would be used to read the temporary.  This does feel like an unusual time to perform this check,
 // but it works out this way because we need to go from a type with a string variant to a type that has none.
-fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ast::VarSigil, Diagnostic> {
+fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ReadType, Diagnostic> {
     ty.sigil().ok_or_else(|| error!(
         message("runtime temporary of non-numeric type"),
         primary(span, "temporary {} cannot be created", ty.descr_plural())
@@ -917,16 +917,17 @@ impl PersistentState {
     }
 }
 
-/// Eliminates all `LowerArg::Local`s by allocating registers for them.
+/// Eliminates all `LowerArg::Local`s in a function body by allocating registers for them.
 pub (in crate::llir::lower) fn assign_registers(
     code: &mut [Sp<LowerStmt>],
     global_scratch_results: &mut PersistentState,
-    format: &dyn LanguageHooks,
+    hooks: &dyn LanguageHooks,
+    this_sub_info: Option<&crate::ecl::EosdExportedSub>,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
     let used_regs = get_used_regs(code);
 
-    let mut unused_regs = format.general_use_regs();
+    let mut unused_regs = hooks.general_use_regs();
     for vec in unused_regs.values_mut() {
         vec.retain(|reg| !used_regs.contains(reg));
         vec.reverse();  // since we'll be popping from these lists
@@ -936,6 +937,18 @@ pub (in crate::llir::lower) fn assign_registers(
     let mut has_used_scratch: Option<Span> = None;
     let mut has_anti_scratch_ins: Option<Span> = None;
 
+    // assign registers to the params in accordance with however calls in this game work
+    if let Some(this_sub_info) = this_sub_info {
+        for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers() {
+            local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
+
+            // make the register ineligible for scratch.  This only really affects EoSD.
+            for vec in unused_regs.values_mut() {
+                vec.retain(|&scratch_reg| scratch_reg != param_reg);
+            }
+        }
+    }
+
     for stmt in code {
         match &mut stmt.value {
             &mut LowerStmt::RegAlloc { def_id } => {
@@ -944,30 +957,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 let required_ty = ctx.defs.var_inherent_ty(def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
                 let reg = unused_regs[required_ty].pop().ok_or_else(|| {
-                    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(format.language(), reg));
-
-                    let mut error = error!(
-                        message("script too complex to compile"),
-                        primary(stmt.span, "no more registers of this type!"),
-                    );
-                    for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
-                        if scratch_ty == required_ty {
-                            error.secondary(scratch_span, format!("{} holds this", stringify_reg(scratch_reg)));
-                        }
-                    }
-                    let regs_of_ty = format.general_use_regs()[required_ty].clone();
-                    let unavailable_strs = regs_of_ty.iter().copied()
-                        .filter(|reg| used_regs.contains(reg))
-                        .map(stringify_reg)
-                        .collect::<Vec<_>>();
-                    if !unavailable_strs.is_empty() {
-                        error.note(format!(
-                            "the following registers are unavailable due to explicit use: {}",
-                            unavailable_strs.join(", "),
-                        ));
-                    }
-
-                    ctx.emitter.emit(error)
+                    script_too_complex(stmt, hooks, required_ty, &used_regs, &local_regs, &ctx)
                 })?;
 
                 assert!(local_regs.insert(def_id, (reg, required_ty, stmt.span)).is_none());
@@ -978,7 +968,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 unused_regs[inherent_ty].push(reg);
             },
             LowerStmt::Instr(instr) => {
-                if let Some(how_bad) = format.instr_disables_scratch_regs(instr.opcode) {
+                if let Some(how_bad) = hooks.instr_disables_scratch_regs(instr.opcode) {
                     match how_bad {
                         HowBadIsIt::OhItsJustThisOneFunction => {
                             has_anti_scratch_ins.get_or_insert(stmt.span);
@@ -1016,6 +1006,41 @@ pub (in crate::llir::lower) fn assign_registers(
     }
 
     Ok(())
+}
+
+/// Generate a "script too complex" error.
+fn script_too_complex(
+    stmt: &Sp<LowerStmt>,
+    hooks: &dyn LanguageHooks,
+    required_ty: ScalarType,
+    used_regs: &BTreeSet<RegId>,
+    local_regs: &HashMap<DefId, (RegId, ScalarType, Span)>,
+    ctx: &CompilerContext,
+) -> ErrorReported {
+    let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(hooks.language(), reg));
+
+    let mut error = error!(
+        message("script too complex to compile"),
+        primary(stmt.span, "no more registers of this type!"),
+    );
+    for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
+        if scratch_ty == required_ty {
+            error.secondary(scratch_span, format!("{} holds this", stringify_reg(scratch_reg)));
+        }
+    }
+    let regs_of_ty = hooks.general_use_regs()[required_ty].clone();
+    let unavailable_strs = regs_of_ty.iter().copied()
+        .filter(|reg| used_regs.contains(reg))
+        .map(stringify_reg)
+        .collect::<Vec<_>>();
+    if !unavailable_strs.is_empty() {
+        error.note(format!(
+            "the following registers are unavailable due to explicit use: {}",
+            unavailable_strs.join(", "),
+        ));
+    }
+
+    ctx.emitter.emit(error)
 }
 
 // Gather all explicitly-used registers in the source. (so that we can avoid using them for scratch)

@@ -379,3 +379,31 @@ pub mod expected {
 
 #[macro_use]
 pub mod source_test;
+
+// =============================================================================
+
+/// Convert a series of values into a blob, typically for comparison against a raw instruction.
+macro_rules! blobify {
+    ($($args:expr),* $(,)?) => {{
+        #[allow(unused_mut)]
+        let mut blob = vec![];
+        $( crate::integration_impl::Blobify::append_to(&$args, &mut blob); )*
+        blob
+    }};
+}
+
+pub trait Blobify {
+    fn append_to(&self, blob: &mut Vec<u8>);
+}
+
+impl Blobify for i32 {
+    fn append_to(&self, blob: &mut Vec<u8>) {
+        blob.extend_from_slice(&self.to_le_bytes())
+    }
+}
+
+impl Blobify for f32 {
+    fn append_to(&self, blob: &mut Vec<u8>) {
+        blob.extend_from_slice(&self.to_bits().to_le_bytes())
+    }
+}

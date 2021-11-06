@@ -334,7 +334,7 @@ fn compile(
     let mut lowerer = crate::llir::Lowerer::new(hooks);
     let mut scripts = IndexMap::new();
     script_code.iter().map(|(name, code)| {
-        let instrs = lowerer.lower_sub(&code.0, ctx)?;
+        let instrs = lowerer.lower_sub(&code.0, None, ctx)?;
         scripts.insert(name.value.clone(), instrs);
         Ok(())
     }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));

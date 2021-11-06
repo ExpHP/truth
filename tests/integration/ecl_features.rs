@@ -361,6 +361,8 @@ source_test!(
 
 // =============================================================================
 
+// ---------------
+// call signatures
 source_test!(
     ECL_06, eosd_exported_fn_bad_siggy_string,
     // FIXME this has to be separate from the next test because currently it's a PARSE ERROR?!?!
@@ -383,6 +385,26 @@ void bad4(float x, int y, float z) {}
     expect_error: "EoSD",
 );
 
+source_test!(
+    ECL_06, eosd_exported_fn_bad_siggy_return_type,
+    items: r#"
+int bad5(int x) { return 2; }
+"#,
+    expect_error: "not supported",
+);
+
+source_test!(
+    ECL_06, eosd_exported_fn_const_fn_name_clash,
+    items: r#"
+    void name() {}
+    const void name() {}
+    "#,
+    expect_error: "redefinition",
+);
+
+// -------------
+// call sites
+
 const EOSD_CALL_TEST_FUNCS: &'static str = r#"
 void i_f(int x, float y) {}
 void f_i(float y, int x) {}
@@ -400,9 +422,9 @@ source_test!(
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
-        assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, vec![0, 0, 0, 0, 30, 0, 0, 0, 0, 0, 0x80, 0x3f]);
-        assert_eq!(ecl.subs.last().unwrap().1[1].args_blob, vec![1, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0x80, 0x3f]);
-        assert_eq!(ecl.subs.last().unwrap().1[2].args_blob, vec![2, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, blobify![0, 30, 1.0]);
+        assert_eq!(ecl.subs.last().unwrap().1[1].args_blob, blobify![1, 40, 1.0]);
+        assert_eq!(ecl.subs.last().unwrap().1[2].args_blob, blobify![2, 50, 0.0]);
     },
 );
 
@@ -414,7 +436,7 @@ source_test!(
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
-        assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, vec![2, 0, 0, 0, 137, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, blobify![2, 137, 0]);
     },
 );
 
@@ -447,11 +469,65 @@ source_test!(
     check_compiled: |_, _| {},
 );
 
+// -------------
+// param use in function bodies
+
 source_test!(
-    ECL_06, eosd_exported_fn_const_fn_name_clash,
+    ECL_06, eosd_param_assignment,
     items: r#"
-    void name() {}
-    const void name() {}
-    "#,
-    expect_error: "redefinition",
+void i_f(int a, float x) {
+    $REG[-10003] = a;
+    %REG[-10006] = x;
+}
+
+void f_i(float x, int a) {
+    $REG[-10003] = a;
+    %REG[-10006] = x;
+}
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        for index in 0..2 {
+            let sub = &ecl.subs[index];
+            // what we're checking here is the -10001 and -10005
+            assert_eq!(sub[0].args_blob, blobify!(-10003, -10001));
+            assert_eq!(sub[1].args_blob, blobify!(-10006, -10005.0));
+        }
+    },
+);
+
+source_test!(
+    ECL_06, eosd_param_alias_warning_reg,
+    items: r#"
+void foo(float x, int a) {
+    %REG[-10004] = 24.0;
+    %REG[-10002] = x;
+}
+"#,
+    expect_warning: "aliases",
+);
+
+source_test!(
+    ECL_06, eosd_param_alias_warning_named,
+    items: r#"
+void foo(float x, int a) {
+    %F0 = 24.0;
+    %F2 = x;
+}
+"#,
+    expect_warning: "aliases",
+);
+
+source_test!(
+    // make sure scratch regs cannot clobber a parameter
+    ECL_06, eosd_param_is_not_scratch,
+    items: r#"
+void i_f(int a, float x) {
+    float t1 = 1.0;
+    float t2 = 2.0;
+    float t3 = 3.0;
+    float t4 = 4.0;
+}
+"#,
+    expect_error: "too complex",
 );

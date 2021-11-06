@@ -255,7 +255,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     let old_stmts = parsed_block.0;
     let mut errors = truth::error::ErrorFlag::new();
     let mut lowerer = llir::Lowerer::new(&hooks);
-    let instrs = lowerer.lower_sub(&old_stmts, ctx).unwrap_or_else(|e| { errors.set(e); vec![] });
+    let instrs = lowerer.lower_sub(&old_stmts, None, ctx).unwrap_or_else(|e| { errors.set(e); vec![] });
     lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
 
     errors.into_result(())?;
@@ -310,7 +310,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut lowerer = llir::Lowerer::new(&hooks);
         let mut errors = truth::error::ErrorFlag::new();
 
-        lowerer.lower_sub(&parsed_block.0, truth.ctx()).unwrap_or_else(|e| { errors.set(e); vec![] });
+        lowerer.lower_sub(&parsed_block.0, None, truth.ctx()).unwrap_or_else(|e| { errors.set(e); vec![] });
         lowerer.finish(truth.ctx()).unwrap_or_else(|e| errors.set(e));
         errors.into_result(())
     })().unwrap_err().ignore();

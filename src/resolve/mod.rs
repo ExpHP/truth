@@ -240,7 +240,7 @@ mod resolve_vars {
                         }
 
                         // now resolve the body
-                        ast::walk_block(self, code);
+                        self.visit_block(code);
 
                         self.rib_stacks.leave_rib(Namespace::Vars, RibKind::Params);
                         self.rib_stacks.leave_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "function" });

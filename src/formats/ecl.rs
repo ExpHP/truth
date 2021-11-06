@@ -3,13 +3,13 @@ use enum_map::EnumMap;
 
 use crate::raw;
 use crate::ast;
-use crate::pos::Sp;
+use crate::pos::{Sp, Span};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::value::{ScalarType, ScalarValue, VarType};
+use crate::value::{ScalarType, ScalarValue, ReadType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
 use crate::resolve::{RegId, DefId};
 use crate::context::CompilerContext;
@@ -164,7 +164,7 @@ fn compile(
             ast::Item::ConstVar { .. } => {},
             ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
             ast::Item::Timeline { code, .. } => {
-                let instrs = timeline_lowerer.lower_sub(&code.0, ctx)?;
+                let instrs = timeline_lowerer.lower_sub(&code.0, None, ctx)?;
                 timelines.push(instrs)
             },
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
@@ -188,7 +188,7 @@ fn compile(
                     )));
                 }
 
-                let instrs = ecl_lowerer.lower_sub(&code.0, ctx).unwrap_or_else(|e| {
+                let instrs = ecl_lowerer.lower_sub(&code.0, Some(def_id), ctx).unwrap_or_else(|e| {
                     errors.set(e);
                     vec![]
                 });
@@ -417,6 +417,7 @@ pub struct EosdExportedSub {
     // EoSD params have at most one of each type.
     pub int_param: Option<(usize, Sp<ast::FuncParam>)>,
     pub float_param: Option<(usize, Sp<ast::FuncParam>)>,
+    param_info: Vec<(DefId, ReadType, Span)>,
 }
 
 impl EosdExportedSubs {
@@ -447,6 +448,7 @@ impl EosdExportedSub {
             index: sub_index as _,
             name: func.ident.clone(),
             int_param: None, float_param: None,
+            param_info: Default::default(),
         };
 
         for (param_index, param) in func.params.iter().enumerate() {
@@ -457,13 +459,19 @@ impl EosdExportedSub {
                 )));
             }
 
-            let dest_option = match param.ty_keyword.var_ty() {
-                VarType::Typed(ScalarType::Int) => &mut out.int_param,
-                VarType::Typed(ScalarType::Float) => &mut out.float_param,
-                _ => return Err(ctx.emitter.emit(error!(
+            let (dest_option, param_ty);
+            match param.ty_keyword.var_ty().as_known_ty().and_then(ReadType::from_ty) {
+                None => return Err(ctx.emitter.emit(error!(
                     message("invalid type for param in EoSD ECL"),
                     primary(param.ty_keyword, ""),
                 ))),
+                Some(ty) => {
+                    param_ty = ty;
+                    dest_option = match ty {
+                        ReadType::Int => &mut out.int_param,
+                        ReadType::Float => &mut out.float_param,
+                    };
+                },
             };
 
             if dest_option.is_some() {
@@ -473,12 +481,24 @@ impl EosdExportedSub {
                     note("EoSD ECL functions are limited to 1 int and 1 float"),
                 )))
             }
-            *dest_option = Some((param_index, param.clone()))
+            *dest_option = Some((param_index, param.clone()));
+
+            let param_def_id = ctx.resolutions.expect_def(&param.ident);
+            out.param_info.push((param_def_id, param_ty, param.span));
         }
         Ok(out)
     }
 
-
+    /// Produces the RegId for each register, along with other info needed by the register allocator.
+    pub fn param_registers(&self) -> impl IntoIterator<Item=(DefId, RegId, ReadType, Span)> + '_ {
+        self.param_info.iter().map(|&(def_id, ty, span)| {
+            let reg = match ty {
+                ReadType::Int => RegId(-10001),
+                ReadType::Float => RegId(-10005),
+            };
+            (def_id, reg, ty, span)
+        })
+    }
 }
 
 // =============================================================================

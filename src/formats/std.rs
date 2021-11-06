@@ -347,7 +347,7 @@ fn compile_std(
     let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.emitter.emit(e))?;
     let mut errors = ErrorFlag::new();
     let mut lowerer = crate::llir::Lowerer::new(hooks);
-    out.script = lowerer.lower_sub(&main_sub.0, ctx).unwrap_or_else(|e| {
+    out.script = lowerer.lower_sub(&main_sub.0, None, ctx).unwrap_or_else(|e| {
         errors.set(e);
         vec![] // dummy instructions so we can call lowerer.finish before returning
     });

@@ -202,6 +202,15 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, local_variable,
+    main_body: r#"
+        int x = 3;
+        float y = 3.0;
+    "#,
+    check_compiled: |_, _| {},
+);
+
+source_test!(
     // this may become grammatically correct at some point; the test is here to make
     // sure it fails gracefully from the getgo
     ANM_10, local_named_after_reg,

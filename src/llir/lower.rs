@@ -130,14 +130,18 @@ impl<'a> Lowerer<'a> {
         Lowerer { hooks, inner: Default::default(), export_info: None }
     }
 
-    /// Add information about exported subroutines.
+    /// Add information about exported subroutines, in languages that support calls.
     pub fn with_export_info(mut self, export_info: &'a crate::ecl::EosdExportedSubs) -> Self {
         self.export_info = Some(export_info);
         self
     }
 
-    pub fn lower_sub(&mut self, code: &[Sp<ast::Stmt>], ctx: &mut CompilerContext<'_>) -> Result<Vec<RawInstr>, ErrorReported> {
-        lower_sub_ast_to_instrs(self, code, ctx)
+    /// Compile a single sub.
+    ///
+    /// `def_id` should be provided if and only if [`Self::with_export_info`] has been called;
+    /// it is used to look up information about the current sub's parameter list.
+    pub fn lower_sub(&mut self, code: &[Sp<ast::Stmt>], def_id: Option<DefId>, ctx: &mut CompilerContext<'_>) -> Result<Vec<RawInstr>, ErrorReported> {
+        lower_sub_ast_to_instrs(self, code, def_id, ctx)
     }
 
     /// Report any errors that can only be reported once all functions have been compiled.
@@ -151,6 +155,7 @@ impl<'a> Lowerer<'a> {
 fn lower_sub_ast_to_instrs(
     lowerer: &mut Lowerer,
     code: &[Sp<ast::Stmt>],
+    def_id: Option<DefId>,
     ctx: &mut CompilerContext<'_>,
 ) -> Result<Vec<RawInstr>, ErrorReported> {
     use stackless::{SingleSubLowerer, assign_registers};
@@ -167,8 +172,11 @@ fn lower_sub_ast_to_instrs(
     sub_lowerer.lower_sub_ast(code)?;
     let mut out = sub_lowerer.out;
 
+    assert_eq!(lowerer.export_info.is_some(), def_id.is_some());
+    let this_sub_info = lowerer.export_info.map(|info| &info.subs[&def_id.unwrap()]);
+
     // And now postprocess
-    assign_registers(&mut out, &mut lowerer.inner, hooks, &ctx)?;
+    assign_registers(&mut out, &mut lowerer.inner, hooks, this_sub_info, &ctx)?;
 
     let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;

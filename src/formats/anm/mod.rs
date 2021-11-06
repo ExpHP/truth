@@ -888,7 +888,7 @@ fn compile(
     groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
             let (_, sp_pat![id]) = script_ids[&name.value];
-            let instrs = lowerer.lower_sub(&code.0, ctx)?;
+            let instrs = lowerer.lower_sub(&code.0, None, ctx)?;
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }
