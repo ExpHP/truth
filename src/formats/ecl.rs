@@ -102,19 +102,37 @@ fn compile(
     let mut ast = ast.clone();
     crate::passes::resolution::assign_languages(&mut ast, LanguageKey::Ecl, ctx)?;
 
+    // an early pass to define global constants for sub names
+    //
+    // (these become relevant when using ins_ syntax or instruction aliases, but not call sugar)
+    let sub_ids = gather_sub_ids(&ast, ctx)?;
+    for (index, sub_name) in sub_ids.values().enumerate() {
+        let const_value: Sp<ast::Expr> = sp!(sub_name.span => (index as i32).into());
+        ctx.define_auto_const_var(sub_name.clone(), ScalarType::Int, const_value);
+    }
+
     // preprocess
     let sub_info;
     let ast = {
         let mut ast = ast;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
 
-        // gather information about exported subs
+        // FIXME: Q: Heeeeey exp, why do you have to make another pass over all the exported functions
+        //           when you already made a pass a couple of lines above to define global constants?
+        //        A: Well you see, a whole bunch of internal design bits just sort of gnashed together
+        //           and started making a horrible noise:
+        //            1. When lowering a call, to gather info about the called sub, the Correct Thing
+        //               To Do is to use the DefId.
+        //            2. That means that when we generate this data, it should be keyed by DefId.
+        //            3. That means DefIds have to exist.
+        //            4. DefIds for functions are generated during name resolution.
+        //               (imho right now this is the part that seems sus)
+        //            5. That means name resolution has to have run before this step.
+        //            6. But name resolution can only run AFTER generating the consts used by non-call-sugar
+        //               calls, or else nothing will resolve to them.
+        //
+        // gather information about exported subs to use for handling call sugar.
         sub_info = EosdExportedSubs::extract_from_items(&ast.items, ctx)?;
-        // define global constants for sub names, for use in places where call sugar is unavailable.
-        for sub in sub_info.subs.values() {
-            let const_value: Sp<ast::Expr> = sp!(sub.name.span => (sub.index).into());
-            ctx.define_auto_const_var(sub.name.clone(), ScalarType::Int, const_value);
-        }
 
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
@@ -129,7 +147,7 @@ fn compile(
     let mut errors = ErrorFlag::new(); // delay returns for panic bombs
     let mut subs = IndexMap::new();
     let mut timelines = vec![];
-    let mut ecl_lowerer = llir::Lowerer::new(&*format.ecl_hooks);
+    let mut ecl_lowerer = llir::Lowerer::new(&*format.ecl_hooks).with_export_info(&sub_info);
     let mut timeline_lowerer = llir::Lowerer::new(&*format.timeline_hooks);
 
     ast.items.iter().map(|item| {
@@ -157,19 +175,10 @@ fn compile(
                 )));
             },
 
-            ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, ref params, ty_keyword }) => {
+            ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, params: _, ty_keyword }) => {
                 // make double sure that the order of the subs we're compiling matches the numbers we assigned them
                 let def_id = ctx.resolutions.expect_def(ident);
                 assert_eq!(sub_info.subs.get_index_of(&def_id).unwrap(), subs.len());
-
-                if params.len() > 0 {
-                    subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
-                    let ast::FuncParam { ident: first_param_name, ..} = &params[0].value;
-                    return Err(emit(error!(
-                        message("parameters are not supported in old-style ECL subs like '{}'", ident),
-                        primary(first_param_name, "unsupported parameter"),
-                    )));
-                }
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
@@ -199,31 +208,31 @@ fn compile(
     Ok(OldeEclFile { subs, timelines, binary_filename: None })
 }
 
-// fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
-//     let mut script_ids = IndexMap::new();
-//     for item in &ast.items {
-//         match &item.value {
-//             &ast::Item::Func(ast::ItemFunc { qualifier: None, ref ident, .. }) => {
-//                 // give a better error on redefinitions than the generic "ambiguous auto const" message
-//                 match script_ids.entry(ident.value.as_raw().clone()) {
-//                     indexmap::map::Entry::Vacant(e) => {
-//                         e.insert(ident.clone());
-//                     },
-//                     indexmap::map::Entry::Occupied(e) => {
-//                         let prev_ident = e.get();
-//                         return Err(ctx.emitter.emit(error!(
-//                             message("duplicate script '{}'", ident),
-//                             primary(ident, "redefined here"),
-//                             secondary(prev_ident, "originally defined here"),
-//                         )));
-//                     },
-//                 }
-//             },
-//             _ => {},
-//         }
-//     }
-//     Ok(script_ids)
-// }
+fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
+    let mut script_ids = IndexMap::new();
+    for item in &ast.items {
+        match &item.value {
+            &ast::Item::Func(ast::ItemFunc { qualifier: None, ref ident, .. }) => {
+                // give a better error on redefinitions than the generic "ambiguous auto const" message
+                match script_ids.entry(ident.value.as_raw().clone()) {
+                    indexmap::map::Entry::Vacant(e) => {
+                        e.insert(ident.clone());
+                    },
+                    indexmap::map::Entry::Occupied(e) => {
+                        let prev_ident = e.get();
+                        return Err(ctx.emitter.emit(error!(
+                            message("duplicate script '{}'", ident),
+                            primary(ident, "redefined here"),
+                            secondary(prev_ident, "originally defined here"),
+                        )));
+                    },
+                }
+            },
+            _ => {},
+        }
+    }
+    Ok(script_ids)
+}
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
     error!(
@@ -566,7 +575,7 @@ impl LanguageHooks for OldeEclHooks {
                     (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 5),
                     (I::CondJmp2A(ScalarType::Int), 27),
                     (I::CondJmp2A(ScalarType::Float), 28),
-                    // (I::Call, 35),
+                    (I::CallEosd, 35),
                     // (I::Return, 36),
                 ];
                 I::register_binary_ops_of_type(&mut out, 13, ScalarType::Int);

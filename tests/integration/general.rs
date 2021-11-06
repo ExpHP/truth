@@ -349,8 +349,7 @@ source_test!(
     main_body: r#"
         int x = foo(@mask=0b1, 12);
     "#,
-    // FIXME: Eventually, const funcs in anm will be supported.
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: "not an instruction",
 );
 
 source_test!(
@@ -361,8 +360,7 @@ source_test!(
     main_body: r#"
         foo(@mask=0b1, 12);
     "#,
-    // FIXME: Eventually, inline funcs in anm will be supported.
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_error: "not an instruction",
 );
 
 source_test!(

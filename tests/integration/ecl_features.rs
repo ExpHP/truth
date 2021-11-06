@@ -226,14 +226,6 @@ source_test!(
 );
 
 source_test!(
-    ECL_08, olde_unsupported_param,
-    items: r#"
-void bouba(int x) {}
-"#,
-    expect_error: "parameters are not supported",
-);
-
-source_test!(
     ECL_08, olde_unsupported_return_type,
     items: r#"
 int bouba() {
@@ -370,10 +362,18 @@ source_test!(
 // =============================================================================
 
 source_test!(
-    ECL_06, eosd_exported_fn_bad_siggies,
+    ECL_06, eosd_exported_fn_bad_siggy_string,
+    // FIXME this has to be separate from the next test because currently it's a PARSE ERROR?!?!
+    //       WHY DID I IMPLEMENT THIS IN THE PARSER
     items: r#"
 void bad1(string arg) {}
+"#,
+    expect_error: "only possible for const",
+);
 
+source_test!(
+    ECL_06, eosd_exported_fn_bad_siggies,
+    items: r#"
 void bad2(var x) {}
 
 void bad3(int x, int y) {}
@@ -394,13 +394,27 @@ source_test!(
     ECL_06, eosd_exported_fn_param_order,
     items: EOSD_CALL_TEST_FUNCS,
     main_body: r#"
-    i_f(30, 42.0);
-    f_i(42.0, 30);
-    i(30);
+    i_f(30, 1.0);
+    f_i(1.0, 40);
+    i(50);
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, vec![0, 0, 0, 0, 30, 0, 0, 0, 0, 0, 0x80, 0x3f]);
+        assert_eq!(ecl.subs.last().unwrap().1[1].args_blob, vec![1, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0x80, 0x3f]);
+        assert_eq!(ecl.subs.last().unwrap().1[2].args_blob, vec![2, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0]);
+    },
+);
 
+source_test!(
+    ECL_06, eosd_simplifiable_const_arg,
+    items: EOSD_CALL_TEST_FUNCS,
+    main_body: r#"
+    i((20 * 5) + 37);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, vec![2, 0, 0, 0, 137, 0, 0, 0, 0, 0, 0, 0]);
     },
 );
 
@@ -410,27 +424,27 @@ source_test!(
     main_body: r#"
     i(@blob="ffffffff");
 "#,
-    expect_error: "TODO",
+    expect_error: "not an instruction",
 );
 
 source_test!(
     ECL_06, eosd_exported_fn_no_pseudos,
     items: EOSD_CALL_TEST_FUNCS,
     main_body: r#"
-    i(@mask=3);
+    i(@mask=3, 4);
 "#,
-    expect_error: "TODO",
+    expect_error: "not an instruction",
 );
 
 source_test!(
     ECL_06, eosd_exported_fn_offsetof,
     items: EOSD_CALL_TEST_FUNCS,
-    // not sure what this should do but make shure it doesn't panic
+    // not sure what this should do but make sure it doesn't panic
     main_body: r#"
         i(offsetof(label));
     label:
 "#,
-    expect_error: "TODO",
+    check_compiled: |_, _| {},
 );
 
 source_test!(
@@ -439,5 +453,5 @@ source_test!(
     void name() {}
     const void name() {}
     "#,
-    expect_error: "TODO",
+    expect_error: "redefinition",
 );

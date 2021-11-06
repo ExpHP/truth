@@ -433,6 +433,17 @@ impl ExprTypeChecker<'_, '_> {
             self.pseudo_check(kind, value_ty, value.span)
         }).collect_with_recovery()?;
 
+        // Only instruction-like calls are allowed to have pseudo-args
+        if self.ctx.func_opcode_from_ast(&call.name).is_err() {
+            if let Some(pseudo) = call.pseudos.get(0) {
+                return Err(self.emit(error!(
+                    message("forbidden pseudo-arg in function call"),
+                    primary(pseudo, ""),
+                    secondary(&call.name, "not an instruction"),
+                )));
+            }
+        }
+
         // '@blob=' is incompatible with normal args
         if let Some(pseudo) = call.blob() {
             if let Some(normal_arg) = args.get(0) {
