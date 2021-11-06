@@ -2,7 +2,7 @@
 //!
 //! Responsible for compilation of expressions into instructions that use temporary registers.
 
-use std::collections::{HashMap, BTreeSet};
+use std::collections::{HashMap, BTreeMap};
 
 use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg, SimpleArg};
@@ -925,22 +925,39 @@ pub (in crate::llir::lower) fn assign_registers(
     this_sub_info: Option<&crate::ecl::EosdExportedSub>,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
+    let mut local_regs = IdMap::<DefId, (RegId, ScalarType, Span)>::new();
+    let mut has_used_scratch: Option<Span> = None;
+    let mut has_anti_scratch_ins: Option<Span> = None;
+
+    // FIXME:  Should this be here?  Stack-based ECL might want this check as well...
+    // For detecting multiple names that represent the same register for non-scratch registers;
+    // Presenting warnings on this is particularly important for old ECL subs with parameters,
+    // as those parameters may alias registers.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    enum UsedName { RegId(RegId), DefId(DefId) }
+
+    let mut names_used_for_regs = IdMap::<RegId, IdMap<UsedName, Span>>::new();
+
     let used_regs = get_used_regs(code);
 
     let mut unused_regs = hooks.general_use_regs();
     for vec in unused_regs.values_mut() {
-        vec.retain(|reg| !used_regs.contains(reg));
+        vec.retain(|reg| !used_regs.contains_key(reg));
         vec.reverse();  // since we'll be popping from these lists
     }
 
-    let mut local_regs = HashMap::<DefId, (RegId, ScalarType, Span)>::new();
-    let mut has_used_scratch: Option<Span> = None;
-    let mut has_anti_scratch_ins: Option<Span> = None;
+    for (&reg, &span) in &used_regs {
+        names_used_for_regs.entry(reg).or_insert_with(Default::default)
+            .insert(UsedName::RegId(reg), span);
+    }
 
     // assign registers to the params in accordance with however calls in this game work
     if let Some(this_sub_info) = this_sub_info {
         for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers() {
             local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
+
+            names_used_for_regs.entry(param_reg).or_insert_with(Default::default)
+                .insert(UsedName::DefId(param_def_id), param_span);
 
             // make the register ineligible for scratch.  This only really affects EoSD.
             for vec in unused_regs.values_mut() {
@@ -961,6 +978,7 @@ pub (in crate::llir::lower) fn assign_registers(
                 })?;
 
                 assert!(local_regs.insert(def_id, (reg, required_ty, stmt.span)).is_none());
+                assert!(!names_used_for_regs.contains_key(&reg));
             },
             LowerStmt::RegFree { def_id } => {
                 let inherent_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) we allocated a reg so it must have a type");
@@ -1001,6 +1019,19 @@ pub (in crate::llir::lower) fn assign_registers(
         }
     }
 
+    // FIXME: This might be too trigger happy and will fire on some innocent code.
+    // However, we need SOMETHING to protect the user from overwriting `ARG_A` without realizing that
+    // it is already in use.
+    for (reg, used_names) in names_used_for_regs {
+        if used_names.len() > 1 {
+            let mut diag = warning!("register {} used under multiple names", reg);
+            for (_, span) in used_names {
+                diag.primary(span, format!(""));
+            }
+            ctx.emitter.emit(diag).ignore();
+        }
+    }
+
     if let Some(span) = has_used_scratch {
         global_scratch_results.has_used_scratch.get_or_insert(span);
     }
@@ -1013,7 +1044,7 @@ fn script_too_complex(
     stmt: &Sp<LowerStmt>,
     hooks: &dyn LanguageHooks,
     required_ty: ScalarType,
-    used_regs: &BTreeSet<RegId>,
+    used_regs: &BTreeMap<RegId, Span>,
     local_regs: &HashMap<DefId, (RegId, ScalarType, Span)>,
     ctx: &CompilerContext,
 ) -> ErrorReported {
@@ -1030,7 +1061,7 @@ fn script_too_complex(
     }
     let regs_of_ty = hooks.general_use_regs()[required_ty].clone();
     let unavailable_strs = regs_of_ty.iter().copied()
-        .filter(|reg| used_regs.contains(reg))
+        .filter(|reg| used_regs.contains_key(reg))
         .map(stringify_reg)
         .collect::<Vec<_>>();
     if !unavailable_strs.is_empty() {
@@ -1044,13 +1075,13 @@ fn script_too_complex(
 }
 
 // Gather all explicitly-used registers in the source. (so that we can avoid using them for scratch)
-fn get_used_regs(func_body: &[Sp<LowerStmt>]) -> BTreeSet<RegId> {
+fn get_used_regs(func_body: &[Sp<LowerStmt>]) -> BTreeMap<RegId, Span> {
     func_body.iter()
         .filter_map(|stmt| match &stmt.value {
             LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. }) => Some(args),
             _ => None
         }).flat_map(|args| args.iter().filter_map(|arg| match &arg.value {
-            LowerArg::Raw(arg) => arg.get_reg_id(),
+            LowerArg::Raw(raw) => raw.get_reg_id().map(|reg| (reg, arg.span)),
             _ => None,
         })).collect()
 }

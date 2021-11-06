@@ -500,11 +500,11 @@ source_test!(
     ECL_06, eosd_param_alias_warning_reg,
     items: r#"
 void foo(float x, int a) {
-    %REG[-10004] = 24.0;
+    %REG[-10005] = 24.0;
     %REG[-10002] = x;
 }
 "#,
-    expect_warning: "aliases",
+    expect_warning: "multiple names",
 );
 
 source_test!(
@@ -515,7 +515,7 @@ void foo(float x, int a) {
     %F2 = x;
 }
 "#,
-    expect_warning: "aliases",
+    expect_warning: "multiple names",
 );
 
 source_test!(
