@@ -531,3 +531,51 @@ void i_f(int a, float x) {
 "#,
     expect_error: "too complex",
 );
+
+// -------------
+// decompiling params
+
+source_test!(
+    ECL_06, eosd_param_decompile,
+    items: r#"
+void foo(int a, float x) {
+    float t1 = x;
+}
+"#,
+    sbsb: |decompiled| assert!(decompiled.contains("= F_PARAM")),
+);
+
+source_test!(
+    ECL_06, eosd_param_decompile_as_other_type,
+    items: r#"
+void foo(int a, float x) {
+    float t1 = %a;
+}
+"#,
+    sbsb: |decompiled| assert!(decompiled.contains("= %I_PARAM")),
+);
+
+// -------------
+// decompiling calls
+
+source_test!(
+    ECL_06, eosd_param_decompile_calls,
+    items: r#"
+void foo(int a) {
+    int t1 = a;
+}
+void bar(float x) {
+    float t1 = x;
+}
+void baz(int a, float x) {
+    float t1 = x;
+    int t2 = a;
+}
+"#,
+    main_body: r#"
+    foo(3);
+    bar(6.0);
+    baz(2, 1.5);
+    "#,
+    sbsb: |_| { /* just need it to round-trip */ },
+);

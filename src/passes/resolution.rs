@@ -4,7 +4,8 @@ use crate::context::CompilerContext;
 use crate::error::{ErrorReported, ErrorFlag};
 use crate::game::LanguageKey;
 use crate::ident::ResIdent;
-use crate::resolve::{NodeId, LoopId, UnusedIds};
+use crate::value::VarType;
+use crate::resolve::{NodeId, LoopId, UnusedIds, RegId};
 
 /// Generate brand new [`NodeId`]s for anything missing one in an AST node.
 pub fn fill_missing_node_ids<V: ast::Visitable + ?Sized>(ast: &mut V, unused_node_ids: &UnusedIds<NodeId>) -> Result<(), ErrorReported> {
@@ -99,7 +100,24 @@ pub fn aliases_to_raw<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerCon
 ///  from non-`REG`s) but ran into https://github.com/ExpHP/truth/issues/13 when the second pass
 ///  encountered things like `sprite24`.
 pub fn raw_to_aliases<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
-    let mut v = RawToAliasesVisitor { ctx };
+    let lookup_alias = |language, reg| {
+        let ident = ctx.reg_alias(language, reg)?;
+        Some((ident, ctx.defs.reg_inherent_ty(language, reg)))
+    };
+    let mut v = RawRegToAliasesVisitor { lookup_alias };
+    ast.visit_mut_with(&mut v);
+    let mut v = RawInsToAliasesVisitor { ctx };
+    ast.visit_mut_with(&mut v);
+    Ok(())
+}
+
+pub fn raw_reg_to_aliases_with<A, F>(ast: &mut A, _ctx: &CompilerContext<'_>, lookup_alias: F) -> Result<(), ErrorReported>
+where
+    A: ast::Visitable + ?Sized,
+    // VarType here is the inherent ty
+    F: FnMut(LanguageKey, RegId) -> Option<(ResIdent, VarType)>,
+{
+    let mut v = RawRegToAliasesVisitor { lookup_alias };
     ast.visit_mut_with(&mut v);
     Ok(())
 }
@@ -158,23 +176,12 @@ impl ast::VisitMut for AliasesToRawVisitor<'_, '_> {
     }
 }
 
-struct RawToAliasesVisitor<'a, 'ctx> {
+struct RawInsToAliasesVisitor<'a, 'ctx> {
     ctx: &'a CompilerContext<'ctx>,
 }
 
-impl ast::VisitMut for RawToAliasesVisitor<'_, '_> {
-    fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
-        if let ast::VarName::Reg { reg, language, .. } = var.name {
-            let language = language.expect("must run assign_languages pass!");
-            var.name = self.ctx.reg_to_ast(language, reg);
-
-            // did it succeed?
-            if var.name.is_named() {
-                self.ctx.var_simplify_ty_sigil(&mut var.value);
-            }
-        }
-    }
-
+impl ast::VisitMut for RawInsToAliasesVisitor<'_, '_>
+{
     fn visit_expr(&mut self, expr: &mut Sp<ast::Expr>) {
         if let ast::Expr::Call(ast::ExprCall { name, .. }) = &mut expr.value {
             if let ast::CallableName::Ins { opcode, language, .. } = name.value {
@@ -183,6 +190,26 @@ impl ast::VisitMut for RawToAliasesVisitor<'_, '_> {
             }
         }
         ast::walk_expr_mut(self, expr);
+    }
+}
+
+struct RawRegToAliasesVisitor<F> {
+    lookup_alias: F,
+}
+
+impl<F> ast::VisitMut for RawRegToAliasesVisitor<F>
+where
+    F: FnMut(LanguageKey, RegId) -> Option<(ResIdent, VarType)>,
+{
+    fn visit_var(&mut self, var: &mut Sp<ast::Var>) {
+        if let ast::VarName::Reg { reg, language, .. } = var.name {
+            let language = language.expect("must run assign_languages pass!");
+
+            if let Some((ident, inherent_ty)) = (self.lookup_alias)(language, reg) {
+                var.name = ast::VarName::Normal { ident, language_if_reg: Some(language) };
+                CompilerContext::var_simplify_ty_sigil_(&mut var.ty_sigil, inherent_ty);
+            }
+        }
     }
 }
 

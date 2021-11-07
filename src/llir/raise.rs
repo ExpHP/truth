@@ -417,35 +417,35 @@ fn raise_single_decoded_instr(
 
         match kind {
             IKind::Jmp => {
-                let goto = parts.jump.unwrap();
+                let goto = parts.jump.take().unwrap();
                 return Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))));
             },
 
 
             IKind::AssignOp(op, _ty) => {
-                let value = parts.plain_args.pop().unwrap();
-                let var = parts.outputs.pop().unwrap();
+                let var = parts.outputs.next().unwrap();
+                let value = parts.plain_args.next().unwrap();
                 return Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var #op #value)));
             },
 
 
             IKind::BinOp(op, _ty) => {
-                let b = parts.plain_args.pop().unwrap();
-                let a = parts.plain_args.pop().unwrap();
-                let var = parts.outputs.pop().unwrap();
+                let var = parts.outputs.next().unwrap();
+                let a = parts.plain_args.next().unwrap();
+                let b = parts.plain_args.next().unwrap();
                 return Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_binop!(#a #op #b))));
             },
 
 
             IKind::UnOp(op, _ty) => {
-                let b = parts.plain_args.pop().unwrap();
-                let var = parts.outputs.pop().unwrap();
+                let var = parts.outputs.next().unwrap();
+                let b = parts.plain_args.next().unwrap();
                 return Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b))));
             },
 
 
             IKind::InterruptLabel => {
-                let interrupt = parts.plain_args.pop().unwrap();
+                let interrupt = parts.plain_args.next().unwrap();
                 let interrupt = sp!(Span::NULL => interrupt.as_const_int().ok_or_else(|| {
                     assert!(matches!(interrupt, ast::Expr::Var { .. }));
                     emitter.emit(error!("unexpected register in interrupt label"))
@@ -455,8 +455,8 @@ fn raise_single_decoded_instr(
 
 
             IKind::CountJmp => {
-                let goto = parts.jump.unwrap();
-                let var = parts.outputs.pop().unwrap();
+                let goto = parts.jump.take().unwrap();
+                let var = parts.outputs.next().unwrap();
                 return Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                     as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
                 )));
@@ -464,9 +464,9 @@ fn raise_single_decoded_instr(
 
 
             IKind::CondJmp(op, _ty) => {
-                let goto = parts.jump.unwrap();
-                let b = parts.plain_args.pop().unwrap();
-                let a = parts.plain_args.pop().unwrap();
+                let goto = parts.jump.take().unwrap();
+                let a = parts.plain_args.next().unwrap();
+                let b = parts.plain_args.next().unwrap();
                 return Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                     as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
                 )));
@@ -474,7 +474,17 @@ fn raise_single_decoded_instr(
 
 
             IKind::CallEosd => {
-                unimplemented!();
+                let name = parts.sub_id.take().unwrap();
+                let int = parts.plain_args.next().unwrap();
+                let float = parts.plain_args.next().unwrap();
+
+                return Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
+                    name: sp!(name),
+                    pseudos: vec![],
+                    // FIXME: If we decompile functions to have different signatures on a per-function
+                    //        basis we'll need to adjust the argument order appropriately here
+                    args: vec![sp!(int), sp!(float)],
+                }))));
             },
 
 
@@ -518,9 +528,9 @@ fn possibly_raise_long_intrinsic(
                     let mut cmp_parts = RaisedIntrinsicParts::from_instr(instr_1, args_1, abi_1, abi_info_1, emitter, hooks, offset_labels)?;
                     let mut jmp_parts = RaisedIntrinsicParts::from_instr(instr_2, args_2, abi_2, abi_info_2, emitter, hooks, offset_labels)?;
 
+                    let a = cmp_parts.plain_args.next().unwrap();
+                    let b = cmp_parts.plain_args.next().unwrap();
                     let goto = jmp_parts.jump.take().unwrap();
-                    let b = cmp_parts.plain_args.pop().unwrap();
-                    let a = cmp_parts.plain_args.pop().unwrap();
                     Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
                         as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
                     ))))
@@ -723,10 +733,12 @@ fn raise_arg_to_reg(
 /// Result of raising an intrinsic's arguments.
 ///
 /// The fields correspond to those on [`IntrinsicInstrAbiParts`].
+#[derive(Debug)]
 struct RaisedIntrinsicParts {
     jump: Option<ast::StmtGoto>,
-    outputs: Vec<ast::Var>,
-    plain_args: Vec<ast::Expr>,
+    sub_id: Option<ast::CallableName>,
+    outputs: std::vec::IntoIter<ast::Var>,
+    plain_args: std::vec::IntoIter<ast::Expr>,
 }
 
 impl RaisedIntrinsicParts {
@@ -745,8 +757,6 @@ impl RaisedIntrinsicParts {
             jump: ref jump_info, plain_args: ref plain_args_info, sub_id: ref sub_id_info,
         } = abi_parts;
 
-        let mut out = RaisedIntrinsicParts { jump: None, outputs: vec![], plain_args: vec![] };
-
         let padding_range = padding_info.index..padding_info.index + padding_info.count;
         warn_unless!(
             emitter,
@@ -754,6 +764,7 @@ impl RaisedIntrinsicParts {
             "unsupported data in padding of intrinsic",
         );
 
+        let mut jump = None;
         if let &Some((index, order)) = jump_info {
             let (offset_arg, time_arg) = match order {
                 abi_parts::JumpArgOrder::TimeLoc => (&args[index + 1], Some(&args[index])),
@@ -763,27 +774,34 @@ impl RaisedIntrinsicParts {
 
             let offset = hooks.decode_label(instr.offset, offset_arg.expect_immediate_int() as u32);
             let label = &offset_labels[&offset];
-            out.jump = Some(ast::StmtGoto {
+            jump = Some(ast::StmtGoto {
                 destination: sp!(label.label.clone()),
                 time: time_arg.map(|arg| sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label),
             });
         }
 
-        if let Some(_index) = sub_id_info {
-            unimplemented!();
+        let mut sub_id = None;
+        if let &Some(index) = sub_id_info {
+            // FIXME: What if the index is invalid?  It'd be nice to fall back to raw instruction syntax...
+            let sub_index = args[index].expect_immediate_int() as _;
+            let ident = ResIdent::new_null(crate::ecl::auto_sub_name(sub_index));
+            let name = ast::CallableName::Normal { ident, language_if_ins: Some(hooks.language()) };
+            sub_id = Some(name);
         }
 
+        let mut outputs = vec![];
         for &(index, mode) in outputs_info {
             let var = raise_arg_to_reg(hooks.language(), emitter, &args[index], encodings[index], mode)?;
-            out.outputs.push(var);
+            outputs.push(var);
         }
 
+        let mut plain_args = vec![];
         for &index in plain_args_info {
             let dest_label = None;  // offset and time are not plain args so this is irrelevant
             let expr = raise_arg(hooks.language(), emitter, &args[index], encodings[index], dest_label)?;
-            out.plain_args.push(expr);
+            plain_args.push(expr);
         }
-        Ok(out)
+        Ok(RaisedIntrinsicParts { jump, sub_id, outputs: outputs.into_iter(), plain_args: plain_args.into_iter() })
     }
 }
 

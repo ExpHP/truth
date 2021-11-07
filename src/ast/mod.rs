@@ -793,6 +793,28 @@ impl TypeKeyword {
     }
 }
 
+impl From<value::ScalarType> for TypeKeyword {
+    fn from(ty: value::ScalarType) -> Self { match ty {
+        value::ScalarType::Int => Self::Int,
+        value::ScalarType::Float => Self::Float,
+        value::ScalarType::String => Self::String,
+    }}
+}
+
+impl From<value::VarType> for TypeKeyword {
+    fn from(ty: value::VarType) -> Self { match ty {
+        value::VarType::Typed(ty) => ty.into(),
+        value::VarType::Untyped => Self::Var,
+    }}
+}
+
+impl From<value::ExprType> for TypeKeyword {
+    fn from(ty: value::ExprType) -> Self { match ty {
+        value::ExprType::Value(ty) => ty.into(),
+        value::ExprType::Void => Self::Void,
+    }}
+}
+
 string_enum! {
     /// A type sigil on a variable.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

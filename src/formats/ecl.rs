@@ -9,10 +9,13 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::value::{ScalarType, ScalarValue, ReadType};
+use crate::value::{ScalarType, ScalarValue, ReadType, VarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
-use crate::resolve::{RegId, DefId};
+use crate::resolve::{RegId, DefId, IdMap};
 use crate::context::CompilerContext;
+
+const EOSD_INT_PARAM_REG: RegId = RegId(-10001);
+const EOSD_FLOAT_PARAM_REG: RegId = RegId(-10005);
 
 // =============================================================================
 
@@ -58,6 +61,7 @@ fn decompile(
     let ecl_hooks = &*format.ecl_hooks;
     let timeline_hooks = &*format.timeline_hooks;
 
+    // Generate timelines
     let mut items = vec![];
     let mut timeline_raiser = llir::Raiser::new(timeline_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
@@ -70,16 +74,31 @@ fn decompile(
         }));
     }
 
+    // Decompile bodies of ECL subs
     let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
+    let mut decompiled_subs = IndexMap::new();
     for (ident, instrs) in ecl.subs.iter() {
+        decompiled_subs.insert(ident.clone(), ast::Block({
+            sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
+        }));
+    }
+
+    // Detect which subs have parameters; this may involve a bit of global analysis
+    // so we had to be wait until after decompiling everything to do this.
+    let param_infos = EosdRaiseSubs::from_subs(decompiled_subs.values().map(|stmts| &stmts.0[..]));
+
+    // Rename registers in each sub after their parameters.
+    for (stmts, param_info) in decompiled_subs.values_mut().zip(param_infos.subs.iter()) {
+        crate::passes::resolution::raw_reg_to_aliases_with(stmts, ctx, param_info.reg_lookup_function())?;
+    }
+
+    for ((ident, stmts), param_info) in decompiled_subs.into_iter().zip(param_infos.subs) {
         items.push(sp!(ast::Item::Func(ast::ItemFunc {
             qualifier: None,
             ty_keyword: sp!(ast::TypeKeyword::Void),
             ident: sp!(ResIdent::new_null(ident.clone())),
-            params: vec![],
-            code: Some(ast::Block({
-                sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
-            })),
+            params: param_info.params_ast(),
+            code: Some(stmts),
         })));
     }
 
@@ -440,8 +459,11 @@ impl EosdExportedSubs {
     }
 
     pub fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
-        let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, RegId(reg)));
-        Some(format!("EoSD ECL subs pass their arguments in {} and {}", stringify_reg(-10001), stringify_reg(-10005)))
+        let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
+        Some(format!(
+            "EoSD ECL subs pass their arguments in {} and {}",
+            stringify_reg(EOSD_INT_PARAM_REG), stringify_reg(EOSD_FLOAT_PARAM_REG),
+        ))
     }
 }
 
@@ -498,11 +520,54 @@ impl EosdExportedSub {
     pub fn param_registers(&self) -> impl IntoIterator<Item=(DefId, RegId, ReadType, Span)> + '_ {
         self.param_info.iter().map(|&(def_id, ty, span)| {
             let reg = match ty {
-                ReadType::Int => RegId(-10001),
-                ReadType::Float => RegId(-10005),
+                ReadType::Int => EOSD_INT_PARAM_REG,
+                ReadType::Float => EOSD_FLOAT_PARAM_REG,
             };
             (def_id, reg, ty, span)
         })
+    }
+}
+
+pub struct EosdRaiseSubs {
+    pub subs: Vec<EosdRaiseSub>,
+}
+
+pub struct EosdRaiseSub {
+    pub params: Vec<(RegId, VarType, Ident)>,
+}
+
+impl EosdRaiseSubs {
+    fn from_subs<'a>(subs: impl IntoIterator<Item=&'a [Sp<ast::Stmt>]>) -> Self {
+        // TODO: detect which params are actually used in each sub
+        let subs = subs.into_iter().map(|_| EosdRaiseSub {
+            params: vec![
+                (EOSD_INT_PARAM_REG, ScalarType::Int.into(), "I_PARAM".parse().unwrap()),
+                (EOSD_FLOAT_PARAM_REG, ScalarType::Float.into(), "F_PARAM".parse().unwrap()),
+            ],
+        }).collect();
+        EosdRaiseSubs { subs }
+    }
+}
+
+impl EosdRaiseSub {
+    pub fn reg_lookup_function(&self) -> impl Fn(LanguageKey, RegId) -> Option<(ResIdent, VarType)> + '_ {
+        let lookup = {
+            self.params.iter()
+                .map(|&(reg, var_ty, ref ident)| (reg, (ResIdent::new_null(ident.clone()), var_ty)))
+                .collect::<IdMap<_, _>>()
+        };
+        move |language, reg| match language {
+            LanguageKey::Ecl => lookup.get(&reg).cloned(),
+            _ => None,
+        }
+    }
+
+    pub fn params_ast(&self) -> Vec<Sp<ast::FuncParam>> {
+        self.params.iter().map(|&(_, var_ty, ref ident)| sp!(ast::FuncParam {
+            qualifier: None,
+            ty_keyword: sp!(var_ty.into()),
+            ident: sp!(ResIdent::new_null(ident.clone())),
+        })).collect()
     }
 }
 

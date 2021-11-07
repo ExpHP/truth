@@ -2,12 +2,10 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: argument must be a compile-time constant
+error: non-constant expression in language without registers
    ┌─ <input>:13:18
    │
 13 │       textSet(0, $REG[0], "cheese");  
-   │                  ^^^^^^^ not constant
-   │
-   = because the argument is a word-sized integer
+   │                  ^^^^^^^ non-const expression
 
 

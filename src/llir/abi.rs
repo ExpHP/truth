@@ -245,9 +245,9 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
             let Info { ty, default, reg_ok } = match enc {
                 | ArgEncoding::Dword
                 | ArgEncoding::Color
+                | ArgEncoding::Word
                 => Info { ty: ScalarType::Int, default: None, reg_ok: true },
 
-                | ArgEncoding::Word
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
                 | ArgEncoding::Sprite

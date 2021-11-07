@@ -318,7 +318,7 @@ impl Defs {
     }
 
     /// Get the inherent type of a register.
-    fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> VarType {
+    pub fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> VarType {
         match self.regs.get(&(language, reg)) {
             Some(&RegData { ty }) => ty,
             // This is a register whose type is not in any mapfile.
@@ -648,22 +648,29 @@ impl CompilerContext<'_> {
     /// Suppress the type sigil of a variable if it is unnecessary.
     pub fn var_simplify_ty_sigil(&self, var: &mut ast::Var) {
         let inherent_ty = self.var_inherent_ty_from_ast(var);
-        if let Some(sigil) = var.ty_sigil {
-            if inherent_ty == VarType::Typed(ScalarType::from(sigil)) {
-                var.ty_sigil = None;
-            }
-        }
+        Self::var_simplify_ty_sigil_(&mut var.ty_sigil, inherent_ty)
+    }
+
+    /// Look up the alias of a register.
+    pub fn reg_alias(&self, language: LanguageKey, reg: RegId) -> Option<ResIdent> {
+        self.defs.reg_aliases.get(&(language, reg))
+            .map(|&def_id| self.defs.var_name(def_id).clone())
     }
 
     /// Generate an AST node with the ideal appearance for a register, automatically using
     /// an alias if one exists.
     pub fn reg_to_ast(&self, language: LanguageKey, reg: RegId) -> ast::VarName {
-        match self.defs.reg_aliases.get(&(language, reg)) {
+        Self::reg_to_ast_(language, reg, self.reg_alias(language, reg))
+    }
+
+    /// [`Self::reg_to_ast`] but where an alias has already been looked up. (perhaps one that is
+    /// different from the one defined in mapfiles, e.g. a function parameter name...)
+    ///
+    /// FIXME: free-form function of `reg_to_ast`, feels awkwardly placed
+    pub fn reg_to_ast_(language: LanguageKey, reg: RegId, alias: Option<ResIdent>) -> ast::VarName {
+        match alias {
             None => ast::VarName::Reg { reg, language: Some(language) },
-            Some(&def_id) => {
-                let ident = self.defs.var_name(def_id).clone();
-                ast::VarName::Normal { ident, language_if_reg: Some(language) }
-            },
+            Some(ident) => ast::VarName::Normal { ident, language_if_reg: Some(language) },
         }
     }
 
@@ -676,6 +683,17 @@ impl CompilerContext<'_> {
                 let ident = self.defs.func_name(def_id).clone();
                 ast::CallableName::Normal { ident, language_if_ins: Some(language) }
             },
+        }
+    }
+
+    /// Suppress the type sigil of a variable if it is unnecessary.
+    ///
+    /// FIXME: free-form function of `var_simplify_ty_sigil`, feels awkwardly placed
+    pub fn var_simplify_ty_sigil_(ty_sigil: &mut Option<ast::VarSigil>, inherent_ty: VarType) {
+        if let Some(sigil) = *ty_sigil {
+            if inherent_ty == VarType::Typed(ScalarType::from(sigil)) {
+                *ty_sigil = None;
+            }
         }
     }
 }

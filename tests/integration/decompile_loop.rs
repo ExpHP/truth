@@ -662,7 +662,7 @@ source_test!(
     // this shows up in vanilla EoSD ECL files
     ECL_06, nested_loops_after_if,
     main_body: r#"
-        if ($I0 == 0) {
+        if ($I1 == 0) {
             ins_0();
         } else {
             ins_0();
@@ -676,7 +676,7 @@ source_test!(
     "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains(r#"
-    if ($REG[-10001] == 0) {
+    if ($REG[-10002] == 0) {
         ins_0();
     } else {
         ins_0();
@@ -695,20 +695,20 @@ source_test!(
     // this shows up in vanilla EoSD files
     ECL_06, loop_at_end_of_else_if,
     main_body: r#"
-        if ($I0 == 0) {
+        if ($I1 == 0) {
         } else {
             do {
                 ins_0();
-            } while ($I0 == 2);
+            } while ($I1 == 2);
         }
     "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains(r#"
-    if ($REG[-10001] == 0) {
+    if ($REG[-10002] == 0) {
     } else {
         do {
             ins_0();
-        } while ($REG[-10001] == 2);
+        } while ($REG[-10002] == 2);
     }
     "#.trim()));
     },
