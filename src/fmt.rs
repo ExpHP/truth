@@ -89,7 +89,7 @@ impl Config {
 
 //==============================================================================
 
-pub use formatter::{Formatter, SuppressParens};
+pub use formatter::{Formatter, SuppressParens, OrBlank};
 
 mod formatter {
     use super::*;
@@ -292,12 +292,12 @@ mod formatter {
         /// pay attention to precedence rules, by simply always writing parentheses around
         /// expressions unless they are e.g. the RHS of an assignment, or in some location that
         /// already has parentheses.
-        pub fn fmt_optional_parens<T: Format>(&mut self, x: T) -> Result {
+        pub fn fmt_optional_parens(&mut self, func: impl FnOnce(&mut Self) -> Result) -> Result {
             let do_parens = !self.disable_parens;
             self.disable_parens = false;
 
             if do_parens { self.fmt("(")?; }
-            self.fmt(x)?;
+            func(self)?;
             if do_parens { self.fmt(")")?; }
 
             Ok(())
@@ -401,6 +401,18 @@ mod formatter {
         fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
             out.suppress_optional_parens();
             out.fmt(&self.0)
+        }
+    }
+
+    /// Convenience wrapper to render an `Option` as blank if `None`.
+    pub struct OrBlank<T>(pub Option<T>);
+
+    impl<T: Format> Format for OrBlank<T> {
+        fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+            if let Some(value) = &self.0 {
+                out.fmt(value)?;
+            }
+            Ok(())
         }
     }
 }
@@ -848,9 +860,9 @@ impl Format for ast::Expr {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match self {
             ast::Expr::Ternary { cond, left, right, question: _, colon: _ } => {
-                out.fmt_optional_parens((cond, " ? ", left, " : ", right))
+                out.fmt_optional_parens(|out| out.fmt((cond, " ? ", left, " : ", right)))
             },
-            ast::Expr::BinOp(a, op, b) => out.fmt_optional_parens((a, " ", op, " ", b)),
+            ast::Expr::BinOp(a, op, b) => out.fmt_optional_parens(|out| out.fmt((a, " ", op, " ", b))),
             ast::Expr::Call(ast::ExprCall { name, pseudos, args }) => {
                 out.fmt(name)?;
                 out.fmt_comma_separated("(", ")", Iterator::chain(
@@ -858,9 +870,14 @@ impl Format for ast::Expr {
                     args.iter().map(Either::That),
                 ))
             },
+            ast::Expr::DiffSwitch(cases) => {
+                out.fmt_optional_parens(|out| {
+                    out.fmt_separated(cases.iter().map(|opt| OrBlank(opt.as_ref())), |out| out.fmt(":"))
+                })
+            },
             ast::Expr::UnOp(op, x) => match op.value {
                 token![unop -] | token![!]
-                    => out.fmt_optional_parens((op, x)),
+                    => out.fmt_optional_parens(|out| out.fmt((op, x))),
 
                 token![_S] | token![_f] | token![sin] | token![cos] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),

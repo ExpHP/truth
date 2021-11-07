@@ -434,6 +434,8 @@ pub enum Expr {
     },
     BinOp(Box<Sp<Expr>>, Sp<BinOpKind>, Box<Sp<Expr>>),
     Call(ExprCall),
+    /// (a:b:c:d) syntax.  Always has at least two items.  Items aside from the first may be omitted (None).
+    DiffSwitch(Vec<Option<Sp<Expr>>>),
     UnOp(Sp<UnOpKind>, Box<Sp<Expr>>),
     LitInt {
         value: raw::LangInt,
@@ -473,7 +475,8 @@ impl Expr {
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
         Expr::BinOp { .. } => "binary operator",
-        Expr::Call(ExprCall { .. }) => "call expression",
+        Expr::Call { .. } => "call expression",
+        Expr::DiffSwitch { .. } => "difficulty switch",
         Expr::UnOp { .. } => "unary operator",
         Expr::LitInt { .. } => "literal integer",
         Expr::LabelProperty { .. } => "label property",
@@ -1118,6 +1121,13 @@ macro_rules! generate_visitor_stuff {
                 Expr::BinOp(a, _op, b) => {
                     v.visit_expr(a);
                     v.visit_expr(b);
+                },
+                Expr::DiffSwitch(cases) => {
+                    for case in cases {
+                        if let Some(case) = case {
+                            v.visit_expr(case);
+                        }
+                    }
                 },
                 Expr::Call(ExprCall { name, args, pseudos }) => {
                     v.visit_callable_name(name);

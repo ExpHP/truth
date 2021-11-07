@@ -244,7 +244,7 @@ MetaKeyword: ast::MetaKeyword = {
 // Metadata in a JSON-ish format, used by ANM
 
 Meta: Meta = {
-    <x:Sp<Expr>> => Meta::Scalar(x),
+    <x:Sp<ExprNoColon>> => Meta::Scalar(x),
     <x:Sp<MetaBracedFields>> => Meta::Object(x),
     <name:Sp<Ident>> ":"? <fields:Sp<MetaBracedFields>> => Meta::Variant { name, fields },
     "[" <items:SeparatedTrailing<Sp<Meta>, ",">> "]" => Meta::Array(items),
@@ -310,7 +310,7 @@ StmtKind: ast::StmtKind = {
     <goto:StmtJumpKind> ";"
         => ast::StmtKind::Jump(goto),
 
-    <e:Sp<Expr>> ";"
+    <e:Sp<ExprNoColon>> ";"
         => ast::StmtKind::Expr(e),
 
     <name:Sp<Ident>> ":"
@@ -362,7 +362,7 @@ StmtSpecialCall: ast::StmtKind = {
 
 CallAsyncKind: ast::CallAsyncKind = {
     "async" => ast::CallAsyncKind::CallAsync,
-    "async" <id:Box<Sp<Expr>>> => ast::CallAsyncKind::CallAsyncId(id),
+    "async" <id:Box<Sp<ExprNoColon>>> => ast::CallAsyncKind::CallAsyncId(id),
 };
 
 StmtDeclarationListItem: (Sp<ast::Var>, Option<Sp<ast::Expr>>) = {
@@ -446,13 +446,6 @@ BlockInnards: ast::Block = {
 // Expressions
 
 // Precedence is encoded in the use of these macros
-RightTernary<NextTier>: ast::Expr = {
-    <cond:Box<Sp<NextTier>>>
-        <question:TokenSpan<"?">> <left:Box<Sp<NextTier>>>
-        <colon:TokenSpan<":">> <right:Box<Sp<RightTernary<NextTier>>>>
-        => ast::Expr::Ternary { cond, left, right, question, colon },
-    NextTier,
-};
 LeftBinOp<Op, NextTier>: ast::Expr = {
     <a:Box<Sp<LeftBinOp<Op, NextTier>>>>
         <op:Sp<Op>>
@@ -466,11 +459,37 @@ LeftUnOp<Op, NextTier>: ast::Expr = {
     NextTier,
 };
 
-Expr: ast::Expr = ExprWithOpers;
+Expr: ast::Expr = ExprWithColon;
 
-// Operator precedence table
-ExprWithOpers = ExprTernary;
-ExprTernary = RightTernary<ExprBinOpOr>;
+// Operator precedence table.
+// Ternary and difficulty switches have an ambiguity so neither contains the other.
+ExprWithColon: ast::Expr = {
+    ExprTernary,
+    ExprDiffSwitch,
+    ExprNoColon,
+};
+// Ternaries can be chained with right associativity
+#[inline]
+ExprTernaryRhs: ast::Expr = {
+    ExprTernary,
+    ExprNoColon,
+};
+ExprTernary: ast::Expr = {
+    <cond:Box<Sp<ExprNoColon>>>
+        <question:TokenSpan<"?">> <left:Box<Sp<ExprTernaryRhs>>>
+        <colon:TokenSpan<":">> <right:Box<Sp<ExprTernaryRhs>>>
+        => ast::Expr::Ternary { cond, left, right, question, colon },
+};
+#[inline]
+ExprDiffSwitch: ast::Expr = {
+    <first:Sp<ExprNoColon>> <mut rest:(":" <(<Sp<ExprNoColon>>)?>)+>
+        => {
+        rest.insert(0, Some(first));
+        ast::Expr::DiffSwitch(rest)
+    },
+};
+
+ExprNoColon = ExprBinOpOr;
 ExprBinOpOr = LeftBinOp<OpOr, ExprBinOpAnd>;
 ExprBinOpAnd = LeftBinOp<OpAnd, ExprBinOpBitOr>;
 ExprBinOpBitOr = LeftBinOp<OpBitOr, ExprBinOpBitXor>;
@@ -889,4 +908,9 @@ SeparatedStrict<T, Sep>: Vec<T> = {
 SeparatedStrictNonempty<T, Sep>: Vec<T> = {
     <x:T> => vec![x],
     <xs:SeparatedStrictNonempty<T, Sep>> Sep <x:T> => util::push(xs, x),
+};
+
+/// Parse a separated sequence with at least two items and no trailing separator.
+SeparatedStrictAtLeast2<T, Sep>: Vec<T> = {
+    <prefix:(<T> Sep)+> <last:T> => util::push(prefix, last),
 };

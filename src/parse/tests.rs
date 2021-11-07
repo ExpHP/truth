@@ -41,6 +41,8 @@ fn expr_parse() {
     check_exprs_same!("2 * 2 + 1", "(2 * 2) + 1", 5);
     check_exprs_same!("-3 + 5 * 7", "(-3) + (5 * 7)", 32);
     check_exprs_same!("-(1 + 1) * 2", "(-(1 + 1)) * 2", -4);
+    // check that ternaries are right-associative.
+    // (I'm putting that sentence there so I can ctrl-F and see that there is a test for this)
     check_exprs_same!(
         "1 == 3 ? 1 : 3 == 3 ? 2 : 0",
         "(1 == 3) ? 1 : ((3 == 3) ? 2 : 0)",

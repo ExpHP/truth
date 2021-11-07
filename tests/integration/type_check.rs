@@ -241,6 +241,39 @@ source_test!(
 );
 
 // =========================
+// difficulty
+
+source_test!(
+    ECL_06, diffswitch__missing_first,
+    main_body: r#"int x = :4:4:6;"#,
+    expect_error: expected::PARSE_ERROR,
+);
+
+source_test!(
+    ECL_06, diffswitch__arg,
+    main_body: r#"int x = 3::4.5:;"#,
+    expect_error: expected::TYPE_ERROR,
+);
+
+source_test!(
+    ECL_06, diffswitch__out,
+    main_body: r#"float a = 3:4::4;"#,
+    expect_error: expected::TYPE_ERROR,
+);
+
+source_test!(
+    ECL_06, diffswitch__out_void,
+    main_body: r#"int x = ins_0():::;"#,
+    expect_error: expected::TYPE_ERROR,
+);
+
+source_test!(
+    ECL_06, diffswitch__interior,
+    main_body: r#"(3.0:4.0:3.0 + 1:5.0);"#,
+    expect_error: expected::TYPE_ERROR,
+);
+
+// =========================
 // expression statements
 
 source_test!(

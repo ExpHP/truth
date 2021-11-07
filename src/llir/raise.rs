@@ -973,8 +973,8 @@ impl<'a> LabelEmitter<'a> {
     }
 
     fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask) {
-        self.emit_difficulty_labels(out, difficulty);
         self.emit_offset_and_time_labels(out, offset, time);
+        self.emit_difficulty_labels(out, difficulty);
     }
 
     /// Determine if the label emitter would emit a label here.

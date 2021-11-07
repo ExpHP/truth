@@ -357,6 +357,20 @@ impl ExprTypeChecker<'_, '_> {
                 ExprType::Value(left_ty?)
             },
 
+            ast::Expr::DiffSwitch(ref cases)
+            => {
+                let first = cases[0].as_ref().expect("empty first woulda been parse error");
+                let first_ty = self.check_expr_as_value(first, expr.span);
+
+                for other in &cases[1..] {
+                    if let Some(other) = other {
+                        let other_ty = self.check_expr_as_value(other, expr.span);
+                        self.require_same((first_ty?, other_ty?), expr.span, (first.span, other.span))?;
+                    }
+                }
+                ExprType::Value(first_ty?)
+            },
+
             ast::Expr::LabelProperty { keyword: _, label: _ }
             => ExprType::Value(ScalarType::Int),
 
@@ -525,6 +539,9 @@ impl ast::Expr {
 
             ast::Expr::Ternary { ref left, .. }
             => left.compute_ty(ctx),
+
+            ast::Expr::DiffSwitch(ref cases)
+            => cases[0].as_ref().expect("empty first woulda been parse error").compute_ty(ctx),
 
             ast::Expr::LabelProperty { .. }
             => ExprType::Value(ScalarType::Int),

@@ -372,7 +372,7 @@ impl AstVm {
 
                 ast::StmtKind::InterruptLabel(_) => {},
 
-                ast::StmtKind::RawDifficultyLabel(_) => {},
+                ast::StmtKind::RawDifficultyLabel(_) => unimplemented!("difficulty in AST VM"),
 
                 ast::StmtKind::AbsTimeLabel { .. } => { },
                 ast::StmtKind::RelTimeLabel { .. } => { },
@@ -401,6 +401,8 @@ impl AstVm {
             ast::Expr::Call(ast::ExprCall { .. }) => unimplemented!("func calls in VM exprs"),
 
             ast::Expr::UnOp(op, x) => op.const_eval(self.eval(x, resolutions)),
+
+            ast::Expr::DiffSwitch { .. } => unimplemented!("difficulty in AST VM"),
 
             ast::Expr::LitInt { value, .. } => ScalarValue::Int(*value),
 
