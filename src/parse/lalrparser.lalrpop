@@ -909,8 +909,3 @@ SeparatedStrictNonempty<T, Sep>: Vec<T> = {
     <x:T> => vec![x],
     <xs:SeparatedStrictNonempty<T, Sep>> Sep <x:T> => util::push(xs, x),
 };
-
-/// Parse a separated sequence with at least two items and no trailing separator.
-SeparatedStrictAtLeast2<T, Sep>: Vec<T> = {
-    <prefix:(<T> Sep)+> <last:T> => util::push(prefix, last),
-};

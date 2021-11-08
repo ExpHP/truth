@@ -41,6 +41,8 @@ pub use formats::std::{self, StdFile};
 pub use formats::ecl::{self, OldeEclFile as EclFile};
 mod formats;
 
+mod bitset;
+
 pub use game::{Game, LanguageKey};
 mod game;
 

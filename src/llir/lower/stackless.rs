@@ -809,24 +809,29 @@ struct TemporaryExpr<'a> {
 }
 
 fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<ExprClass<'a>, ErrorReported> {
-    match arg.value {
-        ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
+    let needs_temp = || ExprClass::NeedsTemp({
+        let ty = arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
+        TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
+    });
+
+    match &arg.value {
+        &ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
             lowered: sp!(arg.span => LowerArg::Raw(value.into())),
             ty: ScalarType::Int,
         })),
-        ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
+        &ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
             lowered: sp!(arg.span => LowerArg::Raw(value.into())),
             ty: ScalarType::Float,
         })),
-        ast::Expr::LitString(ast::LitString { ref string, .. }) => Ok(ExprClass::Simple(SimpleExpr {
+        ast::Expr::LitString(ast::LitString { string, .. }) => Ok(ExprClass::Simple(SimpleExpr {
             lowered: sp!(arg.span => LowerArg::Raw(string.clone().into())),
             ty: ScalarType::String,
         })),
-        ast::Expr::Var(ref var) => {
+        ast::Expr::Var(var) => {
             let (lowered, ty) = lower_var_to_arg(var, ctx)?;
             Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))
         },
-        ast::Expr::LabelProperty { keyword, ref label } => Ok(ExprClass::Simple(SimpleExpr {
+        ast::Expr::LabelProperty { keyword, label } => Ok(ExprClass::Simple(SimpleExpr {
             lowered: sp!(arg.span => match keyword.value {
                 token![timeof] => LowerArg::TimeOf(label.value.clone()),
                 token![offsetof] => LowerArg::Label(label.value.clone()),
@@ -844,7 +849,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
         //             int tmp = $I + 3;
         //             foo(%tmp);
         //
-        ast::Expr::UnOp(unop, ref b) if unop.is_cast() => {
+        ast::Expr::UnOp(unop, b) if unop.is_cast() => {
             let (tmp_ty, read_ty) = match unop.value {
                 token![_S] => (ScalarType::Float, ScalarType::Int),
                 token![_f] => (ScalarType::Int, ScalarType::Float),
@@ -853,11 +858,38 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
             Ok(ExprClass::NeedsTemp(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
         },
 
+        // Difficulty switches.
+        //
+        // These are "simple" if all of their cases are simple.  In this case, we propagate them
+        // all the way down to the final stages of lowering so they can be used to replicate an
+        // arbitrary instruction.  This significantly reduces scratch variable usage and allows
+        // difficulty switches to roundtrip a lot more things.
+        ast::Expr::DiffSwitch(cases) => {
+            let mut lowered_cases = vec![];
+            let mut ty = None;
+            for case in cases {
+                match case {
+                    None => lowered_cases.push(None),
+                    Some(case) => match classify_expr(case, ctx)? {
+                        ExprClass::Simple(out_case) => {
+                            lowered_cases.push(Some(out_case.lowered));
+                            ty = Some(out_case.ty);
+                        },
+                        // if even one case needs a temp, give the whole thing a temp
+                        ExprClass::NeedsTemp { .. } => return Ok(needs_temp()),
+                    },
+                }
+            }
+
+            assert_eq!(cases.len(), lowered_cases.len());
+            Ok(ExprClass::Simple(SimpleExpr {
+                lowered: sp!(arg.span => LowerArg::DiffSwitch(lowered_cases)),
+                ty: ty.expect("always at least one case"),
+            }))
+        },
+
         // Anything else needs a temporary of the same type, consisting of the whole expression.
-        _ => Ok(ExprClass::NeedsTemp({
-            let ty = arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
-            TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
-        })),
+        _ => Ok(needs_temp()),
     }
 }
 

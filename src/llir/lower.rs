@@ -1,12 +1,12 @@
 use std::collections::{HashMap};
 
 use crate::raw;
-use super::{unsupported, SimpleArg};
-use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
+use crate::ast;
+use super::{unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
+use crate::bitset::BitSet32;
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp};
-use crate::ast;
 use crate::resolve::DefId;
 use crate::ident::{Ident};
 use crate::context::{self, CompilerContext};
@@ -62,6 +62,8 @@ enum LowerArg {
     ///
     /// All arguments are eventually lowered to this form.
     Raw(SimpleArg),
+    /// A group of fully-encoded arguments that depend on difficulty.
+    DiffSwitch(Vec<Option<Sp<LowerArg>>>),
     /// A reference to a register-allocated local.
     Local {
         def_id: DefId,
@@ -98,6 +100,8 @@ impl LowerArg {
 
             LowerArg::Label { .. } |
             LowerArg::TimeOf { .. } => panic!("not a register: {:?}", self),
+
+            LowerArg::DiffSwitch { .. } => panic!("difficulty switch should be handled earler!"),
         }
     }
 }
@@ -175,6 +179,9 @@ fn lower_sub_ast_to_instrs(
     // And now postprocess
     assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.export_info, def_id, &ctx)?;
 
+    // This can't happen before register assignment or we might allocate something multiple times
+    out = elaborate_diff_switches(out);
+
     let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
 
@@ -190,6 +197,92 @@ fn lower_sub_ast_to_instrs(
         LowerStmt::RegAlloc { .. } => None,
         LowerStmt::RegFree { .. } => None,
     }).collect())
+}
+
+// =============================================================================
+
+struct MaximalSwitchProps {
+    maximal_len: usize,
+    /// indices where at least one switch had a value
+    explicit_difficulties: BitSet32,
+}
+
+impl MaximalSwitchProps {
+    fn new() -> Self { MaximalSwitchProps {
+        maximal_len: 1,
+        explicit_difficulties: BitSet32::from_mask(1),
+    }}
+
+    fn update<T>(&mut self, switch_cases: &[Option<T>]) {
+        self.maximal_len = self.maximal_len.max(switch_cases.len());
+
+        for (difficulty, case) in switch_cases.iter().enumerate() {
+            if case.is_some() {
+                self.explicit_difficulties.insert(difficulty as u32);
+            }
+        }
+    }
+}
+
+/// Grab the corresponding item from difficulty cases.
+/// (the final value is assumed to repeat forever)
+fn select_diff_switch_case<T: Clone>(cases: &[Option<T>], difficulty: u32) -> T {
+    let start = usize::min(cases.len() - 1, difficulty as usize);
+    (0..=start).rev()  // start from difficulty and look backwards
+        .filter_map(|i| cases[i].clone()).next()  // find first Some
+        .expect("there's always an easy value")
+}
+
+fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
+    let mut out = vec![];
+    'stmt: for stmt in stmts {
+        if let LowerStmt::Instr(instr) = &stmt.value {
+            if let LowerArgs::Known(args) = &instr.args {
+                // find the max number of switch cases and explicit values
+                let mut switch_props = MaximalSwitchProps::new();
+                for arg in args {
+                    if let LowerArg::DiffSwitch(cases) = &arg.value {
+                        switch_props.update(cases);
+                    }
+                }
+
+                if switch_props.maximal_len <= 2 {
+                    out.push(stmt);  // no difficulty switches
+                    continue 'stmt;
+                }
+
+                // ------------
+                // all conditions are met, so generate instructions for each difficulty.
+                let diffs_to_generate = BitSet32::from_mask(instr.stmt_data.difficulty_mask as _);
+
+                for difficulty in diffs_to_generate {
+                    let new_args = select_diff_for_lower_args(args, difficulty as u32);
+                    out.push(sp!(stmt.span => LowerStmt::Instr({
+                        LowerInstr {
+                            args: LowerArgs::Known(new_args),
+                            stmt_data: TimeAndDifficulty {
+                                difficulty_mask: BitSet32::from_bit(difficulty).mask() as _,
+                                ..instr.stmt_data
+                            },
+                            ..*instr
+                        }
+                    })))
+                }
+            } else {
+                out.push(stmt);  // blob args
+            }
+        } else {
+            out.push(stmt);  // not an instruction
+        }
+    }
+    out
+}
+
+fn select_diff_for_lower_args(args: &[Sp<LowerArg>], difficulty: u32) -> Vec<Sp<LowerArg>> {
+    args.iter().map(|arg| match &arg.value {
+        LowerArg::DiffSwitch(cases) => select_diff_switch_case(cases, difficulty),
+        _ => arg.clone(),
+    }).collect()
 }
 
 // =============================================================================
@@ -323,6 +416,9 @@ fn substitute_dummy_args(instr: &LowerInstr) -> LowerInstr {
 
             | LowerArg::Local { .. }
             => sp!(arg.span => LowerArg::Raw(SimpleArg { value: ScalarValue::Int(0), is_reg: true })),
+
+            | LowerArg::DiffSwitch(_)
+            => panic!("should be handled earler, else offsets will be wrong..."),
 
             | LowerArg::Raw(_) => arg.clone(),
         }).collect())
@@ -505,9 +601,10 @@ fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &impl Emitter) -> Result<r
     for arg in args.iter().rev(){
         let bit = match &arg.value {
             LowerArg::Raw(raw) => raw.is_reg as raw::ParamMask,
-            LowerArg::TimeOf { .. } |
+            LowerArg::TimeOf { .. } => 0,
             LowerArg::Label { .. } => 0,
             LowerArg::Local { .. } => 1,
+            LowerArg::DiffSwitch { .. } => panic!("should be handled earlier"),
         };
         mask *= 2;
         mask += bit;
