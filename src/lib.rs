@@ -42,6 +42,7 @@ pub use formats::ecl::{self, OldeEclFile as EclFile};
 mod formats;
 
 mod bitset;
+mod diff_switch_utils;
 
 pub use game::{Game, LanguageKey};
 mod game;

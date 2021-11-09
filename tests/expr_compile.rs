@@ -8,6 +8,7 @@ use truth::{Truth, ScalarValue, ScalarType as Ty, RegId};
 
 use rand::Rng;
 
+#[derive(Clone)]
 struct Var {
     reg: RegId,
     ty: Option<Ty>,
@@ -154,7 +155,9 @@ fn make_randomized_vm(vars: &[Var]) -> AstVm {
             None => vm.set_reg(var.reg, ScalarValue::Int(0)),
         }
     }
-    vm
+
+    let difficulty = rng.gen_range(0, 4);
+    vm.with_difficulty(difficulty)
 }
 
 const REG_A: RegId = RegId(1000);
@@ -218,7 +221,7 @@ const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
 /// match.  Then it returns the VMs so that the caller can check the equality of any registers
 /// that it knows should not have been used for scratch.
 #[track_caller]
-fn run_randomized_test(vars: &[Var], text: &str) -> Result<(AstVm, AstVm), String> {
+fn run_randomized_test(vars: &[Var], text: &str) -> Result<TestResult, String> {
     truth::setup_for_test_harness();
 
     let mut scope = truth::Builder::new().capture_diagnostics(true).build();
@@ -231,7 +234,7 @@ fn run_randomized_test(vars: &[Var], text: &str) -> Result<(AstVm, AstVm), Strin
 }
 
 #[track_caller]
-fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(AstVm, AstVm), truth::ErrorReported> {
+fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<TestResult, truth::ErrorReported> {
     load_eclmap(truth, vars);
 
     let hooks = make_language(vars);
@@ -280,7 +283,62 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<(
     assert_eq!(old_vm.time, new_vm.time, "time");
     assert_eq!(old_vm.real_time, new_vm.real_time, "real_time");
     assert_eq!(old_vm.instr_log, new_vm.instr_log);
-    Ok((old_vm, new_vm))
+    Ok(TestResult {
+        vars: vars.to_vec(),
+        old: old_vm,
+        new: new_vm,
+    })
+}
+
+struct TestResult {
+    vars: Vec<Var>,
+    old: AstVm,
+    new: AstVm,
+}
+
+impl TestResult {
+    /// Expect a register to be equal between the old and new vms.
+    #[track_caller]
+    fn check_reg(&self, reg: RegId) {
+        self.check_reg_with_msg(reg, format_args!("{}\n{}", self.old, self.new));
+    }
+
+    #[track_caller]
+    fn check_regs(&self, regs: &[RegId]) {
+        for &reg in regs {
+            self.check_reg_with_msg(reg, format_args!("{}\n{}\nreg {}", self.old, self.new, reg));
+        }
+    }
+
+    /// Verify that a register was not used as scratch by comparing the values in the old and new vms.
+    #[track_caller]
+    fn check_reg_not_scratch(&self, reg: RegId) {
+        // same check as check_reg really, but we're probably not interested in such verbose information
+        self.check_reg_with_msg(reg, format_args!("reg {}", reg));
+    }
+
+    /// Expect a register to be equal between the old and new vms.
+    #[track_caller]
+    fn check_reg_with_msg(&self, reg: RegId, msg: impl core::fmt::Display) {
+        assert_eq!(self.old.get_reg(reg), self.new.get_reg(reg), "{}", msg);
+    }
+
+    /// Verify that no registers of a given type were used as scratch.
+    #[track_caller]
+    fn check_no_scratch_of_ty(&self, ty: Ty) {
+        for var in &self.vars {
+            if var.ty == Some(ty) {
+                self.check_reg_not_scratch(var.reg);
+            }
+        }
+    }
+
+    /// Verify that no registers were used as scratch.
+    #[track_caller]
+    fn check_no_scratch(&self) {
+        self.check_no_scratch_of_ty(Ty::Int);
+        self.check_no_scratch_of_ty(Ty::Float);
+    }
 }
 
 /// Checks that attempting to compile this produces a "no more registers of this type" error.
@@ -318,18 +376,9 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
     assert!(err_s.contains("no more registers of this type"), "{}", err_s);
 }
 
-#[track_caller]
-fn check_all_regs_of_ty(vars: &[Var], old: &AstVm, new: &AstVm, ty: Ty) {
-    for var in vars {
-        if var.ty == Some(ty) {
-            assert_eq!(old.get_reg(var.reg), new.get_reg(var.reg), "reg {}", var.reg);
-        }
-    }
-}
-
 #[test]
 fn vars() {
-    // Three source files that should produce identical results
+    // Several source files that should produce identical results
     let tests = vec![
         ("simple_test", SIMPLE_FOUR_VAR_SPEC, r#"{
             int x = 4 + 3 * B, y;
@@ -358,15 +407,15 @@ fn vars() {
 
     for (test_name, vars, source) in tests {
         for _ in 0..10 {
-            let (old_vm, new_vm) = run_randomized_test(vars, source).unwrap();
+            let vms = run_randomized_test(vars, source).unwrap();
 
             // These can't be scratch vars because they were used
-            assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A), "{}", test_name);
-            assert_eq!(old_vm.get_reg(REG_B), new_vm.get_reg(REG_B), "{}", test_name);
+            vms.check_reg_with_msg(REG_A, test_name);
+            vms.check_reg_with_msg(REG_B, test_name);
             // This one is not general purpose so it's ineligible for scratch use
-            assert_eq!(old_vm.get_reg(REG_COUNT), new_vm.get_reg(REG_COUNT), "{}", test_name);
+            vms.check_reg_with_msg(REG_COUNT, test_name);
             // Float registers were not needed for scratch purposes
-            check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
+            vms.check_no_scratch_of_ty(Ty::Float);
         }
     }
 }
@@ -377,22 +426,18 @@ fn float_uses_detected() {
     for _ in 0..10 {
         // This is designed to fail if any register other than Y is assigned for the local.
         // (Y is in the middle of the scratch vars list, so this can't happen just on accident)
-        let (old_vm, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
             float x = X + Z;
             W = x;
         }"#).unwrap();
-        assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X));
-        assert_eq!(old_vm.get_reg(REG_Z), new_vm.get_reg(REG_Z));
-        assert_eq!(old_vm.get_reg(REG_W), new_vm.get_reg(REG_W));
+        vms.check_regs(&[REG_X, REG_Z, REG_W]);
 
         // Likewise for float-typed reads of integer registers.
-        let (old_vm, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
             int x = _S(%A + %C);
             D = x;
         }"#).unwrap();
-        assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A));
-        assert_eq!(old_vm.get_reg(REG_C), new_vm.get_reg(REG_C));
-        assert_eq!(old_vm.get_reg(REG_D), new_vm.get_reg(REG_D));
+        vms.check_regs(&[REG_A, REG_C, REG_D]);
     }
 }
 
@@ -401,19 +446,17 @@ fn cast() {
     // A variable should still be recognized as ineligible for scratch use even if only read as the other type.
     for _ in 0..10 {
         let vars = SIMPLE_FOUR_VAR_SPEC;
-        let (old_vm, new_vm) = run_randomized_test(vars, r#"{
+        let vms = run_randomized_test(vars, r#"{
             int x = 4 + 3 * $X, y;
             y = x * x;
             A = x;
             float a = (3.0 + W) * (5.0 + W);  // this should use Y and Z for scratch, not X.
         }"#).unwrap();
 
-        let x = old_vm.get_reg(REG_X).unwrap().read_as_float().unwrap() as i32 * 3 + 4;
-        assert_eq!(old_vm.get_reg(REG_A), Some(ScalarValue::Int(x)), "{}", old_vm);
+        let x = vms.old.get_reg(REG_X).unwrap().read_as_float().unwrap() as i32 * 3 + 4;
+        assert_eq!(vms.old.get_reg(REG_A), Some(ScalarValue::Int(x)), "{}", vms.old);
 
-        assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A), "{}\n{}", old_vm, new_vm);
-        assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X), "{}\n{}", old_vm, new_vm);
-        assert_eq!(old_vm.get_reg(REG_W), new_vm.get_reg(REG_W), "{}\n{}", old_vm, new_vm);
+        vms.check_regs(&[REG_A, REG_X, REG_W]);
     }
 }
 
@@ -453,25 +496,18 @@ mod no_scratch {
 
     #[track_caller]
     fn check_no_scratch(vars: &[Var], source: &str) {
-        let (old_vm, new_vm) = run_randomized_test(vars, source).unwrap();
-
-        // if no scratch vars were used, then the two VMs should be in identical states
-        check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
-        check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
+        run_randomized_test(vars, source).unwrap().check_no_scratch();
     }
 
     #[test]
     fn direct_assign() {
         for _ in 0..5 {
-            let vars = SIMPLE_FOUR_VAR_SPEC;
-            let (old_vm, new_vm) = run_randomized_test(vars, r#"{
+            check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 A = A;
                 A = B;
                 W = W;
                 A = $X;
-            }"#).unwrap();
-            check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
-            check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
+            }"#);
         }
     }
 
@@ -492,6 +528,7 @@ mod no_scratch {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
                 A *= A;
                 A += B;
+                A += (B:C::B);
                 A *= $Y;
             }"#);
         }
@@ -585,7 +622,7 @@ mod no_scratch {
     fn ins_call() {
         for _ in 0..5 {
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
-                bar_SSff(A, 2, 6.0, %B);
+                bar_SSff(A, 2, 6.0:7.0:8.0:9.0, %B);
             }"#);
         }
     }
@@ -596,7 +633,7 @@ mod no_scratch {
             // these entire expressions can be computed by repeatedly modifying A or X
             // (and this can be done without even rearranging execution order in any manner)
             check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
-                A = B + B * -(B * (C + -A + C + C) + B);
+                A = B + B * -(B * (C + -(A+1:A+2:B+3:B+4) + (C:B:C:B) + C) + B);
                 X = Y + cos(Y * (Y * sin(Z + -X + Z + Z) + Y));
             }"#);
         }
@@ -613,13 +650,13 @@ struct CheckBoolVms {
 /// (`expected` is what the condition is expected to conceptually evaluate to, as a boolean)
 #[track_caller]
 fn check_bool(init: &str, cond: &str, expected: bool) -> CheckBoolVms {
-    let (_, new_if_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+    let vms_if = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
         {}
         if ({}) goto hi;
         foo();
       hi:
     }}"#, init, cond)).unwrap();
-    let (_, new_unless_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
+    let vms_unless = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, &format!(r#"{{
         {}
         unless ({}) goto hi;
         foo();
@@ -627,9 +664,9 @@ fn check_bool(init: &str, cond: &str, expected: bool) -> CheckBoolVms {
     }}"#, init, cond)).unwrap();
 
     // For 'if', the call should be skipped if the condition is true.
-    assert_eq!(new_if_vm.instr_log.len(), 1 - (expected as usize));
-    assert_eq!(new_unless_vm.instr_log.len(), expected as usize);
-    CheckBoolVms { new_if_vm, new_unless_vm }
+    assert_eq!(vms_if.new.instr_log.len(), 1 - (expected as usize));
+    assert_eq!(vms_unless.new.instr_log.len(), expected as usize);
+    CheckBoolVms { new_if_vm: vms_if.new, new_unless_vm: vms_unless.new }
 }
 
 #[test]
@@ -713,11 +750,11 @@ fn cast_assignment() {
         // this hits a tiny special little code path that most casts don't hit, where it is
         // immediately assigned to a variable.
         let vars = SIMPLE_FOUR_VAR_SPEC;
-        let (old_vm, new_vm) = run_randomized_test(vars, r#"{
+        let vms = run_randomized_test(vars, r#"{
             X = _f(A + 4);
         }"#).unwrap();
 
-        check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
+        vms.check_no_scratch_of_ty(Ty::Float);
     }
 }
 
@@ -728,12 +765,12 @@ fn careful_cast_temporaries() {
     for _ in 0..10 {
         let vars = SIMPLE_FOUR_VAR_SPEC;
         // None of these should create an integer temporary
-        let (old_vm, new_vm) = run_randomized_test(vars, r#"{
+        let vms = run_randomized_test(vars, r#"{
             bar_S(_S(%X + 4.0));
             A = A + _S(%X + 4.0);
         }"#).unwrap();
 
-        check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
+        vms.check_no_scratch_of_ty(Ty::Int);
     }
 }
 
@@ -749,16 +786,16 @@ fn binop_optimization_correctness() {
     for &expr_1 in &subexprs {
         for &expr_2 in &subexprs {
             let vars = SIMPLE_FOUR_VAR_SPEC;
-            let (old_vm, new_vm) = run_randomized_test(vars, &format!(r#"{{
+            let vms = run_randomized_test(vars, &format!(r#"{{
                 A = {} + {};
                 B = B;  // guarantee that B is considered used so we can assert on it
             }}"#, expr_1, expr_2)).unwrap();
 
-            assert_eq!(old_vm.get_reg(REG_A), new_vm.get_reg(REG_A));
-            assert_eq!(old_vm.get_reg(REG_B), new_vm.get_reg(REG_B));
+            vms.check_reg(REG_A);
+            vms.check_reg(REG_B);
 
             // Float vars were not needed for scratch purposes
-            check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Float);
+            vms.check_no_scratch_of_ty(Ty::Float);
         }
     }
 }
@@ -775,15 +812,15 @@ fn unop_optimization_correctness() {
     for oper in vec!["-", "sin"] {
         for &expr_1 in &subexprs {
             let vars = SIMPLE_FOUR_VAR_SPEC;
-            let (old_vm, new_vm) = run_randomized_test(vars, &format!(r#"{{
+            let vms = run_randomized_test(vars, &format!(r#"{{
                 X = {}({});
                 Y = Y;  // guarantee that Y is considered used so we can assert on it
             }}"#, oper, expr_1)).unwrap();
 
-            assert_eq!(old_vm.get_reg(REG_X), new_vm.get_reg(REG_X));
-            assert_eq!(old_vm.get_reg(REG_Y), new_vm.get_reg(REG_Y));
+            vms.check_reg(REG_X);
+            vms.check_reg(REG_Y);
 
-            check_all_regs_of_ty(vars, &old_vm, &new_vm, Ty::Int);
+            vms.check_no_scratch_of_ty(Ty::Int);
         }
     }
 }
@@ -835,7 +872,7 @@ fn times() {
 
 #[test]
 fn loop_break() {
-    let (_, new_vm) = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+    let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
         A = 5;
         B = 0;
         times(A = 6) {
@@ -851,20 +888,79 @@ fn loop_break() {
             if (A == 3) break;
         }
     }"#).unwrap();
-    assert_eq!(new_vm.get_reg(REG_A), Some(ScalarValue::Int(3)));
-    assert_eq!(new_vm.get_reg(REG_B), Some(ScalarValue::Int(28)));
+    assert_eq!(vms.new.get_reg(REG_A), Some(ScalarValue::Int(3)));
+    assert_eq!(vms.new.get_reg(REG_B), Some(ScalarValue::Int(28)));
 }
 
 #[test]
-fn missing_tests() {
-    panic!("test needed for simple difficulty switch");
-    panic!("test needed for complex difficulty switch");
-    panic!("test needed for nested difficulty switch");
-    panic!("tests where multiple difficulty switches have different explicit cases");
-    panic!("test needed for complex difficulty switch that uses output var in one of its branches");
-    panic!("test needed for no scratch with difficulty switch");
-    panic!("test needed for type cast of difficulty switch");
-    panic!("test needed for += complex difficulty switch");
-    panic!("test needed for diff switch in loop condition where loop has time label increase");
-    panic!("test needed for diff switches in statements with non-default difficulty masks");
+fn loop_diff_switch() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = 5;
+            B = 0;
+            times(A+2:A+3:B+2:B+1) {
+                C += 1;
+                nop();
+                +5:  // if the loop body got replicated we'll have some time label memes...
+            }
+        }"#).unwrap();
+        vms.check_regs(&[REG_A, REG_B, REG_C]);
+    }
+}
+
+#[test]
+fn cast_diff_switch() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = _S(X::Y:);
+            A = _S(X::Y:) + 2;
+            B = _S(X*Y::Y*Y:);
+        }"#).unwrap();
+        vms.check_regs(&[REG_A, REG_B]);
+        vms.check_regs(&[REG_X, REG_Y]);
+    }
+}
+
+#[test]
+fn assign_op_diff_switch() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A += A+B:C::;
+        }"#).unwrap();
+        vms.check_regs(&[REG_A, REG_B, REG_C]);
+    }
+}
+
+#[test]
+fn mismatched_diff_switch_cases() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = (B::C:) * (A:C::);
+            X = (Y+Z::Z:) * (Y+X:Z::);
+        }"#).unwrap();
+        vms.check_regs(&[REG_A, REG_B, REG_C]);
+        vms.check_regs(&[REG_X, REG_Y, REG_Z]);
+    }
+}
+
+#[test]
+fn nested_diff_switch_cases() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = (A+((A:2:3:4):2:3:4):(A+1:2:3:4):C:);
+        }"#).unwrap();
+        vms.check_regs(&[REG_A, REG_Z]);
+    }
+}
+
+#[test]
+fn difficulty_label_and_diff_switch() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+        difficulty[0b0110]:
+            A = 300::400:;
+            B = 300:400::;
+        }"#).unwrap();
+        vms.check_regs(&[REG_A, REG_B]);
+    }
 }

@@ -24,6 +24,10 @@ pub struct AstVm {
     /// This increases as the VM waits for instructions, and gets set to specific values
     /// during jumps.
     pub time: i32,
+    /// Difficulty. (0 = easy, 1 = normal, ...)
+    ///
+    /// If not set, difficulty-related syntax will cause a panic.
+    pub difficulty: Option<u32>,
     /// Total amount of time the VM has been running.
     ///
     /// Unlike `time`, this monotonically increases.
@@ -108,6 +112,7 @@ impl AstVm {
     pub fn new() -> Self {
         AstVm {
             time: 0,
+            difficulty: None,
             real_time: 0,
             instr_log: vec![],
             var_values: Default::default(),
@@ -118,6 +123,11 @@ impl AstVm {
 
     pub fn with_max_iterations(mut self, n: u32) -> Self {
         self.max_iterations = Some(n);
+        self
+    }
+
+    pub fn with_difficulty(mut self, difficulty: u32) -> Self {
+        self.difficulty = Some(difficulty);
         self
     }
 
@@ -179,6 +189,7 @@ impl AstVm {
                 }};
             }
 
+            // "Wait" until this statement's time.
             let stmt_node_id = stmts[stmt_index].node_id.unwrap();
             let stmt_time = stmt_data[&stmt_node_id].time;
             if self.time < stmt_time {
@@ -189,6 +200,20 @@ impl AstVm {
 
             let start_time = |block: &ast::Block| stmt_data[&block.start_node_id()].time;
             let end_time = |block: &ast::Block| stmt_data[&block.end_node_id()].time;
+
+            macro_rules! to_next_stmt {
+                () => {
+                    stmt_index += 1;
+                    continue 'stmt;
+                };
+            }
+
+            // Skip statements for the wrong difficulty
+            if let Some(difficulty) = self.difficulty {
+                if !stmt_data[&stmt_node_id].difficulty_mask.contains(difficulty) {
+                    to_next_stmt!();
+                }
+            }
 
             // Recurse into a block, handling any form of early return.
             macro_rules! handle_block {
@@ -372,7 +397,11 @@ impl AstVm {
 
                 ast::StmtKind::InterruptLabel(_) => {},
 
-                ast::StmtKind::RawDifficultyLabel(_) => unimplemented!("difficulty in AST VM"),
+                ast::StmtKind::RawDifficultyLabel(_) => {
+                    assert!(self.difficulty.is_some(), "difficulty of VM was not set!");
+                    // no need to actually do anything though, we have statement difficulties
+                    // from static analysis.
+                },
 
                 ast::StmtKind::AbsTimeLabel { .. } => { },
                 ast::StmtKind::RelTimeLabel { .. } => { },
@@ -382,7 +411,9 @@ impl AstVm {
                 ast::StmtKind::NoInstruction => {},
             }
 
-            stmt_index += 1;
+            // Notice: logic for advancing to the next statement is factored out into a macro
+            // because it must also occur when e.g. difficulty doesn't match.
+            to_next_stmt!();
         }
         RunResult::Nominal
     }
@@ -402,7 +433,11 @@ impl AstVm {
 
             ast::Expr::UnOp(op, x) => op.const_eval(self.eval(x, resolutions)),
 
-            ast::Expr::DiffSwitch { .. } => unimplemented!("difficulty in AST VM"),
+            ast::Expr::DiffSwitch(cases) => {
+                let difficulty = self.difficulty.expect("difficulty not set for VM!");
+                let case = crate::diff_switch_utils::select_diff_switch_case(cases, difficulty);
+                self.eval(case, resolutions)
+            },
 
             ast::Expr::LitInt { value, .. } => ScalarValue::Int(*value),
 

@@ -3,7 +3,6 @@ use std::collections::{HashMap};
 use crate::raw;
 use crate::ast;
 use super::{unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
-use crate::bitset::BitSet32;
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp};
@@ -13,6 +12,7 @@ use crate::context::{self, CompilerContext};
 use crate::io::{Encoded, DEFAULT_ENCODING};
 use crate::value::ScalarValue;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
+use crate::diff_switch_utils as ds_util;
 
 mod stackless;
 mod intrinsic;
@@ -201,45 +201,13 @@ fn lower_sub_ast_to_instrs(
 
 // =============================================================================
 
-struct MaximalSwitchProps {
-    maximal_len: usize,
-    /// indices where at least one switch had a value
-    explicit_difficulties: BitSet32,
-}
-
-impl MaximalSwitchProps {
-    fn new() -> Self { MaximalSwitchProps {
-        maximal_len: 1,
-        explicit_difficulties: BitSet32::from_mask(1),
-    }}
-
-    fn update<T>(&mut self, switch_cases: &[Option<T>]) {
-        self.maximal_len = self.maximal_len.max(switch_cases.len());
-
-        for (difficulty, case) in switch_cases.iter().enumerate() {
-            if case.is_some() {
-                self.explicit_difficulties.insert(difficulty as u32);
-            }
-        }
-    }
-}
-
-/// Grab the corresponding item from difficulty cases.
-/// (the final value is assumed to repeat forever)
-fn select_diff_switch_case<T: Clone>(cases: &[Option<T>], difficulty: u32) -> T {
-    let start = usize::min(cases.len() - 1, difficulty as usize);
-    (0..=start).rev()  // start from difficulty and look backwards
-        .filter_map(|i| cases[i].clone()).next()  // find first Some
-        .expect("there's always an easy value")
-}
-
 fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
     let mut out = vec![];
     'stmt: for stmt in stmts {
         if let LowerStmt::Instr(instr) = &stmt.value {
             if let LowerArgs::Known(args) = &instr.args {
                 // find the max number of switch cases and explicit values
-                let mut switch_props = MaximalSwitchProps::new();
+                let mut switch_props = ds_util::MaximalSwitchProps::new();
                 for arg in args {
                     if let LowerArg::DiffSwitch(cases) = &arg.value {
                         switch_props.update(cases);
@@ -253,7 +221,7 @@ fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
 
                 // ------------
                 // all conditions are met, so generate instructions for each difficulty.
-                for case_mask in explicit_case_bitmasks(switch_props.explicit_difficulties.into_iter(), switch_props.maximal_len) {
+                for case_mask in ds_util::explicit_case_bitmasks(switch_props.explicit_difficulties.into_iter(), switch_props.maximal_len) {
                     let new_mask = case_mask & instr.stmt_data.difficulty_mask;
                     if !new_mask.is_empty() {
                         // compress each switch into just the case for this difficulty
@@ -279,72 +247,19 @@ fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
 }
 
 fn select_diff_for_lower_args(args: &[Sp<LowerArg>], difficulty: u32) -> Vec<Sp<LowerArg>> {
-    args.iter().map(|arg| match &arg.value {
-        LowerArg::DiffSwitch(cases) => select_diff_switch_case(cases, difficulty),
+    args.iter().map(|arg| select_diff_for_lower_arg(arg, difficulty)).collect()
+}
+
+fn select_diff_for_lower_arg(arg: &Sp<LowerArg>, difficulty: u32) -> Sp<LowerArg> {
+    match &arg.value {
+        LowerArg::DiffSwitch(cases) => {
+            let case = ds_util::select_diff_switch_case(cases, difficulty);
+            // recurse in case there's another nested DiffSwitch
+            select_diff_for_lower_arg(case, difficulty)
+        },
         _ => arg.clone(),
-    }).collect()
-}
-
-// FIXME move, other code will want to use this
-fn explicit_difficulty_cases<T>(cases: &[Option<T>]) -> Vec<(BitSet32, &T)> {
-    let mut remaining = cases.iter();
-    let mut cur_case = remaining.next().expect("always len > 1").as_ref().expect("first case always present");
-    let mut cur_mask = BitSet32::from_bit(0);
-    let mut difficulty = 1;
-    let mut out = vec![];
-    for case_opt in remaining {
-        if let Some(case) = case_opt {
-            out.push((cur_mask, cur_case));
-            cur_case = case;
-            cur_mask = BitSet32::new();
-        }
-        cur_mask.insert(difficulty);
-        difficulty += 1;
     }
-    out.push((cur_mask, cur_case));
-    out
 }
-
-/// Get masks for each difficulty case based on how it is repeated.
-/// The input list of indices must be sorted.
-fn explicit_case_bitmasks(explicit_difficulties: impl IntoIterator<Item=u32>, len: usize) -> impl Iterator<Item=BitSet32> {
-    let mut stops = explicit_difficulties.into_iter().chain(core::iter::once(len as u32));
-
-    let mut prev = stops.next().expect("always at least one case");
-    stops.map(move |stop| {
-        debug_assert!(prev < stop, "explicit_difficulties not sorted, or bad len");
-        let bitset = (prev..stop).collect();
-        prev = stop;
-        bitset
-    })
-}
-
-#[test]
-fn test_difficulty_cases() {
-    let m = BitSet32::from_mask;
-    assert_eq!(
-        explicit_difficulty_cases(&[Some(10), Some(20), Some(30)]),
-        vec![(m(1), &10), (m(2), &20), (m(4), &30)],
-    );
-    assert_eq!(
-        explicit_difficulty_cases(&[Some(10), None, None, Some(30), None]),
-        vec![(m(0b111), &10), (m(0b11000), &30)],
-    );
-}
-
-#[test]
-fn test_explicit_case_bitmasks() {
-    let m = BitSet32::from_mask;
-    assert_eq!(
-        explicit_case_bitmasks(vec![0, 1, 2], 3).collect::<Vec<_>>(),
-        vec![m(1), m(2), m(4)],
-    );
-    assert_eq!(
-        explicit_case_bitmasks(vec![0, 3], 5).collect::<Vec<_>>(),
-        vec![m(0b111), m(0b11000)],
-    );
-}
-
 
 // =============================================================================
 

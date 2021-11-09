@@ -272,7 +272,7 @@ impl SingleSubLowerer<'_, '_> {
         // This doesn't actually need a temporary.
         // We can just elaborate it into separate assignment statements on each difficulty.
         let instr_diff_mask = stmt_data.difficulty_mask;
-        for (case_mask, case) in super::explicit_difficulty_cases(cases) {
+        for (case_mask, case) in crate::diff_switch_utils::explicit_difficulty_cases(cases) {
             let new_mask = instr_diff_mask & case_mask;
             if !new_mask.is_empty() {
                 let modified_stmt_data = TimeAndDifficulty { difficulty_mask: new_mask, ..stmt_data };
@@ -645,7 +645,6 @@ impl SingleSubLowerer<'_, '_> {
     }
 
     // `if (a != b) ...` for simple values
-
     fn lower_cond_jump_intrinsic(
         &mut self,
         stmt_span: Span,
