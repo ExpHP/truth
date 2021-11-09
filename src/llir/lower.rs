@@ -253,20 +253,20 @@ fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
 
                 // ------------
                 // all conditions are met, so generate instructions for each difficulty.
-                let diffs_to_generate = BitSet32::from_mask(instr.stmt_data.difficulty_mask as _);
-
-                for difficulty in diffs_to_generate {
-                    let new_args = select_diff_for_lower_args(args, difficulty as u32);
-                    out.push(sp!(stmt.span => LowerStmt::Instr({
-                        LowerInstr {
-                            args: LowerArgs::Known(new_args),
-                            stmt_data: TimeAndDifficulty {
-                                difficulty_mask: BitSet32::from_bit(difficulty).mask() as _,
-                                ..instr.stmt_data
-                            },
-                            ..*instr
-                        }
-                    })))
+                for case_mask in explicit_case_bitmasks(switch_props.explicit_difficulties.into_iter(), switch_props.maximal_len) {
+                    let new_mask = case_mask & instr.stmt_data.difficulty_mask;
+                    if !new_mask.is_empty() {
+                        // compress each switch into just the case for this difficulty
+                        let case_first_difficulty = case_mask.into_iter().next().unwrap();
+                        let new_args = select_diff_for_lower_args(args, case_first_difficulty as u32);
+                        out.push(sp!(stmt.span => LowerStmt::Instr({
+                            LowerInstr {
+                                args: LowerArgs::Known(new_args),
+                                stmt_data: TimeAndDifficulty { difficulty_mask: new_mask, ..instr.stmt_data },
+                                ..*instr
+                            }
+                        })))
+                    }
                 }
             } else {
                 out.push(stmt);  // blob args
@@ -284,6 +284,67 @@ fn select_diff_for_lower_args(args: &[Sp<LowerArg>], difficulty: u32) -> Vec<Sp<
         _ => arg.clone(),
     }).collect()
 }
+
+// FIXME move, other code will want to use this
+fn explicit_difficulty_cases<T>(cases: &[Option<T>]) -> Vec<(BitSet32, &T)> {
+    let mut remaining = cases.iter();
+    let mut cur_case = remaining.next().expect("always len > 1").as_ref().expect("first case always present");
+    let mut cur_mask = BitSet32::from_bit(0);
+    let mut difficulty = 1;
+    let mut out = vec![];
+    for case_opt in remaining {
+        if let Some(case) = case_opt {
+            out.push((cur_mask, cur_case));
+            cur_case = case;
+            cur_mask = BitSet32::new();
+        }
+        cur_mask.insert(difficulty);
+        difficulty += 1;
+    }
+    out.push((cur_mask, cur_case));
+    out
+}
+
+/// Get masks for each difficulty case based on how it is repeated.
+/// The input list of indices must be sorted.
+fn explicit_case_bitmasks(explicit_difficulties: impl IntoIterator<Item=u32>, len: usize) -> impl Iterator<Item=BitSet32> {
+    let mut stops = explicit_difficulties.into_iter().chain(core::iter::once(len as u32));
+
+    let mut prev = stops.next().expect("always at least one case");
+    stops.map(move |stop| {
+        debug_assert!(prev < stop, "explicit_difficulties not sorted, or bad len");
+        let bitset = (prev..stop).collect();
+        prev = stop;
+        bitset
+    })
+}
+
+#[test]
+fn test_difficulty_cases() {
+    let m = BitSet32::from_mask;
+    assert_eq!(
+        explicit_difficulty_cases(&[Some(10), Some(20), Some(30)]),
+        vec![(m(1), &10), (m(2), &20), (m(4), &30)],
+    );
+    assert_eq!(
+        explicit_difficulty_cases(&[Some(10), None, None, Some(30), None]),
+        vec![(m(0b111), &10), (m(0b11000), &30)],
+    );
+}
+
+#[test]
+fn test_explicit_case_bitmasks() {
+    let m = BitSet32::from_mask;
+    assert_eq!(
+        explicit_case_bitmasks(vec![0, 1, 2], 3).collect::<Vec<_>>(),
+        vec![m(1), m(2), m(4)],
+    );
+    assert_eq!(
+        explicit_case_bitmasks(vec![0, 3], 5).collect::<Vec<_>>(),
+        vec![m(0b111), m(0b11000)],
+    );
+}
+
 
 // =============================================================================
 
@@ -461,7 +522,7 @@ fn encode_args(
                 param_mask: instr.user_param_mask.unwrap_or(0),
                 args_blob: blob.value.clone(),
                 extra_arg: instr.explicit_extra_arg,
-                difficulty: instr.stmt_data.difficulty_mask,
+                difficulty: instr.stmt_data.difficulty_mask.mask() as _,
                 // TODO: ECL pseudo-args whose semantics are not yet implemented
                 pop: 0,
             });
@@ -584,7 +645,7 @@ fn encode_args(
         },
         args_blob: args_blob.into_inner(),
         extra_arg,
-        difficulty: instr.stmt_data.difficulty_mask,
+        difficulty: instr.stmt_data.difficulty_mask.mask() as _,
         // TODO: ECL pseudo-args whose semantics are not yet implemented
         pop: 0,
     })

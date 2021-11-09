@@ -192,7 +192,7 @@ impl SingleSubLowerer<'_, '_> {
                 LowerArgs::Known(args.iter().map(|expr| {
                     let lowered = match classify_expr(expr, self.ctx)? {
                         ExprClass::Simple(data) => data.lowered,
-                        ExprClass::NeedsTemp(data) => {
+                        ExprClass::NeedsElaboration(data) => {
                             // Save this expression to a temporary
                             let (def_id, _) = self.define_temporary(stmt_data, &data)?;
                             let lowered = sp!(expr.span => LowerArg::Local { def_id, storage_ty: data.read_ty });
@@ -247,6 +247,41 @@ impl SingleSubLowerer<'_, '_> {
         Ok(())
     }
 
+    /// Lowers `x = 2:a+4:6:7;`
+    fn lower_assign_diff_switch(
+        &mut self,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        whole_expr: &Sp<ast::Expr>,
+        var: &Sp<ast::Var>,
+        eq_sign: &Sp<ast::AssignOpKind>,
+        cases: &[Option<Sp<ast::Expr>>],
+    ) -> Result<(), ErrorReported>{
+        // It should be impossible to get here for a simple expression, I think?
+        // Those would've hit an ExprClass::Simple case in another method first...
+        match classify_expr(whole_expr, self.ctx)? {
+            ExprClass::Simple(SimpleExpr { .. }) => {
+                self.ctx.emitter.emit(bug!(
+                    message("unhandled simple diff switch"),
+                    note("I didn't think this was possible. You get a cookie!"),
+                )).ignore();
+            },
+            ExprClass::NeedsElaboration(TemporaryExpr { .. }) => {},
+        }
+
+        // This doesn't actually need a temporary.
+        // We can just elaborate it into separate assignment statements on each difficulty.
+        let instr_diff_mask = stmt_data.difficulty_mask;
+        for (case_mask, case) in super::explicit_difficulty_cases(cases) {
+            let new_mask = instr_diff_mask & case_mask;
+            if !new_mask.is_empty() {
+                let modified_stmt_data = TimeAndDifficulty { difficulty_mask: new_mask, ..stmt_data };
+                self.lower_assign_op(stmt_span, modified_stmt_data, var, &eq_sign, case)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Lowers `a = <B>;`  or  `a *= <B>;`
     fn lower_assign_op(
         &mut self,
@@ -273,7 +308,7 @@ impl SingleSubLowerer<'_, '_> {
                 )?;
                 return Ok(());
             },
-            ExprClass::NeedsTemp(data) => data,
+            ExprClass::NeedsElaboration(data) => data,
         };
 
         // a = _f(<expr>);
@@ -300,11 +335,16 @@ impl SingleSubLowerer<'_, '_> {
                 self.lower_assign_direct_unop(span, stmt_data, var, assign_op, rhs.span, unop, b)
             },
 
+            // a = <expr>:<expr>:<expr>:<expr>;
+            (ast::AssignOpKind::Assign, ast::Expr::DiffSwitch(cases)) => {
+                self.lower_assign_diff_switch(span, stmt_data, &data_rhs.tmp_expr, var, assign_op, cases)
+            },
+
             // a = <any other expr>;
             // a += <expr>;
             (_, _) => {
                 match assign_op.value {
-                    // a = <big expr>
+                    // a = <big expr>;
                     // if none of the other branches handled it yet, we can't do it
                     ast::AssignOpKind::Assign => Err(self.unsupported(&rhs.span, "this expression")),
 
@@ -348,7 +388,7 @@ impl SingleSubLowerer<'_, '_> {
 
         // Evaluate the first subexpression if necessary.
         let simple_a = match classify_expr(a, self.ctx)? {
-            ExprClass::NeedsTemp(data_a) => {
+            ExprClass::NeedsElaboration(data_a) => {
                 if data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
                     // we can reuse the output variable!
                     let var_as_expr = self.compute_temporary_expr(stmt_data, var, &data_a)?;
@@ -368,7 +408,7 @@ impl SingleSubLowerer<'_, '_> {
         //        iterations, but the end result looked pretty awkward last time I tried.
         // First guy is simple.  Evaluate the second subexpression if necessary.
         let simple_b = match classify_expr(b, self.ctx)? {
-            ExprClass::NeedsTemp(data_b) => {
+            ExprClass::NeedsElaboration(data_b) => {
                 // similar conditions apply...
                 if data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var) {
                     // we can reuse the output variable!
@@ -418,7 +458,7 @@ impl SingleSubLowerer<'_, '_> {
         }
 
         match classify_expr(b, self.ctx)? {
-            ExprClass::NeedsTemp(data_b) => {
+            ExprClass::NeedsElaboration(data_b) => {
                 // Unary operations can reuse their destination register as long as it's the same type.
                 if data_b.tmp_ty == data_b.read_ty {
                     // compile to:   a = <B>;
@@ -578,7 +618,7 @@ impl SingleSubLowerer<'_, '_> {
         match (classify_expr(a, self.ctx)?, classify_expr(b, self.ctx)?) {
             // `if (<A> != <B>) ...` (or `unless (<A> != <B>) ...`)
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
-            (ExprClass::NeedsTemp(data_a), _) => {
+            (ExprClass::NeedsElaboration(data_a), _) => {
                 let (id, var_expr) = self.define_temporary(stmt_data, &data_a)?;
                 self.lower_cond_jump_comparison(stmt_span, stmt_data, keyword, &var_expr, binop, b, goto)?;
                 self.undefine_temporary(stmt_span.end_span(), id)?;
@@ -586,7 +626,7 @@ impl SingleSubLowerer<'_, '_> {
 
             // `if (a != <B>) ...` (or `unless (a != <B>) ...`)
             // split out to: `tmp = <B>;  if (a != tmp) ...`;
-            (ExprClass::Simple(_), ExprClass::NeedsTemp(data_b)) => {
+            (ExprClass::Simple(_), ExprClass::NeedsElaboration(data_b)) => {
                 let (id, var_expr) = self.define_temporary(stmt_data, &data_b)?;
                 self.lower_cond_jump_comparison(stmt_span, stmt_data, keyword, a, binop, &var_expr, goto)?;
                 self.undefine_temporary(stmt_span.end_span(), id)?;
@@ -605,6 +645,7 @@ impl SingleSubLowerer<'_, '_> {
     }
 
     // `if (a != b) ...` for simple values
+
     fn lower_cond_jump_intrinsic(
         &mut self,
         stmt_span: Span,
@@ -778,8 +819,11 @@ fn get_temporary_read_ty(ty: ScalarType, span: Span) -> Result<ReadType, Diagnos
 
 #[derive(Debug)]
 enum ExprClass<'a> {
+    /// The expression can become a single [`LowerArg`].
     Simple(SimpleExpr),
-    NeedsTemp(TemporaryExpr<'a>),
+    /// The expression must be compiled separately and stored into some variable first.
+    /// (possibly a new temporary)
+    NeedsElaboration(TemporaryExpr<'a>),
 }
 
 #[derive(Debug)]
@@ -809,7 +853,7 @@ struct TemporaryExpr<'a> {
 }
 
 fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<ExprClass<'a>, ErrorReported> {
-    let needs_temp = || ExprClass::NeedsTemp({
+    let needs_elaboration = || ExprClass::NeedsElaboration({
         let ty = arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
         TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
     });
@@ -855,7 +899,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
                 token![_f] => (ScalarType::Int, ScalarType::Float),
                 _ => unreachable!("filtered out by is_cast()"),
             };
-            Ok(ExprClass::NeedsTemp(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
+            Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
         },
 
         // Difficulty switches.
@@ -875,8 +919,9 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
                             lowered_cases.push(Some(out_case.lowered));
                             ty = Some(out_case.ty);
                         },
-                        // if even one case needs a temp, give the whole thing a temp
-                        ExprClass::NeedsTemp { .. } => return Ok(needs_temp()),
+                        // if even one case need is not simple, the diff switch will need to be
+                        // compiled into a dedicated assignment first
+                        ExprClass::NeedsElaboration { .. } => return Ok(needs_elaboration()),
                     },
                 }
             }
@@ -889,7 +934,7 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
         },
 
         // Anything else needs a temporary of the same type, consisting of the whole expression.
-        _ => Ok(needs_temp()),
+        _ => Ok(needs_elaboration()),
     }
 }
 
@@ -1040,9 +1085,12 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 if let LowerArgs::Known(args) = &mut instr.args {
                     for arg in args {
-                        if let LowerArg::Local { def_id, storage_ty } = arg.value {
-                            arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&def_id].0, storage_ty));
-                        }
+                        // may need to recurse into difficulty switches
+                        each_lower_arg(arg, &mut |arg| {
+                            if let LowerArg::Local { def_id, storage_ty } = arg.value {
+                                arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&def_id].0, storage_ty));
+                            }
+                        })
                     }
                 }
             },
@@ -1081,6 +1129,17 @@ pub (in crate::llir::lower) fn assign_registers(
     }
 
     Ok(())
+}
+
+fn each_lower_arg(arg: &mut Sp<LowerArg>, func: &mut dyn FnMut(&mut Sp<LowerArg>)) {
+    func(arg);
+    if let LowerArg::DiffSwitch(cases) = &mut arg.value {
+        for case in cases {
+            if let Some(case) = case {
+                each_lower_arg(case, func);
+            }
+        }
+    }
 }
 
 /// Generate a "script too complex" error.

@@ -10,15 +10,16 @@ use core::fmt;
 pub struct BitSet32(u32);
 
 impl BitSet32 {
-    pub fn new() -> Self { BitSet32(0) }
-    pub fn from_mask(mask: u32) -> Self { BitSet32(mask) }
-    pub fn from_bit(index: u32) -> Self { BitSet32::new().with_bit(index) }
-    pub fn len(self) -> usize { self.into_iter().len() }
-    pub fn mask(self) -> u32 { self.0 }
+    pub const fn new() -> Self { BitSet32(0) }
+    pub const fn from_mask(mask: u32) -> Self { BitSet32(mask) }
+    pub const fn from_bit(index: u32) -> Self { BitSet32::new().with_bit(index) }
+    pub const fn len(self) -> usize { self.0.count_ones() as usize }
+    pub const fn is_empty(self) -> bool { self.0 == 0 }
+    pub const fn mask(self) -> u32 { self.0 }
 
-    pub fn contains(self, index: u32) -> bool { self.0 & (1 << index) != 0 }
-    pub fn with_bit(self, index: u32) -> Self { BitSet32(self.0 | 1 << index) }
-    pub fn without_bit(self, index: u32) -> Self { BitSet32(self.0 & !(1 << index)) }
+    pub const fn contains(self, index: u32) -> bool { self.0 & (1 << index) != 0 }
+    pub const fn with_bit(self, index: u32) -> Self { BitSet32(self.0 | 1 << index) }
+    pub const fn without_bit(self, index: u32) -> Self { BitSet32(self.0 & !(1 << index)) }
 
     pub fn insert(&mut self, index: u32) -> bool {
         let new = self.with_bit(index);

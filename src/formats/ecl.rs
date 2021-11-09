@@ -741,7 +741,7 @@ impl InstrFormat for OldeEclHooks {
         let time = f.read_i32()?;
         let opcode = f.read_u16()?;
         let size = f.read_u16()? as usize;
-        let before_difficulty = f.read_u8()?;
+        let before_difficulty = f.read_u8()?;  // according to zero, not referenced in any game
         let difficulty = f.read_u8()?;
         let param_mask = f.read_u16()?;
 

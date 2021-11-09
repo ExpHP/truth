@@ -579,3 +579,78 @@ void baz(int a, float x) {
     "#,
     sbsb: |_| { /* just need it to round-trip */ },
 );
+
+// =============================================================================
+
+source_test!(
+    ECL_06, eosd_diff_switch_compile,
+    items: r#"
+void foo() {
+    int t1 = 3:4:5:6;
+}
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0].len(), 4);  // one for each difficulty
+        assert_eq!(ecl.subs[0][0].args_blob, blobify![3]);
+        assert_eq!(ecl.subs[0][2].args_blob, blobify![5]);
+    },
+);
+
+source_test!(
+    ECL_06, eosd_diff_switch_omission,
+    items: r#"
+void foo() {
+    int t1 = 3::5:;
+}
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0][0].args_blob, blobify![3]);
+        assert_eq!(ecl.subs[0][0].difficulty, 0b11);
+        assert_eq!(ecl.subs[0][1].args_blob, blobify![5]);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b1100);
+    },
+);
+
+source_test!(
+    ECL_06, eosd_diff_switch_multiple,
+    items: r#"
+void foo() {
+    int t1 = (3::5:) + (I2:I3::);
+}
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0][0].args_blob, blobify![3, -10002]);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b1);
+        assert_eq!(ecl.subs[0][1].args_blob, blobify![3, -10003]);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b10);
+        assert_eq!(ecl.subs[0][2].args_blob, blobify![5, -10003]);
+        assert_eq!(ecl.subs[0][2].difficulty, 0b1100);
+    },
+);
+
+source_test!(
+    ECL_06, eosd_diff_switch_multiple_complex,
+    items: r#"
+void foo() {
+    int t1 = 3::5:I2+3;
+}
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0].len(), 3);  // EN, H, L
+    },
+);
+
+source_test!(
+    ECL_06, eosd_diff_switch_offset,
+    items: r#"
+void foo() {
+    jump(30, offsetof(label):::);
+label:
+}
+"#,
+    sbsb: |_| { /* just checking that it doesn't crash tbh */ },
+);

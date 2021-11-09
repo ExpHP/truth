@@ -56,7 +56,7 @@ impl RawInstr {
         time: 0, opcode: 0,
         args_blob: Vec::new(), extra_arg: None,
         param_mask: 0,
-        difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK,
+        difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE,
         pop: 0,
     };
 }

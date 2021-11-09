@@ -2,12 +2,14 @@
 
 use crate::raw;
 use crate::ast;
+use crate::bitset::BitSet32;
 use crate::pos::Sp;
 use crate::error::{ErrorReported, ErrorFlag};
 use crate::diagnostic::Emitter;
 use crate::resolve::{NodeId, IdMap, node_id_helpers};
 
-pub const DEFAULT_DIFFICULTY_MASK: raw::DifficultyMask = -1 as _;
+pub const DEFAULT_DIFFICULTY_MASK_BYTE: raw::DifficultyMask = 0xFF;
+pub const DEFAULT_DIFFICULTY_MASK: BitSet32 = BitSet32::from_mask(DEFAULT_DIFFICULTY_MASK_BYTE as _);
 
 /// Time and difficulty assignment pass.
 ///
@@ -28,13 +30,13 @@ pub fn run<V: ast::Visitable + ?Sized>(ast: &V, emitter: &dyn Emitter) -> Result
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TimeAndDifficulty {
     pub time: raw::Time,
-    pub difficulty_mask: raw::DifficultyMask,
+    pub difficulty_mask: BitSet32,
 }
 
 struct Visitor<'a> {
     emitter: &'a dyn Emitter,
     errors: ErrorFlag,
-    difficulty_stack: Vec<u8>,
+    difficulty_stack: Vec<BitSet32>,
     time_stack: Vec<i32>,
     output: IdMap<NodeId, TimeAndDifficulty>,
 }
@@ -51,11 +53,11 @@ impl<'a> Visitor<'a> {
     }
 
     fn time(&self) -> i32 { *self.time_stack.last().expect("empty time stack?! (bug)") }
-    fn difficulty_mask(&self) -> u8 { *self.difficulty_stack.last().expect("empty diff stack?! (bug)") }
+    fn difficulty_mask(&self) -> BitSet32 { *self.difficulty_stack.last().expect("empty diff stack?! (bug)") }
     fn visit_stmt_shallow(&mut self, stmt: &ast::Stmt) {
         match &stmt.kind {
             &ast::StmtKind::RawDifficultyLabel(value) => {
-                *self.difficulty_stack.last_mut().expect("empty diff stack?! (bug)") = value.value as u8;
+                *self.difficulty_stack.last_mut().expect("empty diff stack?! (bug)") = BitSet32::from_mask(value.value as _);
             },
             &ast::StmtKind::AbsTimeLabel(value) => {
                 *self.time_stack.last_mut().expect("empty time stack?! (bug)") = value.value;

@@ -854,3 +854,17 @@ fn loop_break() {
     assert_eq!(new_vm.get_reg(REG_A), Some(ScalarValue::Int(3)));
     assert_eq!(new_vm.get_reg(REG_B), Some(ScalarValue::Int(28)));
 }
+
+#[test]
+fn missing_tests() {
+    panic!("test needed for simple difficulty switch");
+    panic!("test needed for complex difficulty switch");
+    panic!("test needed for nested difficulty switch");
+    panic!("tests where multiple difficulty switches have different explicit cases");
+    panic!("test needed for complex difficulty switch that uses output var in one of its branches");
+    panic!("test needed for no scratch with difficulty switch");
+    panic!("test needed for type cast of difficulty switch");
+    panic!("test needed for += complex difficulty switch");
+    panic!("test needed for diff switch in loop condition where loop has time label increase");
+    panic!("test needed for diff switches in statements with non-default difficulty masks");
+}

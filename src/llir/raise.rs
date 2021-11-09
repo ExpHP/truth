@@ -967,7 +967,7 @@ impl<'a> LabelEmitter<'a> {
     fn new(offset_labels: &'a BTreeMap<raw::BytePos, Label>) -> Self {
         LabelEmitter {
             prev_time: 0,
-            prev_difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK,
+            prev_difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE,
             offset_labels,
         }
     }
