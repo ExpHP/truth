@@ -623,7 +623,7 @@ void foo() {
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
         assert_eq!(ecl.subs[0][0].args_blob, blobify![-10001, 3, -10003]);
-        assert_eq!(ecl.subs[0][1].difficulty, 0b1);
+        assert_eq!(ecl.subs[0][0].difficulty, 0b1);
         assert_eq!(ecl.subs[0][1].args_blob, blobify![-10001, 3, -10004]);
         assert_eq!(ecl.subs[0][1].difficulty, 0b10);
         assert_eq!(ecl.subs[0][2].args_blob, blobify![-10001, 5, -10004]);
@@ -653,4 +653,36 @@ label:
 }
 "#,
     sbsb: |_| { /* just checking that it doesn't crash tbh */ },
+);
+
+source_test!(
+    ECL_06, diff_switch_in_const_fn_call,
+    items: r#"
+const int foo(int a) {
+    return 2 * a;
+}
+
+void bar() {
+    I0 = foo(2:3:4:5);
+}
+"#,
+    // Eventually const funcs will be supported, at which point this should hopefully
+    // get caught by another error
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+);
+
+source_test!(
+    ECL_06, diff_switch_in_inline_fn_call,
+    items: r#"
+inline void foo(int a) {
+    I1 = 2 * a;
+}
+
+void bar() {
+    foo(2:3:4:5);
+}
+"#,
+    // Eventually inline funcs will be supported.
+    // I'm not sure what this should do in that case.
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );

@@ -128,7 +128,11 @@ impl SingleSubLowerer<'_, '_> {
             Err(def_id) => {
                 // exported sub
                 let export_info = self.export_info.unwrap();
-                self.lower_eosd_call(stmt_span, stmt_data, call, &export_info.subs[&def_id])
+                match self.ctx.defs.user_func_qualifier(def_id).expect("isn't user func?") {
+                    Some(sp_pat!(token![inline])) => Err(self.unsupported(&stmt_span, "call to inline func")),
+                    Some(sp_pat!(token![const])) => panic!("leftover const func call during lowering"),
+                    None => self.lower_eosd_call(stmt_span, stmt_data, call, &export_info.subs[&def_id]),
+                }
             },
         }
     }

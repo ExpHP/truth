@@ -376,6 +376,18 @@ impl Defs {
         }
     }
 
+    /// Look up the qualifier for a user-defined function.  `None` if not a user function.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID does not correspond to a function.
+    pub fn user_func_qualifier(&self, def_id: DefId) -> Option<Option<Sp<ast::FuncQualifier>>> {
+        match &self.funcs[&def_id] {
+            FuncData { kind: FuncKind::InstructionAlias { .. }, .. } => None,
+            FuncData { kind: FuncKind::User { qualifier, .. }, .. } => Some(qualifier.clone()),
+        }
+    }
+
     /// Get the value of a variable if it is a fully-evaluated const.
     ///
     /// # Panics

@@ -489,6 +489,13 @@ impl Expr {
         Expr::LitInt { .. } => true,
         Expr::LitFloat { .. } => true,
         Expr::LitString { .. } => true,
+        // FIXME: this just plain feels funny, but it works for the current uses of this function.
+        //        There is an integration test to ensure we run into problems if we try to use
+        //        this to validate 'const' function args
+        Expr::DiffSwitch(cases) => {
+            cases.iter().flat_map(|opt| opt.as_ref())
+                .all(|case| case.can_lower_to_immediate())
+        }
         _ => false,
     }}
 }
