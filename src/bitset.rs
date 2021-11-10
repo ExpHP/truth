@@ -20,6 +20,14 @@ impl BitSet32 {
     pub const fn contains(self, index: u32) -> bool { self.0 & (1 << index) != 0 }
     pub const fn with_bit(self, index: u32) -> Self { BitSet32(self.0 | 1 << index) }
     pub const fn without_bit(self, index: u32) -> Self { BitSet32(self.0 & !(1 << index)) }
+    pub const fn first(self) -> Option<u32> { match self.0.trailing_zeros() {
+        32 => None,
+        count => Some(count),
+    }}
+    pub const fn last(self) -> Option<u32> { match self.0.leading_zeros() {
+        32 => None,
+        count => Some(32 - 1 - count),
+    }}
 
     pub fn insert(&mut self, index: u32) -> bool {
         let new = self.with_bit(index);
@@ -172,6 +180,8 @@ mod tests {
             assert_eq!(iter.len(), len);
             assert_eq!(iter.size_hint(), (len, Some(len)));
             assert_eq!(iter.collect::<Vec<_>>(), expected_output);
+            assert_eq!(set.first(), expected_output.first().copied());
+            assert_eq!(set.last(), expected_output.last().copied());
         }
 
         check_input(vec![1, 7, 2, 7, 31], 0x8000_0086, vec![1, 2, 7, 31]);

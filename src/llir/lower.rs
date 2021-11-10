@@ -207,21 +207,21 @@ fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
         if let LowerStmt::Instr(instr) = &stmt.value {
             if let LowerArgs::Known(args) = &instr.args {
                 // find the max number of switch cases and explicit values
-                let mut switch_props = ds_util::MaximalSwitchProps::new();
+                let mut switch_props = ds_util::DiffSwitchMeta::new();
                 for arg in args {
                     if let LowerArg::DiffSwitch(cases) = &arg.value {
                         switch_props.update(cases);
                     }
                 }
 
-                if switch_props.maximal_len <= 2 {
+                if switch_props.num_difficulties <= 2 {
                     out.push(stmt);  // no difficulty switches
                     continue 'stmt;
                 }
 
                 // ------------
                 // all conditions are met, so generate instructions for each difficulty.
-                for case_mask in ds_util::explicit_case_bitmasks(switch_props.explicit_difficulties.into_iter(), switch_props.maximal_len) {
+                for case_mask in switch_props.explicit_case_bitmasks() {
                     let new_mask = case_mask & instr.stmt_data.difficulty_mask;
                     if !new_mask.is_empty() {
                         // compress each switch into just the case for this difficulty

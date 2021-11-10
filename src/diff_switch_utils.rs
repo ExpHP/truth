@@ -5,20 +5,29 @@ use crate::bitset::BitSet32;
 ///
 /// For instance, if an expression contains two switches that look like `(a:b)` and `(a:::d:)`,
 /// then difficulties 0, 1, and 3 are all explicit, and the maximum length is 5.
-pub struct MaximalSwitchProps {
-    pub maximal_len: usize,
-    /// indices where at least one switch had a value
+pub struct DiffSwitchMeta {
+    /// The total number of difficulties represented, including those with no explicit values.
+    pub num_difficulties: usize,
+    /// Indices where at least one switch had a value.
     pub explicit_difficulties: BitSet32,
 }
 
-impl MaximalSwitchProps {
-    pub fn new() -> Self { MaximalSwitchProps {
-        maximal_len: 1,
-        explicit_difficulties: BitSet32::from_mask(1),
+impl DiffSwitchMeta {
+    pub fn new() -> Self { DiffSwitchMeta {
+        num_difficulties: 0,
+        explicit_difficulties: BitSet32::from_mask(0),
     }}
 
+    pub fn from_cases<T>(switch_cases: &[Option<T>]) -> Self {
+        let mut out = Self::new();
+        out.update(switch_cases);
+        out
+    }
+
+    /// Add explicit cases or increase the number of difficulties as necessary to make this
+    /// compatible with the given switch.
     pub fn update<T>(&mut self, switch_cases: &[Option<T>]) {
-        self.maximal_len = self.maximal_len.max(switch_cases.len());
+        self.num_difficulties = self.num_difficulties.max(switch_cases.len());
 
         for (difficulty, case) in switch_cases.iter().enumerate() {
             if case.is_some() {
@@ -56,20 +65,37 @@ pub fn explicit_difficulty_cases<T>(cases: &[Option<T>]) -> Vec<(BitSet32, &T)> 
     out
 }
 
-/// Get masks for each difficulty case based on how it is repeated.
-/// The input list of indices must be sorted.
-///
-/// For instance, a switch like `(a:::b:)` will produce two masks, `0b111` (for `a`) and `0b11000` (for `b`).
-pub fn explicit_case_bitmasks(explicit_difficulties: impl IntoIterator<Item=u32>, len: usize) -> impl Iterator<Item=BitSet32> {
-    let mut stops = explicit_difficulties.into_iter().chain(core::iter::once(len as u32));
+impl DiffSwitchMeta {
+    /// Get masks for each difficulty case based on how it is repeated.
+    /// The input list of indices must be sorted.
+    ///
+    /// For instance, a switch like `(a:::b:)` will produce two masks, `0b111` (for `a`) and `0b11000` (for `b`).
+    pub fn explicit_case_bitmasks(&self) -> impl Iterator<Item=BitSet32> {
+        let mut stops = self.explicit_difficulties.into_iter().chain(core::iter::once(self.num_difficulties as u32));
 
-    let mut prev = stops.next().expect("always at least one case");
-    stops.map(move |stop| {
-        debug_assert!(prev < stop, "explicit_difficulties not sorted, or bad len");
-        let bitset = (prev..stop).collect();
-        prev = stop;
-        bitset
-    })
+        let mut prev = stops.next().expect("always at least one case");
+        stops.map(move |stop| {
+            debug_assert!(prev < stop, "explicit_difficulties not sorted, or bad len");
+            let bitset = (prev..stop).collect();
+            prev = stop;
+            bitset
+        })
+    }
+
+    pub fn switch_from_explicit_cases<T: Clone, Ts>(&self, explicit_cases: Ts) -> Vec<Option<T>>
+    where
+        Ts: IntoIterator<Item=T>,
+        <Ts as IntoIterator>::IntoIter: ExactSizeIterator,
+    {
+        let explicit_cases = explicit_cases.into_iter();
+        assert_eq!(explicit_cases.len(), self.explicit_difficulties.len());
+
+        let mut out = vec![None; self.num_difficulties];
+        for (difficulty, value) in self.explicit_difficulties.into_iter().zip(explicit_cases) {
+            out[difficulty as usize] = Some(value);
+        }
+        out
+    }
 }
 
 #[test]
@@ -88,12 +114,16 @@ fn test_difficulty_cases() {
 #[test]
 fn test_explicit_case_bitmasks() {
     let m = BitSet32::from_mask;
+    let f = |difficulties: Vec<u32>, num_difficulties| DiffSwitchMeta {
+        explicit_difficulties: difficulties.into_iter().collect(),
+        num_difficulties,
+    }.explicit_case_bitmasks();
     assert_eq!(
-        explicit_case_bitmasks(vec![0, 1, 2], 3).collect::<Vec<_>>(),
+        f(vec![0, 1, 2], 3).collect::<Vec<_>>(),
         vec![m(1), m(2), m(4)],
     );
     assert_eq!(
-        explicit_case_bitmasks(vec![0, 3], 5).collect::<Vec<_>>(),
+        f(vec![0, 3], 5).collect::<Vec<_>>(),
         vec![m(0b111), m(0b11000)],
     );
 }

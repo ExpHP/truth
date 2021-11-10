@@ -772,3 +772,23 @@ source_test!(
     },
     expect_decompile_warning: "invalid offset",
 );
+
+source_test!(
+    ECL_06, weird_difficulty_mixed_loop,
+    main_body: r#"
+    +20:
+    label:
+    +10:
+        nop();
+    E:
+        // the nops are to prevent difficulty labels from showing up
+        // too close to something and making it not decompile
+        nop();
+        jump(timeof(label), offsetof(label));
+        nop();
+    HL:
+        nop();
+        jump(timeof(label), offsetof(label));
+    "#,
+    sbsb: |_| { /* just needs to roundtrip */ },
+);

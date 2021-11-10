@@ -13,9 +13,12 @@ use crate::context::{self, Defs};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
+use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK, DEFAULT_DIFFICULTY_MASK_BYTE};
+use crate::diff_switch_utils as ds_util;
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
 use IntrinsicInstrKind as IKind;
+use crate::bitset::BitSet32;
 
 #[derive(Debug, Clone)]
 pub struct DecompileOptions {
@@ -36,21 +39,29 @@ impl Default for DecompileOptions {
 }
 
 /// Intermediate form of an instruction only used during decompilation.
-struct RaiseInstr {
-    offset: raw::BytePos,
+struct RaiseInstr<Arg = SimpleArg, Offset = raw::BytePos> {
+    /// NOTE: In CompressedInstr this is a vec with the offset of each original instr.
+    offset: Offset,
     time: raw::Time,
     difficulty_mask: raw::DifficultyMask,
     opcode: raw::Opcode,
-    args: RaiseArgs,
+    args: RaiseArgs<Arg>,
 }
+type CompressedInstr = RaiseInstr<CompressedArg, Vec<Option<raw::BytePos>>>;
 
-enum RaiseArgs {
+enum RaiseArgs<Arg> {
     /// The ABI of the instruction was known, so we parsed the argument bytes into arguments.
-    Decoded(Vec<SimpleArg>),
+    Decoded(Vec<Arg>),
     /// The ABI was not known, so we will be emitting pseudo-args like `@blob=`.
     Unknown(UnknownArgsData),
 }
 
+enum CompressedArg {
+    DiffSwitch(Vec<Option<SimpleArg>>),
+    Single(SimpleArg),
+}
+
+#[derive(Clone)]
 struct UnknownArgsData {
     param_mask: raw::ParamMask,
     extra_arg: Option<raw::ExtraArg>,
@@ -142,6 +153,8 @@ fn _raise_instrs_to_sub_ast(
 
     let jump_data = gather_jump_time_args(&script, defs, hooks)?;
     let offset_labels = generate_offset_labels(emitter, &script, &instr_offsets, &jump_data)?;
+
+    // let compressed_script = compress_diff_switches(&script);
 
     _raise_instrs_main_loop(
         emitter, defs, hooks, &instr_offsets,
@@ -347,6 +360,197 @@ fn extract_jump_args_by_signature(
     }
 
     jump_offset.map(|offset| (offset, jump_time))
+}
+
+// =============================================================================
+
+/// Diff-switch detection pass
+///
+/// This is where we turn a series of instructions with different difficulty flags into
+/// something like `ins_10(4:4:5:6);`
+///
+/// Doing this on the AST is a nigh-intractable problem, so it is done at the instruction level
+/// during raising. Series of instructions that look like diff switches are eagerly compressed.
+/// If this compression later causes an issue, the compressed instruction can be
+/// decompressed back into multiple instructions as a fallback.
+fn compress_diff_switches(mut instrs: &[RaiseInstr<SimpleArg>]) -> Vec<CompressedInstr> {
+    let mut out = vec![];
+    while !instrs.is_empty() {
+        if let Some(compressed) = try_compress_instr(instrs) {
+            instrs = &instrs[compressed.num_instrs_compressed()..];
+            out.push(compressed);
+        } else {
+            out.push(RaiseInstr {
+                offset: vec![Some(instrs[0].offset)],
+                time: instrs[0].time,
+                difficulty_mask: instrs[0].difficulty_mask,
+                opcode: instrs[0].opcode,
+                args: match &instrs[0].args {
+                    RaiseArgs::Decoded(args) => RaiseArgs::Decoded({
+                        args.iter().map(|arg| CompressedArg::Single(arg.clone())).collect()
+                    }),
+                    RaiseArgs::Unknown(blob) => RaiseArgs::Unknown(blob.clone()),
+                }
+            })
+        }
+    }
+    out
+}
+
+// try compressing instrs beginning at the beginning of a slice into a diff switch
+fn try_compress_instr(instrs: &[RaiseInstr<SimpleArg>]) -> Option<CompressedInstr> {
+    // early checks to avoid allocations in cases where there's clearly no diff switch
+    if instrs.len() < 2 || instrs[0].opcode != instrs[1].opcode || instrs[0].time != instrs[1].time
+        || instrs[0].difficulty_mask == DEFAULT_DIFFICULTY_MASK_BYTE
+    {
+        return None;
+    }
+
+    let first_args = match &instrs[0].args {
+        RaiseArgs::Decoded(args) => args,
+        RaiseArgs::Unknown(_) => return None,
+    };
+
+    // collect instructions at the beginning of the slice that resemble the first instruction,
+    // and have disjoint difficulty masks spanning a range of contiguous bits starting at 0
+    let mut next_difficulty = 0;
+    let mut args_by_index = vec![vec![]; first_args.len()];  // [arg_index] -> [instr_index] -> arg
+    let mut offsets = vec![];
+    let mut explicit_difficulties = BitSet32::new();
+    for instr in instrs {
+        // do a full destructure to remind us to update this when adding a new field
+        let &RaiseInstr {
+            opcode: this_opcode, time: this_time,
+            args: ref this_args, difficulty_mask: this_mask,
+            offset: this_offset,
+        } = instr;
+        let this_mask = BitSet32::from_mask(this_mask as _);
+
+        // check for any "combo breakers"
+        if this_opcode != instrs[0].opcode || this_time != instrs[0].time {
+            break;
+        }
+        let this_args = match this_args {
+            RaiseArgs::Decoded(args) if args.len() == first_args.len() => args,
+            _ => break,
+        };
+        if this_mask == DEFAULT_DIFFICULTY_MASK {
+            break;
+        }
+        // don't allow any "holes" in the difficulties
+        if !(this_mask.first() == Some(next_difficulty) && bitmask_bits_are_contiguous(this_mask)) {
+            break;
+        }
+
+        explicit_difficulties.insert(next_difficulty);
+        next_difficulty += this_mask.len() as u32;
+        offsets.push(this_offset);
+        for (arg_index, arg) in this_args.iter().enumerate() {
+            args_by_index[arg_index].push(arg);
+        }
+    }
+    let diff_meta = ds_util::DiffSwitchMeta {
+        explicit_difficulties,
+        num_difficulties: next_difficulty as _,
+    };
+
+    let num_instrs_compressed = offsets.len();
+    if num_instrs_compressed < 2 {
+        return None;  // one case does not a diff switch make!
+    }
+    // FIXME: maybe this is overzealous
+    if diff_meta.num_difficulties < 4 {  // check we have values up to at least Lunatic
+        return None;
+    }
+
+    // now make each individual arg into a diff switch if necessary
+    let compressed_args = args_by_index.into_iter().map(|explicit_cases| {
+        if explicit_cases.iter().all(|case| case == &explicit_cases[0]) {
+            CompressedArg::Single(explicit_cases[0].clone())
+        } else {
+            let cases = diff_meta.switch_from_explicit_cases(explicit_cases.into_iter().cloned());
+            CompressedArg::DiffSwitch(cases)
+        }
+    }).collect::<Vec<_>>();
+
+    // this catches garbage like:
+    //
+    //   difficulty[1]:  ins_10(30);
+    //   difficulty[2]:  ins_10(30);
+    //   difficulty[4]:  ins_10(30);
+    //   difficulty[8]:  ins_10(30);
+    //
+    // where the file contains variants for each difficulty but they're all identical
+    if !compressed_args.iter().any(|arg| matches!(arg, CompressedArg::DiffSwitch(_))) {
+        return None;
+    }
+
+    Some(RaiseInstr {
+        opcode: instrs[0].opcode, time: instrs[0].time,
+        args: RaiseArgs::Decoded(compressed_args),
+        difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
+        offset: diff_meta.switch_from_explicit_cases(offsets),
+    })
+}
+
+fn bitmask_bits_are_contiguous(mask: BitSet32) -> bool {
+    assert!(!mask.is_empty());
+    mask.last().unwrap() - mask.first().unwrap() == mask.len() as u32
+}
+
+impl CompressedInstr {
+    fn num_instrs_compressed(&self) -> usize { self.offset.len() }
+
+    fn decompress_difficulty_switches(&self) -> Vec<RaiseInstr<SimpleArg>> {
+        // (if this represents a single instruction then there's no difficulty switches and this
+        // shouldn't need to be called)
+        assert_ne!(self.offset.len(), 1);
+
+        let compressed_args = match &self.args {
+            RaiseArgs::Decoded(compressed_args) => compressed_args,
+            RaiseArgs::Unknown { .. } => panic!("blob cannot be difficulty switch"),
+        };
+
+        struct WipInstr {
+            offset: raw::BytePos,
+            difficulty_mask: raw::DifficultyMask,
+            args: Vec<SimpleArg>,
+        }
+        let mut wip_instrs: Vec<WipInstr> = {
+            ds_util::explicit_difficulty_cases(&self.offset)
+                .into_iter().map(|(case_mask, &case_offset)| WipInstr {
+                    offset: case_offset,
+                    difficulty_mask: case_mask.mask() as _,
+                    args: vec![],
+                }).collect()
+        };
+
+        for arg in compressed_args {
+            match arg {
+                CompressedArg::DiffSwitch(cases) => {
+                    let explicit_cases = ds_util::explicit_difficulty_cases(&cases);
+                    for (wip_instr, (case_mask, case)) in wip_instrs.iter_mut().zip(explicit_cases) {
+                        assert_eq!(BitSet32::from_mask(wip_instr.difficulty_mask as _), case_mask);
+                        wip_instr.args.push(case.clone());
+                    }
+                },
+                CompressedArg::Single(arg) => {
+                    for wip_instr in &mut wip_instrs {
+                        wip_instr.args.push(arg.clone());
+                    }
+                }
+            }
+        }
+
+        wip_instrs.into_iter().map(|WipInstr { offset, difficulty_mask, args }| {
+            RaiseInstr {
+                offset, difficulty_mask,
+                time: self.time,
+                opcode: self.opcode,
+                args: RaiseArgs::Decoded(args),
+            }
+        }).collect()
+    }
 }
 
 // =============================================================================
@@ -1043,3 +1247,5 @@ impl<'a> LabelEmitter<'a> {
         self.prev_difficulty = difficulty;
     }
 }
+
+// =============================================================================
