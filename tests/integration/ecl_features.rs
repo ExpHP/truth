@@ -584,10 +584,8 @@ void baz(int a, float x) {
 
 source_test!(
     ECL_06, eosd_diff_switch_compile,
-    items: r#"
-void foo() {
+    main_body: r#"
     I0 = 3:4:5:6;
-}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
@@ -599,10 +597,8 @@ void foo() {
 
 source_test!(
     ECL_06, eosd_diff_switch_omission,
-    items: r#"
-void foo() {
+    main_body: r#"
     I0 = 3::5:;
-}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
@@ -615,10 +611,8 @@ void foo() {
 
 source_test!(
     ECL_06, eosd_diff_switch_multiple,
-    items: r#"
-void foo() {
+    main_body: r#"
     I0 = (3::5:) + (I2:I3::);
-}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
@@ -633,10 +627,8 @@ void foo() {
 
 source_test!(
     ECL_06, eosd_diff_switch_multiple_complex,
-    items: r#"
-void foo() {
+    main_body: r#"
     I0 = 3::5:I2+3;
-}
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
@@ -646,11 +638,9 @@ void foo() {
 
 source_test!(
     ECL_06, eosd_diff_switch_offset,
-    items: r#"
-void foo() {
+    main_body: r#"
     jump(30, offsetof(label):::);
 label:
-}
 "#,
     sbsb: |_| { /* just checking that it doesn't crash tbh */ },
 );
@@ -685,4 +675,199 @@ void bar() {
     // Eventually inline funcs will be supported.
     // I'm not sure what this should do in that case.
     expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+);
+
+source_test!(
+    ECL_06, diff_switch_too_many_cases,
+    main_body: r#"
+    I0 = (2::::::::);
+"#,
+    expect_error: "TODO",
+);
+
+source_test!(
+    ECL_06, diff_switch_mismatched_number_of_cases,
+    main_body: r#"
+    I0 = (2:3:4:5) + (1:2:3:4:5);
+"#,
+    expect_error: "TODO",
+);
+
+source_test!(
+    ECL_06, diff_switch_in_difficulty_label,
+    main_body: r#"
+difficulty[2:1]:
+    I0 = 3;
+"#,
+    // Eventually this will parse, at which point /oh god what will happen/
+    expect_error: expected::PARSE_ERROR,
+);
+
+source_test!(
+    ECL_06, difficulty_label_too_large,
+    main_body: r#"
+difficulty[0x100]:
+    I0 = 3;
+"#,
+    expect_error: "TODO",
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_assign,
+    // this test is basically a control for 'diff_switch_decomp_bad_output'
+    main_body: r#"
+difficulty[0x3]: I0 = 2;
+difficulty[0xC]: I0 = 3;
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(": 3 :"));
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_bad_output,
+    main_body: r#"
+difficulty[0x3]: I0 = 2;
+difficulty[0xC]: I1 = 2;
+"#,
+    sbsb: |decompiled| {
+        assert_eq!(decompiled.matches("= 2").count(), 2);
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_sub_id,
+    items: r#"
+void foo(int x) {}
+void bar(int x) {}
+    "#,
+    main_body: r#"
+difficulty[0x3]: foo(1337);
+difficulty[0xC]: bar(1337);
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("(1337,"), "didn't decomp intrinsic");
+        // other than that, just roundtrip
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_jump_time,
+    items: r#"
+void foo(int x) {}
+void bar(int x) {}
+    "#,
+    main_body: r#"
+difficulty[0x3]: jump(30, offsetof(label));
+difficulty[0xC]: jump(50, offsetof(label));
+difficulty[0xFF]:
+label: nop();
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("goto"), "didn't decomp intrinsic");
+        // other than that, just roundtrip
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_jump_offset,
+    items: r#"
+void foo(int x) {}
+void bar(int x) {}
+    "#,
+    main_body: r#"
+difficulty[0x3]: jump(30, offsetof(label1));
+difficulty[0xC]: jump(30, offsetof(label2));
+difficulty[0xFF]:
+label1:  nop();
+label2:  nop();
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("goto"), "didn't decomp intrinsic");
+        // other than that, just roundtrip
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_ins_padding,
+    mapfile: r#"!eclmap
+!ins_signatures
+200 SS__
+    "#,
+    main_body: r#"
+difficulty[0x3]: ins_200(I0, 10, 0);
+difficulty[0xC]: ins_200(I0, 10, 16);
+"#,
+    sbsb: |decompiled| {
+        assert_eq!(decompiled.matches("ins_200").count(), 1);
+        assert!(!decompiled.contains(", 0)"));  // check that the second padding arg was dropped
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_intrinsic_padding,
+    mapfile: r#"!eclmap
+!ins_signatures
+10 SS_
+!ins_intrinsics
+10 AssignOp(=,int)
+    "#,
+    main_body: r#"
+difficulty[0x3]: ins_10(I0, 10, 0);
+difficulty[0xC]: ins_10(I0, 10, 16);
+"#,
+    expect_decompile_warning: "padding of intrinsic",
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_offsetof_timeof,
+    mapfile: r#"!eclmap
+!ins_signatures
+200 ot     # a non-intrinsic to force offsetof and timeof
+    "#,
+    main_body: r#"
+difficulty[0x3]:
+    ins_200(offsetof(label1), timeof(label1));
+difficulty[0xC]:
+    ins_200(offsetof(label2), timeof(label2));
+difficulty[0xFF]:
++10:
+label1:
+    nop();
++10:
+label2:
+    nop();
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("offsetof"));
+        assert!(decompiled.contains("timeof"));
+        // other than that, just roundtrip
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_label_in_middle,
+    main_body: r#"
+difficulty[0x3]: label1: I0 = I1 + 2;
+difficulty[0xC]: label2: I0 = I1 + 3;
+    goto label1;
+    goto label2;
+"#,
+    sbsb: |_decompiled| {
+        // just roundtrip
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_decomp_label_at_front,
+    main_body: r#"
+    nop();
+label:
+difficulty[0x3]: I0 = I1 + 2;
+difficulty[0xC]: I0 = I1 + 3;
+    goto label;
+"#,
+    sbsb: |_decompiled| {
+        // just roundtrip
+    },
 );

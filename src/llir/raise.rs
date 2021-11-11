@@ -39,6 +39,7 @@ impl Default for DecompileOptions {
 }
 
 /// Intermediate form of an instruction only used during decompilation.
+#[derive(Debug)]
 struct RaiseInstr<Arg = SimpleArg, Offset = raw::BytePos> {
     /// NOTE: In CompressedInstr this is a vec with the offset of each original instr.
     offset: Offset,
@@ -49,6 +50,7 @@ struct RaiseInstr<Arg = SimpleArg, Offset = raw::BytePos> {
 }
 type CompressedInstr = RaiseInstr<CompressedArg, Vec<Option<raw::BytePos>>>;
 
+#[derive(Debug)]
 enum RaiseArgs<Arg> {
     /// The ABI of the instruction was known, so we parsed the argument bytes into arguments.
     Decoded(Vec<Arg>),
@@ -77,7 +79,7 @@ impl CompressedArg {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct UnknownArgsData {
     param_mask: raw::ParamMask,
     extra_arg: Option<raw::ExtraArg>,
@@ -196,8 +198,8 @@ impl SingleSubRaiser<'_> {
         let mut label_gen = LabelEmitter::new(self.offset_labels);
         let mut remaining_instrs = script;
 
+        // assert!(!script.iter().any(|instr| instr.offset == 1766), "{:#?}", script);
         'instr: while remaining_instrs.len() > 0 {
-
             // Eagerly try compressing multiple instructions using diff switches.
             if let Some(compressed_instr) = try_compress_instr(remaining_instrs, |offset| self.offset_labels.contains_key(&offset)) {
                 let args = compressed_instr.args.decoded().expect("a blob wouldn't have compressed");
@@ -226,6 +228,7 @@ impl SingleSubRaiser<'_> {
             }
             // Compressing didn't work out then (no diff switches).
             let instr_1 = CompressedInstr::from_single(&remaining_instrs[0]);
+            label_gen.emit_labels_for_instr(&mut out, &instr_1);
 
             // Was it a blob?
             let args_1 = match &instr_1.args {
@@ -256,14 +259,13 @@ impl SingleSubRaiser<'_> {
 
             match self.try_raise_single_instr_intrinsic(&instr_1, args_1) {
                 Ok(raised_intrinsic) => {
-                    label_gen.emit_labels_for_instr(&mut out, &instr_1);
                     out.push(sp!(ast::Stmt {
-                            node_id: None,
-                            kind: match raised_intrinsic {
-                                Some(kind) => kind,
-                                None => self.raise_raw_ins(&instr_1, args_1)?,
-                            },
-                        }));
+                        node_id: None,
+                        kind: match raised_intrinsic {
+                            Some(kind) => kind,
+                            None => self.raise_raw_ins(&instr_1, args_1)?,
+                        },
+                    }));
                     remaining_instrs = &remaining_instrs[1..];
                     continue 'instr;
                 },
@@ -456,6 +458,7 @@ fn try_compress_instr(
     let mut offsets = vec![];
     let mut explicit_difficulties = BitSet32::new();
     for instr in instrs {
+
         // do a full destructure to remind us to update this when adding a new field
         let &RaiseInstr {
             opcode: this_opcode, time: this_time,
@@ -502,7 +505,6 @@ fn try_compress_instr(
     }
 
     // We can't compress if there exists a jump somewhere into the middle of it!
-    // FIXME needstest (diff switch)
     if offsets[1..].iter().any(|&offset| has_label(offset)) {
         return None;
     }
@@ -543,7 +545,7 @@ fn bitmask_bits_are_contiguous(mask: BitSet32) -> bool {
 }
 
 impl CompressedInstr {
-    fn num_instrs_compressed(&self) -> usize { self.offset.len() }
+    fn num_instrs_compressed(&self) -> usize { self.offset.iter().filter(|x| x.is_some()).count() }
 
     fn from_single(instr: &RaiseInstr) -> Self {
         let &RaiseInstr { offset, time, difficulty_mask, opcode, ref args } = instr;
@@ -797,7 +799,6 @@ impl SingleSubRaiser<'_> {
                     //  That's what you get for decompiling an incredibly contrived test file while using
                     //  the --no-intrinsics flag I guess.  :shrug:)
                     //
-                    // FIXME needstest (diff switch)  (and this needs one helluva test!)
                     let easy_instr_offset = instr.offset[0].expect("no easy instruction?");
                     let easy_offset_arg = offset_compressed_arg.iter_raw_args().next().expect("no easy value?!");
                     let offset = self.hooks.decode_label(easy_instr_offset, easy_offset_arg.expect_int() as u32);
@@ -830,7 +831,6 @@ impl SingleSubRaiser<'_> {
         // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
         for (enc, arg) in abi.arg_encodings().zip(args).rev() {
             match enc {
-                // FIXME needstest (diff switch)
                 ArgEncoding::Padding if arg.iter_raw_args().all(|raw| matches!(raw, SimpleArg { value: ScalarValue::Int(0), .. })) => {
                     raised_args.pop()
                 },
@@ -1042,7 +1042,6 @@ impl RaisedIntrinsicParts {
         let padding_range = padding_info.index..padding_info.index + padding_info.count;
         warn_unless!(
             emitter,
-            // FIXME needstest (diff switch)
             args[padding_range].iter().all(|a| a.iter_raw_args().all(|r| !r.is_reg && r.expect_immediate_int() == 0)),
             "unsupported data in padding of intrinsic",
         );
@@ -1067,16 +1066,15 @@ impl RaisedIntrinsicParts {
             if instr.num_instrs_compressed() > 1 {
                 return Err(RaiseIntrinsicError::MustDecompress);
             };
+            // we don't allow diff switches for the label so we only need the first offset
             let instr_offset = instr.offset[0].unwrap();
 
-            // FIXME needstest (diff switch)
-            let offset = hooks.decode_label(instr_offset, require_no_diff_switch!(offset_arg).expect_immediate_int() as u32);
-            let label = &offset_labels[&offset];
+            let label_offset = hooks.decode_label(instr_offset, require_no_diff_switch!(offset_arg).expect_immediate_int() as u32);
+            let label = &offset_labels[&label_offset];
             jump = Some(ast::StmtGoto {
                 destination: sp!(label.label.clone()),
                 time: match time_arg {
                     Some(arg) => {
-                        // FIXME needstest (diff switch)
                         let arg = require_no_diff_switch!(arg);
                         Some(sp!(arg.expect_immediate_int())).filter(|&t| t != label.time_label)
                     },
@@ -1088,7 +1086,6 @@ impl RaisedIntrinsicParts {
         let mut sub_id = None;
         if let &Some(index) = sub_id_info {
             // FIXME: What if the index is invalid?  It'd be nice to fall back to raw instruction syntax...
-            // FIXME needstest (diff switch)
             let sub_index = require_no_diff_switch!(&args[index]).expect_immediate_int() as _;
             let ident = ResIdent::new_null(crate::ecl::auto_sub_name(sub_index));
             let name = ast::CallableName::Normal { ident, language_if_ins: Some(hooks.language()) };
@@ -1097,7 +1094,6 @@ impl RaisedIntrinsicParts {
 
         let mut outputs = vec![];
         for &(index, mode) in outputs_info {
-            // FIXME needstest (diff switch)
             let arg = require_no_diff_switch!(&args[index]);
             let var = raise_arg_to_reg(hooks.language(), emitter, arg, encodings[index], mode)?;
             outputs.push(var);

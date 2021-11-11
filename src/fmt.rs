@@ -872,7 +872,15 @@ impl Format for ast::Expr {
             },
             ast::Expr::DiffSwitch(cases) => {
                 out.fmt_optional_parens(|out| {
-                    out.fmt_separated(cases.iter().map(|opt| OrBlank(opt.as_ref())), |out| out.fmt(" : "))
+                    // add an extra space if the last one is empty; this makes all empty cases occupy two spaces
+                    if cases.first().unwrap().is_none() {
+                        out.fmt(" ")?
+                    }
+                    out.fmt_separated(cases.iter().map(|opt| OrBlank(opt.as_ref())), |out| out.fmt(" : "))?;
+                    if cases.last().unwrap().is_none() {
+                        out.fmt(" ")?
+                    }
+                    Ok(())
                 })
             },
             ast::Expr::UnOp(op, x) => match op.value {
