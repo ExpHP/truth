@@ -18,12 +18,6 @@ impl DiffSwitchMeta {
         explicit_difficulties: BitSet32::from_mask(0),
     }}
 
-    pub fn from_cases<T>(switch_cases: &[Option<T>]) -> Self {
-        let mut out = Self::new();
-        out.update(switch_cases);
-        out
-    }
-
     /// Add explicit cases or increase the number of difficulties as necessary to make this
     /// compatible with the given switch.
     pub fn update<T>(&mut self, switch_cases: &[Option<T>]) {
