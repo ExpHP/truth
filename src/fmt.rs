@@ -872,7 +872,7 @@ impl Format for ast::Expr {
             },
             ast::Expr::DiffSwitch(cases) => {
                 out.fmt_optional_parens(|out| {
-                    out.fmt_separated(cases.iter().map(|opt| OrBlank(opt.as_ref())), |out| out.fmt(":"))
+                    out.fmt_separated(cases.iter().map(|opt| OrBlank(opt.as_ref())), |out| out.fmt(" : "))
                 })
             },
             ast::Expr::UnOp(op, x) => match op.value {
