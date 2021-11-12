@@ -1,0 +1,14 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: unexpected token `:`
+   ┌─ <input>:10:13
+   │
+10 │ difficulty[2:1]:
+   │             ^ unexpected token
+   │
+   = 
+     Expected one of ";", "]", "anim", "case", "default", "ecli", "entry", "mapfile", "script", "timeline", "{" or IDENT
+
+

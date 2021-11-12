@@ -556,10 +556,3 @@ script main {}
     "#,
     expect_error: "too long",
 );
-
-
-#[test]
-#[ignore]
-fn need_tests_for_eosd_regs() {
-    panic!()
-}

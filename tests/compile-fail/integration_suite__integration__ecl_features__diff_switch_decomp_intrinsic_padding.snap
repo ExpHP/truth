@@ -1,0 +1,7 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+warning: <decompile-input>: while decompiling a = op: unsupported data in padding of intrinsic
+
+
