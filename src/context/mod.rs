@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::ast::diff_str::DiffFlagNames;
 use crate::ident::GensymContext;
 use crate::resolve::{Resolutions, UnusedIds, NodeId, LoopId};
 use crate::resolve::rib::Rib;
@@ -68,6 +69,9 @@ pub struct CompilerContext<'ctx> {
     pub unused_node_ids: UnusedIds<NodeId>,
     pub unused_loop_ids: UnusedIds<LoopId>,
 
+    /// Maintains names of difficulty flags.
+    pub diff_flag_names: DiffFlagNames,
+
     // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
     // may eventually have AST nodes inside a struct inside a RefCell), so let's force this constraint now.
     _make_invariant: std::marker::PhantomData<*mut &'ctx ()>,
@@ -83,6 +87,7 @@ impl<'ctx> CompilerContext<'ctx> {
             gensym: Default::default(),
             consts: Default::default(),
             initial_ribs: Default::default(),
+            diff_flag_names: Default::default(),
             _scope: scope,
             unused_node_ids: UnusedIds::new(),
             unused_loop_ids: UnusedIds::new(),

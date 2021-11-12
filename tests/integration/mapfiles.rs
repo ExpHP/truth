@@ -275,6 +275,30 @@ source_test!(
 );
 
 source_test!(
+    ECL_06, diff_flags_bad_index,
+    mapfile: r#"!eclmap
+!difficulty_flags
+8 b-
+"#,
+    main_body: "",
+    expect_error: "out of range",
+);
+
+source_test!(
+    ECL_06, diff_flags_syntax_errors,
+    mapfile: r#"!eclmap
+!difficulty_flags
+1 @-
+2 X@
+3 a
+4 θ   # a two byte character
+5 There_should_be_errors_on_all_lines_from_1_to_this_number
+"#,
+    main_body: "",
+    expect_error: "invalid difficulty",
+);
+
+source_test!(
     ANM_10, multiple_m_arguments,
     compile_args: [
         "-m", "tests/integration/resources/multiple-mapfiles-1.anmm",

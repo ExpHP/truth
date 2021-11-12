@@ -19,6 +19,7 @@ impl BitSet32 {
     pub const fn contains(self, index: u32) -> bool { self.0 & (1 << index) != 0 }
     pub const fn with_bit(self, index: u32) -> Self { BitSet32(self.0 | 1 << index) }
     pub const fn without_bit(self, index: u32) -> Self { BitSet32(self.0 & !(1 << index)) }
+
     pub const fn first(self) -> Option<u32> { match self.0.trailing_zeros() {
         32 => None,
         count => Some(count),
@@ -39,6 +40,10 @@ impl BitSet32 {
         let changed = *self != new;
         *self = new;
         changed
+    }
+    pub fn set_bit(&mut self, index: u32, enabled: bool) {
+        if enabled { self.insert(index); }
+        else { self.remove(index); }
     }
 
     /// Truncate to the first `len` bits; i.e. remove entries that are `>= len`

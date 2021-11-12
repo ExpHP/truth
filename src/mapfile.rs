@@ -22,6 +22,7 @@ pub struct Mapfile {
     /// instead of [`Self::language`].
     pub timeline_ins_names: Vec<(i32, Sp<Ident>)>,
     pub timeline_ins_signatures: Vec<(i32, Sp<String>)>,
+    pub difficulty_flags: Vec<(i32, Sp<String>)>,
 
     /// Indicates that this mapfile contains builtin definitions.
     ///
@@ -43,6 +44,7 @@ impl Mapfile {
             gvar_types: Default::default(),
             timeline_ins_names: Default::default(),
             timeline_ins_signatures: Default::default(),
+            difficulty_flags: Default::default(),
             ins_intrinsics: Default::default(),
             is_core_mapfile: true,
         }
@@ -181,6 +183,7 @@ impl Mapfile {
             timeline_ins_names: pop_ident_map!("timeline_ins_names")?,
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
             ins_intrinsics: pop_map("ins_intrinsics"),
+            difficulty_flags: pop_map("difficulty_flags"),
             is_core_mapfile: false,
         };
         for (key, _) in maps {

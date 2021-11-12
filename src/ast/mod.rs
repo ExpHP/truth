@@ -11,6 +11,8 @@ use crate::diff_switch_utils as ds_util;
 pub use meta::Meta;
 pub mod meta;
 
+pub mod diff_str;
+
 pub mod pseudo;
 
 // =============================================================================
