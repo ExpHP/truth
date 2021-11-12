@@ -8,21 +8,20 @@ use crate::io::Fs;
 use crate::parse::seqmap::{SeqmapRaw, SeqmapRawSection};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 
-/// FIXME: Rename to Mapfile, how have I not done this already?!  - Exp
 #[derive(Debug)]
-pub struct Eclmap {
+pub struct Mapfile {
     pub language: LanguageKey,
-    pub ins_names: BTreeMap<i32, Sp<Ident>>,
-    pub ins_signatures: BTreeMap<i32, Sp<String>>,
-    pub ins_rets: BTreeMap<i32, Sp<String>>,
-    pub gvar_names: BTreeMap<i32, Sp<Ident>>,
-    pub gvar_types: BTreeMap<i32, Sp<String>>,
-    pub ins_intrinsics: BTreeMap<i32, Sp<String>>,
+    pub ins_names: Vec<(i32, Sp<Ident>)>,
+    pub ins_signatures: Vec<(i32, Sp<String>)>,
+    pub ins_rets: Vec<(i32, Sp<String>)>,
+    pub gvar_names: Vec<(i32, Sp<Ident>)>,
+    pub gvar_types: Vec<(i32, Sp<String>)>,
+    pub ins_intrinsics: Vec<(i32, Sp<String>)>,
     /// For historic reasons, [`InstrLanguage::Timeline`] has dedicated sections.
     /// When these are seen in a file, they will always define things for timelines
     /// instead of [`Self::language`].
-    pub timeline_ins_names: BTreeMap<i32, Sp<Ident>>,
-    pub timeline_ins_signatures: BTreeMap<i32, Sp<String>>,
+    pub timeline_ins_names: Vec<(i32, Sp<Ident>)>,
+    pub timeline_ins_signatures: Vec<(i32, Sp<String>)>,
 
     /// Indicates that this mapfile contains builtin definitions.
     ///
@@ -33,9 +32,9 @@ pub struct Eclmap {
     pub is_core_mapfile: bool,
 }
 
-impl Eclmap {
+impl Mapfile {
     pub fn new_core_mapfile(language: LanguageKey) -> Self {
-        Eclmap {
+        Mapfile {
             language,
             ins_names: Default::default(),
             ins_signatures: Default::default(),
@@ -71,7 +70,7 @@ impl Eclmap {
                 None => return Err(emitter.emit(error!("can't use gamemap because no game was supplied!")))
             };
             let base_dir = path.parent().expect("filename must have parent");
-            let game_specific_map_path = Self::resolve_gamemap(base_dir, seqmap, game, emitter)?;
+            let game_specific_map_path = Self::handle_gamemap(base_dir, seqmap, game, emitter)?;
             let (file_id, new_file_contents) = read_file(&game_specific_map_path)?;
             file_contents = new_file_contents; // replace outer variable for longer lifetime
             SeqmapRaw::parse(file_id, &file_contents, emitter)?
@@ -96,17 +95,19 @@ impl Eclmap {
             }).next()
     }
 
-    fn resolve_gamemap(
+    fn handle_gamemap(
         base_dir: &std::path::Path,
         seqmap: SeqmapRaw,
         game: Game,
         emitter: &impl Emitter,
     ) -> Result<std::path::PathBuf, ErrorReported> {
         let SeqmapRaw { magic, sections } = seqmap;
-        let mut maps = gather_seqmaps(sections, emitter)?;
+        let mut maps = gather_seqmaps(sections);
 
-        let game_files = match maps.remove(&"game_files".to_string()) {
-            Some(game_files) => game_files,
+        let game_files_header = "game_files".to_string();
+
+        let game_files = match maps.remove(&game_files_header) {
+            Some(game_files) => mapify_section(&game_files_header, game_files, emitter)?,
             None => return Err(emitter.emit(error!(
                 message("no !game_files section in gamemap"),
                 primary(magic, "gamemap without !game_files section"),
@@ -129,10 +130,10 @@ impl Eclmap {
         Ok(base_dir.join(rel_path))
     }
 
-    pub fn from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Eclmap, ErrorReported> {
+    pub fn from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
         let SeqmapRaw { magic, sections } = seqmap;
 
-        let mut maps = gather_seqmaps(sections, emitter)?;
+        let mut maps = gather_seqmaps(sections);
 
         // NOTE: Experimental.  We have two options for deciding the language:
         //
@@ -154,8 +155,8 @@ impl Eclmap {
             ))),
         };
 
-        let mut pop_map = |section: &str| maps.remove(&section.to_string()).unwrap_or_else(BTreeMap::new);
-        let parse_idents = |section: &str, m: BTreeMap<i32, Sp<String>>| -> Result<BTreeMap<i32, Sp<Ident>>, ErrorReported> {
+        let mut pop_map = |section: &str| maps.remove(&section.to_string()).unwrap_or_else(Vec::new);
+        let parse_idents = |section: &str, m: Vec<(i32, Sp<String>)>| -> Result<Vec<(i32, Sp<Ident>)>, ErrorReported> {
             emitter.chain_with(|f| write!(f, "section !{}", section), |emitter| {
                 m.into_iter().map(|(key, value)| {
                     let ident = value.parse::<Ident>().map_err(|e| emitter.emit(error!(
@@ -170,7 +171,7 @@ impl Eclmap {
             ($name:literal) => { parse_idents($name, pop_map($name)) }
         }
 
-        let out = Eclmap {
+        let out = Mapfile {
             language,
             ins_names: pop_ident_map!("ins_names")?,
             ins_signatures: pop_map("ins_signatures"),
@@ -193,24 +194,29 @@ impl Eclmap {
     }
 }
 
-type GatheredSeqmaps = BTreeMap<Sp<String>, BTreeMap<i32, Sp<String>>>;
+type GatheredSeqmaps = BTreeMap<Sp<String>, Vec<(i32, Sp<String>)>>;
 
-fn gather_seqmaps(sections: Vec<SeqmapRawSection<'_>>, emitter: &impl Emitter) -> Result<GatheredSeqmaps, ErrorReported> {
+fn gather_seqmaps(sections: Vec<SeqmapRawSection<'_>>) -> GatheredSeqmaps {
     let mut maps = BTreeMap::new();
     for section in sections {
-        let cur_map = maps.entry(section.header.sp_map(ToString::to_string)).or_insert_with(BTreeMap::new);
-
+        let cur_map = maps.entry(section.header.sp_map(ToString::to_string)).or_insert_with(Vec::new);
         for (number, value) in section.lines {
-            if let Some(previous) = cur_map.insert(number.value, value.sp_map(ToString::to_string)) {
-                // FIXME: Technically we should allow this and keep both as aliases.
-                //        https://github.com/ExpHP/truth/issues/49
-                return Err(emitter.emit(error!(
-                    message("in section '{}': duplicate key error for id {}", section.header, number),
-                    primary(value, "redefinition"),
-                    secondary(previous, "previous definition"),
-                )));
-            }
+            cur_map.push((number.value, value.sp_map(ToString::to_string)));
         }
     }
-    Ok(maps)
+    maps
+}
+
+fn mapify_section(header: &str, section: Vec<(i32, Sp<String>)>, emitter: &impl Emitter) -> Result<BTreeMap<i32, Sp<String>>, ErrorReported> {
+    let mut out = BTreeMap::new();
+    for (number, value) in section {
+        if let Some(previous) = out.insert(number, value.clone()) {
+            return Err(emitter.emit(error!(
+                message("in section '{}': duplicate key error for id {}", header, number),
+                primary(value, "redefinition"),
+                secondary(previous, "previous definition"),
+            )));
+        }
+    }
+    Ok(out)
 }

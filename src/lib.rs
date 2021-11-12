@@ -21,8 +21,8 @@ pub mod fmt;
 
 pub mod parse;
 
-pub use eclmap::Eclmap;
-pub mod eclmap;
+pub use mapfile::Mapfile;
+pub mod mapfile;
 
 pub use context::{Scope, CompilerContext};
 pub mod context;

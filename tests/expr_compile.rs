@@ -30,7 +30,7 @@ const OTHER_OPCODE: u16 = 100;
 
 // Note: In these tests, instructions with opcodes < 100 are reserved for specially recognized instructions
 //       and instructions named in the mapfile.  Use opcodes >= 100 for arbitrary instructions in the text.
-fn load_eclmap(truth: &mut Truth, vars: &[Var]) {
+fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
     let mut lines = vec![];
     lines.push(format!("!anmmap"));
     lines.push(format!("!gvar_types"));
@@ -235,7 +235,7 @@ fn run_randomized_test(vars: &[Var], text: &str) -> Result<TestResult, String> {
 
 #[track_caller]
 fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<TestResult, truth::ErrorReported> {
-    load_eclmap(truth, vars);
+    load_mapfile(truth, vars);
 
     let hooks = make_language(vars);
     let base_vm = make_randomized_vm(vars);
@@ -348,7 +348,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
 
     let mut scope = truth::Builder::new().capture_diagnostics(true).build();
     let mut truth = scope.truth();
-    load_eclmap(&mut truth, vars);
+    load_mapfile(&mut truth, vars);
 
     let hooks = make_language(vars);
 

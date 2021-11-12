@@ -29,19 +29,42 @@ source_test!(
 );
 
 source_test!(
-    // NOTE: in the future this should be allowed but for now it is rejected because
-    //       it doesn't implement the right semantics. Note the desired semantics may
-    //       differ between different sections and require additional tests.
-    //       (it should behave similar to whatever you get from having multiple
-    //        separate mapfiles define conflicting keys for that section)
     ANM_10, seqmap_duplicate_key,
     mapfile: r#"!anmmap
+!ins_signatures
+99 S
 !ins_names
-10 blue
-10 bloo
+99 blue
+99 bloo
 "#,
-    main_body: r#""#,
-    expect_error: "duplicate key error",
+    main_body: r#"
+    blue(5);
+    bloo(7);
+    "#,
+    sbsb: |decompiled| {
+        // prefer the most recent name
+        assert!(decompiled.contains("bloo"));
+        assert!(!decompiled.contains("blue"));
+    },
+);
+
+source_test!(
+    ANM_10, seqmap_duplicate_section,
+    mapfile: r#"!anmmap
+!ins_names
+99 blue
+!ins_signatures
+99 S
+!ins_names
+99 bloo
+"#,
+    main_body: r#"
+    blue(5);
+    bloo(7);
+    "#,
+    check_compiled: |_, _| {
+        // just need it to succeed...
+    },
 );
 
 source_test!(

@@ -10,7 +10,7 @@ use crate::pos::{Sp, Span};
 use crate::game::LanguageKey;
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, rib};
-use crate::eclmap::Eclmap;
+use crate::mapfile::Mapfile;
 use crate::value::{ScalarType, VarType, ExprType};
 use crate::llir::{InstrAbi, IntrinsicInstrKind};
 
@@ -402,13 +402,13 @@ impl Defs {
 }
 
 impl CompilerContext<'_> {
-    /// Add info from an eclmap.
+    /// Add info from a mapfile.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
-    pub fn extend_from_eclmap(
+    pub fn extend_from_mapfile(
         &mut self,
         path: Option<&std::path::Path>,
-        mapfile: &Eclmap,
+        mapfile: &Mapfile,
     ) -> Result<(), ErrorReported> {
         let emitter = self.emitter;
 
@@ -420,11 +420,11 @@ impl CompilerContext<'_> {
             (&mapfile.ins_names, &mapfile.ins_signatures, mapfile.language),
             (&mapfile.timeline_ins_names, &mapfile.timeline_ins_signatures, LanguageKey::Timeline),
         ] {
-            for (&opcode, ident) in names {
+            for &(opcode, ref ident) in names {
                 self.define_global_ins_alias(language, opcode as u16, ident.clone());
             }
 
-            signatures.iter().map(|(&opcode, abi_str)| {
+            signatures.iter().map(|&(opcode, ref abi_str)| {
                 let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
                 abi.validate_against_language(abi_str.span, language, emitter)?;
 
@@ -439,11 +439,11 @@ impl CompilerContext<'_> {
             }).collect_with_recovery::<()>()?;
         }
 
-        for (&reg, ident) in &mapfile.gvar_names {
+        for &(reg, ref ident) in &mapfile.gvar_names {
             self.define_global_reg_alias(mapfile.language, RegId(reg), ident.clone());
         }
 
-        for (&reg, value) in &mapfile.gvar_types {
+        for &(reg, ref value) in &mapfile.gvar_types {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
@@ -458,7 +458,7 @@ impl CompilerContext<'_> {
             self.set_reg_ty(mapfile.language, RegId(reg), ty);
         }
 
-        mapfile.ins_intrinsics.iter().map(|(&opcode, kind_str)| {
+        mapfile.ins_intrinsics.iter().map(|&(opcode, ref kind_str)| {
             let kind = sp!(kind_str.span => kind_str.parse().map_err(|e| {
                 emitter.emit(error!(
                     message("invalid intrinsic name: {}", e),

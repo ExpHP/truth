@@ -74,21 +74,21 @@ impl Truth<'_> {
     pub fn apply_mapfile_str(&mut self, text: &str) -> Result<(), ErrorReported> {
         let (file_id, source_str) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
         let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &source_str[..], &self.ctx.emitter)?;
-        self.apply_mapfile(&crate::Eclmap::from_seqmap(seqmap, &self.ctx.emitter)?)
+        self.apply_mapfile(&crate::Mapfile::from_seqmap(seqmap, &self.ctx.emitter)?)
     }
 
-    pub fn apply_mapfile(&mut self, mapfile: &crate::Eclmap) -> Result<(), ErrorReported> {
-        self.ctx.extend_from_eclmap(None, &mapfile)
+    pub fn apply_mapfile(&mut self, mapfile: &crate::Mapfile) -> Result<(), ErrorReported> {
+        self.ctx.extend_from_mapfile(None, &mapfile)
     }
 
     pub fn load_mapfile(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
-        let eclmap = crate::Eclmap::load(filepath, game, &self.ctx.emitter, |path| {
+        let eclmap = crate::Mapfile::load(filepath, game, &self.ctx.emitter, |path| {
             let bytes = self.fs().read(path)?;
             self.ctx.emitter.files.add(&path.to_string_lossy(), &bytes)
                 .map_err(|e| self.ctx.emitter.emit(e))
                 .map(|(file_id, str)| (file_id, str.to_string()))
         })?;
-        self.ctx.extend_from_eclmap(Some(filepath), &eclmap)
+        self.ctx.extend_from_mapfile(Some(filepath), &eclmap)
     }
 
     pub fn read_script(&mut self, path: &Path) -> Result<ast::ScriptFile, ErrorReported> {

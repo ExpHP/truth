@@ -1,9 +1,7 @@
-use ::std::collections::BTreeMap;
-
 use crate::raw;
 use crate::pos::Sp;
 use crate::game::{Game, LanguageKey};
-use crate::eclmap::Eclmap;
+use crate::mapfile::Mapfile;
 
 mod anm;
 mod ecl;
@@ -12,7 +10,7 @@ mod std;
 
 /// Obtain a mapfile with signatures and types for all vanilla instructions and registers
 /// for a single InstrLanguage.
-pub fn core_mapfile(game: Game, language: LanguageKey) -> Eclmap {
+pub fn core_mapfile(game: Game, language: LanguageKey) -> Mapfile {
     let signatures = match language {
         LanguageKey::Anm => self::anm::core_signatures(game),
         LanguageKey::Std => self::std::core_signatures(game),
@@ -68,13 +66,13 @@ impl CoreSignatures {
         inherit: &[], ins: &[], var: &[],
     };
 
-    fn to_mapfile(&self, language: LanguageKey, game: Game) -> Eclmap {
-        let mut mapfile = Eclmap::new_core_mapfile(language);
+    fn to_mapfile(&self, language: LanguageKey, game: Game) -> Mapfile {
+        let mut mapfile = Mapfile::new_core_mapfile(language);
         self.apply_to_mapfile(game, &mut mapfile);
         mapfile
     }
 
-    fn apply_to_mapfile(&self, game: Game, mapfile: &mut Eclmap) {
+    fn apply_to_mapfile(&self, game: Game, mapfile: &mut Mapfile) {
         for parent in self.inherit {
             parent.apply_to_mapfile(game, mapfile);
         }
@@ -90,17 +88,27 @@ impl CoreSignatures {
                 insert_or_remove(&mut mapfile.gvar_types, reg_id as _, type_str.map(|x| sp!(x)));
             }
         }
+        check_core_mapfile_invariants(mapfile);
     }
 }
 
-fn insert_or_remove<K, V>(map: &mut BTreeMap<K, Sp<V::Owned>>, key: K, value: Option<Sp<&V>>)
+// Even though mapfiles are backed by Vecs to allow duplicates, core mapfiles are more maplike
+// so that information from later games can replace information from earlier games.
+fn check_core_mapfile_invariants(mapfile: &Mapfile) {
+    for map in [&mapfile.ins_signatures, &mapfile.gvar_types] {
+        assert!(map.windows(2).all(|window| window[0].0 < window[1].0), "core mapfile not sorted or has duplicate");
+    }
+}
+
+fn insert_or_remove<K, V>(map: &mut Vec<(K, Sp<V::Owned>)>, key: K, value: Option<Sp<&V>>)
 where
     K: Ord + Eq,
     V: ToOwned + ?Sized,
 {
-    if let Some(value) = value {
-        map.insert(key, value.sp_map(ToOwned::to_owned));
-    } else {
-        map.remove(&key);
+    match (value, map.binary_search_by_key(&&key, |(item_key, _)| item_key)) {
+        (None, Ok(index)) => { map.remove(index); },
+        (None, Err(_)) => {},
+        (Some(value), Ok(index)) => map[index] = (key, value.sp_map(ToOwned::to_owned)),
+        (Some(value), Err(index)) => map.insert(index, (key, value.sp_map(ToOwned::to_owned))),
     }
 }

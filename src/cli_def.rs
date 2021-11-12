@@ -541,7 +541,7 @@ fn add_env_mapfile_for_decomp(
     mut mapfile_args: Vec<PathBuf>,
     mapfile_extension: &'static str,
 ) -> Vec<PathBuf> {
-    if let Some(env_mapfile) = crate::Eclmap::decomp_map_file_from_env(mapfile_extension) {
+    if let Some(env_mapfile) = crate::Mapfile::decomp_map_file_from_env(mapfile_extension) {
         mapfile_args.insert(0, env_mapfile);
     }
     mapfile_args
