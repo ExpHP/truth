@@ -1,5 +1,11 @@
 use crate::bitset::BitSet32;
 
+/// A Vec containing data per case of a diff switch.  Data is only held in the explicitly-provided
+/// cases, and the others are `None`.
+pub type DiffSwitchVec<T> = Vec<Option<T>>;
+/// Slice form of DiffSwitchVec.
+pub type DiffSwitchSlice<T> = [Option<T>];
+
 /// An aggregator type used to help identify the union of explicit difficulty levels
 /// between all of the difficulty switches in a statement.
 ///
@@ -20,7 +26,7 @@ impl DiffSwitchMeta {
 
     /// Add explicit cases or increase the number of difficulties as necessary to make this
     /// compatible with the given switch.
-    pub fn update<T>(&mut self, switch_cases: &[Option<T>]) {
+    pub fn update<T>(&mut self, switch_cases: &DiffSwitchSlice<T>) {
         self.num_difficulties = self.num_difficulties.max(switch_cases.len());
 
         for (difficulty, case) in switch_cases.iter().enumerate() {
@@ -33,14 +39,14 @@ impl DiffSwitchMeta {
 
 /// Grab the corresponding item from difficulty cases.
 /// (the final value is assumed to repeat forever)
-pub fn select_diff_switch_case<T>(cases: &[Option<T>], difficulty: u32) -> &T {
+pub fn select_diff_switch_case<T>(cases: &DiffSwitchSlice<T>, difficulty: u32) -> &T {
     let start = usize::min(cases.len() - 1, difficulty as usize);
     (0..=start).rev()  // start from difficulty and look backwards
         .filter_map(move |i| cases[i].as_ref()).next()  // find first Some
         .expect("there's always an easy value")
 }
 
-pub fn explicit_difficulty_cases<T>(cases: &[Option<T>]) -> Vec<(BitSet32, &T)> {
+pub fn explicit_difficulty_cases<T>(cases: &DiffSwitchSlice<T>) -> Vec<(BitSet32, &T)> {
     let mut remaining = cases.iter();
     let mut cur_case = remaining.next().expect("always len > 1").as_ref().expect("first case always present");
     let mut cur_mask = BitSet32::from_bit(0);
@@ -76,7 +82,7 @@ impl DiffSwitchMeta {
         })
     }
 
-    pub fn switch_from_explicit_cases<T: Clone, Ts>(&self, explicit_cases: Ts) -> Vec<Option<T>>
+    pub fn switch_from_explicit_cases<T: Clone, Ts>(&self, explicit_cases: Ts) -> DiffSwitchVec<T>
     where
         Ts: IntoIterator<Item=T>,
         <Ts as IntoIterator>::IntoIter: ExactSizeIterator,

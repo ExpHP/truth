@@ -63,7 +63,7 @@ enum LowerArg {
     /// All arguments are eventually lowered to this form.
     Raw(SimpleArg),
     /// A group of fully-encoded arguments that depend on difficulty.
-    DiffSwitch(Vec<Option<Sp<LowerArg>>>),
+    DiffSwitch(ds_util::DiffSwitchVec<Sp<LowerArg>>),
     /// A reference to a register-allocated local.
     Local {
         def_id: DefId,

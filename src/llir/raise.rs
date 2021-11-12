@@ -14,7 +14,7 @@ use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK, DEFAULT_DIFFICULTY_MASK_BYTE};
-use crate::diff_switch_utils as ds_util;
+use crate::diff_switch_utils::{self as ds_util, DiffSwitchSlice, DiffSwitchVec};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
 use IntrinsicInstrKind as IKind;
@@ -48,7 +48,7 @@ struct RaiseInstr<Arg = SimpleArg, Offset = raw::BytePos> {
     opcode: raw::Opcode,
     args: RaiseArgs<Arg>,
 }
-type CompressedInstr = RaiseInstr<CompressedArg, Vec<Option<raw::BytePos>>>;
+type CompressedInstr = RaiseInstr<CompressedArg, DiffSwitchVec<raw::BytePos>>;
 
 #[derive(Debug)]
 enum RaiseArgs<Arg> {
@@ -66,7 +66,7 @@ impl<Arg> RaiseArgs<Arg> {
 }
 
 enum CompressedArg {
-    DiffSwitch(Vec<Option<SimpleArg>>),
+    DiffSwitch(DiffSwitchVec<SimpleArg>),
     Single(SimpleArg),
 }
 
@@ -792,24 +792,28 @@ impl SingleSubRaiser<'_> {
             encodings.iter().zip(args)
                 .find(|(&enc, _)| enc == ArgEncoding::JumpOffset)
                 .map(|(_, offset_compressed_arg)| {
-                    // If there's a difficulty switch, it's too complicated to communicate information about all
-                    //  of the labels, so we'll just use the easy label.
-                    //
-                    // (so if the time is of, say, the hard label, it'll have to fall back to integer display.
-                    //  That's what you get for decompiling an incredibly contrived test file while using
-                    //  the --no-intrinsics flag I guess.  :shrug:)
-                    //
-                    let easy_instr_offset = instr.offset[0].expect("no easy instruction?");
-                    let easy_offset_arg = offset_compressed_arg.iter_raw_args().next().expect("no easy value?!");
-                    let offset = self.hooks.decode_label(easy_instr_offset, easy_offset_arg.expect_int() as u32);
-                    self.offset_labels.get(&offset)
-                        .ok_or(IllegalOffset)  // if it was a valid offset, it would have a label
+                    // To make matters even worse, the offset might be a diff switch!
+                    // We need to decode each case according to its own original instruction's offset.
+
+                    // (we want to make a DiffSwitchVec so iterate over instr.offset which has the desired shape,
+                    //  and we'll read off the corresponding case args in parallel)
+                    let mut remaining_case_args = offset_compressed_arg.iter_raw_args();
+                    let dest_labels = instr.offset.iter().map(|opt| opt.map(|case_instr_offset| {
+                        // get the destination label for one explicit difficulty
+                        let case_offset_arg = remaining_case_args.next().expect("fewer offset args than instr's own offsets");
+                        let case_offset = self.hooks.decode_label(case_instr_offset, case_offset_arg.expect_int() as u32);
+                        self.offset_labels.get(&case_offset)
+                            .ok_or(IllegalOffset)  // if it was a valid offset, it would have a label
+                    })).collect::<DiffSwitchVec<_>>();
+
+                    assert!(remaining_case_args.next().is_none(), "more offset args than instr's own offsets");
+                    dest_labels
                 })
         };
 
         let mut raised_args = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
             self.emitter.as_sized().chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
-                Ok(sp!(raise_compressed(language, emitter, &arg, enc, dest_label)?))
+                Ok(sp!(raise_compressed(language, emitter, &arg, enc, dest_label.as_deref())?))
             })
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
@@ -859,14 +863,14 @@ struct IllegalOffset;
 /// Adapts a [`SimpleArg`]-raising function to raise a [`CompressedArg`] instead.
 fn raise_compressed_with<E>(
     arg: &CompressedArg,
-    mut raise_raw: impl FnMut(&SimpleArg) -> Result<ast::Expr, E>,
+    mut raise_raw: impl FnMut(usize, &SimpleArg) -> Result<ast::Expr, E>,
 ) -> Result<ast::Expr, E> {
     match arg {
-        CompressedArg::Single(raw) => raise_raw(raw),
+        CompressedArg::Single(raw) => raise_raw(0, raw),
 
         CompressedArg::DiffSwitch(cases) => Ok(ast::Expr::DiffSwitch({
-            cases.iter().map(|case_opt| {
-                case_opt.as_ref().map(|raw| Ok(sp!(raise_raw(raw)?))).transpose()
+            cases.iter().enumerate().map(|(case_index, case_opt)| {
+                case_opt.as_ref().map(|raw| Ok(sp!(raise_raw(case_index, raw)?))).transpose()
             }).collect::<Result<_, E>>()?
         })),
     }
@@ -877,9 +881,12 @@ fn raise_compressed(
     emitter: &impl Emitter,
     arg: &CompressedArg,
     enc: ArgEncoding,
-    dest_label: Option<Result<&Label, IllegalOffset>>,
+    dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
 ) -> Result<ast::Expr, ErrorReported> {
-    raise_compressed_with(arg, |raw| raise_arg(language, emitter, raw, enc, dest_label))
+    raise_compressed_with(arg, |case_index, raw| {
+        let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
+        raise_arg(language, emitter, raw, enc, case_dest_label)
+    })
 }
 
 /// General argument-raising routine that supports registers and uses the encoding in the ABI
@@ -903,9 +910,12 @@ fn raise_compressed_to_literal(
     emitter: &impl Emitter,
     arg: &CompressedArg,
     enc: ArgEncoding,
-    dest_label: Option<Result<&Label, IllegalOffset>>,
+    dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
 ) -> Result<ast::Expr, ErrorReported> {
-    raise_compressed_with(arg, |raw| raise_arg_to_literal(emitter, raw, enc, dest_label))
+    raise_compressed_with(arg, |case_index, raw| {
+        let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
+        raise_arg_to_literal(emitter, raw, enc, case_dest_label)
+    })
 }
 
 /// Raise an immediate arg, using the encoding to guide the formatting of the output.

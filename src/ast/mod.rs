@@ -6,6 +6,7 @@ use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::game::LanguageKey;
 use crate::value;
+use crate::diff_switch_utils as ds_util;
 
 pub use meta::Meta;
 pub mod meta;
@@ -435,7 +436,7 @@ pub enum Expr {
     BinOp(Box<Sp<Expr>>, Sp<BinOpKind>, Box<Sp<Expr>>),
     Call(ExprCall),
     /// (a:b:c:d) syntax.  Always has at least two items.  Items aside from the first may be omitted (None).
-    DiffSwitch(Vec<Option<Sp<Expr>>>),
+    DiffSwitch(ds_util::DiffSwitchVec<Sp<Expr>>),
     UnOp(Sp<UnOpKind>, Box<Sp<Expr>>),
     LitInt {
         value: raw::LangInt,
