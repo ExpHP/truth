@@ -65,7 +65,7 @@ pub trait GatherErrorIteratorExt {
     ///
     /// If at least one of the items is `Err(_)`, it returns an `Err(_)`.
     /// Otherwise, it returns `Ok(_)`.
-    fn collect_with_recovery<B: std::iter::FromIterator<Self::OkItem>>(self) -> Result<B, ErrorReported>;
+    fn collect_with_recovery<B: FromIterator<Self::OkItem>>(self) -> Result<B, ErrorReported>;
 }
 
 impl<Ts, T> GatherErrorIteratorExt for Ts
@@ -74,7 +74,7 @@ where
 {
     type OkItem = T;
 
-    fn collect_with_recovery<B: std::iter::FromIterator<T>>(self) -> Result<B, ErrorReported> {
+    fn collect_with_recovery<B: FromIterator<T>>(self) -> Result<B, ErrorReported> {
         let mut errors = ErrorFlag::new();
         let out = self.filter_map(|r| match r {
             Ok(x) => Some(x),

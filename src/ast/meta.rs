@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::collections::HashSet;
 
 use indexmap::IndexMap as Map;
@@ -218,7 +217,7 @@ impl Sp<Meta> {
     // /// For simpler use cases, it is easier to implement [`FromMeta`] and then take advantage of the
     // /// generic impl of [`FromMeta`] for `Vec<T>`. (by calling [`Meta::parse`], or, more likely,
     // /// [`ParseObject::expect_field`])
-    // pub fn parse_array_with<'a, T, Ts: std::iter::FromIterator<T>>(
+    // pub fn parse_array_with<'a, T, Ts: FromIterator<T>>(
     //     &'a self,
     //     func: impl FnMut(&'a Sp<Meta>) -> Result<T, FromMetaError<'a>>,
     // ) -> Result<Ts, FromMetaError<'_>> {
@@ -232,7 +231,7 @@ impl Sp<Meta> {
     // ///
     // /// Typically this is used to parse a type like [`std::collections::HashMap`], so `T` will usually
     // /// be some `(K, V)` tuple; but more generally you can create any type that can be `collect`ed.
-    // pub fn parse_map_with<'a, T, Ts: std::iter::FromIterator<T>>(
+    // pub fn parse_map_with<'a, T, Ts: FromIterator<T>>(
     //     &'a self,
     //     func: impl FnMut(&'a Sp<Ident>, &'a Sp<Meta>) -> Result<T, FromMetaError<'a>>,
     // ) -> Result<Ts, FromMetaError<'_>> {

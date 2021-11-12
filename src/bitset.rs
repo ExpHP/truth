@@ -2,7 +2,6 @@
 // They all allocated.
 //        -exp
 
-use core::iter::FromIterator;
 use core::fmt;
 
 /// Bit set backed by a single integer.

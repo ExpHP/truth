@@ -605,7 +605,7 @@ pub mod rib {
         }
     }
 
-    impl std::iter::FromIterator<Rib> for RibStacks {
+    impl FromIterator<Rib> for RibStacks {
         fn from_iter<It: IntoIterator<Item=Rib>>(iter: It) -> Self {
             let mut out = Self::new();
             for rib in iter {

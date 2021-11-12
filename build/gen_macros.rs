@@ -146,11 +146,11 @@ fn make_case(mac: &str, cur_step: &str, next_step: &str, to_parse: &str, to_save
     };
     Rule {
         pattern: format!(
-            "@{cur_step} flags#[$($flags:ident)*] input#[{to_parse} $($rest:tt)*] $($done:tt)*",
+            "@{cur_step} flags%[$($flags:ident)*] input%[{to_parse} $($rest:tt)*] $($done:tt)*",
             cur_step=cur_step, to_parse=to_parse,
         ),
         result: format!(
-            "_{mac}_impl!{{ @{next_step} flags#[$($flags)*{new_flags}] input#[$($rest)*] $($done)* arg#[{to_save}] }}",
+            "_{mac}_impl!{{ @{next_step} flags%[$($flags)*{new_flags}] input%[$($rest)*] $($done)* arg%[{to_save}] }}",
             mac=mac, next_step=next_step, to_save=to_save, new_flags=new_flags,
         ),
     }
@@ -171,7 +171,7 @@ fn make_err_case_expected(cur_step: &str, expected: &str) -> Rule {
 
 fn make_err_case(cur_step: &str, pattern_prefix: &str, msg: &str) -> Rule {
     let pattern = format!(
-        "@{cur_step} flags#[$($flags:ident)*] input#[{prefix} $($first:tt $($rest:tt)*)?] span#$span:tt $($first_done:tt $($done:tt)*)?",
+        "@{cur_step} flags%[$($flags:ident)*] input%[{prefix} $($first:tt $($rest:tt)*)?] span%$span:tt $($first_done:tt $($done:tt)*)?",
         cur_step=cur_step, prefix=pattern_prefix,
     );
     let debug_heading = "\n Things parsed so far:  ";
@@ -280,21 +280,21 @@ enum FinalCasesType {
 impl FinalCasesType {
     fn gen_final_rules(&self, out: &mut Vec<Rule>, steps: &[(&str, ArgKind)]) {
         let get_steps_as_exprs = |steps: &[(&str, ArgKind)]| {
-            steps.iter().map(|(name, _)| format!("arg#[${}:expr]", name))
+            steps.iter().map(|(name, _)| format!("arg%[${}:expr]", name))
                 .collect::<Vec<_>>()
                 .join(" ")
         };
         match self {
             FinalCasesType::Regular(final_expr) => {
                 out.push(Rule {
-                    pattern: format!("@finish flags#[] input#[] span#[] {}", get_steps_as_exprs(steps)),
+                    pattern: format!("@finish flags%[] input%[] span%[] {}", get_steps_as_exprs(steps)),
                     result: final_expr.to_string(),
                 });
             },
             FinalCasesType::Stmt { body: body_expr } => {
                 let time_name = steps[0].0;
                 out.push(Rule {
-                    pattern: format!("@finish flags#[] input#[] span#[] arg#[${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    pattern: format!("@finish flags%[] input%[] span%[] arg%[${}:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!(r#"
                         $crate::ast::Stmt {{
                             node_id: None,
@@ -303,7 +303,7 @@ impl FinalCasesType {
                     "#, body_expr),
                 });
                 out.push(Rule {
-                    pattern: format!("@finish flags#[as_kind] input#[] span#[] arg#[$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
+                    pattern: format!("@finish flags%[as_kind] input%[] span%[] arg%[$_{}_unused:expr] {}", time_name, get_steps_as_exprs(&steps[1..])),
                     result: format!("{}", body_expr),
                 });
             }
@@ -319,12 +319,12 @@ fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_case: FinalCasesTyp
             // A rule that sets aside the span from rec_sp! so it can be recursively applied to arguments.
             Rule {
                 pattern: format!("rec_sp!($span:expr => $($input:tt)+)"),
-                result: format!("_{}_impl!{{ @parse_{} flags#[] input#[$($input)+] span#[$span] }}", mac, first_step_name),
+                result: format!("_{}_impl!{{ @parse_{} flags%[] input%[$($input)+] span%[$span] }}", mac, first_step_name),
             },
             // Rule with no span
             Rule {
                 pattern: format!("$($input:tt)+"),
-                result: format!("_{}_impl!{{ @parse_{} flags#[] input#[$($input)+] span#[] }}", mac, first_step_name),
+                result: format!("_{}_impl!{{ @parse_{} flags%[] input%[$($input)+] span%[] }}", mac, first_step_name),
             },
         ]
     };
@@ -352,15 +352,15 @@ fn gen_ast_macro(mac: &str, steps: &[(&str, ArgKind)], final_case: FinalCasesTyp
     let mut parts_out = String::new();
     for (name, arg_kind) in steps {
         let (pat, out) = arg_kind.rec_sp_step_pieces(name);
-        parts_in.push_str(&format!("arg#[{}] ", pat));
-        parts_out.push_str(&format!("arg#[{}] ", out));
+        parts_in.push_str(&format!("arg%[{}] ", pat));
+        parts_out.push_str(&format!("arg%[{}] ", out));
     }
 
     impl_macro.rules.push(Rule {
-        pattern: format!("@finish flags#[$($flags:ident)*] input#[] span#[$span:expr] {}", parts_in),
+        pattern: format!("@finish flags%[$($flags:ident)*] input%[] span%[$span:expr] {}", parts_in),
         result: format!(r#"
             match $span {{
-                _span => _{mac}_impl!{{ @finish flags#[$($flags)*] input#[] span#[] {parts_out} }},
+                _span => _{mac}_impl!{{ @finish flags%[$($flags)*] input%[] span%[] {parts_out} }},
             }}
         "#, mac=mac, parts_out=parts_out),
     });

@@ -311,8 +311,6 @@ pub trait BinRead {
     fn read_u32s(&mut self, count: usize) -> Result<Vec<u32>, Self::Err> { (0..count).map(|_| self.read_u32()).collect() }
 
     fn read_i16_or_eof(&mut self) -> Result<Option<i16>, Self::Err> {
-        use std::convert::TryInto;
-
         type Out = i16;
         const N: usize = std::mem::size_of::<Out>();
 

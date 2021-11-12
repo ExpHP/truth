@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use crate::ast;
 use crate::ast::meta::{self, FromMetaError, Meta};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};

@@ -6,7 +6,6 @@ use std::fmt;
 use std::borrow::Cow;
 use std::num::NonZeroU32;
 use std::cell::RefCell;
-use std::convert::TryFrom;
 use std::rc::Rc;
 
 use crate::diagnostic::Diagnostic;
