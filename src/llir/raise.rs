@@ -2,14 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::raw;
 use crate::ast::{self, pseudo};
+use crate::ast::diff_str::DiffFlagNames;
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
-use crate::resolve::{RegId, NodeId, UnusedIds};
-use crate::context::{self, Defs};
+use crate::resolve::{RegId};
+use crate::context::{self, Defs, CompilerContext};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
@@ -129,11 +130,10 @@ impl<'a> Raiser<'a> {
         &mut self,
         emitter: &dyn Emitter,
         raw_script: &[RawInstr],
-        defs: &Defs,
-        unused_node_ids: &UnusedIds<NodeId>,
+        ctx: &CompilerContext<'_>,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        let mut stmts = _raise_instrs_to_sub_ast(self, &emitter, raw_script, defs)?;
-        crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &unused_node_ids)?;
+        let mut stmts = _raise_instrs_to_sub_ast(self, &emitter, raw_script, ctx)?;
+        crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &ctx.unused_node_ids)?;
         Ok(stmts)
     }
 
@@ -157,7 +157,7 @@ fn _raise_instrs_to_sub_ast(
     raiser: &mut Raiser,
     emitter: &impl Emitter,
     raw_script: &[RawInstr],
-    defs: &Defs,
+    ctx: &CompilerContext,
 ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
     let hooks = raiser.hooks;
     let ref instr_offsets = gather_instr_offsets(raw_script, hooks);
@@ -165,17 +165,19 @@ fn _raise_instrs_to_sub_ast(
     // Preprocess by using mapfile signatures to parse arguments
     let script: Vec<RaiseInstr> = {
         raw_script.iter().zip(instr_offsets)
-            .map(|(raw_instr, &instr_offset)| raiser.decode_args(emitter, raw_instr, instr_offset, defs))
+            .map(|(raw_instr, &instr_offset)| raiser.decode_args(emitter, raw_instr, instr_offset, &ctx.defs))
             .collect::<Result<_, _>>()?
     };
 
-    let ref jump_data = gather_jump_time_args(&script, defs, hooks)?;
+    let ref jump_data = gather_jump_time_args(&script, &ctx.defs, hooks)?;
     let ref offset_labels = generate_offset_labels(emitter, &script, instr_offsets, jump_data)?;
 
     let &end_offset = instr_offsets.last().expect("n + 1 offsets so there's always at least one");
     let intrinsic_instrs = &raiser.intrinsic_instrs;
     SingleSubRaiser {
-        emitter, defs, hooks, end_offset, offset_labels, intrinsic_instrs,
+        emitter, hooks, end_offset, offset_labels, intrinsic_instrs,
+        defs: &ctx.defs,
+        diff_flag_names: &ctx.diff_flag_names,
     }.raise_instrs(&script)
 }
 
@@ -188,14 +190,15 @@ struct SingleSubRaiser<'a> {
     intrinsic_instrs: &'a IntrinsicInstrs,
     hooks: &'a dyn LanguageHooks,
     emitter: &'a dyn Emitter,
-    defs: &'a Defs,
+    defs: &'a context::Defs,
+    diff_flag_names: &'a DiffFlagNames,
 }
 
 /// Methods where all of the fallback logic concerning diff switches and intrinsics is implemented.
 impl SingleSubRaiser<'_> {
     fn raise_instrs(&self, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut out = vec![];
-        let mut label_gen = LabelEmitter::new(self.offset_labels);
+        let mut label_gen = LabelEmitter::new(self.offset_labels, self.diff_flag_names);
         let mut remaining_instrs = script;
 
         // assert!(!script.iter().any(|instr| instr.offset == 1766), "{:#?}", script);
@@ -208,13 +211,10 @@ impl SingleSubRaiser<'_> {
                     Ok(raised_intrinsic) => {
                         // if this returned Ok, then whether its an intrinsic or not, we're going to emit it
                         label_gen.emit_labels_for_instr(&mut out, &compressed_instr);
-                        out.push(sp!(ast::Stmt {
-                            node_id: None,
-                            kind: match raised_intrinsic {
-                                Some(kind) => kind,
-                                // if it wasn't an intrinsic, fall back to `ins_` syntax
-                                None => self.raise_raw_ins(&compressed_instr, args)?,
-                            },
+                        out.push(self.make_stmt(compressed_instr.difficulty_mask, match raised_intrinsic {
+                            Some(kind) => kind,
+                            // if it wasn't an intrinsic, fall back to `ins_` syntax
+                            None => self.raise_raw_ins(&compressed_instr, args)?,
                         }));
                         remaining_instrs = &remaining_instrs[compressed_instr.num_instrs_compressed()..];
                         continue 'instr;
@@ -234,7 +234,7 @@ impl SingleSubRaiser<'_> {
             let args_1 = match &instr_1.args {
                 RaiseArgs::Unknown(blob_data) => {
                     let kind = raise_unknown_instr(self.hooks.language(), &instr_1, blob_data)?;
-                    out.push(sp!(ast::Stmt { node_id: None, kind }));
+                    out.push(self.make_stmt(instr_1.difficulty_mask, kind));
                     remaining_instrs = &remaining_instrs[1..];
                     continue;
                 },
@@ -246,10 +246,10 @@ impl SingleSubRaiser<'_> {
             if remaining_instrs.len() > 1 {
                 let instr_2 = CompressedInstr::from_single(&remaining_instrs[1]);
                 if let RaiseArgs::Decoded(args_2) = &instr_2.args {
-                    if !label_gen.would_emit_labels(&instr_2) {
+                    if !label_gen.would_emit_labels(&instr_2) && instr_1.difficulty_mask == instr_2.difficulty_mask {
                         if let Some(kind) = self.try_raise_double_instr_intrinsic(&instr_1, &instr_2, args_1, args_2)? {
                             // Success! It's a two-instruction intrinsic.
-                            out.push(sp!(ast::Stmt { node_id: None, kind }));
+                            out.push(self.make_stmt(instr_1.difficulty_mask, kind));
                             remaining_instrs = &remaining_instrs[2..];
                             continue;
                         }
@@ -259,12 +259,9 @@ impl SingleSubRaiser<'_> {
 
             match self.try_raise_single_instr_intrinsic(&instr_1, args_1) {
                 Ok(raised_intrinsic) => {
-                    out.push(sp!(ast::Stmt {
-                        node_id: None,
-                        kind: match raised_intrinsic {
-                            Some(kind) => kind,
-                            None => self.raise_raw_ins(&instr_1, args_1)?,
-                        },
+                    out.push(self.make_stmt(instr_1.difficulty_mask, match raised_intrinsic {
+                        Some(kind) => kind,
+                        None => self.raise_raw_ins(&instr_1, args_1)?,
                     }));
                     remaining_instrs = &remaining_instrs[1..];
                     continue 'instr;
@@ -276,10 +273,32 @@ impl SingleSubRaiser<'_> {
 
         // possible label after last instruction
         let end_time = label_gen.prev_time;
-        let end_difficulty = label_gen.prev_difficulty;
-        label_gen.emit_labels(&mut out, self.end_offset, end_time, end_difficulty);
+        label_gen.emit_labels(&mut out, self.end_offset, end_time);
 
         Ok(out)
+    }
+
+    fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, kind: ast::StmtKind) -> Sp<ast::Stmt> {
+        sp!(ast::Stmt {
+            node_id: None,
+            diff_label: self.make_diff_label(difficulty_mask),
+            kind,
+        })
+    }
+
+    fn make_diff_label(&self, mask_byte: raw::DifficultyMask) -> Option<Sp<ast::DiffLabel>> {
+        match mask_byte {
+            // save some work by suppressing redundant labels now.
+            // (this pass generates a flat list so the "outer"/natural difficulty is always 0xFF)
+            DEFAULT_DIFFICULTY_MASK_BYTE => None,
+            mask_byte => {
+                let mask = BitSet32::from_mask(mask_byte as _);
+                Some(sp!(ast::DiffLabel {
+                    mask: Some(mask),
+                    string: sp!(self.diff_flag_names.mask_to_diff_label(mask)),
+                }))
+            },
+        }
     }
 }
 
@@ -314,7 +333,7 @@ fn gather_instr_offsets(
 
 fn gather_jump_time_args(
     script: &[RaiseInstr],
-    defs: &Defs,
+    defs: &context::Defs,
     hooks: &dyn LanguageHooks,
 ) -> Result<JumpData, ErrorReported> {
     let mut all_offset_args = BTreeMap::<u64, BTreeSet<Option<i32>>>::new();
@@ -397,7 +416,7 @@ fn test_generate_label_at_offset() {
 fn extract_jump_args_by_signature(
     hooks: &dyn LanguageHooks,
     instr: &RaiseInstr,
-    defs: &Defs,
+    defs: &context::Defs,
 ) -> Option<(raw::BytePos, Option<raw::Time>)> {
     let mut jump_offset = None;
     let mut jump_time = None;
@@ -1265,21 +1284,21 @@ fn decode_args_with_abi(
 #[derive(Debug, Clone)]
 struct LabelEmitter<'a> {
     prev_time: raw::Time,
-    prev_difficulty: raw::DifficultyMask,
     offset_labels: &'a BTreeMap<raw::BytePos, Label>,
+    diff_flag_names: &'a DiffFlagNames,
 }
 
 impl<'a> LabelEmitter<'a> {
-    fn new(offset_labels: &'a BTreeMap<raw::BytePos, Label>) -> Self {
+    fn new(offset_labels: &'a BTreeMap<raw::BytePos, Label>, diff_flag_names: &'a DiffFlagNames) -> Self {
         LabelEmitter {
             prev_time: 0,
-            prev_difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE,
             offset_labels,
+            diff_flag_names,
         }
     }
 
-    fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask) {
-        self.emit_labels_with(offset, time, difficulty, &mut |stmt| out.push(stmt))
+    fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, offset: raw::BytePos, time: raw::Time) {
+        self.emit_labels_with(offset, time, &mut |stmt| out.push(stmt))
     }
 
     fn emit_labels_for_instr(&mut self, out: &mut Vec<Sp<ast::Stmt>>, instr: &CompressedInstr) {
@@ -1304,31 +1323,36 @@ impl<'a> LabelEmitter<'a> {
             "a label got compressed into the middle of a diff switch!!",
         );
 
-        self.emit_labels_with(offset, instr.time, instr.difficulty_mask, emit);
+        self.emit_labels_with(offset, instr.time, emit);
     }
 
-    fn emit_labels_with(&mut self, offset: raw::BytePos, time: raw::Time, difficulty: raw::DifficultyMask, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
+    fn emit_labels_with(&mut self, offset: raw::BytePos, time: raw::Time, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
         self.emit_offset_and_time_labels_with(offset, time, emit);
-        self.emit_difficulty_labels_with(difficulty, emit);
+
+        // not statements anymore
+        // self.emit_difficulty_labels_with(difficulty, emit);
     }
 
     // emit both labels like "label_354:" and "+24:"
     fn emit_offset_and_time_labels_with(&mut self, offset: raw::BytePos, time: raw::Time, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
+        // labels don't need to worry about difficulty
+        let make_stmt = |kind| sp!(ast::Stmt { node_id: None, diff_label: None, kind });
+
         // in the current implementation there is at most one regular label at this offset, which
         // may be before or after a relative time jump.
         let mut offset_label = self.offset_labels.get(&offset);
-        macro_rules! put_label_here_if_it_has_time {
+        macro_rules! put_offset_label_here_if_it_has_time {
             ($time:expr) => {
                 if let Some(label) = &offset_label {
                     if label.time_label == $time {
-                        emit(rec_sp!(Span::NULL => stmt_label!(#(label.label.clone()))));
+                        emit(make_stmt(ast::StmtKind::Label(sp!(label.label.clone()))));
                         offset_label = None;
                     }
                 }
             };
         }
 
-        put_label_here_if_it_has_time!(self.prev_time);
+        put_offset_label_here_if_it_has_time!(self.prev_time);
 
         // add time labels
         let prev_time = self.prev_time;
@@ -1336,24 +1360,24 @@ impl<'a> LabelEmitter<'a> {
             if prev_time < 0 && 0 <= time {
                 // Include an intermediate 0: between negative and positive.
                 // This is because ANM scripts can start with instrs at -1: that have special properties.
-                emit(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::AbsTimeLabel(sp!(0)) }));
+                emit(make_stmt(ast::StmtKind::AbsTimeLabel(sp!(0))));
                 if time > 0 {
-                    emit(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::RelTimeLabel {
+                    emit(make_stmt(ast::StmtKind::RelTimeLabel {
                         delta: sp!(time),
                         _absolute_time_comment: Some(time),
-                    }}));
+                    }));
                 }
             } else if time < prev_time {
-                emit(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::AbsTimeLabel(sp!(time)) }));
+                emit(make_stmt(ast::StmtKind::AbsTimeLabel(sp!(time))));
             } else if prev_time < time {
-                emit(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::RelTimeLabel {
+                emit(make_stmt(ast::StmtKind::RelTimeLabel {
                     delta: sp!(time - prev_time),
                     _absolute_time_comment: Some(time),
-                }}));
+                }));
             }
         }
 
-        put_label_here_if_it_has_time!(time);
+        put_offset_label_here_if_it_has_time!(time);
 
         // do we have a label we never placed?
         if let Some(label) = &offset_label {
@@ -1361,13 +1385,6 @@ impl<'a> LabelEmitter<'a> {
         }
 
         self.prev_time = time;
-    }
-
-    fn emit_difficulty_labels_with(&mut self, difficulty: raw::DifficultyMask, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
-        if difficulty != self.prev_difficulty {
-            emit(sp!(ast::Stmt { node_id: None, kind: ast::StmtKind::RawDifficultyLabel(sp!(difficulty as _)) }));
-        }
-        self.prev_difficulty = difficulty;
     }
 }
 

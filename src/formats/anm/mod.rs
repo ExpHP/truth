@@ -466,7 +466,7 @@ fn decompile(
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
             let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
-                raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)
+                raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
             })?;
 
             items.push(sp!(ast::Item::AnmScript {

@@ -247,6 +247,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<T
         truth::passes::resolution::assign_languages(&mut block, truth::LanguageKey::Anm, ctx)?;
         truth::passes::resolution::resolve_names(&block, ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut block, ctx)?;
+        truth::passes::resolution::compute_diff_label_masks(&mut block, ctx)?;
         truth::passes::desugar_blocks::run(&mut block, ctx)?;
         block
     };
@@ -267,7 +268,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<T
     let new_block = {
         let options = Default::default();
         let mut raiser = llir::Raiser::new(&hooks, &ctx.emitter, &ctx.defs, &options)?;
-        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx.defs, &ctx.unused_node_ids)?;
+        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut stmts[..], ctx)?;
         ast::Block(stmts)
     };
@@ -957,9 +958,8 @@ fn nested_diff_switch_cases() {
 fn difficulty_label_and_diff_switch() {
     for _ in 0..10 {
         let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
-        difficulty[0b0110]:
-            A = 300::400:;
-            B = 300:400::;
+            {"12"}: A = 300::400:;
+            {"12"}: B = 300:400::;
         }"#).unwrap();
         vms.check_regs(&[REG_A, REG_B]);
     }

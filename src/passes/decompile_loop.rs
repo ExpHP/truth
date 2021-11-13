@@ -68,6 +68,7 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                 Ok(CondChainInfo { chain, else_start_index, end_label_index }) => {
                     let make_bookend = || ast::Stmt {
                         node_id: Some(self.ctx.next_node_id()),
+                        diff_label: None,
                         kind: ast::StmtKind::NoInstruction,
                     };
 
@@ -150,6 +151,7 @@ impl VisitMut for IfElseVisitor<'_, '_> {
                     let span = cond_chain.cond_blocks[0].block.0[0].span.merge(cond_chain.last_block().end_span());
                     new_stmts.push(sp!(span => ast::Stmt {
                         node_id: Some(self.ctx.next_node_id()),
+                        diff_label: None,
                         kind: ast::StmtKind::CondChain(cond_chain),
                     }));
                 },
@@ -402,6 +404,7 @@ impl VisitMut for LoopVisitor<'_, '_> {
                         // Construct the loop statement.
                         out_stmts.push(sp!(inner_span => ast::Stmt {
                             node_id: Some(self.ctx.next_node_id()),
+                            diff_label: None,
                             kind: jmp.kind.make_loop(new_block, self.ctx.next_loop_id()),
                         }));
 

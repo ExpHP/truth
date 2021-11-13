@@ -134,7 +134,6 @@ define_token_enum! {
         #[token("case")] Case,
         #[token("default")] Default,
         #[token("interrupt")] Interrupt,
-        #[token("difficulty")] Difficulty, // FIXME: I don't want this to be a keyword... :/
         #[token("async")] Async,
         #[token("global")] Global,
         #[token("false")] False,

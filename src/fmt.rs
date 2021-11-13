@@ -642,7 +642,17 @@ impl Format for ast::FuncParam {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        if let Some(diff_label) = &self.diff_label {
+            out.fmt((diff_label, "  "))?;
+        }
         out.fmt(&self.kind)
+    }
+}
+
+impl Format for ast::DiffLabel {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        let ast::DiffLabel { string, mask: _ } = self;
+        out.fmt(("{", string, "}", ":"))
     }
 }
 
@@ -693,6 +703,10 @@ impl Format for ast::StmtKind {
                 out.fmt((e, ";"))
             },
 
+            ast::StmtKind::Block(block) => {
+                out.fmt(block)
+            },
+
             ast::StmtKind::Assignment { var, op, value } => {
                 out.fmt((var, " ", op, " ", SuppressParens(value), ";"))
             },
@@ -741,12 +755,6 @@ impl Format for ast::StmtKind {
                 out.fmt_label(("interrupt[", id, "]:"))?;
                 out.suppress_blank_line();
                 out.state.prev_line_was_interrupt = true;
-                Ok(())
-            },
-
-            ast::StmtKind::RawDifficultyLabel(value) => {
-                out.fmt_label(("difficulty[", format_args!("{:#X}", value.value), "]:"))?;
-                out.suppress_blank_line();
                 Ok(())
             },
 

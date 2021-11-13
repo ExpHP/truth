@@ -161,6 +161,10 @@ impl AstVm {
             }
             self.iterations += 1;
 
+            if stmts[stmt_index].diff_label.is_some() {
+                assert!(self.difficulty.is_some(), "difficulty of VM was not set!");
+            }
+
             // Handle early returns for a goto.
             // (this bubbles up to the block that contains the label and then resumes)
             macro_rules! handle_goto {
@@ -189,7 +193,7 @@ impl AstVm {
                 }};
             }
 
-            // "Wait" until this statement's time.
+            // "Wait" until this statement's time, even if it is the wrong difficulty.
             let stmt_node_id = stmts[stmt_index].node_id.unwrap();
             let stmt_time = stmt_data[&stmt_node_id].time;
             if self.time < stmt_time {
@@ -250,6 +254,10 @@ impl AstVm {
             //      doesn't exist due to the nested nature of the AST.
             match &stmts[stmt_index].kind {
                 ast::StmtKind::Item(_) => {},
+
+                ast::StmtKind::Block(block) => {
+                    handle_block!(block);
+                },
 
                 ast::StmtKind::Jump(jump) => handle_jump!(jump),
 
@@ -397,12 +405,6 @@ impl AstVm {
 
                 ast::StmtKind::InterruptLabel(_) => {},
 
-                ast::StmtKind::RawDifficultyLabel(_) => {
-                    assert!(self.difficulty.is_some(), "difficulty of VM was not set!");
-                    // no need to actually do anything though, we have statement difficulties
-                    // from static analysis.
-                },
-
                 ast::StmtKind::AbsTimeLabel { .. } => { },
                 ast::StmtKind::RelTimeLabel { .. } => { },
 
@@ -541,7 +543,7 @@ mod tests {
     }
 
     fn new_test_vm() -> AstVm {
-        AstVm::new().with_max_iterations(1000)
+        AstVm::new().with_max_iterations(1000).with_difficulty(0)
     }
 
     impl<S: AsRef<[u8]>> TestSpec<S> {
@@ -557,6 +559,7 @@ mod tests {
             }
             crate::passes::resolution::assign_languages(&mut ast.value, Dummy, ctx).unwrap();
             crate::passes::resolution::resolve_names(&ast.value, ctx).unwrap();
+            crate::passes::resolution::compute_diff_label_masks(&mut ast.value, ctx).unwrap();
             crate::passes::resolution::aliases_to_raw(&mut ast.value, ctx).unwrap();
             test(&ast.value, &ctx)
         }
@@ -932,6 +935,26 @@ mod tests {
             vm.run(&ast.0, &ctx);
 
             assert_eq!(vm.instr_log[0].args.last().unwrap(), &ScalarValue::String("seashells".into()));
+        });
+    }
+
+    #[test]
+    fn wait_for_wrong_difficulty() {
+        TestSpec {
+            globals: vec![],
+            source: r#"{
+                {""}: {
+                    +7:
+                    ins_11(3);
+                };
+                0: ins_10();
+            }"#,
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.run(&ast.0, &ctx);
+
+            assert_eq!(vm.instr_log.len(), 1);
+            assert_eq!(vm.instr_log[0].real_time, 7);
         });
     }
 }

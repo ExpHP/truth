@@ -272,10 +272,13 @@ label:
 source_test!(
     ECL_06, decompile_eosd_cmp_jmp_blocked_by_difficulty,
     main_body: r#"
-label:
+label1:
     cmp_int(I0, 5);
-difficulty[0x8]:
-    jump_lss(timeof(label), offsetof(label));
+    {"H"}: jump_lss(timeof(label1), offsetof(label1));
+    nop();
+label2:
+    {"H"}: cmp_int(I0, 5);
+    jump_lss(timeof(label2), offsetof(label2));
 "#,
     sbsb: |decompiled| {
         assert!(!decompiled.contains("while"));
@@ -678,6 +681,18 @@ void bar() {
 );
 
 source_test!(
+    ECL_06, diff_switch_significance_of_num_cases,
+    main_body: r#"
+    I0 = (2:3:4:5);
+    I1 = (2:3:4);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0].len(), 7);
+    },
+);
+
+source_test!(
     ECL_06, diff_switch_too_many_cases,
     main_body: r#"
     I0 = (2::::::::);
@@ -694,30 +709,44 @@ source_test!(
 );
 
 source_test!(
-    ECL_06, diff_switch_in_difficulty_label,
+    ECL_06, diff_switch_different_num_cases_in_block,
     main_body: r#"
-difficulty[2:1]:
-    I0 = 3;
+    {"ENHL"}: {
+        I0 = (2:3:4:5);
+        I1 = (2:3:4);
+    }
 "#,
-    // Eventually this will parse, at which point /oh god what will happen/
-    expect_error: expected::PARSE_ERROR,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0].len(), 7);
+    },
 );
 
 source_test!(
-    ECL_06, difficulty_label_too_large,
+    ECL_06, diff_switch_nesting_semantics,
     main_body: r#"
-difficulty[0x100]:
-    I0 = 3;
+    nop();
+    {"ENH"}: {
+        nop();
+        {"HL"}: nop();
+        nop();
+    }
 "#,
-    expect_error: "TODO",
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0][0].difficulty, 0xFF);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b111);
+        assert_eq!(ecl.subs[0][2].difficulty, 0b110);
+        assert_eq!(ecl.subs[0][3].difficulty, 0b111);
+    },
 );
 
 source_test!(
     ECL_06, diff_switch_decomp_assign,
     // this test is basically a control for 'diff_switch_decomp_bad_output'
     main_body: r#"
-difficulty[0x3]: I0 = 2;
-difficulty[0xC]: I0 = 3;
+    {"EN"}: I0 = 2;
+    {"HL"}: I0 = 3;
 "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains(": 3 :"));
@@ -727,8 +756,8 @@ difficulty[0xC]: I0 = 3;
 source_test!(
     ECL_06, diff_switch_decomp_bad_output,
     main_body: r#"
-difficulty[0x3]: I0 = 2;
-difficulty[0xC]: I1 = 2;
+    {"EN"}: I0 = 2;
+    {"HL"}: I1 = 2;
 "#,
     sbsb: |decompiled| {
         assert_eq!(decompiled.matches("= 2").count(), 2);
@@ -742,8 +771,8 @@ void foo(int x) {}
 void bar(int x) {}
     "#,
     main_body: r#"
-difficulty[0x3]: foo(1337);
-difficulty[0xC]: bar(1337);
+    {"EN"}: foo(1337);
+    {"HL"}: bar(1337);
 "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains("(1337,"), "didn't decomp intrinsic");
@@ -758,10 +787,10 @@ void foo(int x) {}
 void bar(int x) {}
     "#,
     main_body: r#"
-difficulty[0x3]: jump(30, offsetof(label));
-difficulty[0xC]: jump(50, offsetof(label));
-difficulty[0xFF]:
-label: nop();
+    {"EN"}: jump(30, offsetof(label));
+    {"HL"}: jump(50, offsetof(label));
+label:
+    nop();
 "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains("goto"), "didn't decomp intrinsic");
@@ -776,11 +805,12 @@ void foo(int x) {}
 void bar(int x) {}
     "#,
     main_body: r#"
-difficulty[0x3]: jump(30, offsetof(label1));
-difficulty[0xC]: jump(30, offsetof(label2));
-difficulty[0xFF]:
-label1:  nop();
-label2:  nop();
+    {"EN"}: jump(30, offsetof(label1));
+    {"HL"}: jump(30, offsetof(label2));
+label1:
+    nop();
+label2:
+    nop();
 "#,
     sbsb: |decompiled| {
         assert!(decompiled.contains("goto"), "didn't decomp intrinsic");
@@ -795,8 +825,8 @@ source_test!(
 200 SS__
     "#,
     main_body: r#"
-difficulty[0x3]: ins_200(I0, 10, 0);
-difficulty[0xC]: ins_200(I0, 10, 16);
+    {"EN"}: ins_200(I0, 10, 0);
+    {"HL"}: ins_200(I0, 10, 16);
 "#,
     sbsb: |decompiled| {
         assert_eq!(decompiled.matches("ins_200").count(), 1);
@@ -813,8 +843,8 @@ source_test!(
 10 AssignOp(=,int)
     "#,
     main_body: r#"
-difficulty[0x3]: ins_10(I0, 10, 0);
-difficulty[0xC]: ins_10(I0, 10, 16);
+    {"EN"}: ins_10(I0, 10, 0);
+    {"HL"}: ins_10(I0, 10, 16);
 "#,
     expect_decompile_warning: "padding of intrinsic",
 );
@@ -826,11 +856,8 @@ source_test!(
 200 ot     # a non-intrinsic to force offsetof and timeof
     "#,
     main_body: r#"
-difficulty[0x3]:
-    ins_200(offsetof(label1), timeof(label1));
-difficulty[0xC]:
-    ins_200(offsetof(label2), timeof(label2));
-difficulty[0xFF]:
+    {"EN"}: ins_200(offsetof(label1), timeof(label1));
+    {"HL"}: ins_200(offsetof(label2), timeof(label2));
 +10:
 label1:
     nop();
@@ -848,8 +875,10 @@ label2:
 source_test!(
     ECL_06, diff_switch_decomp_label_in_middle,
     main_body: r#"
-difficulty[0x3]: label1: I0 = I1 + 2;
-difficulty[0xC]: label2: I0 = I1 + 3;
+label1:
+    {"EN"}: I0 = I1 + 2;
+label2:
+    {"HL"}: I0 = I1 + 3;
     goto label1;
     goto label2;
 "#,
@@ -863,8 +892,8 @@ source_test!(
     main_body: r#"
     nop();
 label:
-difficulty[0x3]: I0 = I1 + 2;
-difficulty[0xC]: I0 = I1 + 3;
+    {"EN"}: I0 = I1 + 2;
+    {"HL"}: I0 = I1 + 3;
     goto label;
 "#,
     sbsb: |_decompiled| {

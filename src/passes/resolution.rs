@@ -141,6 +141,13 @@ pub fn check_loop_id_integrity<A: ast::Visitable + ?Sized>(ast: &A, _: &mut Comp
     Ok(())
 }
 
+/// Compute masks for [`ast::StmtKind::DiffLabel`]s from their strings by resolving diff flag names.
+pub fn compute_diff_label_masks<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = FillDiffLabelsVisitor { errors: ErrorFlag::new(), ctx };
+    ast.visit_mut_with(&mut v);
+    v.errors.into_result(())
+}
+
 // =============================================================================
 
 struct AssignResIdsVisitor<'a, 'ctx> {
@@ -291,6 +298,24 @@ impl ast::VisitMut for AssignNodeIdsVisitor<'_> {
             return;
         }
         *node_id = Some(self.unused_node_ids.next());
+    }
+}
+
+struct FillDiffLabelsVisitor<'a, 'ctx> {
+    ctx: &'a CompilerContext<'ctx>,
+    errors: ErrorFlag,
+}
+
+impl ast::VisitMut for FillDiffLabelsVisitor<'_, '_> {
+    fn visit_stmt(&mut self, stmt: &mut Sp<ast::Stmt>) {
+        ast::walk_stmt_mut(self, stmt);
+
+        if let Some(ast::DiffLabel { mask, string }) = stmt.diff_label.as_mut().map(|d| &mut d.value) {
+            match self.ctx.diff_flag_names.parse_diff_string(sp!(string.span => string.string.as_str())) {
+                Ok(computed_mask) => *mask = Some(computed_mask.value),
+                Err(diag) => self.errors.set(self.ctx.emitter.emit(diag)),
+            }
+        }
     }
 }
 

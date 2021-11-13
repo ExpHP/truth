@@ -22,6 +22,7 @@ pub fn run<V: ast::Visitable + ?Sized>(ast: &V, emitter: &dyn Emitter) -> Result
     // start out as if we are just entering a function body, so that the visitor can run on
     // individual blocks during unit tests
     visitor.enter_root_block();
+    visitor.enter_block();
 
     ast.visit_with(&mut visitor);
     visitor.errors.into_result(visitor.output)
@@ -56,9 +57,6 @@ impl<'a> Visitor<'a> {
     fn difficulty_mask(&self) -> BitSet32 { *self.difficulty_stack.last().expect("empty diff stack?! (bug)") }
     fn visit_stmt_shallow(&mut self, stmt: &ast::Stmt) {
         match &stmt.kind {
-            &ast::StmtKind::RawDifficultyLabel(value) => {
-                *self.difficulty_stack.last_mut().expect("empty diff stack?! (bug)") = BitSet32::from_mask(value.value as _);
-            },
             &ast::StmtKind::AbsTimeLabel(value) => {
                 *self.time_stack.last_mut().expect("empty time stack?! (bug)") = value.value;
             },
@@ -79,13 +77,27 @@ impl<'a> Visitor<'a> {
         self.time_stack.pop().expect("empty time stack?! (bug)");
         self.difficulty_stack.pop().expect("empty diff stack?! (bug)");
     }
+
+    pub fn enter_block(&mut self) {
+        let &outer_difficulty = self.difficulty_stack.last().unwrap();
+        self.difficulty_stack.push(outer_difficulty);
+    }
+
+    pub fn exit_block(&mut self) {
+        self.difficulty_stack.pop().expect("empty diff stack?! (bug)");
+    }
 }
 
 impl ast::Visit for Visitor<'_> {
     fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
-        // time/difficulty labels should affect their own attributes,
+        // time labels should affect their own attributes,
         // so perform a shallow visit before storing data.
         self.visit_stmt_shallow(stmt);
+
+        if let Some(ast::DiffLabel { mask, .. }) = stmt.diff_label.as_ref().map(|d| &d.value) {
+            let mask = mask.expect("compute_diff_label_masks pass was not run!");
+            self.difficulty_stack.push(mask);
+        }
 
         // record data for this statement
         let data = TimeAndDifficulty { time: self.time(), difficulty_mask: self.difficulty_mask() };
@@ -95,11 +107,21 @@ impl ast::Visit for Visitor<'_> {
 
         // recurse if it has blocks or items
         ast::walk_stmt(self, stmt);
+
+        if let Some(ast::DiffLabel { .. }) = stmt.diff_label.as_ref().map(|d| &d.value) {
+            self.difficulty_stack.pop().expect("empty diff stack?! (bug)");
+        }
     }
 
     fn visit_root_block(&mut self, block: &ast::Block) {
         self.enter_root_block();
-        ast::walk_block(self, block);
+        self.visit_block(block);
         self.exit_root_block();
+    }
+
+    fn visit_block(&mut self, block: &ast::Block) {
+        self.enter_block();
+        ast::walk_block(self, block);
+        self.exit_block();
     }
 }

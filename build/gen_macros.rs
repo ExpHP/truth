@@ -298,6 +298,7 @@ impl FinalCasesType {
                     result: format!(r#"
                         $crate::ast::Stmt {{
                             node_id: None,
+                            diff_label: None,
                             kind: {},
                         }}
                     "#, body_expr),

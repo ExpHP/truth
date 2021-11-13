@@ -162,8 +162,8 @@ impl ast::Visit for Visitor<'_, '_> {
 
             ast::StmtKind::CallSub { .. } => unimplemented!("need to check arg types against signature"),
 
+            ast::StmtKind::Block { .. } => {},
             ast::StmtKind::InterruptLabel { .. } => {},
-            ast::StmtKind::RawDifficultyLabel { .. } => {},
             ast::StmtKind::AbsTimeLabel { .. } => {},
             ast::StmtKind::RelTimeLabel { .. } => {},
             ast::StmtKind::Label { .. } => {},

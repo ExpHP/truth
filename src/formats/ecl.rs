@@ -69,7 +69,7 @@ fn decompile(
             keyword: sp!(()),
             number: sp!(index as i32),
             code: ast::Block({
-                timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
+                timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
             }),
         }));
     }
@@ -79,7 +79,7 @@ fn decompile(
     let mut decompiled_subs = IndexMap::new();
     for (ident, instrs) in ecl.subs.iter() {
         decompiled_subs.insert(ident.clone(), ast::Block({
-            sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?
+            sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
         }));
     }
 
@@ -120,6 +120,7 @@ fn compile(
 ) -> Result<OldeEclFile, ErrorReported> {
     let mut ast = ast.clone();
     crate::passes::resolution::assign_languages(&mut ast, LanguageKey::Ecl, ctx)?;
+    crate::passes::resolution::compute_diff_label_masks(&mut ast, ctx)?;
 
     // an early pass to define global constants for sub names
     //

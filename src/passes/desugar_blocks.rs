@@ -71,6 +71,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             let span = x.last_stmt().span.end_span();
             x.0.push(sp!(span => ast::Stmt {
                 node_id: Some(self.unused_node_ids.next()),
+                diff_label: None,
                 kind: ast::StmtKind::ScopeEnd(def_id),
             }));
         }
@@ -136,6 +137,7 @@ impl VisitMut for BreakContinueToGotoVisitor<'_> {
             let loop_end_span = block.0[loop_stmt_index].span.end_span();
             block.0.insert(insertion_index, sp!(loop_end_span => ast::Stmt {
                 node_id: Some(self.unused_node_ids.next()),
+                diff_label: None,
                 kind: ast::StmtKind::Label(sp!(loop_end_span => self.loop_end_label_name(loop_id))),
             }));
         }
@@ -210,6 +212,10 @@ impl Desugarer<'_, '_> {
     pub fn desugar_block(&mut self, mut outer_block: ast::Block) {
         for outer_stmt in outer_block.0.drain(..) {
             match outer_stmt.value.kind {
+                ast::StmtKind::Block(block) => {
+                    self.desugar_block(block)
+                },
+
                 ast::StmtKind::Loop { block, .. } => {
                     self.desugar_loop_body(block, None)
                 },
@@ -237,6 +243,7 @@ impl Desugarer<'_, '_> {
 
                             self.out.push(sp!(count.span => ast::Stmt {
                                 node_id: Some(self.ctx.next_node_id()),
+                                diff_label: None,
                                 kind: ast::StmtKind::Declaration {
                                     ty_keyword: sp!(count.span => token![int]),
                                     vars: vec![sp!(count.span => (var.clone(), None))]
@@ -253,6 +260,7 @@ impl Desugarer<'_, '_> {
                     if let Some(def_id) = temp_def {
                         self.out.push(sp!(end_span => ast::Stmt {
                             node_id: Some(self.ctx.next_node_id()),
+                            diff_label: None,
                             kind: ast::StmtKind::ScopeEnd(def_id),
                         }));
                     }

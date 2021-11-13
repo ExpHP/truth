@@ -99,7 +99,6 @@ extern {
         "case" => Token::Case,
         "default" => Token::Default,
         "interrupt" => Token::Interrupt,
-        "difficulty" => Token::Difficulty,
         "async" => Token::Async,
         "global" => Token::Global,
         "false" => Token::False,
@@ -284,14 +283,41 @@ PossiblyNumericIdent: Ident = {
 // Statements
 
 Stmt: ast::Stmt = {
-    <kind:StmtKind> => ast::Stmt { kind, node_id: None },
+    <diff_label:Sp<DiffLabel>> <kind:StmtKindPhysical>
+        => ast::Stmt { kind, diff_label: Some(diff_label), node_id: None },
+
+    <kind:StmtKind>
+        => ast::Stmt { kind, diff_label: None, node_id: None },
+};
+
+#[inline]
+DiffLabel: ast::DiffLabel = {
+    // note: the Spans are just here to prevent a conflict with Block
+    "{" Span <string:Sp<LitString>> Span "}" ":"
+        => ast::DiffLabel { mask: None, string },
 };
 
 StmtKind: ast::StmtKind = {
+    StmtKindPhysical,
+    StmtKindUnphysical,
+};
+
+StmtKindUnphysical: ast::StmtKind = {
     <item:Box<Sp<ItemConstVar>>> => ast::StmtKind::Item(item),
 
     <item:Box<Sp<ItemFunc>>> => ast::StmtKind::Item(item),
 
+    <name:Sp<Ident>> ":"
+        => ast::StmtKind::Label(name),
+
+    <delta:Sp<("+" <LitIntUnsigned>)>> ":"
+        => ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None },
+
+    <t:Sp<LitIntSigned>> ":"
+        => ast::StmtKind::AbsTimeLabel(t),
+};
+
+StmtKindPhysical: ast::StmtKind = {
     <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
         => ast::StmtKind::Return { keyword, value },
 
@@ -319,20 +345,10 @@ StmtKind: ast::StmtKind = {
     <e:Sp<ExprNoColon>> ";"
         => ast::StmtKind::Expr(e),
 
-    <name:Sp<Ident>> ":"
-        => ast::StmtKind::Label(name),
-
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
         => ast::StmtKind::InterruptLabel(arg),
 
-    "difficulty" "[" <arg:Sp<LitIntSigned>> "]" ":"
-        => ast::StmtKind::RawDifficultyLabel(arg),
-
-    <delta:Sp<("+" <LitIntUnsigned>)>> ":"
-        => ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None },
-
-    <t:Sp<LitIntSigned>> ":"
-        => ast::StmtKind::AbsTimeLabel(t),
+    <block:Block> => ast::StmtKind::Block(block),
 
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
         => ast::StmtKind::Assignment { var, op, value },
@@ -341,7 +357,7 @@ StmtKind: ast::StmtKind = {
         => ast::StmtKind::Declaration { ty_keyword, vars },
 
     StmtSpecialCall,
-}
+};
 
 StmtJumpKind: ast::StmtJumpKind = {
     "goto" <destination:Sp<Ident>> <time:("@" <Sp<LitIntSigned>>)?>
@@ -438,10 +454,12 @@ BlockInnards: ast::Block = {
         //       block scoping of difficulty semantics, so I left them here.
         code.insert(0, sp!(start_span => ast::Stmt {
             node_id: None,
+            diff_label: None,
             kind: ast::StmtKind::NoInstruction,
         }));
         code.push(sp!(end_span => ast::Stmt {
             node_id: None,
+            diff_label: None,
             kind: ast::StmtKind::NoInstruction,
         }));
         ast::Block(code)

@@ -58,13 +58,13 @@ impl BitSet32 {
 
 impl fmt::Display for BitSet32 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::UpperHex::fmt(&self.0, f)
+        write!(f, "{:#X}", &self.0)
     }
 }
 
 impl fmt::Debug for BitSet32 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self, f)
+        write!(f, "{:#X}", &self.0)
     }
 }
 

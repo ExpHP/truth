@@ -113,7 +113,17 @@ string_enum! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub node_id: Option<NodeId>,
+    pub diff_label: Option<Sp<DiffLabel>>,
     pub kind: StmtKind,
+}
+
+/// Difficulty label. `{"ENH"}:`
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiffLabel {
+    /// Cached bitflag form of the difficulty mask.  This may be `None` before
+    /// [`crate::passes::resolution::compute_diff_label_masks`] runs.
+    pub mask: Option<crate::bitset::BitSet32>,
+    pub string: Sp<LitString>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,6 +182,9 @@ pub enum StmtKind {
     /// function calls).
     Expr(Sp<Expr>),
 
+    /// Free-standing block.
+    Block(Block),
+
     /// `a = expr;` or `a += expr;`
     Assignment {
         var: Sp<Var>,
@@ -211,9 +224,6 @@ pub enum StmtKind {
         _absolute_time_comment: Option<raw::LangInt>,
     },
 
-    /// A difficulty label: `difficulty[0b11111111]:`.  (syntax WIP)
-    RawDifficultyLabel(Sp<raw::LangInt>),
-
     /// A label `label:` that can be jumped to.
     Label(Sp<Ident>),
 
@@ -251,11 +261,11 @@ impl StmtKind {
         StmtKind::While { .. } => "while(..)",
         StmtKind::Times { .. } => "times(..)",
         StmtKind::Expr { .. } => "expression statement",
+        StmtKind::Block { .. } => "block statement",
         StmtKind::Assignment { .. } => "assignment",
         StmtKind::Declaration { .. } => "var declaration",
         StmtKind::CallSub { .. } => "sub call",
         StmtKind::InterruptLabel { .. } => "interrupt label",
-        StmtKind::RawDifficultyLabel { .. } => "difficulty label",
         StmtKind::AbsTimeLabel { .. } => "time label",
         StmtKind::RelTimeLabel { .. } => "time label",
         StmtKind::Label { .. } => "label",
@@ -1036,9 +1046,16 @@ macro_rules! generate_visitor_stuff {
         pub fn walk_stmt<V>(v: &mut V, x: & $($mut)? Sp<Stmt>)
         where V: ?Sized + $Visit,
         {
-            v.visit_node_id(& $($mut)? x.node_id);
+            let Stmt { node_id, kind, diff_label } = & $($mut)? x.value;
 
-            match & $($mut)? x.kind {
+            v.visit_node_id(node_id);
+
+            if let Some(diff_label) = diff_label {
+                let DiffLabel { string, mask: _ } = & $($mut)? diff_label.value;
+                let _: Sp<LitString> = *string;
+            }
+
+            match kind {
                 StmtKind::Item(item) => v.visit_item(item),
                 StmtKind::Jump(goto) => {
                     v.visit_jump(goto);
@@ -1091,6 +1108,9 @@ macro_rules! generate_visitor_stuff {
                 StmtKind::Expr(e) => {
                     v.visit_expr(e);
                 },
+                StmtKind::Block(block) => {
+                    v.visit_block(block);
+                },
                 StmtKind::Assignment { var, op: _, value } => {
                     v.visit_var(var);
                     v.visit_expr(value);
@@ -1112,15 +1132,21 @@ macro_rules! generate_visitor_stuff {
                 StmtKind::InterruptLabel(_) => {},
                 StmtKind::AbsTimeLabel { .. } => {},
                 StmtKind::RelTimeLabel { .. } => {},
-                StmtKind::RawDifficultyLabel { .. } => {},
                 StmtKind::ScopeEnd(_) => {},
                 StmtKind::NoInstruction => {},
             }
         }
 
-        pub fn walk_jump<V>(_: &mut V, _: & $($mut)? StmtJumpKind)
+        pub fn walk_jump<V>(_: &mut V, e: & $($mut)? StmtJumpKind)
         where V: ?Sized + $Visit,
         {
+            match e {
+                StmtJumpKind::Goto(StmtGoto { destination, time }) => {
+                    let _: Option<Sp<raw::LangInt>> = *time;
+                    let _: Sp<Ident> = *destination;
+                },
+                StmtJumpKind::BreakContinue { keyword: _, loop_id: _ } => {},
+            }
         }
 
         fn walk_cond<V>(v: &mut V, e: & $($mut)? Sp<Cond>)

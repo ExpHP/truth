@@ -199,7 +199,7 @@ fn decompile(
         fields: sp!(sparse_script_table.make_meta()),
     })];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
-        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, &ctx.defs, &ctx.unused_node_ids)?;
+        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?;
 
         Ok(sp!(ast::Item::AnmScript {
             number: None,

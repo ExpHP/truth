@@ -1,14 +1,13 @@
 use std::collections::BTreeMap;
 
 use crate::ast;
-use crate::raw;
 use crate::diagnostic::Diagnostic;
 use crate::bitset::BitSet32;
 use crate::pos::Sp;
 
 type FlagIndex = u32;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DiffFlagNames {
     flag_default_enable: BitSet32,
     by_name: BTreeMap<char, FlagIndex>,
@@ -18,6 +17,22 @@ pub struct DiffFlagNames {
 const VALID_CHAR_DESCRIPTION: &'static str = "ASCII alphanumeric character";
 macro_rules! diff_flag_char_pat {
     () => { '0'..='9' | 'a'..='z' | 'A'..='Z' };
+}
+
+impl Default for DiffFlagNames {
+    fn default() -> Self {
+        let mut out = DiffFlagNames {
+            flag_default_enable: Default::default(),
+            by_name: Default::default(),
+            by_flag: Default::default(),
+        };
+
+        // the digit-based names are always available
+        for (bit, char) in "01234567".chars().enumerate() {
+            out.define_flag(char, bit as _, false);
+        }
+        out
+    }
 }
 
 impl DiffFlagNames {
@@ -89,14 +104,9 @@ impl DiffFlagNames {
         Ok(sp!(str.span => out))
     }
 
-    pub fn mask_to_diff_label(&self, mask: BitSet32) -> Result<ast::Expr, Diagnostic> {
+    pub fn mask_to_diff_label(&self, mask: BitSet32) -> ast::LitString {
         let must_enable = mask & self.flag_default_enable.complement(8);
         let must_disable = mask.complement(8) & self.flag_default_enable;
-
-        // they must all have names for us to create a string
-        if (must_enable | must_disable).into_iter().any(|bit| !self.by_flag.contains_key(&bit)) {
-            return Ok((mask.mask() as raw::LangInt).into());
-        }
 
         let mut out = String::new();
         for bit in must_enable {
@@ -109,7 +119,7 @@ impl DiffFlagNames {
                 out.push(self.by_flag[&bit]);
             }
         }
-        Ok(out.into())
+        out.into()
     }
 
     fn currently_known_flags_msg(&self) -> String {

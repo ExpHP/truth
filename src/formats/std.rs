@@ -246,7 +246,7 @@ fn decompile_std(
 
     let code = {
         llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?
-            .raise_instrs_to_sub_ast(emitter, script, &ctx.defs, &ctx.unused_node_ids)?
+            .raise_instrs_to_sub_ast(emitter, script, ctx)?
     };
 
     let mut script = ast::ScriptFile {
