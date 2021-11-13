@@ -131,7 +131,7 @@ This is the most raw form possible of an instruction call.  The `@<name>=`...-st
 
 ### Expressions
 
-The following binary operations are recognized: `+`, `-`, `*`, `/`, `%`, `&`, `^`, `|`, `&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`.  They have the same levels of precedence as in C.  
+The following binary operations are recognized: `+`, `-`, `*`, `/`, `%`, `&`, `^`, `|`, `&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `<<`, `>>`.  They have the same levels of precedence as in C.
 
 All operators are implemented in all languages *where possible*.  For instance, in ANM, it may be possible to use the bitwise or operator `|` in compile-time constant expressions, but not in other places (as ANM provides no instructions for bitwise operators).
 
@@ -140,6 +140,9 @@ Other things present in expressions:
 * The **ternary operator** `a ? b : c`.  Right associative, [the way it should be](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/#operators).
 * **Unary negation** `-x`.
 * **Special functions** `sin(x)` and `cos(x)`.
+* **Logical right shift `>>>`**.
+  * All ints in truth are signed so `>>` is an arithmetic right shift (sign-extended) for consistency.
+    `>>>` is provided as a separate operator for doing logical right shifts (zero-extended).
 * **Explicit casts** `_S` (float to int) and `_f` (int to float): `I0 = _S(F0);`
   * That example is identical to `I0 = $F0`, but `_S` is also more generally usable in larger expressions where it may introduce a temporary 
 

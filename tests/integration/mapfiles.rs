@@ -228,6 +228,25 @@ script bbb { }
 );
 
 source_test!(
+    ANM_10, intrinsic_for_op_that_no_game_has,
+    mapfile: r#"!anmmap
+!ins_intrinsics
+999 BinOp(>>>,int)
+!ins_signatures
+999 SSS
+"#,
+    main_body: r#"
+    int x = 10;
+    int y = 15;
+    int z = x >>> (y + 3);
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_anm(format);
+        assert!(ecl.entries[0].scripts[0].instrs.iter().any(|instr| instr.opcode == 999));
+    },
+);
+
+source_test!(
     ANM_10, intrinsic_with_novel_abi,
     mapfile: r#"!anmmap
 !ins_signatures

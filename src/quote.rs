@@ -24,6 +24,9 @@ macro_rules! token {
     ($(binop)? <=) => { $crate::ast::BinOpKind::Le };
     ($(binop)? >) => { $crate::ast::BinOpKind::Gt };
     ($(binop)? >=) => { $crate::ast::BinOpKind::Ge };
+    ($(binop)? <<) => { $crate::ast::BinOpKind::ShiftLeft };
+    ($(binop)? >>) => { $crate::ast::BinOpKind::ShiftRightSigned };
+    ($(binop)? >>>) => { $crate::ast::BinOpKind::ShiftRightUnsigned };
 
     ($(unop)? !) => { $crate::ast::UnOpKind::Not };
     (  unop   -) => { $crate::ast::UnOpKind::Neg };
@@ -42,6 +45,9 @@ macro_rules! token {
     ($(assignop)? |=) => { $crate::ast::AssignOpKind::BitOr };
     ($(assignop)? ^=) => { $crate::ast::AssignOpKind::BitXor };
     ($(assignop)? &=) => { $crate::ast::AssignOpKind::BitAnd };
+    ($(assignop)? <<=) => { $crate::ast::AssignOpKind::ShiftLeft };
+    ($(assignop)? >>=) => { $crate::ast::AssignOpKind::ShiftRightSigned };
+    ($(assignop)? >>>=) => { $crate::ast::AssignOpKind::ShiftRightUnsigned };
 
     ($(ty)? int) => { $crate::ast::TypeKeyword::Int };
     ($(ty)? float) => { $crate::ast::TypeKeyword::Float };

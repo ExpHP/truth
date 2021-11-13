@@ -90,6 +90,9 @@ impl ast::BinOpKind {
                 token![binop ^] => ScalarValue::Int(a ^ b),
                 token![binop &] => ScalarValue::Int(a & b),
                 token![binop |] => ScalarValue::Int(a | b),
+                token![binop <<] => ScalarValue::Int(a << handle_shift_rhs(b)),
+                token![binop >>] => ScalarValue::Int(a >> handle_shift_rhs(b)),
+                token![binop >>>] => ScalarValue::Int((a as u32 >> handle_shift_rhs(b)) as i32),
             },
 
             (ScalarValue::Float(a), ScalarValue::Float(b)) => match self {
@@ -109,11 +112,20 @@ impl ast::BinOpKind {
                 token![binop ^] => uncaught_type_error(),
                 token![binop &] => uncaught_type_error(),
                 token![binop |] => uncaught_type_error(),
+                token![binop <<] => uncaught_type_error(),
+                token![binop >>] => uncaught_type_error(),
+                token![binop >>>] => uncaught_type_error(),
             },
 
             _ => uncaught_type_error(),
         }
     }
+}
+
+fn handle_shift_rhs(x: i32) -> u32 {
+    // FIXME: we would ideally warn on x out of range but it's hard to get an emitter here...
+    //        (also it might warn multiple times)
+    x as u32 % u32::BITS
 }
 
 impl ast::Expr {

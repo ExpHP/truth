@@ -362,6 +362,9 @@ string_enum! {
         #[strum(serialize = "|=")] BitOr,
         #[strum(serialize = "^=")] BitXor,
         #[strum(serialize = "&=")] BitAnd,
+        #[strum(serialize = "<<=")] ShiftLeft,
+        #[strum(serialize = ">>=")] ShiftRightSigned,
+        #[strum(serialize = ">>>=")] ShiftRightUnsigned,
     }
 }
 
@@ -377,6 +380,9 @@ impl AssignOpKind {
             Self::BitOr => OpClass::Bitwise,
             Self::BitXor => OpClass::Bitwise,
             Self::BitAnd => OpClass::Bitwise,
+            Self::ShiftLeft => OpClass::Shift,
+            Self::ShiftRightSigned => OpClass::Shift,
+            Self::ShiftRightUnsigned => OpClass::Shift,
         }
     }
 
@@ -391,6 +397,9 @@ impl AssignOpKind {
             token![|=] => Some(token![|]),
             token![^=] => Some(token![^]),
             token![&=] => Some(token![&]),
+            token![<<=] => Some(token![<<]),
+            token![>>=] => Some(token![>>]),
+            token![>>>=] => Some(token![>>>]),
         }
     }
 }
@@ -625,6 +634,9 @@ string_enum! {
         #[strum(serialize = "&")] BitAnd,
         #[strum(serialize = "||")] LogicOr,
         #[strum(serialize = "&&")] LogicAnd,
+        #[strum(serialize = "<<")] ShiftLeft,
+        #[strum(serialize = ">>")] ShiftRightSigned,
+        #[strum(serialize = ">>>")] ShiftRightUnsigned,
     }
 }
 
@@ -637,6 +649,7 @@ impl BinOpKind {
             B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge => OpClass::Comparison,
             B::BitOr | B::BitXor | B::BitAnd => OpClass::Bitwise,
             B::LogicOr | B::LogicAnd => OpClass::Logical,
+            B::ShiftLeft | B::ShiftRightSigned | B::ShiftRightUnsigned => OpClass::Shift,
         }
     }
 

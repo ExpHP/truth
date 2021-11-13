@@ -96,6 +96,7 @@ impl SingleSubLowerer<'_, '_> {
                 ast::StmtKind::AbsTimeLabel { .. } => {},
                 ast::StmtKind::RelTimeLabel { .. } => {},
                 ast::StmtKind::RawDifficultyLabel { .. } => {},
+                ast::StmtKind::Item { .. } => {},
 
                 _ => return Err(self.unsupported(&stmt.span, stmt.kind.descr())),
             }

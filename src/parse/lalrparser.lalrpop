@@ -58,6 +58,12 @@ extern {
         "<=" => Token::LessEq,
         ">" => Token::Greater,
         ">=" => Token::GreaterEq,
+        "<<" => Token::LessLess,
+        ">>" => Token::GreaterGreater,
+        ">>>" => Token::GreaterGreaterGreater,
+        "<<=" => Token::LessLessEq,
+        ">>=" => Token::GreaterGreaterEq,
+        ">>>=" => Token::GreaterGreaterGreaterEq,
         "!" => Token::Not,
         "||" => Token::OrOr,
         "&&" => Token::AndAnd,
@@ -496,7 +502,8 @@ ExprBinOpBitOr = LeftBinOp<OpBitOr, ExprBinOpBitXor>;
 ExprBinOpBitXor = LeftBinOp<OpBitXor, ExprBinOpBitAnd>;
 ExprBinOpBitAnd = LeftBinOp<OpBitAnd, ExprBinOpCmpEq>;
 ExprBinOpCmpEq = LeftBinOp<OpCmpEq, ExprBinOpCmpOrd>;
-ExprBinOpCmpOrd = LeftBinOp<OpCmpOrd, ExprBinOpAddLike>;
+ExprBinOpCmpOrd = LeftBinOp<OpCmpOrd, ExprBinOpShift>;
+ExprBinOpShift = LeftBinOp<OpShift, ExprBinOpAddLike>;
 ExprBinOpAddLike = LeftBinOp<OpAddLike, ExprBinOpMulLike>;
 ExprBinOpMulLike = LeftBinOp<OpMulLike, ExprUnOp>;
 ExprUnOp = LeftUnOp<OpLeftUnary, ExprTerm>;
@@ -509,6 +516,11 @@ OpBitAnd: ast::BinOpKind = "&" => token![&];
 OpCmpEq: ast::BinOpKind = {
     "==" => token![==],
     "!=" => token![!=],
+};
+OpShift: ast::BinOpKind = {
+    "<<" => token![<<],
+    ">>" => token![>>],
+    ">>>" => token![>>>],
 };
 OpCmpOrd: ast::BinOpKind = {
     ">" => token![>],
@@ -535,6 +547,9 @@ OpAssign: ast::AssignOpKind = {
     "|=" => token![|=],
     "^=" => token![^=],
     "&=" => token![&=],
+    "<<=" => token![<<=],
+    ">>=" => token![>>=],
+    ">>>=" => token![>>>=],
 };
 #[inline] OpLeftUnary: ast::UnOpKind = {
     "-" => token![-],

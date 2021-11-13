@@ -569,6 +569,7 @@ impl ExprTypeChecker<'_, '_> {
 
             | ast::OpClass::Bitwise
             | ast::OpClass::Logical
+            | ast::OpClass::Shift
             => self.require_int(arg_tys.0, op.span, arg_spans.0)?,
 
             _ => unreachable!(),
@@ -607,6 +608,7 @@ impl ast::Expr {
 
             | ast::OpClass::Bitwise
             | ast::OpClass::Logical
+            | ast::OpClass::Shift
             => ScalarType::Int,
 
             _ => unreachable!(),
