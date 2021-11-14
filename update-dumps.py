@@ -30,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Script used to test recompilation of all files in all games.',
     )
-    parser.set_defaults(formats=[], modes=[], game=[])
+    parser.set_defaults(formats=[], modes=[], game=[], decompile_args=[])
     parser.add_argument('-g', '--game', action='append', type=parse_game)
     parser.add_argument('--compile', action='append_const', dest='modes', const='compile')
     parser.add_argument('--decompile', action='append_const', dest='modes', const='decompile')
@@ -40,6 +40,8 @@ def main():
     parser.add_argument('--ecl', action='append_const', dest='formats', const='ecl')
     parser.add_argument('--mission', action='append_const', dest='formats', const='mission')
     parser.add_argument('--ssd', action='store_true')
+    parser.add_argument('--debug', action='store_false', dest='optimized', help='use unoptimized builds')
+    parser.add_argument('--decompile-arg', dest='decompile_args', action='append')
     parser.add_argument('--nobuild', action='store_false', dest='build')
     parser.add_argument('--noverify', action='store_false', dest='verify')
     parser.add_argument('--update-known-bad', action='store_true')
@@ -74,10 +76,11 @@ def main():
             continue
         for filename in os.listdir(f'{INPUT_DIR}/{INPUT_SUBDIR_PREFIX}{game}'):
             if get_format(game, filename) in args.formats:
-                all_files.append((game, filename, timelog, badfiles, args.modes))
+                all_files.append((game, filename, timelog, badfiles, args.modes, args.optimized, args.decompile_args))
 
     if args.build:
-        subprocess.run(['cargo', 'build', '--release'], check=True)
+
+        subprocess.run(['cargo', 'build'] + (['--release'] if args.optimized else []), check=True)
     with ThreadPool(args.j) as p:
         p.starmap(process_file, all_files)
 
@@ -163,29 +166,31 @@ def get_format(game, path):
     return None
 
 # ABORT = 0
-def process_file(game, file, timelog, badfiles, modes):
+def process_file(game, file, timelog, badfiles, modes, optimized, extra_decompile_args):
     # global ABORT
 
     input = f'{INPUT_DIR}/{INPUT_SUBDIR_PREFIX}{game}/{file}'
     outspec = f'{DUMP_DIR}/{DUMP_SUBDIR_PREFIX}{game}/{file}.spec'
     outfile = f'{DUMP_DIR}/{DUMP_SUBDIR_PREFIX}{game}/{file}'
 
+    bindir = f'target/' + ('release' if optimized else 'debug')
+
     format = get_format(game, file)
     if format == 'std':
-        decompile_args = ['target/release/trustd', 'decompile', '-g', game, input]
-        compile_args = ['target/release/trustd', 'compile', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/trustd', 'decompile', '-g', game, input] + extra_decompile_args
+        compile_args = [f'{bindir}/trustd', 'compile', '-g', game, outspec, '-o', outfile]
     elif format == 'anm':
-        decompile_args = ['target/release/truanm', 'decompile', '-g', game, input]
-        compile_args = ['target/release/truanm', 'compile', '-g', game, outspec, '-i', input, '-o', outfile]
+        decompile_args = [f'{bindir}/truanm', 'decompile', '-g', game, input] + extra_decompile_args
+        compile_args = [f'{bindir}/truanm', 'compile', '-g', game, outspec, '-i', input, '-o', outfile]
     elif format == 'msg':
-        decompile_args = ['target/release/trumsg', 'decompile', '-g', game, input]
-        compile_args = ['target/release/trumsg', 'compile', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/trumsg', 'decompile', '-g', game, input] + extra_decompile_args
+        compile_args = [f'{bindir}/trumsg', 'compile', '-g', game, outspec, '-o', outfile]
     elif format == 'mission':
-        decompile_args = ['target/release/trumsg', 'decompile', '--mission', '-g', game, input]
-        compile_args = ['target/release/trumsg', 'compile', '--mission', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/trumsg', 'decompile', '--mission', '-g', game, input] + extra_decompile_args
+        compile_args = [f'{bindir}/trumsg', 'compile', '--mission', '-g', game, outspec, '-o', outfile]
     elif format == 'ecl':
-        decompile_args = ['target/release/truecl', 'decompile', '-g', game, input]
-        compile_args = ['target/release/truecl', 'compile', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/truecl', 'decompile', '-g', game, input] + extra_decompile_args
+        compile_args = [f'{bindir}/truecl', 'compile', '-g', game, outspec, '-o', outfile]
     else:
         assert False, file
 

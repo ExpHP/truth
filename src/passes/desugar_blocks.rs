@@ -7,6 +7,7 @@ use crate::ident::Ident;
 use crate::resolve::{DefId, NodeId, LoopId, Resolutions, UnusedIds};
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
+use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK;
 
 /// Structured code desugaring.
 ///
@@ -194,7 +195,7 @@ impl VisitMut for Visitor<'_, '_> {
     fn visit_block(&mut self, block: &mut ast::Block) {
         let mut desugarer = Desugarer { out: vec![], ctx: self.ctx };
 
-        desugarer.desugar_block(std::mem::replace(block, ast::Block(vec![])));
+        desugarer.desugar_block(None, std::mem::replace(block, ast::Block(vec![])));
         block.0 = desugarer.out;
 
         // for inner functions
@@ -209,26 +210,30 @@ struct Desugarer<'a, 'ctx> {
 }
 
 impl Desugarer<'_, '_> {
-    pub fn desugar_block(&mut self, mut outer_block: ast::Block) {
-        for outer_stmt in outer_block.0.drain(..) {
+    pub fn desugar_block(&mut self, outer_diff_label: Option<&Sp<ast::DiffLabel>>, mut outer_block: ast::Block) {
+        for mut outer_stmt in outer_block.0.drain(..) {
+            let diff_label = {
+                outer_stmt.value.diff_label.as_ref().or(outer_diff_label)
+                    .filter(|label| label.mask != Some(DEFAULT_DIFFICULTY_MASK))
+            };
             match outer_stmt.value.kind {
                 ast::StmtKind::Block(block) => {
-                    self.desugar_block(block)
+                    self.desugar_block(diff_label, block)
                 },
 
                 ast::StmtKind::Loop { block, .. } => {
-                    self.desugar_loop_body(block, None)
+                    self.desugar_loop_body(diff_label, block, None)
                 },
 
                 ast::StmtKind::While { do_keyword: Some(_), while_keyword, cond, block, .. } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
-                    self.desugar_loop_body(block, Some((if_keyword, cond.value)))
+                    self.desugar_loop_body(diff_label, block, Some((if_keyword, cond.value)))
                 },
 
                 ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, .. } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
-                    self.desugar_conditional_region(cond.span, if_keyword, cond.clone(), |self_| {
-                        self_.desugar_loop_body(block, Some((if_keyword, cond.value)));
+                    self.desugar_conditional_region(diff_label, cond.span, if_keyword, cond.clone(), |self_| {
+                        self_.desugar_loop_body(diff_label, block, Some((if_keyword, cond.value)));
                     });
                 },
 
@@ -241,28 +246,20 @@ impl Desugarer<'_, '_> {
                             let def_id = self.ctx.define_local(ident.clone(), ScalarType::Int.into());
                             let var = sp!(count.span => ast::Var { ty_sigil: None, name: ast::VarName::new_non_reg(ident.value) });
 
-                            self.out.push(sp!(count.span => ast::Stmt {
-                                node_id: Some(self.ctx.next_node_id()),
-                                diff_label: None,
-                                kind: ast::StmtKind::Declaration {
-                                    ty_keyword: sp!(count.span => token![int]),
-                                    vars: vec![sp!(count.span => (var.clone(), None))]
-                                },
-                            }));
+                            self.make_stmt(diff_label, count.span, ast::StmtKind::Declaration {
+                                ty_keyword: sp!(count.span => token![int]),
+                                vars: vec![sp!(count.span => (var.clone(), None))],
+                            });
 
                             (var, Some(def_id))
                         },
                     };
                     let end_span = block.end_span();
 
-                    self.desugar_times(clobber, count, block);
+                    self.desugar_times(diff_label, clobber, count, block);
 
                     if let Some(def_id) = temp_def {
-                        self.out.push(sp!(end_span => ast::Stmt {
-                            node_id: Some(self.ctx.next_node_id()),
-                            diff_label: None,
-                            kind: ast::StmtKind::ScopeEnd(def_id),
-                        }));
+                        self.make_stmt(diff_label, end_span, ast::StmtKind::ScopeEnd(def_id));
                     }
                 },
 
@@ -274,23 +271,26 @@ impl Desugarer<'_, '_> {
                         let is_final_if = index == num_blocks - 1;
 
                         let end_span = block.end_span();
-                        self.desugar_conditional_region(cond.span, keyword, cond, |self_| {
-                            self_.desugar_block(block);
+                        self.desugar_conditional_region(diff_label, cond.span, keyword, cond, |self_| {
+                            self_.desugar_block(diff_label, block);
 
                             // an unconditional jump over the rest of the blocks, if necessary
                             if !(is_final_if && else_block.is_none()) {
-                                self_.make_goto(end_span, None, veryend.clone());
+                                self_.make_goto(diff_label, end_span, None, veryend.clone());
                             }
                         });
                     }
                     if let Some(block) = else_block {
-                        self.desugar_block(block);
+                        self.desugar_block(diff_label, block);
                     }
 
-                    self.make_label_after_block(veryend);
+                    self.make_label_after_block(diff_label, veryend);
                 },
 
-                _ => self.out.push(outer_stmt),
+                _ => {
+                    outer_stmt.diff_label = diff_label.cloned();
+                    self.out.push(outer_stmt)
+                },
             }
         }
     }
@@ -304,6 +304,7 @@ impl Desugarer<'_, '_> {
     /// ```
     fn desugar_conditional_region(
         &mut self,
+        diff_label: Option<&Sp<ast::DiffLabel>>,
         condjmp_span: Span,
         keyword: Sp<ast::CondKeyword>,
         cond: Sp<ast::Cond>,
@@ -316,68 +317,80 @@ impl Desugarer<'_, '_> {
 
         inner(self);
 
-        self.make_label_after_block(skip_label);
+        self.make_label_after_block(diff_label, skip_label);
     }
 
-    fn desugar_times(&mut self, clobber: Sp<ast::Var>, count: Sp<ast::Expr>, block: ast::Block) {
+    fn desugar_times(
+        &mut self,
+        diff_label: Option<&Sp<ast::DiffLabel>>,
+        clobber: Sp<ast::Var>,
+        count: Sp<ast::Expr>,
+        block: ast::Block,
+    ) {
         let span = count.span;
         let count_as_const = count.as_const_int();
 
-        self.out.push(rec_sp!(span =>
-            stmt_assign!(#(clobber.clone()) = #count)
-        ));
+        self.make_stmt(diff_label, span, stmt_assign!(rec_sp!(span => as kind, #(clobber.clone()) = #count)));
 
         // unless count is statically known to be nonzero, we need an initial zero test
         let skip_label = self.ctx.gensym.gensym("@times_zero#");
         if let None | Some(0) = count_as_const {
-            self.out.push(rec_sp!(span =>
-                stmt_cond_goto!(if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone()))
-            ));
+            self.make_stmt(diff_label, span, stmt_cond_goto!(rec_sp!(span => as kind,
+                if expr_binop![#(clobber.clone()) == #(0)] goto #(skip_label.clone())
+            )));
         };
 
         let keyword = sp!(span => token![if]);
         let cond = ast::Cond::PreDecrement(clobber.clone());
-        self.desugar_loop_body(block, Some((keyword, cond)));
+        self.desugar_loop_body(diff_label, block, Some((keyword, cond)));
 
-        self.make_label_after_block(skip_label);
+        self.make_label_after_block(diff_label, skip_label);
     }
 
     // desugars a `loop { .. }` or `do { ... } while (<cond>);`
-    fn desugar_loop_body(&mut self, block: ast::Block, cond: JumpInfo) {
+    fn desugar_loop_body(&mut self, diff_label: Option<&Sp<ast::DiffLabel>>, block: ast::Block, cond: JumpInfo) {
         let label = self.ctx.gensym.gensym("@loop#");
-        self.make_label(block.start_span(), label.clone());
-        self.desugar_block(block);
-        self.make_goto_after_block(cond, label);
+        self.make_label(diff_label, block.start_span(), label.clone());
+        self.desugar_block(diff_label, block);
+        self.make_goto_after_block(diff_label, cond, label);
     }
 
-    fn make_label(&mut self, span: Span, ident: Ident) {
-        self.out.push(rec_sp!(span => stmt_label!(#ident)));
+    fn make_label(&mut self, diff_label: Option<&Sp<ast::DiffLabel>>, span: Span, ident: Ident) {
+        self.make_stmt(diff_label, span, stmt_label!(rec_sp!(span => as kind, #ident)));
     }
 
-    fn make_goto(&mut self, span: Span, cond: JumpInfo, ident: Ident) {
-        self.out.push(match cond {
-            None => rec_sp!(span => stmt_goto!(goto #ident)),
+    fn make_goto(&mut self, diff_label: Option<&Sp<ast::DiffLabel>>, span: Span, cond: JumpInfo, ident: Ident) {
+        self.make_stmt(diff_label, span, match cond {
+            None => stmt_goto!(rec_sp!(span => as kind, goto #ident)),
             Some((kw, cond))
-                => rec_sp!(span => stmt_cond_goto!(#kw #cond goto #ident)),
+                => stmt_cond_goto!(rec_sp!(span => as kind, #kw #cond goto #ident)),
         })
     }
 
     // Make a label after desugaring a block.
     // (this exists for convenience since the block will be destroyed and you can't call block.end_span())
-    fn make_label_after_block(&mut self, ident: Ident) {
+    fn make_label_after_block(&mut self, diff_label: Option<&Sp<ast::DiffLabel>>, ident: Ident) {
         let last_written_stmt = self.out.last().expect("no written statements?!");
         let last_span = last_written_stmt.span.end_span();
 
-        self.make_label(last_span, ident);
+        self.make_label(diff_label, last_span, ident);
     }
 
     // Make a goto after desugaring a block.
     // (this exists for convenience since the block will be destroyed and you can't call block.end_span())
-    fn make_goto_after_block(&mut self, cond: JumpInfo, label: Ident) {
+    fn make_goto_after_block(&mut self, diff_label: Option<&Sp<ast::DiffLabel>>, cond: JumpInfo, label: Ident) {
         let last_written_stmt = self.out.last().expect("no written statements?!");
         let last_span = last_written_stmt.span.end_span();
 
-        self.make_goto(last_span, cond, label);
+        self.make_goto(diff_label, last_span, cond, label);
+    }
+
+    fn make_stmt(&mut self, diff_label: Option<&Sp<ast::DiffLabel>>, span: Span, kind: ast::StmtKind) {
+        self.out.push(sp!(span => ast::Stmt {
+            node_id: Some(self.ctx.next_node_id()),
+            diff_label: diff_label.cloned(),
+            kind,
+        }))
     }
 }
 

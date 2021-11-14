@@ -556,6 +556,10 @@ enum Direction { Forwards, Backwards }
 
 impl JmpInfo {
     fn from_stmt(ast: &ast::Stmt, label_info: &HashMap<Ident, LabelInfo>) -> Option<Self> {
+        if ast.diff_label.is_some() {
+            return None;  // we don't want to decompile any control flow where the jumps have difficulty labels
+        }
+
         let (jump, kind) = match ast.kind {
             ast::StmtKind::Jump(ref goto) => (goto, JmpKind::Uncond),
 

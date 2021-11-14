@@ -188,6 +188,20 @@ source_test!(
 );
 
 source_test!(
+    ECL_06, loop_ruined_by_difficulty,
+    main_body: r#"
+    +10:
+        I1 = 0;
+    label:
+        I1 = I1 + 1;
+        {"E"}: goto label;
+    "#,
+    sbsb: |decompiled| {
+        assert!(!decompiled.contains("loop {"));
+    },
+);
+
+source_test!(
     ANM_12, break_decompilation,
     main_body: r#"
         start:
@@ -514,6 +528,68 @@ source_test!(
         // don't care so long as it compiles back
     },
 );
+
+source_test!(
+    ECL_06, if_elseif_difficulty_impossible_1,
+    main_body: r#"
+        set_int_rand_bound(I0, 3);
+        if (I0 != 0) goto not0;
+        I1 = 3;
+        goto end;
+    not0:
+        {"E"}: if (I0 != 1) goto not1;
+        I1 = 2;
+        goto end;
+    not1:
+        I1 = 1;
+    end:
+    "#,
+    sbsb: |_decompiled| {
+        // don't care so long as it compiles back
+    },
+);
+
+source_test!(
+    ECL_06, if_elseif_difficulty_impossible_2,
+    main_body: r#"
+        set_int_rand_bound(I0, 3);
+        if (I0 != 0) goto not0;
+        I1 = 2;
+        {"E"}: goto end;
+    not0:
+        if (I0 != 1) goto not1;
+        I1 = 3;
+        goto end;
+    not1:
+        I1 = 1;
+    end:
+    "#,
+    sbsb: |_decompiled| {
+        // don't care so long as it compiles back
+    },
+);
+
+source_test!(
+    ECL_06, if_elseif_difficulty_unimpossible,
+    main_body: r#"
+        set_int_rand_bound(I0, 3);
+        if (I0 != 0) goto not0;
+        I1 = 2;
+        goto end;
+    not0:
+        if (I0 != 1) goto not1;
+        I1 = 3;
+        goto end;
+    not1:
+    +10:
+        {"E"}: I1 = 1;
+    end:
+    "#,
+    sbsb: |_decompiled| {
+        // don't care so long as it compiles back
+    },
+);
+
 
 source_test!(
     ANM_12, if_elseif_wrong_order,
