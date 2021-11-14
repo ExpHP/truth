@@ -28,6 +28,7 @@ pub fn truth_main(version: &str, args: &[String]) -> ! {
             // undocumented commands used for testing purposes;
             // these are not easily discoverable, and may be removed any time
             SubcommandSpec { name: "anm-benchmark", entry: anm_benchmark::main, public: false },
+            SubcommandSpec { name: "ecl-benchmark", entry: ecl_benchmark::main, public: false },
             SubcommandSpec { name: "text-reformat", entry: text_reformat::main, public: false },
             SubcommandSpec { name: "msg-redump", entry: msg_redump::main, public: false },
             SubcommandSpec { name: "ecl-redump", entry: ecl_redump::main, public: false },
@@ -256,7 +257,7 @@ pub mod ecl_compile {
         wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles));
     }
 
-    fn run(
+    pub fn run(
         truth: &mut Truth,
         game: Game,
         path: &Path,
@@ -367,6 +368,47 @@ pub mod anm_benchmark {
             truth.fs().write(script_path, &script_out_utf8)?;
 
             super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, mapfile_args.clone(), None)?;
+        }
+    }
+}
+
+pub mod ecl_benchmark {
+    use super::*;
+
+    pub fn main(version: &str, args: &[String]) -> ! {
+        let (ecl_path, script_path, game, output, mapfiles, decompile_options) = cli::parse_args(version, args, CmdSpec {
+            program: "truth-core anm-benchmark",
+            usage_args: "ECLFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
+            options: (
+                cli::path_arg("ECLFILE"), cli::path_arg("SCRIPT"),
+                cli::game(), cli::required_output(), cli::mapfiles(), cli::decompile_options(),
+            ),
+        });
+
+        wrap_exit_code(|truth| run(truth, game, &ecl_path, &script_path, &output, mapfiles, &decompile_options))
+    }
+
+    fn run(
+        truth: &mut Truth,
+        game: Game,
+        ecl_path: &Path,
+        script_path: &Path,
+        outpath: &Path,
+        mapfile_args: Vec<PathBuf>,
+        decompile_options: &DecompileOptions,
+    ) -> Result<(), ErrorReported> {
+        loop {
+            let ast = super::ecl_decompile::decompile(truth, game, ecl_path, mapfile_args.clone(), &decompile_options)?;
+
+            let fmt_config = crate::fmt::Config::new().max_columns(100);
+            let mut script_out_utf8 = vec![];
+            let mut f = crate::Formatter::with_config(&mut script_out_utf8, fmt_config);
+            f.fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))?;
+            drop(f); // flush
+
+            truth.fs().write(script_path, &script_out_utf8)?;
+
+            super::ecl_compile::run(truth, game, script_path, outpath, mapfile_args.clone())?;
         }
     }
 }
