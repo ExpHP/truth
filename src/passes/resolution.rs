@@ -1,3 +1,9 @@
+//! Provides a variety of early compile passes which fill in information into the AST
+//! and/or gather information about IDs.
+//!
+//! Also provides some passes for converting data stored in the AST from one form into
+//! another (e.g. raw instrs <-> aliases) based on user definitions. (like mapfiles)
+
 use crate::ast;
 use crate::pos::Sp;
 use crate::context::CompilerContext;

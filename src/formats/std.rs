@@ -282,15 +282,16 @@ fn compile_std(
     ctx: &mut CompilerContext,
 ) -> Result<StdFile, ErrorReported> {
     let script = {
-        let mut script = script.clone();
+        let mut ast = script.clone();
 
-        crate::passes::resolution::assign_languages(&mut script, format.language_hooks().language(), ctx)?;
-        crate::passes::resolution::resolve_names(&script, ctx)?;
-        crate::passes::type_check::run(&script, ctx)?;
+        crate::passes::resolution::assign_languages(&mut ast, format.language_hooks().language(), ctx)?;
+        crate::passes::resolution::resolve_names(&ast, ctx)?;
+        crate::passes::type_check::run(&ast, ctx)?;
+        crate::passes::validate_difficulty::forbid_difficulty(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
-        crate::passes::const_simplify::run(&mut script, ctx)?;
-        crate::passes::desugar_blocks::run(&mut script, ctx)?;
-        script
+        crate::passes::const_simplify::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
+        ast
     };
 
     let emit = |e| ctx.emitter.emit(e);

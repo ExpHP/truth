@@ -1,3 +1,5 @@
+//! See [`run`].
+
 use std::collections::HashMap;
 
 use crate::Ident;

@@ -214,7 +214,11 @@ impl AstVm {
 
             // Skip statements for the wrong difficulty
             if let Some(difficulty) = self.difficulty {
-                if !stmt_data[&stmt_node_id].difficulty_mask.contains(difficulty) {
+                // HACK: We DO enter free-standing blocks.  They can have time labels or overriding
+                //       difficulty labels inside.
+                let is_always_run = matches!(stmts[stmt_index].kind, ast::StmtKind::Block { .. });
+
+                if !is_always_run && !stmt_data[&stmt_node_id].difficulty_mask.contains(difficulty) {
                     to_next_stmt!();
                 }
             }
@@ -946,7 +950,7 @@ mod tests {
                 {""}: {
                     +7:
                     ins_11(3);
-                };
+                }
                 0: ins_10();
             }"#,
         }.check(|ast, ctx| {

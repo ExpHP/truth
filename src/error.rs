@@ -26,14 +26,14 @@ impl ErrorReported {
 //        It is naught but a ghastly remnant of some ErrorStore type that used to exist.
 /// An accumulator for errors that provides a straightforward way of converting to
 /// a `Result<T, CompileError>` based on whether any errors have occurred.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ErrorFlag {
     errors: Option<ErrorReported>,
 }
 
 impl ErrorFlag {
     /// Create an [`ErrorFlag`] in the default, 'success' state.
-    pub fn new() -> Self { ErrorFlag { errors: None } }
+    pub fn new() -> Self { Default::default() }
 
     /// Force this [`ErrorFlag`] into the error state.
     pub fn set(&mut self, e: ErrorReported) {

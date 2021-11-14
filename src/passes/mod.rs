@@ -9,6 +9,7 @@ pub mod desugar_blocks;
 pub mod decompile_loop;
 pub mod resolution;
 pub mod type_check;
+pub mod validate_difficulty;
 pub mod debug {
     //! Passes that exist for **debugging/testing purposes only.**
     pub mod make_idents_unique;

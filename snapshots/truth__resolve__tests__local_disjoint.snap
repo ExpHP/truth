@@ -1,13 +1,13 @@
 ---
 source: src/resolve/tests.rs
-expression: "resolve_reformat::<ast::Block>(r#\"{\n    if (true) {\n        int a = 4;\n        int b = a * a;  // should use inner `a`\n    }\n    if (true) {\n        int a = 4;  // should be different from other inner `a`\n        int b = a * a;  // should use new inner `a`\n    }\n}\"#).trim()"
+expression: "resolve_reformat::<ast::Block>(r#\"{\n    {\n        int a = 4;\n        int b = a * a;  // should use inner `a`\n    }\n    {\n        int a = 4;  // should be different from other inner `a`\n        int b = a * a;  // should use new inner `a`\n    }\n}\"#).trim()"
 ---
 {
-    if (1) {
+    {
         int a_0 = 4;
         int b_0 = (a_0 * a_0);
     }
-    if (1) {
+    {
         int a_1 = 4;
         int b_1 = (a_1 * a_1);
     }

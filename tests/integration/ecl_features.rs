@@ -586,6 +586,59 @@ void baz(int a, float x) {
 // =============================================================================
 
 source_test!(
+    ECL_06, diff_label_nesting_semantics,
+    main_body: r#"
+    nop();
+    {"ENH"}: {
+        nop();
+        {"HL"}: nop();
+        nop();
+    }
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0][0].difficulty, 0xFF);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b111);
+        assert_eq!(ecl.subs[0][2].difficulty, 0b1100);
+        assert_eq!(ecl.subs[0][3].difficulty, 0b111);
+    },
+);
+
+source_test!(
+    ECL_06, diff_label_with_time_label_bad_1,
+    main_body: r#"
+    nop();
+    {"ENH"}: {
+        nop();
+        if (I0 == 0) {
++10:
+            nop();
+        }
+    }
+"#,
+    expect_warning: "surprising",
+);
+
+source_test!(
+    // in this one the `if` is directly annotated
+    ECL_06, diff_label_with_time_label_bad_2,
+    main_body: r#"
+    {"ENH"}: if (I0 == 0) {
+        {"L"}: nop();
+    }
+"#,
+    expect_warning: "surprising",
+);
+
+source_test!(
+    ANM_10, diff_label_in_non_ecl,
+    main_body: r#"
+    {"012"}: int x = 1;
+"#,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+);
+
+source_test!(
     ECL_06, eosd_diff_switch_compile,
     main_body: r#"
     I0 = 3:4:5:6;
@@ -697,7 +750,7 @@ source_test!(
     main_body: r#"
     I0 = (2::::::::);
 "#,
-    expect_error: "TODO",
+    expect_error: "too many",
 );
 
 source_test!(
@@ -705,7 +758,7 @@ source_test!(
     main_body: r#"
     I0 = (2:3:4:5) + (1:2:3:4:5);
 "#,
-    expect_error: "TODO",
+    expect_error: "switch lengths",
 );
 
 source_test!(
@@ -719,25 +772,6 @@ source_test!(
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
         assert_eq!(ecl.subs[0].len(), 7);
-    },
-);
-
-source_test!(
-    ECL_06, diff_switch_nesting_semantics,
-    main_body: r#"
-    nop();
-    {"ENH"}: {
-        nop();
-        {"HL"}: nop();
-        nop();
-    }
-"#,
-    check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
-        assert_eq!(ecl.subs[0][0].difficulty, 0xFF);
-        assert_eq!(ecl.subs[0][1].difficulty, 0b111);
-        assert_eq!(ecl.subs[0][2].difficulty, 0b110);
-        assert_eq!(ecl.subs[0][3].difficulty, 0b111);
     },
 );
 
@@ -900,6 +934,15 @@ label:
         // just roundtrip
     },
 );
+
+source_test!(
+    ANM_10, diff_switch_in_non_ecl,
+    main_body: r#"
+    int x = (1:2:3:4);
+"#,
+    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+);
+
 
 #[test]
 #[ignore]

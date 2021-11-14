@@ -840,6 +840,7 @@ fn compile(
         crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::type_check::extra_checks(&extra_type_checks, ctx)?;
+        crate::passes::validate_difficulty::forbid_difficulty(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
         crate::passes::desugar_blocks::run(&mut ast, ctx)?;

@@ -1,11 +1,4 @@
-//! Performs type-checking on the whole AST.
-//!
-//! Requires [name resolution](`crate::passes::resolution`).
-//!
-//! The purpose of this pass is to serve as the answer to the question, "when do we generate an
-//! error about this?"  Ideally, all errors that can be classified as type errors are reported
-//! to the user during this pass.  Having run this pass, one can feel comfortable simply panicking
-//! when bad types are encountered in other passes like lowering.
+//! See [`run`].
 
 use crate::ast;
 use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
@@ -15,9 +8,14 @@ use crate::context::CompilerContext;
 use crate::resolve::DefId;
 use crate::ast::TypeKeyword;
 
-/// Performs type-checking.
+/// Performs type-checking on the whole AST.
 ///
-/// See the [the module-level documentation][self] for more details.
+/// Requires [name resolution](`crate::passes::resolution`).
+///
+/// The purpose of this pass is to serve as the answer to the question, "when do we generate an
+/// error about this?"  Ideally, all errors that can be classified as type errors are reported
+/// to the user during this pass.  Having run this pass, one can feel comfortable simply panicking
+/// when bad types are encountered in other passes like lowering.
 pub fn run<A: ast::Visitable>(ast: &A, ctx: &mut CompilerContext) -> Result<(), ErrorReported> {
     let checker = ExprTypeChecker { ctx };
     let mut v = Visitor { checker, errors: ErrorFlag::new(), cur_func_stack: vec![] };

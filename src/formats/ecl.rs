@@ -154,6 +154,7 @@ fn compile(
         // gather information about exported subs to use for handling call sugar.
         sub_info = EosdExportedSubs::extract_from_items(&ast.items, ctx)?;
 
+        crate::passes::validate_difficulty::run(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
@@ -183,10 +184,12 @@ fn compile(
             ))),
             ast::Item::ConstVar { .. } => {},
             ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
+
             ast::Item::Timeline { code, .. } => {
                 let instrs = timeline_lowerer.lower_sub(&code.0, None, ctx)?;
                 timelines.push(instrs)
             },
+
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
                 subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                 return Err(emit(error!(

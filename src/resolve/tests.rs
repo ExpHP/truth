@@ -231,7 +231,7 @@ test!(
 test!(
     [expect_error("in this scope")]
     local_after_scope_end = <ast::Block> r#"{
-    if (true) {
+    {
         int a = 4;
         int b = a;  // should be OK
     }
@@ -288,7 +288,7 @@ test!(
     [all_names_unique]
     scoped_using_each_other_ex = <ast::Block> r#"{
     const int OUTER = 3;
-    if (true) {
+    {
         const int inner() { return OUTER + INNER; }
         const int INNER = outer() + inner();
     }
@@ -315,7 +315,7 @@ test!(
     [expect_error("nested function")]
     func_scoped_using_outer_shadowed_const = <ast::Block> r#"{
     const int x = 2;
-    if (true) {
+    {
         int x = 2;
         int foo() {
             return x;  // should fail at 'x'
@@ -387,7 +387,7 @@ test!(
     [snapshot]
     local_shadow = <ast::Block> r#"{
     int a = 3;
-    if (true) {
+    {
         int a = 4;
         int b = a * a;  // should use inner `a`
     }
@@ -398,7 +398,7 @@ test!(
     [snapshot]
     const_shadow = <ast::Block> r#"{
     const int a = 3;
-    if (true) {
+    {
         const int a = 4;  // should be different from outer `a`
         int b = a * a;  // should use inner `a`
     }
@@ -409,7 +409,7 @@ test!(
     [snapshot]
     const_shadows_outer_local = <ast::Block> r#"{
     int a = 3;
-    if (true) {
+    {
         int b = a * a;  // should use inner `a`
         const int a = 4;
     }
@@ -419,7 +419,7 @@ test!(
     [snapshot]
     local_shadows_outer_const = <ast::Block> r#"{
     const int a = 3;    // should be a_0
-    if (true) {
+    {
         int b = a * a;  // should be a_0 * a_0
         int a = 4;      // should be a_1
         int c = a * a;  // should be a_1 * a_1
@@ -429,11 +429,11 @@ test!(
 test!(
     [snapshot]
     local_disjoint = <ast::Block> r#"{
-    if (true) {
+    {
         int a = 4;
         int b = a * a;  // should use inner `a`
     }
-    if (true) {
+    {
         int a = 4;  // should be different from other inner `a`
         int b = a * a;  // should use new inner `a`
     }
@@ -442,7 +442,7 @@ test!(
 test!(
     [expect_error("redefinition")]
     local_redefinition = <ast::Block> r#"{
-    if (true) {
+    {
         int a = 4;
         int b = 3, a = 5;  // should fail on `a`
     }
