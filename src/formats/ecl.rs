@@ -154,7 +154,7 @@ fn compile(
         // gather information about exported subs to use for handling call sugar.
         sub_info = EosdExportedSubs::extract_from_items(&ast.items, ctx)?;
 
-        crate::passes::validate_difficulty::run(&ast, ctx)?;
+        crate::passes::validate_difficulty::run(&ast, ctx, &*format.ecl_hooks)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
@@ -733,6 +733,17 @@ impl LanguageHooks for OldeEclHooks {
         // that one that disables the callstack
         (self.game == Game::Th06 && opcode == 130)
             .then(|| HowBadIsIt::ItsWaterElf)
+    }
+
+    fn difficulty_register(&self) -> Option<RegId> {
+        match self.game {
+            Game::Th06 => Some(RegId(-10013)),
+            Game::Th07 => Some(RegId(10016)),
+            Game::Th08 => Some(RegId(10040)),
+            Game::Th09 => Some(RegId(10040)),
+            Game::Th095 => None,  // literally does not exist
+            _ => None,
+        }
     }
 
     fn instr_format(&self) -> &dyn InstrFormat { self }

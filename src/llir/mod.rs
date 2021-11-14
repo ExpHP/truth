@@ -304,6 +304,9 @@ pub trait LanguageHooks {
     /// Initial difficulty mask.  In languages without difficulty, this returns `None.
     fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { None }
 
+    /// The register that contains the current difficulty.  Only for use in diagnostic messages.
+    fn difficulty_register(&self) -> Option<RegId> { None }
+
     /// In EoSD ECL, the value of an argument can, in some cases, decide if it is
     /// a literal or a register.
     fn register_style(&self) -> RegisterEncodingStyle { RegisterEncodingStyle::ByParamMask }
