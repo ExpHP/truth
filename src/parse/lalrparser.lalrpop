@@ -142,14 +142,14 @@ extern {
 pub(crate) Anything: Sp<crate::parse::AnythingValue> = Sp<AnythingInner>;
 
 AnythingInner: crate::parse::AnythingValue = {
-    Dispatch_ScriptFile <x:ScriptFile> => crate::parse::AnythingValue::ScriptFile(x),
-    Dispatch_Item <x:Item> => crate::parse::AnythingValue::Item(x),
-    Dispatch_Block <x:Block> => crate::parse::AnythingValue::Block(x),
-    Dispatch_Stmt <x:Stmt> => crate::parse::AnythingValue::Stmt(x),
-    Dispatch_Expr <x:Expr> => crate::parse::AnythingValue::Expr(x),
-    Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
-    Dispatch_LitString <x:LitString> => crate::parse::AnythingValue::LitString(x),
-    Dispatch_Meta <x:Meta> => crate::parse::AnythingValue::Meta(x),
+    Dispatch_ScriptFile <x:Box<ScriptFile>> => crate::parse::AnythingValue::ScriptFile(x),
+    Dispatch_Item <x:Box<Item>> => crate::parse::AnythingValue::Item(x),
+    Dispatch_Block <x:Box<Block>> => crate::parse::AnythingValue::Block(x),
+    Dispatch_Stmt <x:BoxStmt> => crate::parse::AnythingValue::Stmt(x),
+    Dispatch_Expr <x:Box<Expr>> => crate::parse::AnythingValue::Expr(x),
+    Dispatch_Var <x:Box<Var>> => crate::parse::AnythingValue::Var(x),
+    Dispatch_LitString <x:Box<LitString>> => crate::parse::AnythingValue::LitString(x),
+    Dispatch_Meta <x:Box<Meta>> => crate::parse::AnythingValue::Meta(x),
 };
 
 // =================================================
@@ -282,12 +282,12 @@ PossiblyNumericIdent: Ident = {
 // ==================================================
 // Statements
 
-Stmt: ast::Stmt = {
-    <diff_label:Sp<DiffLabel>> <kind:StmtKindPhysical>
-        => ast::Stmt { kind, diff_label: Some(diff_label), node_id: None },
+BoxStmt: Box<ast::Stmt> = {
+    <diff_label:Sp<DiffLabel>> <kind:BoxStmtKindPhysical>
+        => Box::new(ast::Stmt { kind: *kind, diff_label: Some(diff_label), node_id: None }),
 
-    <kind:StmtKind>
-        => ast::Stmt { kind, diff_label: None, node_id: None },
+    <kind:BoxStmtKind>
+        => Box::new(ast::Stmt { kind: *kind, diff_label: None, node_id: None }),
 };
 
 #[inline]
@@ -297,64 +297,64 @@ DiffLabel: ast::DiffLabel = {
         => ast::DiffLabel { mask: None, string },
 };
 
-StmtKind: ast::StmtKind = {
-    StmtKindPhysical,
-    StmtKindUnphysical,
+BoxStmtKind: Box<ast::StmtKind> = {
+    BoxStmtKindPhysical,
+    BoxStmtKindUnphysical,
 };
 
-StmtKindUnphysical: ast::StmtKind = {
-    <item:Box<Sp<ItemConstVar>>> => ast::StmtKind::Item(item),
+BoxStmtKindUnphysical: Box<ast::StmtKind> = {
+    <item:Box<Sp<ItemConstVar>>> => Box::new(ast::StmtKind::Item(item)),
 
-    <item:Box<Sp<ItemFunc>>> => ast::StmtKind::Item(item),
+    <item:Box<Sp<ItemFunc>>> => Box::new(ast::StmtKind::Item(item)),
 
     <name:Sp<Ident>> ":"
-        => ast::StmtKind::Label(name),
+        => Box::new(ast::StmtKind::Label(name)),
 
     <delta:Sp<("+" <LitIntUnsigned>)>> ":"
-        => ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None },
+        => Box::new(ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None }),
 
     <t:Sp<LitIntSigned>> ":"
-        => ast::StmtKind::AbsTimeLabel(t),
+        => Box::new(ast::StmtKind::AbsTimeLabel(t)),
 };
 
-StmtKindPhysical: ast::StmtKind = {
+BoxStmtKindPhysical: Box<ast::StmtKind> = {
     <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
-        => ast::StmtKind::Return { keyword, value },
+        => Box::new(ast::StmtKind::Return { keyword, value }),
 
     <chain:CondChain>
-        => ast::StmtKind::CondChain(chain),
+        => Box::new(ast::StmtKind::CondChain(chain)),
 
     <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtJumpKind> ";"
-        => ast::StmtKind::CondJump { keyword, cond, jump },
+        => Box::new(ast::StmtKind::CondJump { keyword, cond, jump }),
 
     <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
-        => ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block, loop_id: None },
+        => Box::new(ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block, loop_id: None }),
 
     <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, loop_id: None },
+        => Box::new(ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, loop_id: None }),
 
     <keyword:TokenSpan<"times">> "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
-        => ast::StmtKind::Times { keyword, clobber, count, block, loop_id: None },
+        => Box::new(ast::StmtKind::Times { keyword, clobber, count, block, loop_id: None }),
 
     <keyword:TokenSpan<"loop">> <block:StmtOrBlock>
-        => ast::StmtKind::Loop { keyword, block, loop_id: None },
+        => Box::new(ast::StmtKind::Loop { keyword, block, loop_id: None }),
 
     <goto:StmtJumpKind> ";"
-        => ast::StmtKind::Jump(goto),
+        => Box::new(ast::StmtKind::Jump(goto)),
 
     <e:Sp<ExprNoColon>> ";"
-        => ast::StmtKind::Expr(e),
+        => Box::new(ast::StmtKind::Expr(e)),
 
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
-        => ast::StmtKind::InterruptLabel(arg),
+        => Box::new(ast::StmtKind::InterruptLabel(arg)),
 
-    <block:Block> => ast::StmtKind::Block(block),
+    <block:Block> => Box::new(ast::StmtKind::Block(block)),
 
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
-        => ast::StmtKind::Assignment { var, op, value },
+        => Box::new(ast::StmtKind::Assignment { var, op, value }),
 
     <ty_keyword:Sp<LocalVarTypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        => ast::StmtKind::Declaration { ty_keyword, vars },
+        => Box::new(ast::StmtKind::Declaration { ty_keyword, vars }),
 
     StmtSpecialCall,
 };
@@ -372,13 +372,13 @@ BreakContinueKeyword: ast::BreakContinueKeyword = {
     "break" => token![break],
 };
 
-StmtSpecialCall: ast::StmtKind = {
+StmtSpecialCall: Box<ast::StmtKind> = {
     // handle cases where at least one of the '@' or 'async' are present
     "@" <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind?> ";" => {
-        ast::StmtKind::CallSub { at_symbol: true, func, args, async_ }
+        Box::new(ast::StmtKind::CallSub { at_symbol: true, func, args, async_ })
     },
     <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind> ";" => {
-        ast::StmtKind::CallSub { at_symbol: true, func, args, async_: Some(async_) }
+        Box::new(ast::StmtKind::CallSub { at_symbol: true, func, args, async_: Some(async_) })
     },
 };
 
@@ -446,7 +446,7 @@ Block: ast::Block = "{" <BlockInnards> "}";
 
 #[inline]
 BlockInnards: ast::Block = {
-    <start_span:Span> <mut code:Sp<Stmt>*> <end_span:Span>
+    <start_span:Span> <mut code:SpStmts0> <end_span:Span>
         => {
         // bookend with empty statements to simplify time and jump logic
         // NOTE: currently not necessary (?) now that time labels are stmts but we may soon want
@@ -464,6 +464,17 @@ BlockInnards: ast::Block = {
         }));
         ast::Block(code)
     },
+};
+
+#[inline]
+SpStmts0: Vec<Sp<ast::Stmt>> = {
+    => vec![],
+    SpStmts1,
+};
+
+SpStmts1: Vec<Sp<ast::Stmt>> = {
+    <stmt:Sp<BoxStmt>> => vec![sp!(stmt.span => *stmt.value)],
+    <stmts:SpStmts1> <stmt:Sp<BoxStmt>> => util::push(stmts, sp!(stmt.span => *stmt.value)),
 };
 
 // ==================================================

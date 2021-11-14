@@ -4,7 +4,7 @@ use crate::diagnostic::Diagnostic;
 use crate::ast;
 use crate::pos::{Sp, Span};
 
-mod lalrparser_util;
+pub mod lalrparser_util;
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 
@@ -113,14 +113,14 @@ impl std::fmt::Display for DisplayExpected<'_> {
 /// Use that instead.
 #[doc(hidden)]
 pub enum AnythingValue {
-    ScriptFile(ast::ScriptFile),
-    Item(ast::Item),
-    Block(ast::Block),
-    Stmt(ast::Stmt),
-    Expr(ast::Expr),
-    Var(ast::Var),
-    Meta(ast::Meta),
-    LitString(ast::LitString),
+    ScriptFile(Box<ast::ScriptFile>),
+    Item(Box<ast::Item>),
+    Block(Box<ast::Block>),
+    Stmt(Box<ast::Stmt>),
+    Expr(Box<ast::Expr>),
+    Var(Box<ast::Var>),
+    Meta(Box<ast::Meta>),
+    LitString(Box<ast::LitString>),
 }
 
 /// Implementation detail of the [`Parse`] trait.  Use that instead.
@@ -155,7 +155,7 @@ macro_rules! impl_parse {
             fn parse_stream<'input>(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>> {
                 let sp = call_anything_parser(AnythingTag::$TagName, state, lexer)?;
                 Ok(sp!(sp.span => match sp.value {
-                    AnythingValue::$TagName(x) => x,
+                    AnythingValue::$TagName(x) => *x,
                     _ => unreachable!(),
                 }))
             }

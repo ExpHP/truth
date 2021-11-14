@@ -30,3 +30,5 @@ pub fn push<T>(mut vec: Vec<T>, item: T) -> Vec<T> {
 }
 
 pub enum Either<A, B> { This(A), That(B) }
+
+pub type UnboxType<T> = <T as core::ops::Deref>::Target;

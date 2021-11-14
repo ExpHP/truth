@@ -96,3 +96,122 @@ mod env {
 pub fn all_main_commands() -> Vec<&'static str> {
     vec!["thanm", "thstd"]
 }
+
+#[test]
+fn SIZES<'input>() {
+    use crate::ast::{self, meta, Meta};
+    use crate::ident::ResIdent;
+    use crate::parse::lalrparser_util as util;
+
+    let mut max = 0;
+    macro_rules! check {
+        ($ty:ty) => {
+            max = usize::max(max, core::mem::size_of::<$ty>());
+            eprintln!("{:3} {}", core::mem::size_of::<$ty>(), stringify!($ty));
+        };
+    }
+
+    check!(&'input str);
+    check!(i32);
+    check!(core::option::Option<Sp<ast::Expr>>);
+    check!(Vec<core::option::Option<Sp<ast::Expr>>>);
+    check!(Sp<i32>);
+    check!(core::option::Option<Sp<i32>>);
+    check!(());
+    check!(Sp<ast::Expr>);
+    check!((Sp<Ident>, Sp<Meta>));
+    check!(Sp<ast::Var>);
+    check!(core::option::Option<Sp<ast::Var>>);
+    check!(crate::parse::lexer::Location);
+    check!(Sp<crate::parse::AnythingValue>);
+    check!(crate::parse::AnythingValue);
+    check!(ast::Block);
+    check!(Box<ast::Block>);
+    check!(Box<ast::Expr>);
+    check!(Box<ast::Item>);
+    check!(Box<ast::LitString>);
+    check!(Box<Meta>);
+    check!(Box<ast::ScriptFile>);
+    check!(Box<Sp<ast::Expr>>);
+    check!(Box<Sp<ast::Item>>);
+    check!(Box<ast::Var>);
+    check!(Box<ast::Stmt>);
+    check!(Box<ast::StmtKind>);
+    check!(ast::BreakContinueKeyword);
+    check!(ast::CallAsyncKind);
+    check!(core::option::Option<ast::CallAsyncKind>);
+    check!(ast::CallableName);
+    check!(ast::Cond);
+    check!(ast::CondBlock);
+    check!(ast::StmtCondChain);
+    check!(ast::CondKeyword);
+    check!((Sp<ast::Var>, Sp<ast::Expr>));
+    check!(ast::TypeKeyword);
+    check!(ast::DiffLabel);
+    check!(util::Either<Sp<ast::PseudoArg>, Sp<ast::Expr>>);
+    check!(ast::Expr);
+    check!(Vec<Sp<ast::Expr>>);
+    check!((Vec<Sp<ast::PseudoArg>>, Vec<Sp<ast::Expr>>));
+    check!(ast::FuncParam);
+    check!(ast::UnOpKind);
+    check!(Ident);
+    check!(ast::Item);
+    check!(ast::ItemFunc);
+    check!(Vec<Sp<ast::Item>>);
+    check!(ast::LabelPropertyKeyword);
+    check!(f32);
+    check!(Result<u32, core::num::ParseIntError>);
+    check!(ast::LitString);
+    check!(Meta);
+    check!(meta::Fields);
+    check!(ast::MetaKeyword);
+    check!(ast::BinOpKind);
+    check!(ast::AssignOpKind);
+    check!(ast::PseudoArg);
+    check!(ast::PseudoArgKind);
+    check!(u16);
+    check!(ResIdent);
+    check!(ast::ScriptFile);
+    check!(Vec<Sp<(Sp<ast::Var>, Sp<ast::Expr>)>>);
+    check!(Vec<Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>>);
+    check!(Vec<(Sp<Ident>, Sp<Meta>)>);
+    check!(Vec<util::Either<Sp<ast::PseudoArg>, Sp<ast::Expr>>>);
+    check!(Vec<Sp<ast::FuncParam>>);
+    check!(Vec<Sp<Meta>>);
+    check!(ast::FuncQualifier);
+    check!(Sp<()>);
+    check!(Sp<Box<ast::Stmt>>);
+    check!(Sp<ast::BreakContinueKeyword>);
+    check!(Sp<ast::CallableName>);
+    check!(Sp<ast::Cond>);
+    check!(Sp<ast::CondKeyword>);
+    check!(Sp<(Sp<ast::Var>, Sp<ast::Expr>)>);
+    check!(Sp<ast::TypeKeyword>);
+    check!(Sp<ast::DiffLabel>);
+    check!(Sp<ast::FuncParam>);
+    check!(Sp<ast::UnOpKind>);
+    check!(Sp<Ident>);
+    check!(Sp<ast::Item>);
+    check!(Sp<ast::LabelPropertyKeyword>);
+    check!(Sp<ast::LitString>);
+    check!(Sp<Meta>);
+    check!(Sp<meta::Fields>);
+    check!(Sp<ast::MetaKeyword>);
+    check!(Sp<ast::BinOpKind>);
+    check!(Sp<ast::AssignOpKind>);
+    check!(Sp<ast::PseudoArg>);
+    check!(Sp<ast::PseudoArgKind>);
+    check!(Sp<ResIdent>);
+    check!(Sp<ast::FuncQualifier>);
+    check!(core::option::Option<Sp<ast::FuncQualifier>>);
+    check!(Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>);
+    check!(Vec<Sp<ast::Stmt>>);
+    check!(Span);
+    check!((Sp<ast::Var>, Option<Sp<ast::Expr>>));
+    check!(ast::StmtJumpKind);
+    check!(ast::Var);
+    check!(ast::VarName);
+    check!(Option<ast::VarSigil>);
+    eprintln!("{}", max);
+    panic!();
+}
