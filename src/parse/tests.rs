@@ -1,4 +1,5 @@
 use crate::ast;
+use crate::pos::BytePos;
 use crate::parse::Parse;
 use crate::error::ErrorReported;
 
@@ -6,7 +7,7 @@ use crate::error::ErrorReported;
 // as it is not connected to any Files object.
 fn parse<A: Parse>(s: &str) -> super::Result<'_, A> {
     let mut state = super::State::new();
-    super::Parse::parse_stream(&mut state, super::Lexer::new(None, s.as_ref()))
+    super::Parse::parse_stream(&mut state, super::Lexer::new(BytePos::INVALID, s.as_ref()))
         .map(|x| x.value)
 }
 

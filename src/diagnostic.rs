@@ -45,14 +45,14 @@ impl Diagnostic {
     /// Add a label of type 'primary'.
     pub fn primary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
         let span = span.span();
-        self.imp.labels.push(CsLabel::primary(span.file_id, span).with_message(message));
+        self.imp.labels.push(CsLabel::primary(span.start, span).with_message(message));
         self
     }
 
     /// Add a label of type 'secondary'.
     pub fn secondary(&mut self, span: impl HasSpan, message: String) -> &mut Self {
         let span = span.span();
-        self.imp.labels.push(CsLabel::secondary(span.file_id, span).with_message(message));
+        self.imp.labels.push(CsLabel::secondary(span.start, span).with_message(message));
         self
     }
 

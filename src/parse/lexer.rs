@@ -188,21 +188,30 @@ impl fmt::Display for Token<'_> {
 /// You should not need to use this type; the primary API for parsing code in truth
 /// is provided by [`crate::pos::NonUtf8Files::parse`].
 pub struct Lexer<'input> {
-    file_id: FileId,
+    file_start: BytePos,
     offset: usize,
     imp: logos::SpannedIter<'input, Token<'input>>,
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(file_id: FileId, input: &'input str) -> Lexer<'input> {
+    pub fn new(start_pos: BytePos, input: &'input str) -> Lexer<'input> {
         Lexer {
-            file_id,
+            file_start: start_pos,
             offset: 0,
             imp: logos::Lexer::new(input).spanned(),
         }
     }
 
-    pub fn location(&self) -> Location { (self.file_id, BytePos(self.offset as u32)) }
+    pub fn location(&self) -> Location {
+        self.location_at_offset(self.offset)
+    }
+
+    fn location_at_offset(&self, offset: usize) -> Location {
+        match self.file_start {
+            BytePos::INVALID => BytePos::INVALID,
+            file_start => file_start.add_safe(offset as u32),
+        }
+    }
 }
 
 /// The location type reported to LALRPOP.
@@ -210,15 +219,15 @@ impl<'input> Lexer<'input> {
 /// This type only exists because LALRPOP needs a type to represent a single point in the source code,
 /// and generally speaking these are converted into the more common [`crate::pos::Span`] type as soon
 /// as reasonably possible.
-pub type Location = (FileId, BytePos);
+pub type Location = BytePos;
 
 impl<'a> Iterator for Lexer<'a> {
     type Item = Result<(Location, Token<'a>, Location), Diagnostic>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.imp.next().map(|(token, range)| {
-            let start = (self.file_id, BytePos(range.start as _));
-            let end = (self.file_id, BytePos(range.end as _));
+            let start = self.location_at_offset(range.start);
+            let end = self.location_at_offset(range.end);
             match token {
                 Token::Error => Err(error!(
                     message("invalid token"),
@@ -235,15 +244,14 @@ mod tests {
     use super::*;
 
     fn tokenize(s: &str) -> Vec<(BytePos, Token<'_>, BytePos)> {
-        Lexer::new(None, s.as_ref())
+        Lexer::new(BytePos::INVALID, s.as_ref())
             .map(|res| res.unwrap())
-            .map(|(start, tok, end)| (start.1, tok, end.1))
             .collect::<Vec<_>>()
     }
 
     #[test]
     fn ident_vs_keyword() {
-        let p = BytePos;
+        let p = BytePos::new;
         assert_eq!(tokenize("int"), vec![(p(0), Token::Int, p(3))]);
         assert_eq!(tokenize("intint"), vec![(p(0), Token::Ident("intint".as_ref()), p(6))]);
         assert_eq!(tokenize("int int"), vec![(p(0), Token::Int, p(3)), (p(4), Token::Int, p(7))]);
@@ -251,19 +259,19 @@ mod tests {
 
     #[test]
     fn no_whitespace() {
-        let p = BytePos;
+        let p = BytePos::new;
         assert_eq!(tokenize("+("), vec![(p(0), Token::Plus, p(1)), (p(1), Token::ParenOpen, p(2))]);
     }
 
     #[test]
     fn whitespace_at_end() {
-        let p = BytePos;
+        let p = BytePos::new;
         assert_eq!(tokenize("+ "), vec![(p(0), Token::Plus, p(1))]);
     }
 
     #[test]
     fn multi_whitespace() {
-        let p = BytePos;
+        let p = BytePos::new;
         assert_eq!(
             tokenize("  \r\n  /* lol */ // \n\n\n 32"),
             vec![(p(23), Token::LitIntDec("32".as_ref()), p(25))],
@@ -272,7 +280,7 @@ mod tests {
 
     #[test]
     fn multiline_comment() {
-        let p = BytePos;
+        let p = BytePos::new;
         assert_eq!(
             tokenize("1 /* lol **/ 2 /** //lol */ 3"), vec![
                 (p(0), Token::LitIntDec("1".as_ref()), p(1)),
@@ -284,7 +292,7 @@ mod tests {
 
     #[test]
     fn ins() {
-        let p = BytePos;
+        let p = BytePos::new;
         assert_eq!(
             tokenize("ins_23  ins_x"),
             vec![

@@ -1,7 +1,7 @@
 use regex::Regex;
 use lazy_static::lazy_static;
 
-use crate::pos::{Sp, Span, FileId};
+use crate::pos::{Sp, Span, BytePos};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 
@@ -29,8 +29,8 @@ lazy_static! {
 }
 
 impl<'a> SeqmapRaw<'a> {
-    pub fn parse(file_id: FileId, text: &'a str, emitter: &impl Emitter) -> Result<Self, ErrorReported> {
-        parse_seqmap(SpannedStr::new(file_id, text), emitter)
+    pub fn parse(file_start: BytePos, text: &'a str, emitter: &impl Emitter) -> Result<Self, ErrorReported> {
+        parse_seqmap(SpannedStr::new(file_start, text), emitter)
     }
 }
 
@@ -115,8 +115,7 @@ mod spanned_str {
     #[derive(Debug, Clone)]
     pub struct SpannedStr<'a> {
         pub str: &'a str,
-        file_id: FileId,
-        start_pos: usize,
+        start_pos: BytePos,
     }
 
     lazy_static! {
@@ -124,16 +123,12 @@ mod spanned_str {
     }
 
     impl<'a> SpannedStr<'a> {
-        pub fn new(file_id: FileId, str: &'a str) -> Self {
-            SpannedStr { str, file_id, start_pos: 0 }
+        pub fn new(start_pos: BytePos, str: &'a str) -> Self {
+            SpannedStr { str, start_pos }
         }
 
         pub fn span(&self) -> Span {
-            Span {
-                file_id: self.file_id,
-                start: (self.start_pos as u32).into(),
-                end: ((self.start_pos + self.str.len()) as u32).into(),
-            }
+            Span::new(self.start_pos, self.start_pos.add_safe(self.str.len() as _))
         }
 
         /// Return a line (with the line terminator) and remove it from this string.
@@ -180,8 +175,7 @@ mod spanned_str {
         pub fn slice_from(&self, index: usize) -> SpannedStr<'a> {
             SpannedStr {
                 str: &self.str[index..],
-                start_pos: self.start_pos + index,
-                file_id: self.file_id,
+                start_pos: self.start_pos.add_safe(index as _),
             }
         }
     }
@@ -195,21 +189,21 @@ mod spanned_str {
     #[test]
     fn test_trim() {
         // nontrivial
-        let input = SpannedStr { file_id: None, str: "  aaf io    ", start_pos: 17 };
+        let input = SpannedStr { str: "  aaf io    ", start_pos: BytePos::new(17) };
         let trimmed = input.trim();
-        assert_eq!(trimmed.start_pos, 19);
+        assert_eq!(u32::from(trimmed.start_pos), 19);
         assert_eq!(trimmed.str, "aaf io");
 
         // trivial
-        let input = SpannedStr { file_id: None, str: "aaf io", start_pos: 17 };
+        let input = SpannedStr { str: "aaf io", start_pos: BytePos::new(17) };
         let trimmed = input.trim();
-        assert_eq!(trimmed.start_pos, 17);
+        assert_eq!(u32::from(trimmed.start_pos), 17);
         assert_eq!(trimmed.str, "aaf io");
 
         // all whitespace; edge case where a bad implementation could double-count
-        let input = SpannedStr { file_id: None, str: "   ", start_pos: 17 };
+        let input = SpannedStr { str: "   ", start_pos: BytePos::new(17) };
         let trimmed = input.trim();
-        assert!(17 <= trimmed.start_pos && trimmed.start_pos <= 17 + input.len());
+        assert!(17 <= usize::from(trimmed.start_pos) && usize::from(trimmed.start_pos) <= 17 + input.len());
         assert_eq!(trimmed.str, "");
     }
 }

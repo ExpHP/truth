@@ -251,12 +251,10 @@ mod tests {
     use crate::pos::FileId;
     use crate::ident::Ident;
 
-    const FILE_ID: FileId = std::num::NonZeroU32::new(1);
-
     #[test]
     fn smoke_test() {
-        let span_1 = Span::new(FILE_ID, 1, 1);
-        let span_2 = Span::new(FILE_ID, 2, 2);
+        let span_1 = Span::new(2, 2);
+        let span_2 = Span::new(3, 3);
         let a: ast::Expr = 23.into();
         let b: Sp<ast::Expr> = sp!(span_2 => 42.into());
         let c: ast::Expr = 32.into();
@@ -294,8 +292,8 @@ mod tests {
 
     #[test]
     fn nested_rec_sp() {
-        let span_1 = Span::new(FILE_ID, 1, 1);
-        let span_2 = Span::new(FILE_ID, 2, 2);
+        let span_1 = Span::new(2, 2);
+        let span_2 = Span::new(3, 3);
 
         // Test that the span from an inner rec_sp! takes precedence over the outer one
         let a: ast::Expr = 23.into();
@@ -331,7 +329,7 @@ mod tests {
 
     #[test]
     fn without_rec_sp() {
-        let span_1 = Span::new(FILE_ID, 1, 1);
+        let span_1 = Span::new(2, 2);
 
         // Test that the span from an inner rec_sp! takes precedence over the outer one
         let a: ast::Expr = 23.into();
@@ -345,7 +343,7 @@ mod tests {
 
     #[test]
     fn stmt() {
-        let span_1 = Span::new(FILE_ID, 1, 1);
+        let span_1 = Span::new(2, 2);
 
         let label: Ident = "label".parse().unwrap();
         let _ = rec_sp!(span_1 => stmt_label!(#label));

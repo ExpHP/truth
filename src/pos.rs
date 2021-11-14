@@ -7,13 +7,66 @@ use std::borrow::Cow;
 use std::num::NonZeroU32;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::collections::BTreeMap;
 
 use crate::diagnostic::Diagnostic;
 use crate::parse::lexer;
 
-pub type FileId = Option<NonZeroU32>;
 use codespan_reporting::{files as cs_files};
-pub use codespan::{ByteIndex as BytePos, ByteOffset, RawIndex, RawOffset};
+pub use codespan::{ByteIndex as CsBytePos, ByteOffset, RawIndex, RawOffset};
+
+// =============================================================================
+
+/// Represents a position into a unified source map.
+///
+/// All input files to truth can be effectively considered to be concatenated into one large string
+/// (with some bookkeeping), and this is a position into that string.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BytePos(pub NonZeroU32);
+
+impl BytePos {
+    pub const INVALID: BytePos = SourceMap::INVALID_POS;
+}
+
+// LALRPOP needs this
+impl Default for BytePos {
+    fn default() -> Self { SourceMap::INVALID_POS }
+}
+
+impl From<u32> for BytePos {
+    fn from(x: u32) -> Self { Self::new(x) }
+}
+
+impl From<BytePos> for u32 {
+    fn from(x: BytePos) -> Self { x.0.get() }
+}
+
+impl From<BytePos> for usize {
+    fn from(x: BytePos) -> Self { u32::from(x) as _ }
+}
+
+impl fmt::Display for BytePos {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl BytePos {
+    pub fn new(value: u32) -> Self {
+        BytePos(NonZeroU32::new(value).expect("BytePos overflow"))
+    }
+    pub fn add_safe(self, diff: u32) -> Self {
+        BytePos::new(self.0.get().checked_add(diff).expect("BytePos overflow"))
+    }
+}
+
+// =============================================================================
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct FileStart(BytePos);
+
+/// FileId used by SimpleFiles
+type CsFileId = usize;
 
 /// Helper to wrap a value in [`Sp`]. It is recommended to use this in place of the type constructor.
 ///
@@ -83,69 +136,120 @@ macro_rules! sp_pat {
 /// in diagnostic error messages.
 #[derive(Debug, Clone)]
 pub struct Files {
-    inner: RefCell<cs_files::SimpleFiles<String, Rc<str>>>,
+    inner: RefCell<FilesInner>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FilesInner {
+    // Defer to CS for storing the strings and providing line/column indices.
+    cs_files: cs_files::SimpleFiles<String, Rc<str>>,
+    // But use a source map for smaller spans.
+    source_map: SourceMap,
+    file_start_to_cs_file_id: BTreeMap<FileStart, CsFileId>,
+    cs_file_id_to_file_start: BTreeMap<CsFileId, FileStart>,
 }
 
 impl Files {
-    pub fn new() -> Self { Files { inner: RefCell::new(cs_files::SimpleFiles::new()) } }
+    pub fn new() -> Self {
+        Files {
+            inner: RefCell::new(FilesInner {
+                cs_files: cs_files::SimpleFiles::new(),
+                source_map: SourceMap::new(),
+                file_start_to_cs_file_id: Default::default(),
+                cs_file_id_to_file_start: Default::default(),
+            })
+        }
+    }
 
     /// Add a piece of source text to the database, and give it a name (usually a filepath)
     /// which will appear in error messages.  Also validate the source as UTF-8.
     ///
     /// The name does not need to be a valid path or even unique; for instance, it is common to use
     /// the name `"<input>"` for source text not associated with any file.
-    pub fn add(&self, name: &str, source: &[u8]) -> Result<(FileId, Rc<str>), Diagnostic> {
+    pub fn add(&self, name: &str, source: &[u8]) -> Result<(BytePos, Rc<str>), Diagnostic> {
+        self.inner.borrow_mut().add(name, source)
+            .map(|(file_start, str)| (file_start.0, str))
+    }
+}
+
+impl FilesInner {
+    fn add(&mut self, name: &str, source: &[u8]) -> Result<(FileStart, Rc<str>), Diagnostic> {
         let utf8_cow = prepare_diagnostic_text_source(source);
         let rc_source: Rc<str> = utf8_cow[..].into();
 
-        let file_id = Self::shift_file_id(self.inner.borrow_mut().add(name.to_owned(), rc_source.clone()));
+        let cs_file_id = self.cs_files.add(name.to_owned(), rc_source.clone());
+        let file_start = self.source_map.add(rc_source.len());
+        self.cs_file_id_to_file_start.insert(cs_file_id, file_start);
+        self.file_start_to_cs_file_id.insert(file_start, cs_file_id);
 
         // the cow is borrowed iff the input was valid UTF-8
         if let Cow::Owned(_) = utf8_cow {
             let err = std::str::from_utf8(source).unwrap_err();
-            let pos = err.valid_up_to();
+            let pos = BytePos::from(file_start.0.0.get() + err.valid_up_to() as u32);
             return Err(error!(
                 message("invalid UTF-8"),
-                primary(Span::new(file_id, BytePos(pos as _), BytePos(pos as _)), "not valid UTF-8"),
+                primary(Span::new(pos, pos), "not valid UTF-8"),
                 note("truth expects all input script files to be UTF-8 regardless of the output encoding"),
             ));
         }
 
-        Ok((file_id, rc_source))
+        Ok((file_start, rc_source))
     }
 
-    fn unshift_file_id(file_id: FileId) -> Result<usize, cs_files::Error> {
-        // produce Error on file_id = None; such spans aren't fit for diagnostics
-        let file_id: u32 = file_id.ok_or(cs_files::Error::FileMissing)?.into();
-        Ok(file_id as usize - 1)
-    }
-
-    fn shift_file_id(file_id: usize) -> FileId {
-        NonZeroU32::new(file_id as u32 + 1)
+    fn file_info_for_pos(&self, byte_pos: BytePos) -> Result<FileInfo, cs_files::Error> {
+        let file_start = self.source_map.file_start(byte_pos);
+        if file_start == SourceMap::INVALID_FILE_START {
+            // points into the 0th file, used by Span::NULL.
+            Err(cs_files::Error::FileMissing)
+        } else {
+            let cs_file_id = self.file_start_to_cs_file_id[&file_start];
+            Ok(FileInfo { file_start: file_start.0.0.get() as usize, cs_file_id })
+        }
     }
 }
 
-/// This implementation provides source text that has been lossily modified to be valid UTF-8,
-/// and which should only be used for diagnostic purposes.
+struct FileInfo {
+    cs_file_id: CsFileId,
+    file_start: usize,
+}
+
 impl<'a> cs_files::Files<'a> for Files {
-    type FileId = FileId;
+    /// `FileId` type exposed to `codespan_reporting`.
+    ///
+    /// Any `BytePos` pointing into a given file in the source map (including the end position)
+    /// can be used as a `FileId` for that file.
+    type FileId = BytePos;
     type Name = String;
     type Source = Rc<str>;
 
-    // Just delegate everything
-    fn name(&self, file_id: FileId) -> Result<String, cs_files::Error> {
-        self.inner.borrow().name(Self::unshift_file_id(file_id)?)
+    // In these methods, 'pos_for_id' is so named because the *role* of this parameter is to identify the file.
+    // (it is a FileId for codespan_reporting).
+    //
+    // * It is not named 'pos' because it does NOT necessarily represent the position that is being queried in a file.
+    // * It is not named 'file_id' because it is not a unique identifier.
+    fn name(&self, pos_for_id: Self::FileId) -> Result<String, cs_files::Error> {
+        let inner = self.inner.borrow();
+        let cs_file_id = inner.file_info_for_pos(pos_for_id)?.cs_file_id;
+        inner.cs_files.name(cs_file_id)
     }
 
-    fn source(&self, file_id: FileId) -> Result<Rc<str>, cs_files::Error> {
-        Ok(self.inner.borrow().get(Self::unshift_file_id(file_id)?)?.source().clone())
+    fn source(&self, pos_for_id: Self::FileId) -> Result<Rc<str>, cs_files::Error> {
+        let inner = self.inner.borrow();
+        let cs_file_id = inner.file_info_for_pos(pos_for_id)?.cs_file_id;
+        Ok(inner.cs_files.get(cs_file_id)?.source().clone())
     }
 
-    fn line_index(&self, file_id: FileId, byte_index: usize) -> Result<usize, cs_files::Error> {
-        self.inner.borrow().line_index(Self::unshift_file_id(file_id)?, byte_index)
+    // Note: source_map_byte_index will point into the source map since that's what we give codespan
+    fn line_index(&self, pos_for_id: Self::FileId, source_map_byte_index: usize) -> Result<usize, cs_files::Error> {
+        let inner = self.inner.borrow();
+        let FileInfo { cs_file_id, file_start } = inner.file_info_for_pos(pos_for_id)?;
+        self.inner.borrow().cs_files.line_index(cs_file_id, source_map_byte_index - file_start)
     }
-    fn line_range(&self, file_id: FileId, line_index: usize) -> Result<std::ops::Range<usize>, cs_files::Error> {
-        self.inner.borrow().line_range(Self::unshift_file_id(file_id)?, line_index)
+
+    fn line_range(&self, pos_for_id: Self::FileId, line_index: usize) -> Result<std::ops::Range<usize>, cs_files::Error> {
+        let inner = self.inner.borrow();
+        let cs_file_id = inner.file_info_for_pos(pos_for_id)?.cs_file_id;
+        inner.cs_files.line_range(cs_file_id, line_index)
     }
 }
 
@@ -160,48 +264,100 @@ fn prepare_diagnostic_text_source(s: &[u8]) -> Cow<'_, str> {
     String::from_utf8_lossy(s)
 }
 
+/// Maps a single, flat [`BytePos`] into a list of files.  This trick allows eliminating FileIds from spans.
+#[derive(Debug, Clone)]
+struct SourceMap {
+    /// The start position of every file.
+    ///
+    /// There is always an additional element at the end for the next file to be added.
+    /// (this ensures that binary searches and file length remain well behaved)
+    start_positions: Vec<u32>,
+}
+
+impl SourceMap {
+    /// The 0th element represents the file used by Span::null.
+    const INVALID_FILE_START: FileStart = {
+        /// FIXME remove unsafe once panics are const on stable
+        FileStart(BytePos(unsafe { NonZeroU32::new_unchecked(1) }))
+    };
+    const INVALID_POS: BytePos = Self::INVALID_FILE_START.0;
+
+    /// There is a 1-byte space between each file to ensure that the end of one file is distinguishable
+    /// from the beginning of the next.
+    const SPACE_BETWEEN_FILES: u32 = 1;
+
+    fn new() -> Self {
+        // We begin with the 'null' file.
+        let mut start_positions = vec![];
+        start_positions.push(Self::INVALID_FILE_START.0.0.get());
+
+        // Add the starting position of the next file.
+        start_positions.push(Self::INVALID_FILE_START.0.0.get() + Self::SPACE_BETWEEN_FILES);
+
+        SourceMap { start_positions }
+    }
+
+    fn add(&mut self, file_len: usize) -> FileStart {
+        let file_len = u32::try_from(file_len).expect("file too large");
+        let file_start = *self.start_positions.last().unwrap();
+        let file_end = file_start.checked_add(file_len).expect("source map overflow");
+        let next_file_start = file_end.checked_add(Self::SPACE_BETWEEN_FILES).expect("source map overflow");
+        self.start_positions.push(next_file_start);
+
+        FileStart(BytePos(NonZeroU32::new(file_start).unwrap()))
+    }
+
+    fn file_start(&self, pos: BytePos) -> FileStart {
+        let index = self.start_positions.binary_search(&pos.0.get()).unwrap_or_else(|i| i - 1);
+
+        // the last position in the Vec has not yet been assigned a file so it shouldn't be used
+        assert!(index < self.start_positions.len() - 1);
+        FileStart(BytePos(NonZeroU32::new(self.start_positions[index]).unwrap()))
+    }
+}
+
+/// FIXME: remove
+pub type FileId = BytePos;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
     pub start: BytePos,
     pub end: BytePos,
-    // FIXME: This is somewhat undesirable as it gets repeated all over the place.
-    //        Gluon seems to have some way of making byte indices work as FileIds,
-    //        but something seemed off about their Files impl when I tried it...
-    pub file_id: FileId,
 }
 
 impl Span {
     /// A dummy span for generated code during decompilation.
     ///
     /// Because it uses an invalid file ID, diagnostic labels using this Span cannot be displayed.
-    pub const NULL: Span = Span { start: BytePos(0), end: BytePos(0), file_id: None };
+    pub const NULL: Span = Span {
+        start: BytePos::INVALID,
+        end: BytePos::INVALID,
+    };
 
     /// Create a new span from a starting and ending span.
-    pub fn new(file_id: FileId, start: impl Into<BytePos>, end: impl Into<BytePos>) -> Span {
+    pub fn new(start: impl Into<BytePos>, end: impl Into<BytePos>) -> Span {
         let start = start.into();
         let end = end.into();
         assert!(end >= start);
 
-        Span { file_id, start, end }
+        Span { start, end }
     }
 
-    /// Create a new span representing the full span of a source string, taken to start at position 0.
-    pub fn of_full_source(file_id: FileId, source: &str) -> Span {
-        Span { file_id, start: 0.into(), end: u32::try_from(source.len()).unwrap().into() }
+    /// Create a new span representing the full span of a source string.
+    pub fn of_full_source(file_start: BytePos, source: &str) -> Span {
+        Span { start: file_start, end: file_start.add_safe(source.len() as u32) }
     }
 
     /// Gives an empty span at the start of a source.
-    pub const fn initial(file_id: FileId) -> Span {
+    pub const fn initial(file_start: BytePos) -> Span {
         Span {
-            file_id,
-            start: BytePos(0),
-            end: BytePos(0),
+            start: file_start,
+            end: file_start,
         }
     }
 
     pub(crate) fn from_locs(left: lexer::Location, right: lexer::Location) -> Self {
-        debug_assert_eq!(left.0, right.0);
-        Self::new(left.0, left.1, right.1)
+        Self::new(left, right)
     }
 
     /// Combine two spans by taking the start of the earlier span
@@ -214,33 +370,32 @@ impl Span {
     /// ```rust
     /// use truth::Span;
     ///
-    /// let span1 = Span::from(0..4);
-    /// let span2 = Span::from(10..16);
+    /// let span1 = Span::new(1, 5);
+    /// let span2 = Span::new(11, 17);
     ///
-    /// assert_eq!(Span::merge(span1, span2), Span::from(0..16));
+    /// assert_eq!(Span::merge(span1, span2), Span::new(1, 17));
     /// ```
     pub fn merge(self, other: Span) -> Span {
         use std::cmp::{max, min};
 
-        assert_eq!(self.file_id, other.file_id);
+        // FIXME: no way to check this anymore, could be a problem if we get #include...
+        // assert_eq!(self.file_id, other.file_id);
         let start = min(self.start, other.start);
         let end = max(self.end, other.end);
-        Span::new(self.file_id, start, end)
+        Span::new(start, end)
     }
 
     /// A helper function to tell whether two spans do not overlap.
     ///
     /// ```
     /// use truth::Span;
-    /// let span1 = Span::from(0..4);
-    /// let span2 = Span::from(10..16);
+    /// let span1 = Span::new(20, 24);
+    /// let span2 = Span::new(30, 36);
     /// assert!(span1.disjoint(span2));
     /// ```
     pub fn disjoint(self, other: Span) -> bool {
-        assert_eq!(self.file_id.is_some(), other.file_id.is_some(), "can't compare dummy file span to non-dummy");
-        if self.file_id != other.file_id {
-            return true;
-        }
+        assert_eq!(self.start == BytePos::INVALID, other.start == BytePos::INVALID, "can't compare dummy file span to non-dummy");
+
         let (first, last) = if self.end < other.end {
             (self, other)
         } else {
@@ -254,9 +409,9 @@ impl Span {
     /// ```rust
     /// use truth::pos::{BytePos, Span};
     ///
-    /// let span = Span::new(None, 0, 4);
+    /// let span = Span::new(20, 25);
     ///
-    /// assert_eq!(span.start(), BytePos::from(0));
+    /// assert_eq!(span.start(), BytePos::from(20));
     /// ```
     pub fn start(self) -> BytePos {
         self.start
@@ -267,26 +422,24 @@ impl Span {
     /// ```rust
     /// use truth::pos::{BytePos, Span};
     ///
-    /// let span = Span::new(None, 0, 4);
+    /// let span = Span::new(20, 25);
     ///
-    /// assert_eq!(span.end(), BytePos::from(4));
+    /// assert_eq!(span.end(), BytePos::from(25));
     /// ```
     pub fn end(self) -> BytePos {
         self.end
     }
 
     pub fn start_span(self) -> Span {
-        Span { file_id: self.file_id, start: self.start, end: self.start }
+        Span { start: self.start, end: self.start }
     }
     pub fn end_span(self) -> Span {
-        Span { file_id: self.file_id, start: self.end, end: self.end }
+        Span { start: self.end, end: self.end }
     }
 }
 
 impl Default for Span {
-    fn default() -> Span {
-        Span::initial(None)
-    }
+    fn default() -> Span { Span::NULL }
 }
 
 impl fmt::Display for Span {
@@ -300,26 +453,27 @@ impl fmt::Display for Span {
     }
 }
 
-impl<I> From<std::ops::Range<I>> for Span
-where
-    I: Into<BytePos>,
-{
-    fn from(range: std::ops::Range<I>) -> Span {
-        Span::new(None, range.start, range.end)
-    }
-}
+// impl<I> From<std::ops::Range<I>> for Span
+// where
+//     I: Into<BytePos>,
+// {
+//     fn from(range: std::ops::Range<I>) -> Span {
+//         Span::new(range.start, range.end)
+//     }
+// }
 
+// codespan needs this
 impl From<Span> for std::ops::Range<usize> {
     fn from(span: Span) -> std::ops::Range<usize> {
         span.start.into()..span.end.into()
     }
 }
 
-impl From<Span> for std::ops::Range<RawIndex> {
-    fn from(span: Span) -> std::ops::Range<RawIndex> {
-        span.start.0..span.end.0
-    }
-}
+// impl From<Span> for std::ops::Range<RawIndex> {
+//     fn from(span: Span) -> std::ops::Range<RawIndex> {
+//         span.start.0..span.end.0
+//     }
+// }
 
 #[cfg(test)]
 mod test {
@@ -328,20 +482,20 @@ mod test {
         use super::Span;
 
         // overlap
-        let a = Span::from(1..5);
-        let b = Span::from(3..10);
-        assert_eq!(a.merge(b), Span::from(1..10));
-        assert_eq!(b.merge(a), Span::from(1..10));
+        let a = Span::new(21, 25);
+        let b = Span::new(23, 30);
+        assert_eq!(a.merge(b), Span::new(21, 30));
+        assert_eq!(b.merge(a), Span::new(21, 30));
 
         // subset
-        let two_four = (2..4).into();
-        assert_eq!(a.merge(two_four), (1..5).into());
-        assert_eq!(two_four.merge(a), (1..5).into());
+        let two_four = Span::new(22, 24);
+        assert_eq!(a.merge(two_four), Span::new(21, 25));
+        assert_eq!(two_four.merge(a), Span::new(21, 25));
 
         // disjoint
-        let ten_twenty = (10..20).into();
-        assert_eq!(a.merge(ten_twenty), (1..20).into());
-        assert_eq!(ten_twenty.merge(a), (1..20).into());
+        let ten_twenty = Span::new(30, 40);
+        assert_eq!(a.merge(ten_twenty), Span::new(21, 40));
+        assert_eq!(ten_twenty.merge(a), Span::new(21, 40));
 
         // identity
         assert_eq!(a.merge(a), a);
@@ -352,18 +506,18 @@ mod test {
         use super::Span;
 
         // overlap
-        let a = Span::from(1..5);
-        let b = Span::from(3..10);
+        let a = Span::new(21, 25);
+        let b = Span::new(23, 30);
         assert!(!a.disjoint(b));
         assert!(!b.disjoint(a));
 
         // subset
-        let two_four = (2..4).into();
+        let two_four = Span::new(22, 24);
         assert!(!a.disjoint(two_four));
         assert!(!two_four.disjoint(a));
 
         // disjoint
-        let ten_twenty = (10..20).into();
+        let ten_twenty = Span::new(30, 40);
         assert!(a.disjoint(ten_twenty));
         assert!(ten_twenty.disjoint(a));
 
@@ -371,11 +525,11 @@ mod test {
         assert!(!a.disjoint(a));
 
         // off by one (upper bound)
-        let c = Span::from(5..10);
+        let c = Span::new(25, 30);
         assert!(a.disjoint(c));
         assert!(c.disjoint(a));
         // off by one (lower bound)
-        let d = Span::from(0..1);
+        let d = Span::new(20, 21);
         assert!(a.disjoint(d));
         assert!(d.disjoint(a));
     }
@@ -528,4 +682,15 @@ impl<T: ?Sized + HasSpan> HasSpan for &mut T {
 
 impl<T: ?Sized + HasSpan> HasSpan for Box<T> {
     fn span(&self) -> Span { (**self).span() }
+}
+
+// =============================================================================
+
+#[test]
+fn size_of_spans() {
+    panic!("{:?}", core::mem::size_of::<Sp<crate::ast::Stmt>>());
+    assert_eq!(core::mem::size_of::<Span>(), 8);
+    assert_eq!(core::mem::size_of::<Option<Span>>(), 8);
+    assert_eq!(core::mem::size_of::<Sp<()>>(), 8);
+    assert_eq!(core::mem::size_of::<Option<Sp<()>>>(), 8);
 }

@@ -2,7 +2,7 @@ use lalrpop_util::lalrpop_mod;
 
 use crate::diagnostic::Diagnostic;
 use crate::ast;
-use crate::pos::{Sp, Span};
+use crate::pos::{Sp, Span, BytePos};
 
 mod lalrparser_util;
 
@@ -36,7 +36,7 @@ pub trait Parse: Sized {
     /// [`crate::api::Truth::parse`] instead.
     fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
         let mut state = State::new();
-        Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
+        Self::parse_stream(&mut state, Lexer::new(BytePos::INVALID, s.as_ref()))
             .map(|x| x.value)
     }
 

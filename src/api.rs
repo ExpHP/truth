@@ -72,8 +72,8 @@ impl Truth<'_> {
 impl Truth<'_> {
     /// For unit tests.
     pub fn apply_mapfile_str(&mut self, text: &str) -> Result<(), ErrorReported> {
-        let (file_id, source_str) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
-        let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &source_str[..], &self.ctx.emitter)?;
+        let (file_start, source_str) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
+        let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_start, &source_str[..], &self.ctx.emitter)?;
         self.apply_mapfile(&crate::Mapfile::from_seqmap(seqmap, &self.ctx.emitter)?)
     }
 
