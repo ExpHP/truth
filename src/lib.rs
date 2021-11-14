@@ -41,6 +41,7 @@ pub use formats::std::{self, StdFile};
 pub use formats::ecl::{self, OldeEclFile as EclFile};
 mod formats;
 
+mod pool;
 mod bitset;
 mod diff_switch_utils;
 

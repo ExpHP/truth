@@ -108,16 +108,17 @@ impl Truth<'_> {
         Sp<A>: crate::ast::Visitable,
     {
         let (file_id, source_str) = self.ctx.emitter.files.add(display_name, text).map_err(|e| self.emit(e))?;
-        let mut state = crate::parse::State::new();
 
-        A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
-            .map_err(|e| self.emit(e))
-            .and_then(|mut ast| {
-                crate::passes::resolution::fill_missing_node_ids(&mut ast, &self.ctx.unused_node_ids)?;
-                crate::passes::resolution::assign_res_ids(&mut ast, &mut self.ctx)?;
-                crate::passes::resolution::assign_loop_ids(&mut ast, &mut self.ctx)?;
-                Ok(ast)
-            })
+        crate::parse::State::scope(|mut state| {
+            A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
+                .map_err(|e| self.emit(e))
+                .and_then(|mut ast| {
+                    crate::passes::resolution::fill_missing_node_ids(&mut ast, &self.ctx.unused_node_ids)?;
+                    crate::passes::resolution::assign_res_ids(&mut ast, &mut self.ctx)?;
+                    crate::passes::resolution::assign_loop_ids(&mut ast, &mut self.ctx)?;
+                    Ok(ast)
+                })
+        })
     }
 }
 

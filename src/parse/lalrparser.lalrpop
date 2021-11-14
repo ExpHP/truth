@@ -4,8 +4,9 @@ use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, meta, Meta};
 use super::lalrparser_util as util;
+use crate::pool::Object;
 
-grammar<'input, 'st>(state: &'st mut crate::parse::State);
+grammar<'input, 'st, 'a, 'b>(state: &'st mut crate::parse::State<'a, 'b>);
 
 extern {
     type Location = crate::parse::lexer::Location;
@@ -145,7 +146,7 @@ AnythingInner: crate::parse::AnythingValue = {
     Dispatch_ScriptFile <x:Box<ScriptFile>> => crate::parse::AnythingValue::ScriptFile(x),
     Dispatch_Item <x:Box<Item>> => crate::parse::AnythingValue::Item(x),
     Dispatch_Block <x:Box<Block>> => crate::parse::AnythingValue::Block(x),
-    Dispatch_Stmt <x:BoxStmt> => crate::parse::AnythingValue::Stmt(x),
+    Dispatch_Stmt <x:BoxStmt> => crate::parse::AnythingValue::Stmt(Box::new(x.recover(&mut state.owner))),
     Dispatch_Expr <x:Box<Expr>> => crate::parse::AnythingValue::Expr(x),
     Dispatch_Var <x:Box<Var>> => crate::parse::AnythingValue::Var(x),
     Dispatch_LitString <x:Box<LitString>> => crate::parse::AnythingValue::LitString(x),
@@ -282,12 +283,18 @@ PossiblyNumericIdent: Ident = {
 // ==================================================
 // Statements
 
-BoxStmt: Box<ast::Stmt> = {
+BoxStmt: Object<'a, 'b, ast::Stmt> = {
     <diff_label:Sp<DiffLabel>> <kind:BoxStmtKindPhysical>
-        => Box::new(ast::Stmt { kind: *kind, diff_label: Some(diff_label), node_id: None }),
+        => {
+            let kind = kind.recover(&mut state.owner);
+            state.pools.stmt.push(&mut state.owner, ast::Stmt { kind, diff_label: Some(diff_label), node_id: None })
+        },
 
     <kind:BoxStmtKind>
-        => Box::new(ast::Stmt { kind: *kind, diff_label: None, node_id: None }),
+        => {
+            let kind = kind.recover(&mut state.owner);
+            state.pools.stmt.push(&mut state.owner, ast::Stmt { kind, diff_label: None, node_id: None })
+        },
 };
 
 #[inline]
@@ -297,64 +304,64 @@ DiffLabel: ast::DiffLabel = {
         => ast::DiffLabel { mask: None, string },
 };
 
-BoxStmtKind: Box<ast::StmtKind> = {
+BoxStmtKind: Object<'a, 'b, ast::StmtKind> = {
     BoxStmtKindPhysical,
     BoxStmtKindUnphysical,
 };
 
-BoxStmtKindUnphysical: Box<ast::StmtKind> = {
-    <item:Box<Sp<ItemConstVar>>> => Box::new(ast::StmtKind::Item(item)),
+BoxStmtKindUnphysical: Object<'a, 'b, ast::StmtKind> = {
+    <item:Box<Sp<ItemConstVar>>> => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Item(item)),
 
-    <item:Box<Sp<ItemFunc>>> => Box::new(ast::StmtKind::Item(item)),
+    <item:Box<Sp<ItemFunc>>> => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Item(item)),
 
     <name:Sp<Ident>> ":"
-        => Box::new(ast::StmtKind::Label(name)),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Label(name)),
 
     <delta:Sp<("+" <LitIntUnsigned>)>> ":"
-        => Box::new(ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None }),
 
     <t:Sp<LitIntSigned>> ":"
-        => Box::new(ast::StmtKind::AbsTimeLabel(t)),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::AbsTimeLabel(t)),
 };
 
-BoxStmtKindPhysical: Box<ast::StmtKind> = {
+BoxStmtKindPhysical: Object<'a, 'b, ast::StmtKind> = {
     <keyword:TokenSpan<"return">> <value:Sp<Expr>?> ";"
-        => Box::new(ast::StmtKind::Return { keyword, value }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Return { keyword, value }),
 
     <chain:CondChain>
-        => Box::new(ast::StmtKind::CondChain(chain)),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::CondChain(chain)),
 
     <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtJumpKind> ";"
-        => Box::new(ast::StmtKind::CondJump { keyword, cond, jump }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::CondJump { keyword, cond, jump }),
 
     <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
-        => Box::new(ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block, loop_id: None }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block, loop_id: None }),
 
     <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
-        => Box::new(ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, loop_id: None }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, loop_id: None }),
 
     <keyword:TokenSpan<"times">> "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
-        => Box::new(ast::StmtKind::Times { keyword, clobber, count, block, loop_id: None }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Times { keyword, clobber, count, block, loop_id: None }),
 
     <keyword:TokenSpan<"loop">> <block:StmtOrBlock>
-        => Box::new(ast::StmtKind::Loop { keyword, block, loop_id: None }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Loop { keyword, block, loop_id: None }),
 
     <goto:StmtJumpKind> ";"
-        => Box::new(ast::StmtKind::Jump(goto)),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Jump(goto)),
 
     <e:Sp<ExprNoColon>> ";"
-        => Box::new(ast::StmtKind::Expr(e)),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Expr(e)),
 
     "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
-        => Box::new(ast::StmtKind::InterruptLabel(arg)),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::InterruptLabel(arg)),
 
-    <block:Block> => Box::new(ast::StmtKind::Block(block)),
+    <block:Block> => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Block(block)),
 
     <var:Sp<Var>> <op:Sp<OpAssign>> <value:Sp<Expr>> ";"
-        => Box::new(ast::StmtKind::Assignment { var, op, value }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Assignment { var, op, value }),
 
     <ty_keyword:Sp<LocalVarTypeKeyword>> <vars:SeparatedStrict<Sp<StmtDeclarationListItem>, ",">> ";"
-        => Box::new(ast::StmtKind::Declaration { ty_keyword, vars }),
+        => state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::Declaration { ty_keyword, vars }),
 
     StmtSpecialCall,
 };
@@ -372,13 +379,13 @@ BreakContinueKeyword: ast::BreakContinueKeyword = {
     "break" => token![break],
 };
 
-StmtSpecialCall: Box<ast::StmtKind> = {
+StmtSpecialCall: Object<'a, 'b, ast::StmtKind> = {
     // handle cases where at least one of the '@' or 'async' are present
     "@" <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind?> ";" => {
-        Box::new(ast::StmtKind::CallSub { at_symbol: true, func, args, async_ })
+        state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::CallSub { at_symbol: true, func, args, async_ })
     },
     <func:Sp<Ident>> <args:ExprCallParenArgs> <async_:CallAsyncKind> ";" => {
-        Box::new(ast::StmtKind::CallSub { at_symbol: true, func, args, async_: Some(async_) })
+        state.pools.stmt_kind.push(&mut state.owner, ast::StmtKind::CallSub { at_symbol: true, func, args, async_: Some(async_) })
     },
 };
 
@@ -473,8 +480,8 @@ SpStmts0: Vec<Sp<ast::Stmt>> = {
 };
 
 SpStmts1: Vec<Sp<ast::Stmt>> = {
-    <stmt:Sp<BoxStmt>> => vec![sp!(stmt.span => *stmt.value)],
-    <stmts:SpStmts1> <stmt:Sp<BoxStmt>> => util::push(stmts, sp!(stmt.span => *stmt.value)),
+    <stmt:Sp<BoxStmt>> => vec![sp!(stmt.span => stmt.value.recover(&mut state.owner))],
+    <stmts:SpStmts1> <stmt:Sp<BoxStmt>> => util::push(stmts, sp!(stmt.span => stmt.value.recover(&mut state.owner))),
 };
 
 // ==================================================

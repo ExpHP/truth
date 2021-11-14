@@ -35,9 +35,10 @@ pub trait Parse: Sized {
     /// strings of text. For proper diagnostics you should prefer the helper method
     /// [`crate::api::Truth::parse`] instead.
     fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
-        let mut state = State::new();
-        Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
-            .map(|x| x.value)
+        State::scope(|mut state| {
+            Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
+                .map(|x| x.value)
+        })
     }
 
     /// Parse from lexed tokens, producing an AST node with correct span info.
@@ -50,16 +51,35 @@ pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
 
 
 /// Extra state during parsing.
-pub struct State {
+pub struct State<'a, 'b> {
     mapfiles: Vec<Sp<ast::LitString>>,
     image_sources: Vec<Sp<ast::LitString>>,
+    owner: qcell::LCellOwner<'b>,
+    pools: &'a StatePools<'b>,
 }
 
-impl State {
-    pub fn new() -> State { State {
-        mapfiles: vec![],
-        image_sources: vec![],
-    }}
+#[derive(Default)]
+pub struct StatePools<'a> {
+    stmt_kind: crate::pool::Pool<'a, ast::StmtKind>,
+    stmt: crate::pool::Pool<'a, ast::Stmt>,
+}
+
+impl State<'static, 'static> {
+    pub fn scope<T>(func: impl for<'a, 'b> FnOnce(State<'a, 'b>) -> T) -> T {
+        // FIXME why doesn't qcell::LCellOwner::scope return a value
+        let mut out = None;
+        qcell::LCellOwner::scope(|owner| {
+            let pools = Default::default();
+            let value = func(State {
+                mapfiles: Default::default(),
+                image_sources: Default::default(),
+                pools: &pools,
+                owner,
+            });
+            out = Some(value);
+        });
+        out.unwrap()
+    }
 }
 
 impl crate::diagnostic::IntoDiagnostics for Error<'_> {
