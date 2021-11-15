@@ -955,15 +955,3 @@ fn need_tests_for_eosd_reg_that_looks_like_literal() {
 fn need_tests_for_eosd_literal_whose_value_is_a_reg() {
     panic!()
 }
-
-#[test]
-#[ignore]
-fn need_tests_for_diff_flags_in_non_ecl() {
-    panic!()
-}
-
-#[test]
-#[ignore]
-fn need_tests_for_diff_switch_in_non_ecl() {
-    panic!()
-}

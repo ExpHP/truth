@@ -1,0 +1,11 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: difficulty is not supported in this format
+   ┌─ <input>:28:5
+   │
+28 │     {"012"}: int x = 1;
+   │     ^^^^^^^^ difficulty label
+
+
