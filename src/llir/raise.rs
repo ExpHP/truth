@@ -9,7 +9,7 @@ use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
-use crate::resolve::{RegId};
+use crate::resolve::{RegId, IdMap};
 use crate::context::{self, Defs, CompilerContext};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
@@ -98,6 +98,14 @@ pub struct Raiser<'a> {
     emitter_for_abi_warnings: &'a context::RootEmitter,
     options: &'a DecompileOptions,
     intrinsic_instrs: IntrinsicInstrs,
+    item_names: ItemNames,
+}
+
+#[derive(Default)]
+struct ItemNames {
+    anm_sprites: IdMap<i32, Ident>,
+    anm_scripts: IdMap<i32, Ident>,
+    ecl_subs: IdMap<i32, Ident>,
 }
 
 impl Drop for Raiser<'_> {
@@ -123,7 +131,23 @@ impl<'a> Raiser<'a> {
                 false => Default::default(),
             },
             options,
+            item_names: Default::default(),
         })
+    }
+
+    /// Set names for raising ANM sprite arguments.
+    pub fn add_anm_sprite_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
+        self.item_names.anm_sprites.extend(names)
+    }
+
+    /// Set names for raising ANM script arguments.
+    pub fn add_anm_script_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
+        self.item_names.anm_scripts.extend(names)
+    }
+
+    /// Set names for raising ECL sub calls.
+    pub fn add_ecl_sub_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
+        self.item_names.ecl_subs.extend(names)
     }
 
     pub fn raise_instrs_to_sub_ast(
@@ -175,10 +199,12 @@ fn _raise_instrs_to_sub_ast(
     let &end_offset = instr_offsets.last().expect("n + 1 offsets so there's always at least one");
     let intrinsic_instrs = &raiser.intrinsic_instrs;
     SingleSubRaiser {
-        emitter, hooks, end_offset, offset_labels, intrinsic_instrs,
+        hooks, end_offset, offset_labels, intrinsic_instrs,
+        language: hooks.language(),
         defs: &ctx.defs,
         diff_flag_names: &ctx.diff_flag_names,
-    }.raise_instrs(&script)
+        item_names: &raiser.item_names,
+    }.raise_instrs(emitter, &script)
 }
 
 /// Type containing all sorts of info about the current sub so that functions involved in
@@ -189,14 +215,16 @@ struct SingleSubRaiser<'a> {
     offset_labels: &'a BTreeMap<raw::BytePos, Label>,
     intrinsic_instrs: &'a IntrinsicInstrs,
     hooks: &'a dyn LanguageHooks,
-    emitter: &'a dyn Emitter,
+    language: LanguageKey,
     defs: &'a context::Defs,
     diff_flag_names: &'a DiffFlagNames,
+    item_names: &'a ItemNames,
+    // NOTE: No Emitter because the chain methods are used to add contextual info.
 }
 
 /// Methods where all of the fallback logic concerning diff switches and intrinsics is implemented.
 impl SingleSubRaiser<'_> {
-    fn raise_instrs(&self, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+    fn raise_instrs(&self, emitter: &impl Emitter, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut out = vec![];
         let mut label_gen = LabelEmitter::new(self.offset_labels, self.diff_flag_names);
         let mut remaining_instrs = script;
@@ -207,14 +235,14 @@ impl SingleSubRaiser<'_> {
             if let Some(compressed_instr) = try_compress_instr(remaining_instrs, |offset| self.offset_labels.contains_key(&offset)) {
                 let args = compressed_instr.args.decoded().expect("a blob wouldn't have compressed");
 
-                match self.try_raise_single_instr_intrinsic(&compressed_instr, args) {
+                match self.try_raise_single_instr_intrinsic(emitter, &compressed_instr, args) {
                     Ok(raised_intrinsic) => {
                         // if this returned Ok, then whether its an intrinsic or not, we're going to emit it
                         label_gen.emit_labels_for_instr(&mut out, &compressed_instr);
                         out.push(self.make_stmt(compressed_instr.difficulty_mask, match raised_intrinsic {
                             Some(kind) => kind,
                             // if it wasn't an intrinsic, fall back to `ins_` syntax
-                            None => self.raise_raw_ins(&compressed_instr, args)?,
+                            None => self.raise_raw_ins(emitter, &compressed_instr, args)?,
                         }));
                         remaining_instrs = &remaining_instrs[compressed_instr.num_instrs_compressed()..];
                         continue 'instr;
@@ -233,7 +261,7 @@ impl SingleSubRaiser<'_> {
             // Was it a blob?
             let args_1 = match &instr_1.args {
                 RaiseArgs::Unknown(blob_data) => {
-                    let kind = raise_unknown_instr(self.hooks.language(), &instr_1, blob_data)?;
+                    let kind = raise_unknown_instr(self.language, &instr_1, blob_data)?;
                     out.push(self.make_stmt(instr_1.difficulty_mask, kind));
                     remaining_instrs = &remaining_instrs[1..];
                     continue;
@@ -247,7 +275,7 @@ impl SingleSubRaiser<'_> {
                 let instr_2 = CompressedInstr::from_single(&remaining_instrs[1]);
                 if let RaiseArgs::Decoded(args_2) = &instr_2.args {
                     if !label_gen.would_emit_labels(&instr_2) && instr_1.difficulty_mask == instr_2.difficulty_mask {
-                        if let Some(kind) = self.try_raise_double_instr_intrinsic(&instr_1, &instr_2, args_1, args_2)? {
+                        if let Some(kind) = self.try_raise_double_instr_intrinsic(emitter, &instr_1, &instr_2, args_1, args_2)? {
                             // Success! It's a two-instruction intrinsic.
                             out.push(self.make_stmt(instr_1.difficulty_mask, kind));
                             remaining_instrs = &remaining_instrs[2..];
@@ -257,11 +285,11 @@ impl SingleSubRaiser<'_> {
                 }
             }
 
-            match self.try_raise_single_instr_intrinsic(&instr_1, args_1) {
+            match self.try_raise_single_instr_intrinsic(emitter, &instr_1, args_1) {
                 Ok(raised_intrinsic) => {
                     out.push(self.make_stmt(instr_1.difficulty_mask, match raised_intrinsic {
                         Some(kind) => kind,
-                        None => self.raise_raw_ins(&instr_1, args_1)?,
+                        None => self.raise_raw_ins(emitter, &instr_1, args_1)?,
                     }));
                     remaining_instrs = &remaining_instrs[1..];
                     continue 'instr;
@@ -584,12 +612,12 @@ impl CompressedInstr {
 // =============================================================================
 
 macro_rules! ensure {
-    ($emitter:ident, $cond:expr, $($arg:tt)+) => {
+    ($emitter:expr, $cond:expr, $($arg:tt)+) => {
         if !$cond { return Err($emitter.emit(error!($($arg)+))); }
     };
 }
 macro_rules! warn_unless {
-    ($emitter:ident, $cond:expr, $($arg:tt)+) => {
+    ($emitter:expr, $cond:expr, $($arg:tt)+) => {
         if !$cond { $emitter.emit(warning!($($arg)+)).ignore(); }
     };
 }
@@ -646,6 +674,7 @@ impl From<ErrorReported> for RaiseIntrinsicError {
 impl SingleSubRaiser<'_> {
     fn try_raise_single_instr_intrinsic(
         &self,
+        emitter: &impl Emitter,
         instr: &CompressedInstr,
         args: &[CompressedArg],
     ) -> Result<Option<ast::StmtKind>, RaiseIntrinsicError> {
@@ -656,8 +685,8 @@ impl SingleSubRaiser<'_> {
             None => return Ok(None), // not an intrinsic!
         };
 
-        let mut parts = self.emitter.as_sized().chain_with(|f| write!(f, "while decompiling a {}", kind.heavy_descr()), |emitter| {
-            RaisedIntrinsicParts::from_instr(instr, args, abi, abi_info, emitter, self.hooks, self.offset_labels)
+        let mut parts = emitter.chain_with(|f| write!(f, "while decompiling a {}", kind.heavy_descr()), |emitter| {
+            self.raise_intrinsic_parts(emitter, instr, args, abi, abi_info)
         })?;
 
         match kind {
@@ -693,7 +722,7 @@ impl SingleSubRaiser<'_> {
                 let interrupt = parts.plain_args.next().unwrap();
                 let interrupt = sp!(Span::NULL => interrupt.as_const_int().ok_or_else(|| {
                     assert!(matches!(interrupt, ast::Expr::Var { .. }));
-                    self.emitter.as_sized().emit(error!("unexpected register in interrupt label"))
+                    emitter.emit(error!("unexpected register in interrupt label"))
                 })?);
                 Ok(Some(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #interrupt))))
             },
@@ -744,6 +773,7 @@ impl SingleSubRaiser<'_> {
     /// Try to raise an intrinsic that is two instructions long.
     fn try_raise_double_instr_intrinsic(
         &self,
+        emitter: &impl Emitter,
         instr_1: &CompressedInstr,
         instr_2: &CompressedInstr,
         args_1: &[CompressedArg],
@@ -758,9 +788,9 @@ impl SingleSubRaiser<'_> {
         match self.intrinsic_instrs.get_intrinsic_and_props(instr_1.opcode) {
             Some((IKind::CondJmp2A(_), abi_info_1)) => match self.intrinsic_instrs.get_intrinsic_and_props(instr_2.opcode) {
                 Some((IKind::CondJmp2B(op), abi_info_2)) => {
-                    self.emitter.as_sized().chain("while decompiling a two-step conditional jump", |emitter| {
+                    emitter.chain("while decompiling a two-step conditional jump", |emitter| {
                         let raise_parts = |instr, args, abi, abi_info| {
-                            RaisedIntrinsicParts::from_instr(instr, args, abi, abi_info, emitter, self.hooks, self.offset_labels)
+                            self.raise_intrinsic_parts(emitter, instr, args, abi, abi_info)
                         };
                         // FIXME needstest (diff switch)
                         let mut cmp_parts = match raise_parts(instr_1, args_1, abi_1, abi_info_1) {
@@ -792,6 +822,7 @@ impl SingleSubRaiser<'_> {
     /// Raise an instr to raw `ins_` syntax, with decoded args.
     fn raise_raw_ins(
         &self,
+        emitter: &impl Emitter,
         instr: &CompressedInstr,
         args: &[CompressedArg],  // args decoded from the blob
     ) -> Result<ast::StmtKind, ErrorReported> {
@@ -800,7 +831,7 @@ impl SingleSubRaiser<'_> {
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
         if args.len() != encodings.len() {
-            return Err(self.emitter.as_sized().emit(error!(
+            return Err(emitter.emit(error!(
                 "provided arg count ({}) does not match mapfile ({})", args.len(), encodings.len(),
             )));
         }
@@ -831,8 +862,8 @@ impl SingleSubRaiser<'_> {
         };
 
         let mut raised_args = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
-            self.emitter.as_sized().chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
-                Ok(sp!(raise_compressed(language, emitter, &arg, enc, dest_label.as_deref())?))
+            emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
+                Ok(sp!(self.raise_compressed(emitter, &arg, enc, dest_label.as_deref())?))
             })
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
@@ -895,150 +926,151 @@ fn raise_compressed_with<E>(
     }
 }
 
-fn raise_compressed(
-    language: LanguageKey,
-    emitter: &impl Emitter,
-    arg: &CompressedArg,
-    enc: ArgEncoding,
-    dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
-) -> Result<ast::Expr, ErrorReported> {
-    raise_compressed_with(arg, |case_index, raw| {
-        let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
-        raise_arg(language, emitter, raw, enc, case_dest_label)
-    })
-}
-
-/// General argument-raising routine that supports registers and uses the encoding in the ABI
-/// to possibly guide how to express the output. This is what is used for e.g. args in `ins_` syntax.
-fn raise_arg(
-    language: LanguageKey,
-    emitter: &impl Emitter,
-    raw: &SimpleArg,
-    enc: ArgEncoding,
-    dest_label: Option<Result<&Label, IllegalOffset>>,
-) -> Result<ast::Expr, ErrorReported> {
-    if raw.is_reg {
-        Ok(ast::Expr::Var(sp!(raise_arg_to_reg(language, emitter, raw, enc, abi_parts::OutputArgMode::Natural)?)))
-    } else {
-        raise_arg_to_literal(emitter, raw, enc, dest_label)
+impl SingleSubRaiser<'_> {
+    fn raise_compressed(
+        &self,
+        emitter: &impl Emitter,
+        arg: &CompressedArg,
+        enc: ArgEncoding,
+        dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
+    ) -> Result<ast::Expr, ErrorReported> {
+        raise_compressed_with(arg, |case_index, raw| {
+            let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
+            self.raise_arg(emitter, raw, enc, case_dest_label)
+        })
     }
-}
 
-#[allow(unused)] // FIXME: should be used once jump time can be exprs
-fn raise_compressed_to_literal(
-    emitter: &impl Emitter,
-    arg: &CompressedArg,
-    enc: ArgEncoding,
-    dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
-) -> Result<ast::Expr, ErrorReported> {
-    raise_compressed_with(arg, |case_index, raw| {
-        let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
-        raise_arg_to_literal(emitter, raw, enc, case_dest_label)
-    })
-}
-
-/// Raise an immediate arg, using the encoding to guide the formatting of the output.
-fn raise_arg_to_literal(
-    emitter: &impl Emitter,
-    raw: &SimpleArg,
-    enc: ArgEncoding,
-    dest_label: Option<Result<&Label, IllegalOffset>>,
-) -> Result<ast::Expr, ErrorReported> {
-    ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
-
-    match enc {
-        | ArgEncoding::Padding
-        | ArgEncoding::Word
-        | ArgEncoding::Dword
-        | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
-        | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
-        => Ok(ast::Expr::from(raw.expect_int())),
-
-        | ArgEncoding::Sprite
-        => match raw.expect_int() {
-            -1 => Ok(ast::Expr::from(-1)),
-            id => {
-                let const_ident = ResIdent::new_null(crate::formats::anm::auto_sprite_name(id as _));
-                let name = ast::VarName::new_non_reg(const_ident);
-                Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
-            },
-        },
-
-        | ArgEncoding::Script
-        => {
-            let const_ident = ResIdent::new_null(crate::formats::anm::auto_script_name(raw.expect_int() as _));
-            let name = ast::VarName::new_non_reg(const_ident);
-            Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
-        },
-
-        | ArgEncoding::Sub
-        | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
-        => {
-            let const_ident = ResIdent::new_null(crate::formats::ecl::auto_sub_name(raw.expect_int() as _));
-            let name = ast::VarName::new_non_reg(const_ident);
-            Ok(ast::Expr::Var(sp!(ast::Var { name, ty_sigil: None })))
+    /// General argument-raising routine that supports registers and uses the encoding in the ABI
+    /// to possibly guide how to express the output. This is what is used for e.g. args in `ins_` syntax.
+    fn raise_arg(
+        &self,
+        emitter: &impl Emitter,
+        raw: &SimpleArg,
+        enc: ArgEncoding,
+        dest_label: Option<Result<&Label, IllegalOffset>>,
+    ) -> Result<ast::Expr, ErrorReported> {
+        if raw.is_reg {
+            Ok(ast::Expr::Var(sp!(self.raise_arg_to_reg(emitter, raw, enc, abi_parts::OutputArgMode::Natural)?)))
+        } else {
+            self.raise_arg_to_literal(emitter, raw, enc, dest_label)
         }
+    }
 
-        | ArgEncoding::Color
-        => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
+    #[allow(unused)] // FIXME: should be used once jump time can be exprs
+    fn raise_compressed_to_literal(
+        &self,
+        emitter: &impl Emitter,
+        arg: &CompressedArg,
+        enc: ArgEncoding,
+        dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
+    ) -> Result<ast::Expr, ErrorReported> {
+        raise_compressed_with(arg, |case_index, raw| {
+            let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
+            self.raise_arg_to_literal(emitter, raw, enc, case_dest_label)
+        })
+    }
 
-        | ArgEncoding::Float
-        => Ok(ast::Expr::from(raw.expect_float())),
+    /// Raise an immediate arg, using the encoding to guide the formatting of the output.
+    fn raise_arg_to_literal(
+        &self,
+        emitter: &impl Emitter,
+        raw: &SimpleArg,
+        enc: ArgEncoding,
+        dest_label: Option<Result<&Label, IllegalOffset>>,
+    ) -> Result<ast::Expr, ErrorReported> {
+        ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
 
-        | ArgEncoding::String { .. }
-        => Ok(ast::Expr::from(raw.expect_string().clone())),
+        match enc {
+            | ArgEncoding::Padding
+            | ArgEncoding::Word
+            | ArgEncoding::Dword
+            | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
+            | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
+            => Ok(ast::Expr::from(raw.expect_int())),
 
-        | ArgEncoding::JumpTime
-        => match dest_label {
-            | Some(Ok(Label { time_label, label })) if *time_label == raw.expect_int()
-            => Ok(ast::Expr::LabelProperty { label: sp!(label.clone()), keyword: sp!(token![timeof]) }),
+            | ArgEncoding::Sprite
+            => Ok(raise_to_possibly_named_constant(&self.item_names.anm_sprites, raw.expect_int())),
 
-            _ => Ok(ast::Expr::from(raw.expect_int())),
-        },
+            | ArgEncoding::Script
+            => Ok(raise_to_possibly_named_constant(&self.item_names.anm_scripts, raw.expect_int())),
 
-        | ArgEncoding::JumpOffset
-        => match dest_label.unwrap() {
-            | Ok(Label { label, .. })
-            => Ok(ast::Expr::LabelProperty { label: sp!(label.clone()), keyword: sp!(token![offsetof]) }),
+            | ArgEncoding::Sub
+            | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
+            => Ok(raise_to_possibly_named_constant(&self.item_names.ecl_subs, raw.expect_int())),
 
-            | Err(IllegalOffset) => {
-                emitter.emit(warning!("invalid offset in a jump instruction")).ignore();
-                Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex })
+            | ArgEncoding::Color
+            => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
+
+            | ArgEncoding::Float
+            => Ok(ast::Expr::from(raw.expect_float())),
+
+            | ArgEncoding::String { .. }
+            => Ok(ast::Expr::from(raw.expect_string().clone())),
+
+            | ArgEncoding::JumpTime
+            => match dest_label {
+                | Some(Ok(Label { time_label, label })) if *time_label == raw.expect_int()
+                => Ok(ast::Expr::LabelProperty { label: sp!(label.clone()), keyword: sp!(token![timeof]) }),
+
+                _ => Ok(ast::Expr::from(raw.expect_int())),
             },
-        },
+
+            | ArgEncoding::JumpOffset
+            => match dest_label.unwrap() {
+                | Ok(Label { label, .. })
+                => Ok(ast::Expr::LabelProperty { label: sp!(label.clone()), keyword: sp!(token![offsetof]) }),
+
+                | Err(IllegalOffset) => {
+                    emitter.emit(warning!("invalid offset in a jump instruction")).ignore();
+                    Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex })
+                },
+            },
+        }
+    }
+
+    fn raise_arg_to_reg(
+        &self,
+        emitter: &impl Emitter,
+        raw: &SimpleArg,
+        encoding: ArgEncoding,
+        // ty: ScalarType,
+        // FIXME: feels out of place.  But basically, the only place where the type of the raised
+        //        variable can have a different type from its storage is in some intrinsics, yet the logic
+        //        for dealing with these is otherwise the same as regs in non-intrinsics.
+        storage_mode: abi_parts::OutputArgMode,
+    ) -> Result<ast::Var, ErrorReported> {
+        ensure!(emitter, raw.is_reg, "expected a variable, got an immediate");
+
+        let storage_ty_sigil = encoding.expr_type().sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
+        let ast_ty_sigil = match storage_mode {
+            abi_parts::OutputArgMode::FloatAsInt => ast::VarSigil::Float,
+            abi_parts::OutputArgMode::Natural => storage_ty_sigil,
+        };
+        let reg = match storage_ty_sigil {
+            ast::VarSigil::Int => RegId(raw.expect_int()),
+            ast::VarSigil::Float => {
+                let float_reg = raw.expect_float();
+                if float_reg != f32::round(float_reg) {
+                    return Err(emitter.emit(error!("non-integer float variable %REG[{}] in binary file!", float_reg)));
+                }
+                RegId(float_reg as i32)
+            },
+        };
+        let name = ast::VarName::Reg { reg, language: Some(self.language) };
+        Ok(ast::Var { ty_sigil: Some(ast_ty_sigil), name })
     }
 }
 
-fn raise_arg_to_reg(
-    language: LanguageKey,
-    emitter: &impl Emitter,
-    raw: &SimpleArg,
-    encoding: ArgEncoding,
-    // ty: ScalarType,
-    // FIXME: feels out of place.  But basically, the only place where the type of the raised
-    //        variable can have a different type from its storage is in some intrinsics, yet the logic
-    //        for dealing with these is otherwise the same as regs in non-intrinsics.
-    storage_mode: abi_parts::OutputArgMode,
-) -> Result<ast::Var, ErrorReported> {
-    ensure!(emitter, raw.is_reg, "expected a variable, got an immediate");
-
-    let storage_ty_sigil = encoding.expr_type().sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
-    let ast_ty_sigil = match storage_mode {
-        abi_parts::OutputArgMode::FloatAsInt => ast::VarSigil::Float,
-        abi_parts::OutputArgMode::Natural => storage_ty_sigil,
-    };
-    let reg = match storage_ty_sigil {
-        ast::VarSigil::Int => RegId(raw.expect_int()),
-        ast::VarSigil::Float => {
-            let float_reg = raw.expect_float();
-            if float_reg != f32::round(float_reg) {
-                return Err(emitter.emit(error!("non-integer float variable %REG[{}] in binary file!", float_reg)));
-            }
-            RegId(float_reg as i32)
+fn raise_to_possibly_named_constant(names: &IdMap<i32, Ident>, id: i32) -> ast::Expr {
+    match names.get(&id) {
+        Some(ident) => {
+            let const_ident = ResIdent::new_null(ident.clone());
+            let name = ast::VarName::new_non_reg(const_ident);
+            let var = ast::Var { ty_sigil: None, name };
+            ast::Expr::Var(sp!(var))
         },
-    };
-    let name = ast::VarName::Reg { reg, language: Some(language) };
-    Ok(ast::Var { ty_sigil: Some(ast_ty_sigil), name })
+        None => id.into(),
+    }
 }
 
 /// Result of raising an intrinsic's arguments.
@@ -1052,16 +1084,15 @@ struct RaisedIntrinsicParts {
     plain_args: std::vec::IntoIter<ast::Expr>,
 }
 
-impl RaisedIntrinsicParts {
-    fn from_instr(
+impl SingleSubRaiser<'_> {
+    fn raise_intrinsic_parts(
+        &self,
+        emitter: &impl Emitter,
         instr: &CompressedInstr,
         args: &[CompressedArg],
         abi: &InstrAbi,
         abi_parts: &IntrinsicInstrAbiParts,
-        emitter: &impl Emitter,
-        hooks: &dyn LanguageHooks,
-        offset_labels: &BTreeMap<u64, Label>,
-    ) -> Result<Self, RaiseIntrinsicError> {
+    ) -> Result<RaisedIntrinsicParts, RaiseIntrinsicError> {
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
         let IntrinsicInstrAbiParts {
             num_instr_args: _, padding: ref padding_info, outputs: ref outputs_info,
@@ -1098,8 +1129,8 @@ impl RaisedIntrinsicParts {
             // we don't allow diff switches for the label so we only need the first offset
             let instr_offset = instr.offset[0].unwrap();
 
-            let label_offset = hooks.decode_label(instr_offset, require_no_diff_switch!(offset_arg).expect_immediate_int() as u32);
-            let label = &offset_labels[&label_offset];
+            let label_offset = self.hooks.decode_label(instr_offset, require_no_diff_switch!(offset_arg).expect_immediate_int() as u32);
+            let label = &self.offset_labels[&label_offset];
             jump = Some(ast::StmtGoto {
                 destination: sp!(label.label.clone()),
                 time: match time_arg {
@@ -1116,22 +1147,22 @@ impl RaisedIntrinsicParts {
         if let &Some(index) = sub_id_info {
             // FIXME: What if the index is invalid?  It'd be nice to fall back to raw instruction syntax...
             let sub_index = require_no_diff_switch!(&args[index]).expect_immediate_int() as _;
-            let ident = ResIdent::new_null(crate::ecl::auto_sub_name(sub_index));
-            let name = ast::CallableName::Normal { ident, language_if_ins: Some(hooks.language()) };
+            let ident = ResIdent::new_null(self.item_names.ecl_subs[&sub_index].clone());
+            let name = ast::CallableName::Normal { ident, language_if_ins: Some(self.language) };
             sub_id = Some(name);
         }
 
         let mut outputs = vec![];
         for &(index, mode) in outputs_info {
             let arg = require_no_diff_switch!(&args[index]);
-            let var = raise_arg_to_reg(hooks.language(), emitter, arg, encodings[index], mode)?;
+            let var = self.raise_arg_to_reg(emitter, arg, encodings[index], mode)?;
             outputs.push(var);
         }
 
         let mut plain_args = vec![];
         for &index in plain_args_info {
             let dest_label = None;  // offset and time are not plain args so this is irrelevant
-            let expr = raise_compressed(hooks.language(), emitter, &args[index], encodings[index], dest_label)?;
+            let expr = self.raise_compressed(emitter, &args[index], encodings[index], dest_label)?;
             plain_args.push(expr);
         }
         Ok(RaisedIntrinsicParts { jump, sub_id, outputs: outputs.into_iter(), plain_args: plain_args.into_iter() })

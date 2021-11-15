@@ -53,7 +53,7 @@ pub fn read_anm(
 
     let binary_filename = Some(reader.display_filename().to_string());
     let mut anm = AnmFile { entries, binary_filename };
-    strip_unnecessary_sprite_ids(&mut anm);
+    super::strip_unnecessary_sprite_ids(&mut anm);
     Ok(anm)
 }
 
@@ -178,19 +178,6 @@ fn read_entry(
 }
 
 enum ControlFlow { Stop, Continue }
-
-fn strip_unnecessary_sprite_ids(anm: &mut AnmFile) {
-    let mut next_auto_sprite_id = 0;
-    for entry in &mut anm.entries {
-        for sprite in entry.sprites.values_mut() {
-            let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
-            if actual_id == next_auto_sprite_id {
-                sprite.id = None;
-            }
-            next_auto_sprite_id = actual_id + 1;
-        }
-    }
-}
 
 // =============================================================================
 

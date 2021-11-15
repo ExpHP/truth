@@ -76,6 +76,8 @@ fn decompile(
 
     // Decompile bodies of ECL subs
     let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
+    sub_raiser.add_ecl_sub_names((0..ecl.subs.len()).map(|i| (i as i32, ecl.subs.get_index(i).unwrap().0.clone())));
+
     let mut decompiled_subs = IndexMap::new();
     for (ident, instrs) in ecl.subs.iter() {
         decompiled_subs.insert(ident.clone(), ast::Block({
@@ -347,7 +349,7 @@ fn read_olde_ecl(
     Ok(OldeEclFile { subs, timelines, binary_filename })
 }
 
-pub fn auto_sub_name(i: u32) -> Ident {
+fn auto_sub_name(i: u32) -> Ident {
     format!("sub{}", i).parse::<Ident>().unwrap()
 }
 

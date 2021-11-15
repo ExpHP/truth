@@ -474,3 +474,60 @@ script 101 another {}
         assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![2]);
     },
 );
+
+source_test!(
+    ANM_12, decompile_nonexistent_ids,
+    full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {
+        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 0},
+        sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite2: {x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+        sprite10: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 10},
+        sprite11: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 11},
+    },
+}
+
+script script0 {}
+script script1 {}
+script script2 {}
+script script3 {
+    scriptNew(2);
+    scriptNew(4);
+    sprite(2);
+    sprite(5);
+}
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("ins_3(sprite2)"));
+        assert!(decompiled.contains("ins_3(5)")); // sprite5 doesn't exist
+
+        assert!(decompiled.contains("ins_88(script2)"));
+        assert!(decompiled.contains("ins_88(4)"));
+    },
+);
+
+source_test!(
+    ANM_12, decompile_double_id,
+    full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {
+        sprite0: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 10},
+        sprite1: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 10},
+    },
+}
+
+script script0 {}
+"#,
+    expect_decompile_warning: "appeared twice",
+);

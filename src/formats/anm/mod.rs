@@ -458,6 +458,11 @@ fn decompile(
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let mut items = vec![];
     let mut raiser = llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
+
+    let num_scripts: usize = anm_file.entries.iter().map(|entry| entry.scripts.len()).sum();
+    raiser.add_anm_script_names((0..num_scripts).map(|i| (i as _, auto_script_name(i as _))));
+    raiser.add_anm_sprite_names(all_sprite_ids(anm_file).into_iter().map(|i| (i as _, auto_sprite_name(i as _))));
+
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
@@ -492,10 +497,10 @@ fn decompile(
     Ok(out)
 }
 
-pub fn auto_sprite_name(i: u32) -> Ident {
+fn auto_sprite_name(i: u32) -> Ident {
     format!("sprite{}", i).parse::<Ident>().unwrap()
 }
-pub fn auto_script_name(i: u32) -> Ident {
+fn auto_script_name(i: u32) -> Ident {
     format!("script{}", i).parse::<Ident>().unwrap()
 }
 
@@ -1026,6 +1031,32 @@ fn gather_script_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result
         }
     }
     Ok(script_ids)
+}
+
+fn strip_unnecessary_sprite_ids(anm: &mut AnmFile) {
+    let mut next_auto_sprite_id = 0;
+    for entry in &mut anm.entries {
+        for sprite in entry.sprites.values_mut() {
+            let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
+            if actual_id == next_auto_sprite_id {
+                sprite.id = None;
+            }
+            next_auto_sprite_id = actual_id + 1;
+        }
+    }
+}
+
+fn all_sprite_ids(anm: &AnmFile) -> Vec<u32> {
+    let mut out = vec![];
+    let mut next_auto_sprite_id = 0;
+    for entry in &anm.entries {
+        for sprite in entry.sprites.values() {
+            let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
+            next_auto_sprite_id = actual_id + 1;
+            out.push(actual_id);
+        }
+    }
+    out
 }
 
 // =============================================================================
