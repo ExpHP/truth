@@ -70,6 +70,18 @@ impl fmt::Display for ScalarValue {
     }
 }
 
+impl From<i32> for ScalarValue {
+    fn from(x: i32) -> Self { ScalarValue::Int(x) }
+}
+
+impl From<f32> for ScalarValue {
+    fn from(x: f32) -> Self { ScalarValue::Float(x) }
+}
+
+impl From<String> for ScalarValue {
+    fn from(x: String) -> Self { ScalarValue::String(x) }
+}
+
 // =============================================================================
 
 /// The type of a value.

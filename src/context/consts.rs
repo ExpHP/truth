@@ -5,7 +5,7 @@ use crate::error::{ErrorReported};
 use crate::diagnostic::{Diagnostic, RootEmitter};
 use crate::pos::{Sp, Span};
 use crate::resolve::{DefId, Resolutions};
-use crate::context::Defs;
+use crate::context::defs::{self, Defs};
 use crate::value::ScalarValue;
 
 /// Orchestrates the evaluation of all `const` variables, and caches their values.
@@ -130,14 +130,21 @@ impl<'a> Evaluator<'a> {
             )));
         }
 
-        let expr = {
-            // NOTE: this clone might seem unfortunate but there's some tricky borrowck issues without it
-            self.defs.var_const_expr(def_id).cloned()
+        let (expr_loc, expr) = {
+            self.defs.var_const_expr(def_id)
                 .ok_or_else(|| {
                     // if we get here, we must have encountered a non-const variable inside a const's definition
                     self.non_const_error(use_span.expect("must be in another const's definition"))
                 })?
         };
+        let expr_span = match expr_loc {
+            defs::ConstExprLoc::Span(span) => span,
+            defs::ConstExprLoc::Builtin => Span::NULL,  // there's no way _const_eval will fail on a builtin const
+        };
+        // NOTE: this clone might seem unfortunate but there's some tricky borrowck issues without it.
+        // Also we have to add a span now.
+        let expr = sp!(expr_span => expr.clone());
+
         self.eval_stack.push(def_id);
         let value = self._const_eval(&expr)?;
         self.eval_stack.pop();

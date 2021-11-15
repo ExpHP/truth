@@ -11,8 +11,11 @@ use crate::game::LanguageKey;
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, rib};
 use crate::mapfile::Mapfile;
-use crate::value::{ScalarType, VarType, ExprType};
+use crate::value::{ScalarValue, ScalarType, VarType, ExprType};
 use crate::llir::{InstrAbi, IntrinsicInstrKind};
+
+/// Bit representation of the NAN constant in the compiler.
+pub const CANONICAL_NAN_BITS: u32 = 0x7FC0_0000;
 
 /// Retains information about all definitions in the program.
 ///
@@ -44,6 +47,8 @@ pub struct Defs {
     ins_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
     /// One of the initial ribs for name resolution, containing consts from meta.
     auto_const_rib: rib::Rib,
+    /// One of the initial ribs for name resolution, containing consts like INF.
+    builtin_const_rib: rib::Rib,
 
     /// Intrinsics from mapfiles.
     user_defined_intrinsics: EnumMap<LanguageKey, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
@@ -65,6 +70,7 @@ impl Default for Defs {
             reg_alias_ribs: enum_map![language => Rib::new(Namespace::Vars, RibKind::Mapfile { language })],
             ins_alias_ribs: enum_map![language => Rib::new(Namespace::Funcs, RibKind::Mapfile { language })],
             auto_const_rib: Rib::new(Namespace::Vars, RibKind::Generated),
+            builtin_const_rib: Rib::new(Namespace::Vars, RibKind::BuiltinConsts),
             user_defined_intrinsics: enum_map![_ => Default::default()],
         }
     }
@@ -134,6 +140,20 @@ impl CompilerContext<'_> {
         if let Err(old) = self.defs.auto_const_rib.insert(ident.clone(), def_id) {
             self.consts.defer_equality_check(self.defs.auto_const_rib.noun(), old.def_id, def_id);
         }
+        def_id
+    }
+
+    /// Define a const like `INF`.
+    pub fn define_builtin_const_var(&mut self, ident: Ident, value: ScalarValue) -> DefId {
+        let ident = self.resolutions.attach_fresh_res(ident);
+        let def_id = self.create_new_def_id(&ident);
+
+        self.defs.vars.insert(def_id, VarData {
+            ty: Some(VarType::Typed(value.ty())),
+            kind: VarKind::BuiltinConst { ident: ident.clone(), expr: value.into() },
+        });
+        self.defs.builtin_const_rib.insert(sp!(ident.clone()), def_id).expect("redefinition of builtin");
+        self.consts.defer_evaluation_of(def_id);
         def_id
     }
 
@@ -288,6 +308,7 @@ impl Defs {
             VarData { kind: VarKind::RegisterAlias { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::Local { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::Const { ref ident, .. }, .. } => ident,
+            VarData { kind: VarKind::BuiltinConst { ref ident, .. }, .. } => ident,
         }
     }
 
@@ -360,6 +381,7 @@ impl Defs {
             VarData { kind: VarKind::RegisterAlias { .. }, .. } => None,
             VarData { kind: VarKind::Local { ident, .. }, .. } => Some(ident.span),
             VarData { kind: VarKind::Const { ident, .. }, .. } => Some(ident.span),
+            VarData { kind: VarKind::BuiltinConst { .. }, .. } => None,
         }
     }
 
@@ -393,15 +415,22 @@ impl Defs {
     /// # Panics
     ///
     /// Panics if the ID does not correspond to a variable.
-    pub fn var_const_expr(&self, def_id: DefId) -> Option<&Sp<ast::Expr>> {
+    pub fn var_const_expr(&self, def_id: DefId) -> Option<(ConstExprLoc, &ast::Expr)> {
         match &self.vars[&def_id] {
-            VarData { kind: VarKind::Const { expr, .. }, .. } => Some(expr),
+            VarData { kind: VarKind::Const { expr, .. }, .. } => Some((ConstExprLoc::Span(expr.span), &expr.value)),
+            VarData { kind: VarKind::BuiltinConst { expr, .. }, .. } => Some((ConstExprLoc::Builtin, expr)),
             _ => None,
         }
     }
 }
 
 impl CompilerContext<'_> {
+    pub fn add_builtin_consts(&mut self) {
+        self.define_builtin_const_var("NAN".parse().unwrap(), f32::from_bits(CANONICAL_NAN_BITS).into());
+        self.define_builtin_const_var("INF".parse().unwrap(), f32::INFINITY.into());
+        self.define_builtin_const_var("PI".parse().unwrap(), core::f32::consts::PI.into());
+    }
+
     /// Add info from a mapfile.
     ///
     /// Its path (if one is provided) is recorded in order to emit import directives into a decompiled script file.
@@ -462,7 +491,7 @@ impl CompilerContext<'_> {
             let kind = sp!(kind_str.span => kind_str.parse().map_err(|e| {
                 emitter.emit(error!(
                     message("invalid intrinsic name: {}", e),
-                    primary(kind_str, "{}", e)
+                    primary(kind_str, "{}", e),
                 ))
             })?);
             self.defs.add_user_intrinsic(mapfile.language, opcode as _, kind);
@@ -493,6 +522,7 @@ impl Defs {
         let mut vec = vec![];
         vec.extend(self.ins_alias_ribs.values().cloned());
         vec.extend(self.reg_alias_ribs.values().cloned());
+        vec.push(self.builtin_const_rib.clone());
         vec.push(self.auto_const_rib.clone());
         vec
     }
@@ -538,10 +568,24 @@ enum VarKind {
         /// NOTE: For auto-generated temporaries, the span may point to their expression instead.
         ident: Sp<ResIdent>,
     },
+    BuiltinConst {
+        ident: ResIdent,
+        expr: ast::Expr,
+    },
     Const {
         ident: Sp<ResIdent>,
         expr: Sp<ast::Expr>,
-    }
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstExprLoc {
+    Span(Span),  // string in a mapfile
+    Builtin,
+}
+
+impl From<Span> for ConstExprLoc {
+    fn from(s: Span) -> Self { ConstExprLoc::Span(s) }
 }
 
 #[derive(Debug, Clone)]

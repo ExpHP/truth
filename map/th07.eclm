@@ -6,7 +6,7 @@
 0 nop
 1 delete
 2 jump
-3 loop
+3 jump_dec
 4 set_int
 5 set_float
 6 set_int_rand_bound

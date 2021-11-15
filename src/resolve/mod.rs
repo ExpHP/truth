@@ -462,6 +462,9 @@ pub mod rib {
         /// A set of names generated from e.g. meta.
         Generated,
 
+        /// Implicitly-defined constants that are always available.
+        BuiltinConsts,
+
         /// An empty rib that's always first so that we don't need to justify
         DummyRoot,
     }
@@ -496,6 +499,7 @@ pub mod rib {
                 (RibKind::Mapfile { .. }, Namespace::Funcs) => "instruction alias",
                 (RibKind::Generated, Namespace::Vars) => "automatic const",
                 (RibKind::Generated, Namespace::Funcs) => "automatic func",
+                (RibKind::BuiltinConsts, _) => "builtin const",
 
                 (RibKind::LocalBarrier { .. }, ns) |
                 (RibKind::DummyRoot, ns) => panic!("noun called on {:?} {:?} rib", self, ns),

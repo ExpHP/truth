@@ -79,7 +79,7 @@ pub struct CompilerContext<'ctx> {
 
 impl<'ctx> CompilerContext<'ctx> {
     pub fn new(scope: &'ctx Scope) -> Self {
-        CompilerContext {
+        let mut ctx = CompilerContext {
             emitter: &scope.emitter,
             mapfiles: Default::default(),
             resolutions: Default::default(),
@@ -92,7 +92,9 @@ impl<'ctx> CompilerContext<'ctx> {
             unused_node_ids: UnusedIds::new(),
             unused_loop_ids: UnusedIds::new(),
             _make_invariant: Default::default(),
-        }
+        };
+        ctx.add_builtin_consts();
+        ctx
     }
 }
 

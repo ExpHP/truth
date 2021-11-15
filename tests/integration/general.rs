@@ -249,6 +249,35 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, builtin_consts_decomp,
+    main_body: r#"
+        F0 = INF;
+        F0 = -INF;
+        F0 = NAN;
+    "#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains("= INF;"));
+        assert!(decompiled.contains("= -INF;"));
+        assert!(decompiled.contains("= NAN;"));
+    },
+);
+
+source_test!(
+    ECL_06, builtin_consts_in_exprs,
+    main_body: r#"
+        F0 = 1.0 + INF;
+
+        const float Q = 1.0 + INF;
+        F1 = Q;
+    "#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(&ecl.subs[0][0].args_blob[4..], &blobify![f32::INFINITY][..]);
+        assert_eq!(&ecl.subs[0][1].args_blob[4..], &blobify![f32::INFINITY][..]);
+    },
+);
+
+source_test!(
     ANM_10, const_string_to_int,
     items: r#"
         const string x = "hi";

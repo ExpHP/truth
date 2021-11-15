@@ -13,6 +13,7 @@
 * **Natural call syntax for exported subs.**  `Sub0(10, 20.4);`
 * **Difficulty switches.**  `I0 = A + (3:4:4:5);`
 * **Difficulty flags.** `{"ENH"}: ins_10();`
+* **`INF`, `NAN`, `PI` constants.**
 * **`break` keyword.**  This exits the nearest surrounding loop.
 * **`offsetof(label)` and `timeof(label)` expressions.**  You can use these if you want to write a jump using `ins_` syntax or the instruction alias.  They'll also show up in contrived cases when decompiling an EoSD ECL file that uses conditional jumps in a funny way.
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
@@ -21,6 +22,7 @@
 
 * Allow detection of `if/elseif` chains that have no `else` block.
 * Many improvements to detection of `if/else`s and loops in general.
+* Decompiling sub/script/sprite names will fall back to raw integers if the corresponding items don't exist.
 
 ### Additions to mapfiles
 

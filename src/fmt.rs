@@ -1011,8 +1011,18 @@ impl Format for i32 {
 impl Format for f32 {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         let mut s = format!("{}", self);
-        if !s.contains('.') {
-            s.push_str(".0");
+        if self.is_finite() {
+            if !s.contains('.') {
+                s.push_str(".0");
+            }
+        } else if *self == f32::INFINITY {
+            s = "INF".to_string();
+        } else if *self == f32::NEG_INFINITY {
+            s = "-INF".to_string();
+        } else if self != self {
+            s = "NAN".to_string();
+        } else {
+            panic!("what on earth is this float? {}, {:#10X}", self, self.to_bits());
         }
         out.fmt(&s[..])
     }

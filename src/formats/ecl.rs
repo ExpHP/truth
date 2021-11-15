@@ -81,7 +81,9 @@ fn decompile(
     let mut decompiled_subs = IndexMap::new();
     for (ident, instrs) in ecl.subs.iter() {
         decompiled_subs.insert(ident.clone(), ast::Block({
-            sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
+            emitter.chain_with(|f| write!(f, "in {}", ident), |emitter| {
+                sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
+            })?
         }));
     }
 
@@ -657,7 +659,9 @@ impl LanguageHooks for OldeEclHooks {
 
     fn has_registers(&self) -> bool { true }
 
-    fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> { Some(0xFF) }
+    fn default_difficulty_mask(&self) -> Option<raw::DifficultyMask> {
+        Some(crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE)
+    }
 
     fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
         use llir::IntrinsicInstrKind as I;
@@ -680,7 +684,23 @@ impl LanguageHooks for OldeEclHooks {
                 // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
                 out
             },
-            Game::Th07 => vec![],
+            Game::Th07 => {
+                let mut out = vec![
+                    (I::Jmp, 2),
+                    (I::CountJmp, 3),
+                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Int), 4),
+                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 5),
+                    (I::UnOp(ast::UnOpKind::Sin, ScalarType::Float), 24),
+                    (I::UnOp(ast::UnOpKind::Cos, ScalarType::Float), 25),
+                    // (I::CallPcb, 41),
+                    // (I::Return, 42),
+                ];
+                I::register_binary_ops_of_type(&mut out, 12, ScalarType::Int);
+                I::register_binary_ops_of_type(&mut out, 19, ScalarType::Float);
+                I::register_cond_jumps(&mut out, 28);
+                // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
+                out
+            },
             Game::Th08 => vec![],
             Game::Th09 => vec![],
             Game::Th095 => vec![],
@@ -720,9 +740,22 @@ impl LanguageHooks for OldeEclHooks {
             Game::Th06 => enum_map::enum_map!{
                 ScalarType::Int => vec![
                     R(-10001), R(-10002), R(-10003), R(-10004),
-                    R(-10009), R(-100010), R(-100011), R(-100012)
+                    R(-10009), R(-10010), R(-10011), R(-10012)
                 ],
-                ScalarType::Float => vec![R(-10005), R(-10006), R(-10007), R(-10008)],
+                ScalarType::Float => vec![
+                    R(-10005), R(-10006), R(-10007), R(-10008),
+                ],
+                ScalarType::String => vec![],
+            },
+            Game::Th07 => enum_map::enum_map!{
+                ScalarType::Int => vec![
+                    R(10000), R(10001), R(10002), R(10003),
+                    R(10012), R(10013), R(10014), R(10015),
+                ],
+                ScalarType::Float => vec![
+                    R(10004), R(10005), R(10006), R(10007),
+                    R(10008), R(10009), R(10010), R(10011),
+                ],
                 ScalarType::String => vec![],
             },
             _ => enum_map::enum_map!{

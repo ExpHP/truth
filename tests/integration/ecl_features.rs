@@ -943,7 +943,6 @@ source_test!(
     expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
-
 #[test]
 #[ignore]
 fn need_tests_for_eosd_reg_that_looks_like_literal() {
