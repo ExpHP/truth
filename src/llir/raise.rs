@@ -229,54 +229,43 @@ impl SingleSubRaiser<'_> {
         let mut label_gen = LabelEmitter::new(self.offset_labels, self.diff_flag_names);
         let mut remaining_instrs = script;
 
-        // assert!(!script.iter().any(|instr| instr.offset == 1766), "{:#?}", script);
         'instr: while remaining_instrs.len() > 0 {
-            // Eagerly try compressing multiple instructions using diff switches.
-            if let Some(compressed_instr) = try_compress_instr(remaining_instrs, |offset| self.offset_labels.contains_key(&offset)) {
-                let args = compressed_instr.args.decoded().expect("a blob wouldn't have compressed");
+            // Is it a blob?
+            if let RaiseArgs::Unknown(blob_data) = &remaining_instrs[0].args {
+                let blob_instr = &remaining_instrs[0];
+                label_gen.emit_labels(&mut out, blob_instr.offset, blob_instr.time);
 
-                match self.try_raise_single_instr_intrinsic(emitter, &compressed_instr, args) {
-                    Ok(raised_intrinsic) => {
-                        // if this returned Ok, then whether its an intrinsic or not, we're going to emit it
-                        label_gen.emit_labels_for_instr(&mut out, &compressed_instr);
-                        out.push(self.make_stmt(compressed_instr.difficulty_mask, match raised_intrinsic {
-                            Some(kind) => kind,
-                            // if it wasn't an intrinsic, fall back to `ins_` syntax
-                            None => self.raise_raw_ins(emitter, &compressed_instr, args)?,
-                        }));
-                        remaining_instrs = &remaining_instrs[compressed_instr.num_instrs_compressed()..];
-                        continue 'instr;
-                    },
-                    Err(RaiseIntrinsicError::MustDecompress) => {
-                        // Do NOT emit this as an `ins_`.
-                        // Fall through out of this 'if' block to the no-diff-switch logic.
-                    },
-                    Err(RaiseIntrinsicError::Error(e)) => return Err(e),
-                }
-            }
-            // Compressing didn't work out then (no diff switches).
-            let instr_1 = CompressedInstr::from_single(&remaining_instrs[0]);
-            label_gen.emit_labels_for_instr(&mut out, &instr_1);
-
-            // Was it a blob?
-            let args_1 = match &instr_1.args {
-                RaiseArgs::Unknown(blob_data) => {
-                    let kind = raise_unknown_instr(self.language, &instr_1, blob_data)?;
-                    out.push(self.make_stmt(instr_1.difficulty_mask, kind));
-                    remaining_instrs = &remaining_instrs[1..];
-                    continue;
-                },
-                RaiseArgs::Decoded(args) => args,
+                let kind = raise_unknown_instr(self.language, blob_instr, blob_data)?;
+                out.push(self.make_stmt(blob_instr.difficulty_mask, kind));
+                remaining_instrs = &remaining_instrs[1..];
+                continue;
             };
 
+            // FIXME: The logic for dealing with the fallback from intrinsic syntax to raw syntax is simplest if
+            //        we check for two-instruction intrinsics before trying to compress diff switches.
+            //        Unfortunately, that means eagerly constructing two CompressedInstrs (each of which allocates),
+            //        even if they won't be used. (and the second one may get constructed again on the next loop iter)
+            //
             // Is it a two-instruction intrinsic?
+            //
             // Both instructions must have known signatures...
+            let instr_1 = CompressedInstr::from_single(&remaining_instrs[0]);
+            let args_1 = instr_1.args.decoded().expect("already checked for blob above");
             if remaining_instrs.len() > 1 {
                 let instr_2 = CompressedInstr::from_single(&remaining_instrs[1]);
                 if let RaiseArgs::Decoded(args_2) = &instr_2.args {
-                    if !label_gen.would_emit_labels(&instr_2) && instr_1.difficulty_mask == instr_2.difficulty_mask {
-                        if let Some(kind) = self.try_raise_double_instr_intrinsic(emitter, &instr_1, &instr_2, args_1, args_2)? {
+                    let instr_2_needs_label = {
+                        // make a copy of the helper so we can see what instr_2's labels would be after handling instr_1
+                        let mut simulated_label_gen = label_gen.clone();
+                        simulated_label_gen.emit_labels_for_instr_with(&instr_1, &mut |_| {});
+                        simulated_label_gen.would_emit_labels(&instr_2)
+                    };
+
+                    if !instr_2_needs_label && instr_1.difficulty_mask == instr_2.difficulty_mask {
+                        if let Some(kind) = self.try_raise_double_instr_intrinsic(&instr_1, &instr_2, args_1, args_2) {
                             // Success! It's a two-instruction intrinsic.
+                            label_gen.emit_labels_for_instr(&mut out, &instr_1);
+
                             out.push(self.make_stmt(instr_1.difficulty_mask, kind));
                             remaining_instrs = &remaining_instrs[2..];
                             continue;
@@ -285,17 +274,35 @@ impl SingleSubRaiser<'_> {
                 }
             }
 
-            match self.try_raise_single_instr_intrinsic(emitter, &instr_1, args_1) {
-                Ok(raised_intrinsic) => {
-                    out.push(self.make_stmt(instr_1.difficulty_mask, match raised_intrinsic {
-                        Some(kind) => kind,
-                        None => self.raise_raw_ins(emitter, &instr_1, args_1)?,
-                    }));
+            // Try compressing multiple instructions using diff switches.
+            if let Some(compressed_instr) = try_compress_instr(remaining_instrs, |offset| self.offset_labels.contains_key(&offset)) {
+                let args = compressed_instr.args.decoded().expect("a blob wouldn't have compressed");
+
+                match self.raise_single_instr_intrinsic_or_raw(emitter, &compressed_instr, args) {
+                    Ok(stmt) => {
+                        label_gen.emit_labels_for_instr(&mut out, &compressed_instr);
+                        out.push(self.make_stmt(compressed_instr.difficulty_mask, stmt));
+                        remaining_instrs = &remaining_instrs[compressed_instr.num_instrs_compressed()..];
+                        continue 'instr;
+                    },
+                    Err(Either::That(MustDecompress)) => {
+                        // Do NOT emit this as an `ins_`.
+                        // Fall through out of this 'if' block to the no-diff-switch logic.
+                    },
+                    Err(Either::This(e@ErrorReported)) => return Err(e),
+                }
+            }
+
+            // Compressing didn't work out then (no diff switches).
+            label_gen.emit_labels_for_instr(&mut out, &instr_1);
+            match self.raise_single_instr_intrinsic_or_raw(emitter, &instr_1, args_1) {
+                Ok(stmt) => {
+                    out.push(self.make_stmt(instr_1.difficulty_mask, stmt));
                     remaining_instrs = &remaining_instrs[1..];
                     continue 'instr;
                 },
-                Err(RaiseIntrinsicError::MustDecompress) => unreachable!(),
-                Err(RaiseIntrinsicError::Error(e)) => return Err(e),
+                Err(Either::That(MustDecompress)) => unreachable!(),
+                Err(Either::This(e@ErrorReported)) => return Err(e),
             }
         }
 
@@ -616,6 +623,7 @@ macro_rules! ensure {
         if !$cond { return Err($emitter.emit(error!($($arg)+))); }
     };
 }
+#[allow(unused)]
 macro_rules! warn_unless {
     ($emitter:expr, $cond:expr, $($arg:tt)+) => {
         if !$cond { $emitter.emit(warning!($($arg)+)).ignore(); }
@@ -624,7 +632,7 @@ macro_rules! warn_unless {
 
 fn raise_unknown_instr(
     language: LanguageKey,
-    instr: &CompressedInstr,
+    instr: &RaiseInstr,
     args: &UnknownArgsData,
 ) -> Result<ast::StmtKind, ErrorReported> {
     let mut pseudos = vec![];
@@ -657,49 +665,65 @@ fn raise_unknown_instr(
     }))))
 }
 
-enum RaiseIntrinsicError {
-    Error(ErrorReported),
-    /// A unique kind of error that can be returned when raising an intrinsic with a difficulty switch.
-    ///
-    /// If the difficulty switch appears in an unsupported location (e.g. an output register for assignment),
-    /// then for the sake of static analysis it is preferable to fall back to individual statements for each
-    /// difficulty case rather than outputting a raw `ins_` syntax with the switch.
-    MustDecompress,
-}
+/// An error indicating that the data cannot be represented correctly as an intrinsic,
+/// so a fallback to raw `ins_` should be tried.
+struct CannotRaiseIntrinsic;
 
-impl From<ErrorReported> for RaiseIntrinsicError {
-    fn from(e: ErrorReported) -> Self { RaiseIntrinsicError::Error(e) }
-}
+/// A unique kind of error that can be returned when raising an intrinsic with a difficulty switch.
+///
+/// If the difficulty switch appears in an unsupported location (e.g. an output register for assignment),
+/// then for the sake of static analysis it is preferable to fall back to individual statements for each
+/// difficulty case rather than outputting a raw `ins_` syntax with the switch.
+struct MustDecompress;
+
+enum Either<A, B> { This(A), That(B) }
 
 impl SingleSubRaiser<'_> {
-    fn try_raise_single_instr_intrinsic(
+    /// Raise a single instruction (which might have diff switches) to either an intrinsic
+    /// or raw syntax.
+    ///
+    /// If there are diff switches, an output of [`MustDecompress`] is possible, in which case
+    /// you must try again without the diff switches to get a conclusive result.
+    fn raise_single_instr_intrinsic_or_raw(
         &self,
         emitter: &impl Emitter,
         instr: &CompressedInstr,
         args: &[CompressedArg],
-    ) -> Result<Option<ast::StmtKind>, RaiseIntrinsicError> {
+    ) -> Result<ast::StmtKind, Either<ErrorReported, MustDecompress>> {
+        match self.try_raise_single_instr_intrinsic(instr, args) {
+            Ok(kind) => Ok(kind),
+            Err(Either::This(CannotRaiseIntrinsic)) => {
+                self.raise_raw_ins(emitter, instr, args).map_err(Either::This)
+            },
+            Err(Either::That(MustDecompress)) => Err(Either::That(MustDecompress)),
+        }
+    }
+
+    fn try_raise_single_instr_intrinsic(
+        &self,
+        instr: &CompressedInstr,
+        args: &[CompressedArg],
+    ) -> Result<ast::StmtKind, Either<CannotRaiseIntrinsic, MustDecompress>> {
         let abi = self.expect_abi(instr);
 
         let (kind, abi_info) = match self.intrinsic_instrs.get_intrinsic_and_props(instr.opcode) {
             Some(tuple) => tuple,
-            None => return Ok(None), // not an intrinsic!
+            None => return Err(Either::This(CannotRaiseIntrinsic)), // not an intrinsic!
         };
 
-        let mut parts = emitter.chain_with(|f| write!(f, "while decompiling a {}", kind.heavy_descr()), |emitter| {
-            self.raise_intrinsic_parts(emitter, instr, args, abi, abi_info)
-        })?;
+        let mut parts = self.raise_intrinsic_parts(instr, args, abi, abi_info)?;
 
         match kind {
             IKind::Jmp => {
                 let goto = parts.jump.take().unwrap();
-                Ok(Some(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time)))))
+                Ok(stmt_goto!(rec_sp!(Span::NULL => as kind, goto #(goto.destination) #(goto.time))))
             },
 
 
             IKind::AssignOp(op, _ty) => {
                 let var = parts.outputs.next().unwrap();
                 let value = parts.plain_args.next().unwrap();
-                Ok(Some(stmt_assign!(rec_sp!(Span::NULL => as kind, #var #op #value))))
+                Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var #op #value)))
             },
 
 
@@ -707,33 +731,36 @@ impl SingleSubRaiser<'_> {
                 let var = parts.outputs.next().unwrap();
                 let a = parts.plain_args.next().unwrap();
                 let b = parts.plain_args.next().unwrap();
-                Ok(Some(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_binop!(#a #op #b)))))
+                Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_binop!(#a #op #b))))
             },
 
 
             IKind::UnOp(op, _ty) => {
                 let var = parts.outputs.next().unwrap();
                 let b = parts.plain_args.next().unwrap();
-                Ok(Some(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b)))))
+                Ok(stmt_assign!(rec_sp!(Span::NULL => as kind, #var = expr_unop!(#op #b))))
             },
 
 
             IKind::InterruptLabel => {
                 let interrupt = parts.plain_args.next().unwrap();
-                let interrupt = sp!(Span::NULL => interrupt.as_const_int().ok_or_else(|| {
-                    assert!(matches!(interrupt, ast::Expr::Var { .. }));
-                    emitter.emit(error!("unexpected register in interrupt label"))
-                })?);
-                Ok(Some(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #interrupt))))
+                let interrupt = sp!(Span::NULL => match interrupt.as_const_int() {
+                    Some(interrupt_id) => interrupt_id,
+                    None => {
+                        assert!(matches!(interrupt, ast::Expr::Var { .. }));
+                        return Err(Either::This(CannotRaiseIntrinsic));  // register in interrupt label
+                    },
+                });
+                Ok(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #interrupt)))
             },
 
 
             IKind::CountJmp => {
                 let goto = parts.jump.take().unwrap();
                 let var = parts.outputs.next().unwrap();
-                Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                     as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
-                ))))
+                )))
             },
 
 
@@ -741,9 +768,9 @@ impl SingleSubRaiser<'_> {
                 let goto = parts.jump.take().unwrap();
                 let a = parts.plain_args.next().unwrap();
                 let b = parts.plain_args.next().unwrap();
-                Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                Ok(stmt_cond_goto!(rec_sp!(Span::NULL =>
                     as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
-                ))))
+                )))
             },
 
 
@@ -752,13 +779,13 @@ impl SingleSubRaiser<'_> {
                 let int = parts.plain_args.next().unwrap();
                 let float = parts.plain_args.next().unwrap();
 
-                Ok(Some(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
+                Ok(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
                     name: sp!(name),
                     pseudos: vec![],
                     // FIXME: If we decompile functions to have different signatures on a per-function
                     //        basis we'll need to adjust the argument order appropriately here
                     args: vec![sp!(int), sp!(float)],
-                })))))
+                }))))
             },
 
 
@@ -766,19 +793,18 @@ impl SingleSubRaiser<'_> {
             // they appear alone or with e.g. time labels in-between.
             | IKind::CondJmp2A { .. }
             | IKind::CondJmp2B { .. }
-            => Ok(None),
+            => Err(Either::This(CannotRaiseIntrinsic)),
         }
     }
 
     /// Try to raise an intrinsic that is two instructions long.
     fn try_raise_double_instr_intrinsic(
         &self,
-        emitter: &impl Emitter,
         instr_1: &CompressedInstr,
         instr_2: &CompressedInstr,
         args_1: &[CompressedArg],
         args_2: &[CompressedArg],
-    ) -> Result<Option<ast::StmtKind>, ErrorReported> {
+    ) -> Option<ast::StmtKind> {
         assert_eq!(instr_1.time, instr_2.time, "already checked by caller");
         assert_eq!(instr_1.difficulty_mask, instr_2.difficulty_mask, "already checked by caller");
 
@@ -788,34 +814,27 @@ impl SingleSubRaiser<'_> {
         match self.intrinsic_instrs.get_intrinsic_and_props(instr_1.opcode) {
             Some((IKind::CondJmp2A(_), abi_info_1)) => match self.intrinsic_instrs.get_intrinsic_and_props(instr_2.opcode) {
                 Some((IKind::CondJmp2B(op), abi_info_2)) => {
-                    emitter.chain("while decompiling a two-step conditional jump", |emitter| {
-                        let raise_parts = |instr, args, abi, abi_info| {
-                            self.raise_intrinsic_parts(emitter, instr, args, abi, abi_info)
-                        };
-                        // FIXME needstest (diff switch)
-                        let mut cmp_parts = match raise_parts(instr_1, args_1, abi_1, abi_info_1) {
-                            Ok(parts) => parts,
-                            Err(RaiseIntrinsicError::MustDecompress) => return Ok(None),
-                            Err(RaiseIntrinsicError::Error(e)) => return Err(e),
-                        };
-                        // FIXME needstest (diff switch)
-                        let mut jmp_parts = match raise_parts(instr_2, args_2, abi_2, abi_info_2) {
-                            Ok(parts) => parts,
-                            Err(RaiseIntrinsicError::MustDecompress) => return Ok(None),
-                            Err(RaiseIntrinsicError::Error(e)) => return Err(e),
-                        };
+                    let mut cmp_parts = match self.raise_intrinsic_parts(instr_1, args_1, abi_1, abi_info_1) {
+                        Ok(parts) => parts,
+                        Err(Either::This(CannotRaiseIntrinsic)) => return None,
+                        Err(Either::That(MustDecompress)) => unreachable!("this func isn't called on diff switches"),
+                    };
+                    let mut jmp_parts = match self.raise_intrinsic_parts(instr_2, args_2, abi_2, abi_info_2) {
+                        Ok(parts) => parts,
+                        Err(Either::This(CannotRaiseIntrinsic)) => return None,
+                        Err(Either::That(MustDecompress)) => unreachable!("this func isn't called on diff switches"),
+                    };
 
-                        let a = cmp_parts.plain_args.next().unwrap();
-                        let b = cmp_parts.plain_args.next().unwrap();
-                        let goto = jmp_parts.jump.take().unwrap();
-                        Ok(Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                            as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
-                        ))))
-                    })
+                    let a = cmp_parts.plain_args.next().unwrap();
+                    let b = cmp_parts.plain_args.next().unwrap();
+                    let goto = jmp_parts.jump.take().unwrap();
+                    Some(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                        as kind, if expr_binop!(#a #op #b) goto #(goto.destination) #(goto.time)
+                    )))
                 },
-                _ => Ok(None),
+                _ => None,
             },
-            _ => Ok(None),
+            _ => None,
         }
     }
 
@@ -1087,12 +1106,15 @@ struct RaisedIntrinsicParts {
 impl SingleSubRaiser<'_> {
     fn raise_intrinsic_parts(
         &self,
-        emitter: &impl Emitter,
         instr: &CompressedInstr,
         args: &[CompressedArg],
         abi: &InstrAbi,
         abi_parts: &IntrinsicInstrAbiParts,
-    ) -> Result<RaisedIntrinsicParts, RaiseIntrinsicError> {
+    ) -> Result<RaisedIntrinsicParts, Either<CannotRaiseIntrinsic, MustDecompress>> {
+        // Any failure in this function must go to the fallback logic for decompiling to raw syntax,
+        // so we'll suppress warnings and errors this time around
+        let emitter = &crate::diagnostic::DummyEmitter;
+
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
         let IntrinsicInstrAbiParts {
             num_instr_args: _, padding: ref padding_info, outputs: ref outputs_info,
@@ -1100,16 +1122,14 @@ impl SingleSubRaiser<'_> {
         } = abi_parts;
 
         let padding_range = padding_info.index..padding_info.index + padding_info.count;
-        warn_unless!(
-            emitter,
-            args[padding_range].iter().all(|a| a.iter_raw_args().all(|r| !r.is_reg && r.expect_immediate_int() == 0)),
-            "unsupported data in padding of intrinsic",
-        );
+        if !args[padding_range].iter().all(|a| a.iter_raw_args().all(|r| !r.is_reg && r.expect_immediate_int() == 0)) {
+            return Err(Either::This(CannotRaiseIntrinsic));  // data in padding
+        }
 
         macro_rules! require_no_diff_switch {
             ($expr:expr) => {
                 match $expr {
-                    CompressedArg::DiffSwitch(_) => return Err(RaiseIntrinsicError::MustDecompress),
+                    CompressedArg::DiffSwitch(_) => return Err(Either::That(MustDecompress)),
                     CompressedArg::Single(arg) => arg,
                 }
             };
@@ -1123,9 +1143,6 @@ impl SingleSubRaiser<'_> {
                 abi_parts::JumpArgOrder::Loc => (&args[index], None),
             };
 
-            if instr.num_instrs_compressed() > 1 {
-                return Err(RaiseIntrinsicError::MustDecompress);
-            };
             // we don't allow diff switches for the label so we only need the first offset
             let instr_offset = instr.offset[0].unwrap();
 
@@ -1155,14 +1172,18 @@ impl SingleSubRaiser<'_> {
         let mut outputs = vec![];
         for &(index, mode) in outputs_info {
             let arg = require_no_diff_switch!(&args[index]);
-            let var = self.raise_arg_to_reg(emitter, arg, encodings[index], mode)?;
+            let var = self.raise_arg_to_reg(emitter, arg, encodings[index], mode)
+                .map_err(|ErrorReported| Either::This(CannotRaiseIntrinsic))?;
+
             outputs.push(var);
         }
 
         let mut plain_args = vec![];
         for &index in plain_args_info {
             let dest_label = None;  // offset and time are not plain args so this is irrelevant
-            let expr = self.raise_compressed(emitter, &args[index], encodings[index], dest_label)?;
+            let expr = self.raise_compressed(emitter, &args[index], encodings[index], dest_label)
+                .map_err(|ErrorReported| Either::This(CannotRaiseIntrinsic))?;
+
             plain_args.push(expr);
         }
         Ok(RaisedIntrinsicParts { jump, sub_id, outputs: outputs.into_iter(), plain_args: plain_args.into_iter() })

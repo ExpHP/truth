@@ -345,9 +345,15 @@ source_test!(
 source_test!(
     ANM_12, interrupt_register,
     main_body: r#"
-        ins_64($I0);  // interrupt
+        ins_64(45);
+        ins_64($REG[10000]);
     "#,
-    expect_decompile_error: "register in interrupt",
+    sbsb: |decompiled| {
+        // the second one should have fallen back to raw syntax
+        assert!(decompiled.contains("($REG[10000])"));
+        // specificity (prove that we have the right opcode)
+        assert!(decompiled.contains("interrupt[45]"));
+    },
 );
 
 source_test!(

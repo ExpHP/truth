@@ -229,12 +229,15 @@ pub fn dev_null() -> tc::NoColor<std::io::Sink> { tc::NoColor::new(std::io::sink
 /// If you have a `&dyn Emitter`, `Sized` bounds will prevent you from calling most methods,
 /// but you can resolve this by calling [`<dyn Emitter>::as_sized`].
 pub trait Emitter {
+    /// Gives access to the root emitter (i.e. the one with no unspanned prefix attached).
+    ///
+    /// This is used to provide a default implementation for `emit`, whose signature is otherwise boilerplatey.
     fn _root_emitter(&self) -> &RootEmitter;
 
     /// A prefix added by this emitter to the `message` field of any diagnostics that do not contain spans.
     fn _unspanned_prefix(&self) -> String;
 
-    /// Append an additional prefix for diagnostics that lack spans.
+    /// Append an additional prefix (*after* any existing prefixes) for diagnostics that lack spans.
     ///
     /// Rather than returning the new emitter, it is passed into a callback.  This lets you shadow the original
     /// emitter, and then easily return back to using the old one once you leave the callback.
@@ -291,6 +294,34 @@ impl Emitter for RootEmitter {
     fn _unspanned_prefix(&self) -> String { String::new() }
 }
 
+/// An impl of [`Emitter`] that does not actually emit anything.
+///
+/// **NOTE:** Using this is **evil** and makes you a **bad person** and it serves as an admission
+/// that the logic in your function is so complicated that you can't figure out how to do the
+/// diagnostics right.
+#[derive(Debug, Clone)]
+pub struct DummyEmitter;
+
+impl Emitter for DummyEmitter {
+    fn _root_emitter(&self) -> &RootEmitter { panic!("_root_emitter called on DummyEmitter") }
+    fn _unspanned_prefix(&self) -> String { String::new() }
+    fn emit(&self, _: impl IntoDiagnostics) -> ErrorReported { ErrorReported }
+}
+
+#[derive(Clone)]
+pub struct Node<Parent, Label> {
+    parent: Parent,
+    label: Label,
+}
+
+/// Adapts a [`fmt::Formatter`] function into an implementation of [`fmt::Display`].
+///
+/// Designed for use as a `Label` type in [`Node`].
+pub struct DisplayFn<F> where F: Fn(&mut fmt::Formatter) -> fmt::Result { func: F }
+impl<F> fmt::Display for DisplayFn<F> where F: Fn(&mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { (self.func)(f) }
+}
+
 impl<Parent, Label> Emitter for Node<Parent, Label>
 where
     Parent: Emitter,
@@ -305,12 +336,6 @@ where
         write!(prefix, "{}: ", self.label).unwrap();
         prefix
     }
-}
-
-/// Adapts a [`fmt::Formatter`] function into an implementation of [`fmt::Display`].
-pub struct DisplayFn<F> where F: Fn(&mut fmt::Formatter) -> fmt::Result { func: F }
-impl<F> fmt::Display for DisplayFn<F> where F: Fn(&mut fmt::Formatter) -> fmt::Result {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { (self.func)(f) }
 }
 
 pub type WhileReading<'a> = Rooted<'a, String>;
@@ -344,10 +369,6 @@ impl<T: Emitter + ?Sized> Emitter for &'_ T {
     fn _unspanned_prefix(&self) -> String { (**self)._unspanned_prefix() }
 }
 
-#[derive(Clone)] pub struct Node<Parent, Label> {
-    parent: Parent,
-    label: Label,
-}
 
 #[test]
 fn test_unspanned() {

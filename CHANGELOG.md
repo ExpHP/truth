@@ -22,6 +22,7 @@
 
 * Allow detection of `if/elseif` chains that have no `else` block.
 * Many improvements to detection of `if/else`s and loops in general.
+* Decompiling intrinsics will fall back to instruction syntax if the intrinsic cannot be decompiled. (e.g. PCB stage 7 ECL has a `set_int` instruction that tries to assign to an immediate)
 * Decompiling sub/script/sprite names will fall back to raw integers if the corresponding items don't exist.
 
 ### Additions to mapfiles

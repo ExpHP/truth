@@ -153,10 +153,17 @@ script main {}
 source_test!(
     STD_08, intrinsic_padding,
     main_body: r#"
-    ins_4(offsetof(blah), timeof(blah), 50);  // 50 is padding
 blah:
+    up(0.0, 0.0, 0.0);
+blah2:
+    ins_4(offsetof(blah), timeof(blah), 50);  // 50 is padding
+    ins_4(offsetof(blah), timeof(blah));
 "#,
-    // NOTE: it would be better if this fell back to `ins_` syntax in order to
-    //       properly round-trip, instead of just warning about lost data...
-    expect_decompile_warning: "data in padding",
+    sbsb: |decompiled| {
+        // intrinsic syntax has nowhere to put padding, so this must fall back to raw syntax
+        assert!(decompiled.contains(", 50)"));
+        // specificity: double check that this instruction is indeed the jump intrinsic
+        //  by making sure the second one decompiled.
+        assert!(decompiled.contains("loop {"));
+    },
 );

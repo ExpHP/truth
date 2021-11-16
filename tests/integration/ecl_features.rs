@@ -879,8 +879,14 @@ source_test!(
     main_body: r#"
     {"EN"}: ins_10(I0, 10, 0);
     {"HL"}: ins_10(I0, 10, 16);
+    ins_10(I0, 15, 0);
 "#,
-    expect_decompile_warning: "padding of intrinsic",
+    sbsb: |decompiled| {
+        // specificity: show that the second instance does decompile
+        assert!(decompiled.contains("= 15;"));
+        // doesn't really matter how this decompiles as long as it round-trips.
+        // (it might expand the diff switch, or it might put a switch in padding)
+    },
 );
 
 source_test!(

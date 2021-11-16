@@ -868,3 +868,48 @@ source_test!(
     "#,
     sbsb: |_| { /* just needs to roundtrip */ },
 );
+
+source_test!(
+    // there are currently numerous places in the instruction raising code that have
+    // to ask the label emitter to emit labels, so check that it indeed does so
+    ECL_06, decompile_labels_before_smorgasboard,
+    main_body: r#"
+        // labels before long intrinsic
+        +10:
+        label1:
+        cmp_int(I3, 3);
+        jump_lss(timeof(foo), offsetof(foo));
+        foo:
+        goto label1;
+
+        // labels before diff switch
+        +10:
+        label2:
+        {"EN"}: I0 = 3;
+        {"HL"}: I0 = 7;
+        goto label2;
+
+        // labels before instruction that falls back to raw
+        +10:
+        label3:
+        set_int(3, 3);
+        goto label3;
+
+        // labels before blob
+        +10:
+        label4:
+        ins_9999(@blob="00112233");
+        goto label4;
+    "#,
+    sbsb: |decompiled| {
+        // check that all labels and time labels decompiled
+        assert_eq!(decompiled.matches("+10:").count(), 4);
+        assert_eq!(decompiled.matches("loop {").count(), 4);
+
+        // for specificity: make sure that each of these things actually decompiled
+        assert!(decompiled.contains("if ($REG[-10004]")); // for the long intrinsic
+        assert!(decompiled.contains(": 7 :")); // for the diff switch
+        assert!(decompiled.contains("(3, 3)")); // for the fallback
+        assert!(decompiled.contains("@blob=\"00112233\"")); // for the blob
+    },
+);
