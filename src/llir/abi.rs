@@ -78,6 +78,8 @@ pub enum ArgEncoding {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TimelineArgKind {
+    /// `T(s)`.  Timeline argument that is just an integer.
+    Word,
     /// `T(_)`.  Unused timeline argument that won't appear in the AST signature.
     ///
     /// It can still be explicitly set via `@arg0=`.
@@ -255,6 +257,7 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
                 | ArgEncoding::Sub
                 | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
                 | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
+                | ArgEncoding::TimelineArg(TimelineArgKind::Word)
                 => Info { ty: ScalarType::Int, default: None, reg_ok: false },
 
                 | ArgEncoding::TimelineArg(TimelineArgKind::Unused)

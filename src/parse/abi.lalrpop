@@ -67,7 +67,7 @@ MaskArg: AcceleratingByteMask = {
 TArg: ArgEncoding = {
     "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::MsgSub),
     "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::EclSub),
-    "T" "(" "s" ")" => ArgEncoding::TimelineArg(TimelineArgKind::MsgSub), // FIXME
+    "T" "(" "s" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),
 };
 

@@ -1005,6 +1005,7 @@ impl SingleSubRaiser<'_> {
             | ArgEncoding::Dword
             | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
             | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
+            | ArgEncoding::TimelineArg(TimelineArgKind::Word)
             => Ok(ast::Expr::from(raw.expect_int())),
 
             | ArgEncoding::Sprite

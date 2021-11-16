@@ -855,6 +855,9 @@ impl TimelineHooks {
     fn has_short_terminal(&self) -> bool {
         self.game < Game::Th08
     }
+    fn has_difficulty(&self) -> bool {
+        self.game >= Game::Th08
+    }
 }
 
 impl LanguageHooks for TimelineHooks {
@@ -884,8 +887,15 @@ impl InstrFormat for TimelineHooks {
         }
 
         let opcode = f.read_u16()?;
-        let size = f.read_u8()? as usize;
-        let difficulty = f.read_u8()? as _;
+
+        let (size, difficulty);
+        if self.has_difficulty() {
+            size = f.read_u8()? as _;
+            difficulty = f.read_u8()? as _;
+        } else {
+            size = f.read_u16()? as _;
+            difficulty = RawInstr::DEFAULTS.difficulty;
+        }
 
         // in games with the normal-sized terminal, the size is incorrectly 0, so check before reading args
         if !self.has_short_terminal() && (time, arg_0, opcode, size, difficulty) == (-1, -1, 0, 0, 0) {
@@ -907,14 +917,18 @@ impl InstrFormat for TimelineHooks {
         f.write_i16(instr.time as _)?;
         f.write_i16(instr.extra_arg.unwrap_or(0) as _)?;
         f.write_u16(instr.opcode)?;
-        f.write_u8(self.instr_size(instr) as _)?;
-        f.write_u8(instr.difficulty as _)?;
+        if self.has_difficulty() {
+            f.write_u8(self.instr_size(instr) as _)?;
+            f.write_u8(instr.difficulty as _)?;
+        } else {
+            f.write_u16(self.instr_size(instr) as _)?;
+        }
         f.write_all(&instr.args_blob)?;
         Ok(())
     }
 
     fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
-        if self.game < Game::Th08 {
+        if self.has_short_terminal() {
             f.write_i16(-1)?; // time
             f.write_i16(4)?; // arg_0
         } else {
