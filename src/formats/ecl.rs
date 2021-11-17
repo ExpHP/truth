@@ -1,5 +1,6 @@
 use indexmap::{IndexMap};
-use enum_map::EnumMap;
+use enum_map::{EnumMap};
+use arrayvec::ArrayVec;
 
 use crate::raw;
 use crate::ast;
@@ -13,9 +14,6 @@ use crate::value::{ScalarType, ScalarValue, ReadType, VarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
 use crate::resolve::{RegId, DefId, IdMap};
 use crate::context::CompilerContext;
-
-const EOSD_INT_PARAM_REG: RegId = RegId(-10001);
-const EOSD_FLOAT_PARAM_REG: RegId = RegId(-10005);
 
 // =============================================================================
 
@@ -60,6 +58,7 @@ fn decompile(
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let ecl_hooks = &*format.ecl_hooks;
     let timeline_hooks = &*format.timeline_hooks;
+    let sub_format = &*game_sub_format(format.game);
 
     // Generate timelines
     let mut items = vec![];
@@ -89,7 +88,7 @@ fn decompile(
 
     // Detect which subs have parameters; this may involve a bit of global analysis
     // so we had to be wait until after decompiling everything to do this.
-    let param_infos = EosdRaiseSubs::from_subs(decompiled_subs.values().map(|stmts| &stmts.0[..]));
+    let param_infos = OldeRaiseSubs::from_subs(sub_format, decompiled_subs.values().map(|stmts| &stmts.0[..]));
 
     // Rename registers in each sub after their parameters.
     for (stmts, param_info) in decompiled_subs.values_mut().zip(param_infos.subs.iter()) {
@@ -122,6 +121,8 @@ fn compile(
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<OldeEclFile, ErrorReported> {
+    let sub_format = &*game_sub_format(format.game);
+
     let mut ast = ast.clone();
     crate::passes::resolution::assign_languages(&mut ast, LanguageKey::Ecl, ctx)?;
     crate::passes::resolution::compute_diff_label_masks(&mut ast, ctx)?;
@@ -156,7 +157,7 @@ fn compile(
         //               calls, or else nothing will resolve to them.
         //
         // gather information about exported subs to use for handling call sugar.
-        sub_info = EosdExportedSubs::extract_from_items(&ast.items, ctx)?;
+        sub_info = OldeExportedSubs::extract_from_items(sub_format, format.game, &ast.items, ctx)?;
 
         crate::passes::validate_difficulty::run(&ast, ctx, &*format.ecl_hooks)?;
         crate::passes::type_check::run(&ast, ctx)?;
@@ -172,7 +173,7 @@ fn compile(
     let mut errors = ErrorFlag::new(); // delay returns for panic bombs
     let mut subs = IndexMap::new();
     let mut timelines = vec![];
-    let mut ecl_lowerer = llir::Lowerer::new(&*format.ecl_hooks).with_export_info(&sub_info);
+    let mut ecl_lowerer = llir::Lowerer::new(&*format.ecl_hooks).with_export_info(sub_format, &sub_info);
     let mut timeline_lowerer = llir::Lowerer::new(&*format.timeline_hooks);
 
     ast.items.iter().map(|item| {
@@ -434,27 +435,150 @@ fn write_olde_ecl(
 
 // =============================================================================
 
-pub struct EosdExportedSubs {
-    pub subs: IndexMap<DefId, EosdExportedSub>,
+struct EosdSubFormat { game: Game }
+struct PcbSubFormat { game: Game }
+
+fn game_sub_format(game: Game) -> Box<dyn OldeSubFormat> {
+    match game {
+        Game::Th06
+            => Box::new(EosdSubFormat { game }),
+
+        Game::Th07 | Game::Th08 | Game::Th09 | Game::Th095
+            => Box::new(PcbSubFormat { game }),
+
+        _ => unreachable!(),
+    }
 }
 
-pub struct EosdExportedSub {
+pub trait OldeSubFormat {
+    // ---------
+    // --- used during compilation ---
+
+    fn max_params_per_type(&self) -> usize;
+
+    /// Generate a message used to explain which regs are used by parameters in this format.
+    fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String>;
+
+    fn limits_msg(&self) -> &'static str;
+
+    fn param_reg_id(&self, ty: ReadType, number: usize) -> RegId;
+
+    // ---------
+    // --- used during decompilation ---
+
+    fn infer_params(&self, sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub;
+}
+
+impl OldeSubFormat for EosdSubFormat {
+    fn max_params_per_type(&self) -> usize { 1 }
+
+    fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
+        let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
+        Some(format!(
+            "{} ECL subs pass their arguments in {} and {}",
+            self.game.abbr(),
+            stringify_reg(self.param_reg_id(ReadType::Int, 0)),
+            stringify_reg(self.param_reg_id(ReadType::Float, 0)),
+        ))
+    }
+
+    fn limits_msg(&self) -> &'static str {
+        "limited to 1 int and 1 float"
+    }
+
+    fn param_reg_id(&self, ty: ReadType, number: usize) -> RegId {
+        assert_eq!(number, 0);
+        match ty {
+            ReadType::Int => RegId(-10001),
+            ReadType::Float => RegId(-10005),
+        }
+    }
+
+    fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {
+        // TODO: detect which params are actually used in each sub
+        let tys = [(ReadType::Int, "I"), (ReadType::Float, "F")];
+        OldeRaiseSub {
+            params: tys.into_iter().map(|(ty, tychar)| {
+                (self.param_reg_id(ty, 0), ty.into(), format!("{}PAR", tychar).parse().unwrap())
+            }).collect(),
+        }
+    }
+}
+
+impl OldeSubFormat for PcbSubFormat {
+    fn max_params_per_type(&self) -> usize { 4 }
+
+    fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
+        let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
+        Some(format!(
+            "{} ECL subs receive their arguments in {} through {} and {} through {}",
+            self.game.abbr(),
+            stringify_reg(self.param_reg_id(ReadType::Int, 0)),
+            stringify_reg(self.param_reg_id(ReadType::Int, 3)),
+            stringify_reg(self.param_reg_id(ReadType::Float, 0)),
+            stringify_reg(self.param_reg_id(ReadType::Float, 3)),
+        ))
+    }
+
+    fn limits_msg(&self) -> &'static str {
+        "limited to 4 ints and 4 floats"
+    }
+
+    fn param_reg_id(&self, ty: ReadType, number: usize) -> RegId {
+        assert!(number < self.max_params_per_type());
+
+        let ty_offset = match ty {
+            ReadType::Int => 0,
+            ReadType::Float => 4,
+        };
+        let param_a_id = match self.game {
+            Game::Th07 => 10029,
+            Game::Th08 => 10053,
+            Game::Th09 => 10053,
+            Game::Th095 => 10036,
+            _ => unreachable!(),
+        };
+        RegId(param_a_id + ty_offset + number as i32)
+    }
+
+    fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {
+        // TODO: detect which params are actually used in each sub
+        let tys = [(ReadType::Int, "I"), (ReadType::Float, "F")];
+        OldeRaiseSub {
+            params: tys.into_iter().flat_map(|(ty, tychar)| (0..4).map(move |i| {
+                (self.param_reg_id(ty, i), ty.into(), format!("{}PAR_{}", tychar, i).parse().unwrap())
+            })).collect(),
+        }
+    }
+}
+
+// -- compilation --
+pub struct OldeExportedSubs {
+    pub subs: IndexMap<DefId, OldeExportedSub>,
+}
+
+pub struct OldeExportedSub {
     pub index: raw::LangInt,
     pub name: Sp<ResIdent>,
-    // EoSD params have at most one of each type.
-    pub int_param: Option<(usize, Sp<ast::FuncParam>)>,
-    pub float_param: Option<(usize, Sp<ast::FuncParam>)>,
+    // EoSD params have at most one of each type; for PCB+ it's 4
+    pub params_by_ty: EnumMap<ReadType, ArrayVec<(usize, Sp<ast::FuncParam>), 4>>,
     param_info: Vec<(DefId, ReadType, Span)>,
 }
 
-impl EosdExportedSubs {
-    fn extract_from_items(items: &[Sp<ast::Item>], ctx: &CompilerContext<'_>) -> Result<Self, ErrorReported> {
+impl OldeExportedSubs {
+    /// Scan through items and gather information on the parameters of all exported subs.
+    fn extract_from_items(
+        sub_format: &dyn OldeSubFormat,
+        game: Game,
+        items: &[Sp<ast::Item>],
+        ctx: &CompilerContext<'_>,
+    ) -> Result<Self, ErrorReported> {
         let mut subs = IndexMap::new();
         let mut sub_index = 0;
         let mut errors = ErrorFlag::new();
         for item in items {
             if let ast::Item::Func(func@ast::ItemFunc { qualifier: None, ident, .. }) = &item.value {
-                match EosdExportedSub::from_item(func, sub_index, ctx) {
+                match OldeExportedSub::from_item(sub_format, game, func, sub_index, ctx) {
                     Ok(sub) => {
                         subs.insert(ctx.resolutions.expect_def(ident), sub);
                         sub_index += 1;
@@ -463,26 +587,24 @@ impl EosdExportedSubs {
                 };
             }
         }
-        errors.into_result(EosdExportedSubs { subs })
-    }
-
-    pub fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
-        let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
-        Some(format!(
-            "EoSD ECL subs pass their arguments in {} and {}",
-            stringify_reg(EOSD_INT_PARAM_REG), stringify_reg(EOSD_FLOAT_PARAM_REG),
-        ))
+        errors.into_result(OldeExportedSubs { subs })
     }
 }
 
-impl EosdExportedSub {
-    fn from_item(func: &ast::ItemFunc, sub_index: usize, ctx: &CompilerContext<'_>) -> Result<Self, ErrorReported> {
+impl OldeExportedSub {
+    fn from_item(
+        sub_format: &dyn OldeSubFormat,
+        game: Game,
+        func: &ast::ItemFunc,
+        sub_index: usize,
+        ctx: &CompilerContext<'_>,
+    ) -> Result<Self, ErrorReported> {
         assert!(func.qualifier.is_none());  // shouldn't be called on const/inline
 
-        let mut out = EosdExportedSub {
+        let mut out = OldeExportedSub {
             index: sub_index as _,
             name: func.ident.clone(),
-            int_param: None, float_param: None,
+            params_by_ty: Default::default(),
             param_info: Default::default(),
         };
 
@@ -494,29 +616,22 @@ impl EosdExportedSub {
                 )));
             }
 
-            let (dest_option, param_ty);
-            match param.ty_keyword.var_ty().as_known_ty().and_then(ReadType::from_ty) {
+            let param_ty = match param.ty_keyword.var_ty().as_known_ty().and_then(ReadType::from_ty) {
+                Some(ty) => ty,
                 None => return Err(ctx.emitter.emit(error!(
-                    message("invalid type for param in EoSD ECL"),
+                    message("invalid type for param in {} ECL", game.abbr()),
                     primary(param.ty_keyword, ""),
                 ))),
-                Some(ty) => {
-                    param_ty = ty;
-                    dest_option = match ty {
-                        ReadType::Int => &mut out.int_param,
-                        ReadType::Float => &mut out.float_param,
-                    };
-                },
             };
 
-            if dest_option.is_some() {
+            if out.params_by_ty[param_ty].len() >= sub_format.max_params_per_type() {
                 return Err(ctx.emitter.emit(error!(
-                    message("too many {} params for EoSD ECL function", param.ty_keyword),
-                    primary(param, "second {} param", param.ty_keyword),
-                    note("EoSD ECL functions are limited to 1 int and 1 float"),
-                )))
+                    message("too many {} params for {} ECL function", param.ty_keyword, game.abbr()),
+                    primary(param, "extra {} param", param.ty_keyword),
+                    note("exported {} ECL functions are {}", game.abbr(), sub_format.limits_msg()),
+                )));
             }
-            *dest_option = Some((param_index, param.clone()));
+            out.params_by_ty[param_ty].push((param_index, param.clone()));
 
             let param_def_id = ctx.resolutions.expect_def(&param.ident);
             out.param_info.push((param_def_id, param_ty, param.span));
@@ -524,40 +639,34 @@ impl EosdExportedSub {
         Ok(out)
     }
 
-    /// Produces the RegId for each register, along with other info needed by the register allocator.
-    pub fn param_registers(&self) -> impl IntoIterator<Item=(DefId, RegId, ReadType, Span)> + '_ {
-        self.param_info.iter().map(|&(def_id, ty, span)| {
-            let reg = match ty {
-                ReadType::Int => EOSD_INT_PARAM_REG,
-                ReadType::Float => EOSD_FLOAT_PARAM_REG,
-            };
+    /// Produces the RegId for each parameter, along with other info needed by the register allocator.
+    pub fn param_registers<'a>(&'a self, sub_format: &'a dyn OldeSubFormat) -> impl IntoIterator<Item=(DefId, RegId, ReadType, Span)> + 'a {
+        let mut offsets = enum_map::enum_map!(_ => 0..);
+        self.param_info.iter().map(move |&(def_id, ty, span)| {
+            let reg = sub_format.param_reg_id(ty, offsets[ty].next().unwrap());
             (def_id, reg, ty, span)
         })
     }
 }
 
-pub struct EosdRaiseSubs {
-    pub subs: Vec<EosdRaiseSub>,
+// -- decompilation --
+pub struct OldeRaiseSubs {
+    pub subs: Vec<OldeRaiseSub>,
 }
 
-pub struct EosdRaiseSub {
+pub struct OldeRaiseSub {
     pub params: Vec<(RegId, VarType, Ident)>,
 }
 
-impl EosdRaiseSubs {
-    fn from_subs<'a>(subs: impl IntoIterator<Item=&'a [Sp<ast::Stmt>]>) -> Self {
-        // TODO: detect which params are actually used in each sub
-        let subs = subs.into_iter().map(|_| EosdRaiseSub {
-            params: vec![
-                (EOSD_INT_PARAM_REG, ScalarType::Int.into(), "I_PARAM".parse().unwrap()),
-                (EOSD_FLOAT_PARAM_REG, ScalarType::Float.into(), "F_PARAM".parse().unwrap()),
-            ],
-        }).collect();
-        EosdRaiseSubs { subs }
+impl OldeRaiseSubs {
+    fn from_subs<'a>(sub_format: &dyn OldeSubFormat, subs: impl IntoIterator<Item=&'a [Sp<ast::Stmt>]>) -> Self {
+        let subs = subs.into_iter().map(|sub| sub_format.infer_params(sub)).collect();
+        OldeRaiseSubs { subs }
     }
 }
 
-impl EosdRaiseSub {
+impl OldeRaiseSub {
+    /// Get a function for looking up registers in use for backing parameters.
     pub fn reg_lookup_function(&self) -> impl Fn(LanguageKey, RegId) -> Option<(ResIdent, VarType)> + '_ {
         let lookup = {
             self.params.iter()

@@ -115,7 +115,7 @@ impl LowerArg {
 /// This is a panic-bomb, so `.finish()` must be called.
 pub struct Lowerer<'a> {
     hooks: &'a dyn LanguageHooks,
-    export_info: Option<&'a crate::ecl::EosdExportedSubs>,
+    sub_info: Option<(&'a dyn crate::ecl::OldeSubFormat, &'a crate::ecl::OldeExportedSubs)>,
     // NOTE: later this can become Box<dyn Trait> and just let the implementations downcast
     inner: stackless::PersistentState,
 }
@@ -131,12 +131,12 @@ impl Drop for Lowerer<'_> {
 
 impl<'a> Lowerer<'a> {
     pub fn new(hooks: &'a dyn LanguageHooks) -> Self {
-        Lowerer { hooks, inner: Default::default(), export_info: None }
+        Lowerer { hooks, inner: Default::default(), sub_info: None }
     }
 
     /// Add information about exported subroutines, in languages that support calls.
-    pub fn with_export_info(mut self, export_info: &'a crate::ecl::EosdExportedSubs) -> Self {
-        self.export_info = Some(export_info);
+    pub fn with_export_info(mut self, sub_format: &'a dyn crate::ecl::OldeSubFormat, export_info: &'a crate::ecl::OldeExportedSubs) -> Self {
+        self.sub_info = Some((sub_format, export_info));
         self
     }
 
@@ -169,7 +169,7 @@ fn lower_sub_ast_to_instrs(
         out: vec![],
         intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
-        export_info: lowerer.export_info,
+        sub_info: lowerer.sub_info,
         ctx,
         hooks,
     };
@@ -177,7 +177,7 @@ fn lower_sub_ast_to_instrs(
     let mut out = sub_lowerer.out;
 
     // And now postprocess
-    assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.export_info, def_id, &ctx)?;
+    assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.sub_info, def_id, &ctx)?;
 
     // This can't happen before register assignment or we might allocate something multiple times
     out = elaborate_diff_switches(out);

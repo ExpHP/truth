@@ -52,6 +52,30 @@ impl std::str::FromStr for Game {
 }
 
 impl Game {
+    pub fn abbr(self) -> &'static str {
+        match self {
+            Game::Alcostg => "AlcoSTG",
+            Game::Th06 => "EoSD",
+            Game::Th07 => "PCB",
+            Game::Th08 => "IN",
+            Game::Th09 => "PoFV",
+            Game::Th095 => "StB",
+            Game::Th10 => "MoF",
+            Game::Th11 => "SA",
+            Game::Th12 => "UFO",
+            Game::Th125 => "DS",
+            Game::Th128 => "GFW",
+            Game::Th13 => "TD",
+            Game::Th14 => "DDC",
+            Game::Th143 => "ISC",
+            Game::Th15 => "LoLK",
+            Game::Th16 => "HSiFS",
+            Game::Th165 => "VD",
+            Game::Th17 => "WBaWC",
+            Game::Th18 => "UM",
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Game::Alcostg => "alcostg",

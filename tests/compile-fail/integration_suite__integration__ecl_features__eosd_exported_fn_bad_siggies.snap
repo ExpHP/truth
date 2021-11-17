@@ -12,16 +12,16 @@ error: too many int params for EoSD ECL function
   ┌─ <input>:9:18
   │
 9 │ void bad3(int x, int y) {}
-  │                  ^^^^^ second int param
+  │                  ^^^^^ extra int param
   │
-  = EoSD ECL functions are limited to 1 int and 1 float
+  = exported EoSD ECL functions are limited to 1 int and 1 float
 
 error: too many float params for EoSD ECL function
    ┌─ <input>:11:27
    │
 11 │ void bad4(float x, int y, float z) {}
-   │                           ^^^^^^^ second float param
+   │                           ^^^^^^^ extra float param
    │
-   = EoSD ECL functions are limited to 1 int and 1 float
+   = exported EoSD ECL functions are limited to 1 int and 1 float
 
 

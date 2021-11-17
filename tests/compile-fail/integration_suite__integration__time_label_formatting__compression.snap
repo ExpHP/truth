@@ -6,14 +6,14 @@ timeline 0 {
 }
 
 
-void sub0(int I_PARAM, float F_PARAM) {
-    ins_11(@blob="");
-    ins_11(@blob="");
+void sub0(int IPAR, float FPAR) {
+    ins_0();
+    ins_0();
 +6: // 6
-    ins_11(@blob="");
-    ins_11(@blob="");
+    ins_0();
+    ins_0();
 -1:
-    ins_11(@blob="");
-    ins_11(@blob="");
+    ins_0();
+    ins_0();
 }
 

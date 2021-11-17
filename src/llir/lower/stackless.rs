@@ -25,7 +25,7 @@ pub (in crate::llir::lower) struct SingleSubLowerer<'a, 'ctx> {
     pub hooks: &'a dyn LanguageHooks,
     pub ctx: &'a mut CompilerContext<'ctx>,
     pub stmt_data: IdMap<NodeId, TimeAndDifficulty>,
-    pub export_info: Option<&'a crate::ecl::EosdExportedSubs>,
+    pub sub_info: Option<(&'a dyn crate::ecl::OldeSubFormat, &'a crate::ecl::OldeExportedSubs)>,
 }
 
 impl SingleSubLowerer<'_, '_> {
@@ -127,7 +127,7 @@ impl SingleSubLowerer<'_, '_> {
             },
             Err(def_id) => {
                 // exported sub
-                let export_info = self.export_info.unwrap();
+                let (_, export_info) = self.sub_info.unwrap();
                 match self.ctx.defs.user_func_qualifier(def_id).expect("isn't user func?") {
                     Some(sp_pat!(token![inline])) => Err(self.unsupported(&stmt_span, "call to inline func")),
                     Some(sp_pat!(token![const])) => panic!("leftover const func call during lowering"),
@@ -142,10 +142,10 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl::EosdExportedSub,
+        sub: &crate::ecl::OldeExportedSub,
     ) -> Result<(), ErrorReported> {
-        let int = sub.int_param.as_ref().map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0).into()));
-        let float = sub.float_param.as_ref().map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0.0).into()));
+        let int = sub.params_by_ty[ReadType::Int].get(0).map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0).into()));
+        let float = sub.params_by_ty[ReadType::Float].get(0).map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0.0).into()));
 
         // EoSD args must be const
         let lowered_int = classify_expr(&int, self.ctx)?.expect_simple().lowered.clone();
@@ -1002,7 +1002,7 @@ pub (in crate::llir::lower) fn assign_registers(
     code: &mut [Sp<LowerStmt>],
     global_scratch_results: &mut PersistentState,
     hooks: &dyn LanguageHooks,
-    export_info: Option<&crate::ecl::EosdExportedSubs>,
+    export_info: Option<(&dyn crate::ecl::OldeSubFormat, &crate::ecl::OldeExportedSubs)>,
     def_id: Option<DefId>,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
@@ -1038,11 +1038,11 @@ pub (in crate::llir::lower) fn assign_registers(
     // assign registers to the params in accordance with however calls in this game work
     let param_note; // defined out here for lifetime purposes
     assert_eq!(export_info.is_some(), def_id.is_some());
-    if let (Some(export_info), Some(def_id)) = (export_info, def_id) {
-        param_note = export_info.reg_usage_explanation(ctx);
+    if let (Some((sub_format, export_info)), Some(def_id)) = (export_info, def_id) {
+        param_note = sub_format.reg_usage_explanation(ctx);
         let this_sub_info = &export_info.subs[&def_id];
 
-        for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers() {
+        for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers(sub_format) {
             local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
 
             names_used_for_regs.entry(param_reg).or_insert_with(Default::default)

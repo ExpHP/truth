@@ -854,6 +854,7 @@ impl From<value::ExprType> for TypeKeyword {
 string_enum! {
     /// A type sigil on a variable.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(enum_map::Enum)]
     pub enum VarSigil {
         #[strum(serialize = "$")] Int,
         #[strum(serialize = "%")] Float,

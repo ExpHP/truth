@@ -168,3 +168,7 @@ impl From<ScalarType> for VarType {
 impl From<ScalarType> for ExprType {
     fn from(ty: ScalarType) -> Self { ExprType::Value(ty) }
 }
+
+impl From<ReadType> for VarType {
+    fn from(ty: ReadType) -> Self { ScalarType::from(ty).into() }
+}

@@ -545,7 +545,7 @@ void foo(int a, float x) {
     float t1 = x;
 }
 "#,
-    sbsb: |decompiled| assert!(decompiled.contains("= F_PARAM")),
+    sbsb: |decompiled| assert!(decompiled.contains("= FPAR")),
 );
 
 source_test!(
@@ -555,7 +555,7 @@ void foo(int a, float x) {
     float t1 = %a;
 }
 "#,
-    sbsb: |decompiled| assert!(decompiled.contains("= %I_PARAM")),
+    sbsb: |decompiled| assert!(decompiled.contains("= %IPAR")),
 );
 
 // -------------
