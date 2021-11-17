@@ -1,4 +1,5 @@
 use std::num::NonZeroU64;
+use std::collections::HashSet;
 
 use indexmap::{IndexSet, IndexMap};
 
@@ -42,8 +43,9 @@ pub fn read_anm(
 
     let mut entries = vec![];
     let mut next_script_index = 0;
+    let mut entry_positions = Default::default();
     loop {
-        let (entry, control_flow) = read_entry(reader, emitter, &format, with_images, &mut next_script_index)?;
+        let (entry, control_flow) = read_entry(reader, emitter, &format, with_images, &mut entry_positions, &mut next_script_index)?;
         entries.push(entry);
         match control_flow {
             ControlFlow::Continue => {},
@@ -62,11 +64,16 @@ fn read_entry(
     emitter: &impl Emitter,
     format: &FileFormat,
     with_images: bool,
+    entry_positions: &mut HashSet<crate::raw::BytePos>,
     next_script_index: &mut u32,
 ) -> ReadResult<(Entry, ControlFlow)> {
     let instr_format = &*format.instr_format;
 
     let entry_pos = reader.pos()?;
+    if entry_positions.contains(&entry_pos) {
+        return Err(emitter.emit(error!("loop in entries beginning at file offset {:#X}", entry_pos)));
+    }
+    entry_positions.insert(entry_pos);
 
     // 64 byte header regardless of version
     let header_data = emitter.chain_with(|f| write!(f, "in header"), |emitter| {
@@ -674,7 +681,7 @@ impl InstrFormat for InstrFormat06 {
 impl InstrFormat for InstrFormat07 {
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
         let opcode = f.read_i16()?;
         let size = f.read_u16()? as usize;
         if opcode == -1 {
@@ -683,7 +690,10 @@ impl InstrFormat for InstrFormat07 {
 
         let time = f.read_i16()? as _;
         let param_mask = f.read_u16()?;
-        let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
+        let args_size = size.checked_sub(self.instr_header_size()).ok_or_else(|| {
+            emitter.as_sized().emit(error!("bad instruction size ({} < {})", size, self.instr_header_size()))
+        })?;
+        let args_blob = f.read_byte_vec(args_size)?;
         // eprintln!("opcode: {:04x}  size: {:04x}  time: {:04x}  param_mask: {:04x}  args: {:?}", opcode, size, time, param_mask, args);
         Ok(ReadInstr::Instr(RawInstr { time, opcode: opcode as _, param_mask, args_blob, ..RawInstr::DEFAULTS }))
     }

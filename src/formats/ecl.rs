@@ -875,7 +875,7 @@ impl LanguageHooks for TimelineHooks {
 impl InstrFormat for TimelineHooks {
     fn instr_header_size(&self) -> usize { 8 }
 
-    fn read_instr(&self, f: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i16()? as i32;
         let arg_0 = f.read_i16()? as i32;
 
@@ -888,7 +888,7 @@ impl InstrFormat for TimelineHooks {
 
         let opcode = f.read_u16()?;
 
-        let (size, difficulty);
+        let (size, difficulty): (usize, _);
         if self.has_difficulty() {
             size = f.read_u8()? as _;
             difficulty = f.read_u8()? as _;
@@ -903,7 +903,10 @@ impl InstrFormat for TimelineHooks {
             return Ok(ReadInstr::Terminal);
         }
 
-        let args_blob = f.read_byte_vec(size - self.instr_header_size())?;
+        let args_size = size.checked_sub(self.instr_header_size()).ok_or_else(|| {
+            emitter.as_sized().emit(error!("bad instruction size ({} < {})", size, self.instr_header_size()))
+        })?;
+        let args_blob = f.read_byte_vec(args_size)?;
 
         let instr = RawInstr {
             time, opcode, difficulty, args_blob,
