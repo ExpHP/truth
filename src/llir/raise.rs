@@ -553,12 +553,12 @@ fn try_compress_instr(
         let first_case = explicit_cases[0];
         if explicit_cases.iter().all(|&case| case == first_case) {
             // all values for this arg are identical, keep it as a scalar
-            assert!(matches!(first_case, MaybeDiffSwitch::Scalar(_)), "already a diff switch?!");
+            assert!(!first_case.is_diff_switch(), "already a diff switch?!");
             first_case.clone()
         } else {
             let explicit_scalars = explicit_cases.into_iter().map(|x| x.as_scalar().expect("already a diff switch?!").clone());
             let cases = diff_meta.switch_from_explicit_cases(explicit_scalars);
-            MaybeDiffSwitch::DiffSwitch(cases)
+            MaybeDiffSwitch::from_iter(cases)
         }
     }).collect::<Vec<_>>();
 
@@ -570,7 +570,7 @@ fn try_compress_instr(
     //   difficulty[8]:  ins_10(30);
     //
     // where the file contains variants for each difficulty but they're all identical
-    if !compressed_args.iter().any(|arg| matches!(arg, MaybeDiffSwitch::DiffSwitch(_))) {
+    if !compressed_args.iter().any(|arg| arg.is_diff_switch()) {
         return None;
     }
 
@@ -578,7 +578,7 @@ fn try_compress_instr(
         opcode: instrs[0].opcode, time: instrs[0].time,
         args: RaiseArgs::Decoded(compressed_args),
         difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
-        offsets: MaybeDiffSwitch::DiffSwitch(diff_meta.switch_from_explicit_cases(offsets)),
+        offsets: MaybeDiffSwitch::from_iter(diff_meta.switch_from_explicit_cases(offsets)),
     })
 }
 
@@ -907,7 +907,7 @@ impl SingleSubRaiser<'_> {
                     // (we want to make a DiffSwitchVec so iterate over instr.offset which has the desired shape,
                     //  and we'll read off the corresponding case args in parallel)
                     let mut remaining_case_args = offset_compressed_arg.iter_explicit_values();
-                    let dest_labels = instr.offsets.iter().map(|opt| opt.copied().map(|case_instr_offset| {
+                    let dest_labels = instr.offsets.iter().map(|opt| opt.map(|case_instr_offset| {
                         // get the destination label for one explicit difficulty
                         let case_offset_arg = remaining_case_args.next().expect("fewer offset args than instr's own offsets");
                         let case_offset = self.hooks.decode_label(case_instr_offset, case_offset_arg.expect_int() as u32);
@@ -972,11 +972,11 @@ fn raise_compressed_with<E>(
     arg: &RaiseArg,
     mut raise_raw: impl FnMut(usize, &SimpleArg) -> Result<ast::Expr, E>,
 ) -> Result<ast::Expr, E> {
-    match arg {
-        MaybeDiffSwitch::Scalar(raw) => raise_raw(0, raw),
+    match arg.as_scalar() {
+        Some(raw) => raise_raw(0, raw),
 
-        MaybeDiffSwitch::DiffSwitch(cases) => Ok(ast::Expr::DiffSwitch({
-            cases.iter().enumerate().map(|(case_index, case_opt)| {
+        None => Ok(ast::Expr::DiffSwitch({
+            arg.iter().enumerate().map(|(case_index, case_opt)| {
                 case_opt.as_ref().map(|raw| Ok(sp!(raise_raw(case_index, raw)?))).transpose()
             }).collect::<Result<_, E>>()?
         })),
@@ -992,8 +992,8 @@ impl SingleSubRaiser<'_> {
         dest_label: Option<&MaybeDiffSwitch<Result<&Label, IllegalOffset>>>,
     ) -> Result<ast::Expr, ErrorReported> {
         raise_compressed_with(arg, |case_index, raw| {
-            let case_dest_label = dest_label.map(|slice| slice.index(case_index).expect("mismatched diff-switch shapes"));
-            self.raise_arg(emitter, raw, enc, case_dest_label.copied())
+            let case_dest_label = dest_label.map(|slice| slice[case_index].expect("mismatched diff-switch shapes"));
+            self.raise_arg(emitter, raw, enc, case_dest_label)
         })
     }
 
@@ -1022,8 +1022,8 @@ impl SingleSubRaiser<'_> {
         dest_label: Option<&MaybeDiffSwitch<Result<&Label, IllegalOffset>>>,
     ) -> Result<ast::Expr, ErrorReported> {
         raise_compressed_with(arg, |case_index, raw| {
-            let case_dest_label = dest_label.map(|slice| slice.index(case_index).expect("mismatched diff-switch shapes"));
-            self.raise_arg_to_literal(emitter, raw, enc, case_dest_label.copied())
+            let case_dest_label = dest_label.map(|slice| slice[case_index].expect("mismatched diff-switch shapes"));
+            self.raise_arg_to_literal(emitter, raw, enc, case_dest_label)
         })
     }
 
@@ -1167,9 +1167,9 @@ impl SingleSubRaiser<'_> {
 
         macro_rules! require_no_diff_switch {
             ($expr:expr) => {
-                match $expr {
-                    MaybeDiffSwitch::DiffSwitch(_) => return Err(Either::That(MustDecompress)),
-                    MaybeDiffSwitch::Scalar(arg) => arg,
+                match $expr.as_scalar() {
+                    None => return Err(Either::That(MustDecompress)),
+                    Some(arg) => arg,
                 }
             };
         }
@@ -1250,7 +1250,7 @@ impl Raiser<'_> {
 
         // Fall back to decompiling as a blob.
         Ok(RaiseInstr {
-            offsets: MaybeDiffSwitch::Scalar(instr_offset),
+            offsets: MaybeDiffSwitch::new_scalar(instr_offset),
             time: instr.time,
             opcode: instr.opcode,
             difficulty_mask: instr.difficulty,
@@ -1347,7 +1347,7 @@ fn decode_args_with_abi(
                 },
             };
 
-            args.push(MaybeDiffSwitch::Scalar(SimpleArg { value, is_reg }));
+            args.push(MaybeDiffSwitch::new_scalar(SimpleArg { value, is_reg }));
             Ok(())
         })?;
     }
@@ -1368,7 +1368,7 @@ fn decode_args_with_abi(
         )).ignore();
     }
     Ok(RaiseInstr {
-        offsets: MaybeDiffSwitch::Scalar(instr_offset),
+        offsets: MaybeDiffSwitch::new_scalar(instr_offset),
         time: instr.time,
         opcode: instr.opcode,
         difficulty_mask: instr.difficulty,
@@ -1417,7 +1417,7 @@ impl<'a> LabelEmitter<'a> {
     fn emit_labels_for_instr_with(&mut self, instr: &RaiseInstr, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
         let &offset = instr.offsets.easy_value();
         assert!(
-            instr.offsets.iter().skip(1).filter_map(|opt| opt.copied()).all(|offset| !self.offset_labels.contains_key(&offset)),
+            instr.offsets.iter().skip(1).flatten().all(|offset| !self.offset_labels.contains_key(&offset)),
             "a label got compressed into the middle of a diff switch!!",
         );
 
