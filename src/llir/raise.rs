@@ -15,7 +15,7 @@ use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK, DEFAULT_DIFFICULTY_MASK_BYTE};
-use crate::diff_switch_utils::{self as ds_util, DiffSwitchSlice, DiffSwitchVec};
+use crate::diff_switch_utils::{self as ds_util, MaybeDiffSwitch};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 
 use IntrinsicInstrKind as IKind;
@@ -41,43 +41,30 @@ impl Default for DecompileOptions {
 
 /// Intermediate form of an instruction only used during decompilation.
 #[derive(Debug)]
-struct RaiseInstr<Arg = SimpleArg, Offset = raw::BytePos> {
-    /// NOTE: In CompressedInstr this is a vec with the offset of each original instr.
-    offset: Offset,
+struct RaiseInstr {
+    offsets: MaybeDiffSwitch<raw::BytePos>,
     time: raw::Time,
     difficulty_mask: raw::DifficultyMask,
     opcode: raw::Opcode,
-    args: RaiseArgs<Arg>,
+    args: RaiseArgs,
 }
-type CompressedInstr = RaiseInstr<CompressedArg, DiffSwitchVec<raw::BytePos>>;
 
 #[derive(Debug)]
-enum RaiseArgs<Arg> {
+enum RaiseArgs {
     /// The ABI of the instruction was known, so we parsed the argument bytes into arguments.
-    Decoded(Vec<Arg>),
+    Decoded(Vec<RaiseArg>),
     /// The ABI was not known, so we will be emitting pseudo-args like `@blob=`.
     Unknown(UnknownArgsData),
 }
 
-impl<Arg> RaiseArgs<Arg> {
-    fn decoded(&self) -> Option<&[Arg]> { match self {
+/// An immediate or register, or a diff switch thereof.
+type RaiseArg = MaybeDiffSwitch<SimpleArg>;
+
+impl RaiseArgs {
+    fn decoded(&self) -> Option<&[RaiseArg]> { match self {
         RaiseArgs::Decoded(args) => Some(args),
         RaiseArgs::Unknown { .. } => None,
     }}
-}
-
-enum CompressedArg {
-    DiffSwitch(DiffSwitchVec<SimpleArg>),
-    Single(SimpleArg),
-}
-
-impl CompressedArg {
-    fn iter_raw_args(&self) -> impl Iterator<Item=&SimpleArg> + '_ {
-        match self {
-            CompressedArg::Single(x) => Box::new(core::iter::once(x)) as Box<dyn Iterator<Item=&SimpleArg>>,
-            CompressedArg::DiffSwitch(args) => Box::new(args.iter().filter_map(|opt| opt.as_ref())),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -233,7 +220,7 @@ impl SingleSubRaiser<'_> {
             // Is it a blob?
             if let RaiseArgs::Unknown(blob_data) = &remaining_instrs[0].args {
                 let blob_instr = &remaining_instrs[0];
-                label_gen.emit_labels(&mut out, blob_instr.offset, blob_instr.time);
+                label_gen.emit_labels_for_instr(&mut out, blob_instr);
 
                 let kind = raise_unknown_instr(self.language, blob_instr, blob_data)?;
                 out.push(self.make_stmt(blob_instr.difficulty_mask, kind));
@@ -241,18 +228,13 @@ impl SingleSubRaiser<'_> {
                 continue;
             };
 
-            // FIXME: The logic for dealing with the fallback from intrinsic syntax to raw syntax is simplest if
-            //        we check for two-instruction intrinsics before trying to compress diff switches.
-            //        Unfortunately, that means eagerly constructing two CompressedInstrs (each of which allocates),
-            //        even if they won't be used. (and the second one may get constructed again on the next loop iter)
-            //
             // Is it a two-instruction intrinsic?
             //
             // Both instructions must have known signatures...
-            let instr_1 = CompressedInstr::from_single(&remaining_instrs[0]);
+            let instr_1 = &remaining_instrs[0];
             let args_1 = instr_1.args.decoded().expect("already checked for blob above");
             if remaining_instrs.len() > 1 {
-                let instr_2 = CompressedInstr::from_single(&remaining_instrs[1]);
+                let instr_2 = &remaining_instrs[1];
                 if let RaiseArgs::Decoded(args_2) = &instr_2.args {
                     let instr_2_needs_label = {
                         // make a copy of the helper so we can see what instr_2's labels would be after handling instr_1
@@ -453,6 +435,7 @@ fn extract_jump_args_by_signature(
     instr: &RaiseInstr,
     defs: &context::Defs,
 ) -> Option<(raw::BytePos, Option<raw::Time>)> {
+    assert_eq!(instr.num_instrs_compressed(), 1, "this fn is only for use before diff switch decomp");
     let mut jump_offset = None;
     let mut jump_time = None;
 
@@ -460,12 +443,14 @@ fn extract_jump_args_by_signature(
         RaiseArgs::Decoded(args) => args,
         RaiseArgs::Unknown(_) => return None,
     };
+    let instr_offset = *instr.offsets.as_scalar().expect("asserted no switch above");
 
     let (abi, _) = defs.ins_abi(hooks.language(), instr.opcode).expect("decoded, so abi is known");
     for (arg, encoding) in zip!(args, abi.arg_encodings()) {
+        let arg = arg.as_scalar().expect("asserted no switch above");
         match encoding {
             ArgEncoding::JumpOffset
-                => jump_offset = Some(hooks.decode_label(instr.offset, arg.expect_immediate_int() as u32)),
+                => jump_offset = Some(hooks.decode_label(instr_offset, arg.expect_immediate_int() as u32)),
             ArgEncoding::JumpTime
                 => jump_time = Some(arg.expect_immediate_int()),
             _ => {},
@@ -489,10 +474,10 @@ fn extract_jump_args_by_signature(
 
 // try compressing instrs beginning at the beginning of a slice into a diff switch
 fn try_compress_instr(
-    instrs: &[RaiseInstr<SimpleArg>],
+    instrs: &[RaiseInstr],
     // for looking up whether an offset is jumped to from anywhere
     mut has_label: impl FnMut(raw::BytePos) -> bool,
-) -> Option<CompressedInstr> {
+) -> Option<RaiseInstr> {
     // early checks to avoid allocations in cases where there's clearly no diff switch
     if instrs.len() < 2 || instrs[0].opcode != instrs[1].opcode || instrs[0].time != instrs[1].time
         || instrs[0].difficulty_mask == DEFAULT_DIFFICULTY_MASK_BYTE
@@ -508,7 +493,7 @@ fn try_compress_instr(
     // collect instructions at the beginning of the slice that resemble the first instruction,
     // and have disjoint difficulty masks spanning a range of contiguous bits starting at 0
     let mut next_difficulty = 0;
-    let mut args_by_index = vec![vec![]; first_args.len()];  // [arg_index] -> [instr_index] -> arg
+    let mut explicit_args_by_index = vec![vec![]; first_args.len()];  // [arg_index] -> [instr_index] -> arg
     let mut offsets = vec![];
     let mut explicit_difficulties = BitSet32::new();
     for instr in instrs {
@@ -517,7 +502,7 @@ fn try_compress_instr(
         let &RaiseInstr {
             opcode: this_opcode, time: this_time,
             args: ref this_args, difficulty_mask: this_mask,
-            offset: this_offset,
+            offsets: ref this_offsets,
         } = instr;
         let this_mask = BitSet32::from_mask(this_mask as _);
 
@@ -539,9 +524,9 @@ fn try_compress_instr(
 
         explicit_difficulties.insert(next_difficulty);
         next_difficulty += this_mask.len() as u32;
-        offsets.push(this_offset);
+        offsets.push(*this_offsets.as_scalar().expect("already a diff-switch?!"));
         for (arg_index, arg) in this_args.iter().enumerate() {
-            args_by_index[arg_index].push(arg);
+            explicit_args_by_index[arg_index].push(arg);
         }
     }
     let diff_meta = ds_util::DiffSwitchMeta {
@@ -564,12 +549,16 @@ fn try_compress_instr(
     }
 
     // now make each individual arg into a diff switch if necessary
-    let compressed_args = args_by_index.into_iter().map(|explicit_cases| {
-        if explicit_cases.iter().all(|case| case == &explicit_cases[0]) {
-            CompressedArg::Single(explicit_cases[0].clone())
+    let compressed_args = explicit_args_by_index.into_iter().map(|explicit_cases| {
+        let first_case = explicit_cases[0];
+        if explicit_cases.iter().all(|&case| case == first_case) {
+            // all values for this arg are identical, keep it as a scalar
+            assert!(matches!(first_case, MaybeDiffSwitch::Scalar(_)), "already a diff switch?!");
+            first_case.clone()
         } else {
-            let cases = diff_meta.switch_from_explicit_cases(explicit_cases.into_iter().cloned());
-            CompressedArg::DiffSwitch(cases)
+            let explicit_scalars = explicit_cases.into_iter().map(|x| x.as_scalar().expect("already a diff switch?!").clone());
+            let cases = diff_meta.switch_from_explicit_cases(explicit_scalars);
+            MaybeDiffSwitch::DiffSwitch(cases)
         }
     }).collect::<Vec<_>>();
 
@@ -581,7 +570,7 @@ fn try_compress_instr(
     //   difficulty[8]:  ins_10(30);
     //
     // where the file contains variants for each difficulty but they're all identical
-    if !compressed_args.iter().any(|arg| matches!(arg, CompressedArg::DiffSwitch(_))) {
+    if !compressed_args.iter().any(|arg| matches!(arg, MaybeDiffSwitch::DiffSwitch(_))) {
         return None;
     }
 
@@ -589,7 +578,7 @@ fn try_compress_instr(
         opcode: instrs[0].opcode, time: instrs[0].time,
         args: RaiseArgs::Decoded(compressed_args),
         difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
-        offset: diff_meta.switch_from_explicit_cases(offsets),
+        offsets: MaybeDiffSwitch::DiffSwitch(diff_meta.switch_from_explicit_cases(offsets)),
     })
 }
 
@@ -598,21 +587,10 @@ fn bitmask_bits_are_contiguous(mask: BitSet32) -> bool {
     mask.last().unwrap() + 1 - mask.first().unwrap() == mask.len() as u32
 }
 
-impl CompressedInstr {
-    fn num_instrs_compressed(&self) -> usize { self.offset.iter().filter(|x| x.is_some()).count() }
-
-    fn from_single(instr: &RaiseInstr) -> Self {
-        let &RaiseInstr { offset, time, difficulty_mask, opcode, ref args } = instr;
-        RaiseInstr {
-            time, difficulty_mask, opcode,
-            offset: vec![Some(offset)],
-            args: match args {
-                RaiseArgs::Decoded(args) => RaiseArgs::Decoded({
-                    args.iter().map(|arg| CompressedArg::Single(arg.clone())).collect()
-                }),
-                RaiseArgs::Unknown(blob) => RaiseArgs::Unknown(blob.clone()),
-            }
-        }
+impl RaiseInstr {
+    fn num_instrs_compressed(&self) -> usize {
+        self.offsets.as_diff_switch().map(|cases| cases.iter().filter(|x| x.is_some()).count())
+            .unwrap_or(1)
     }
 }
 
@@ -687,8 +665,8 @@ impl SingleSubRaiser<'_> {
     fn raise_single_instr_intrinsic_or_raw(
         &self,
         emitter: &impl Emitter,
-        instr: &CompressedInstr,
-        args: &[CompressedArg],
+        instr: &RaiseInstr,
+        args: &[RaiseArg],
     ) -> Result<ast::StmtKind, Either<ErrorReported, MustDecompress>> {
         match self.try_raise_single_instr_intrinsic(instr, args) {
             Ok(kind) => Ok(kind),
@@ -701,10 +679,10 @@ impl SingleSubRaiser<'_> {
 
     fn try_raise_single_instr_intrinsic(
         &self,
-        instr: &CompressedInstr,
-        args: &[CompressedArg],
+        instr: &RaiseInstr,
+        args: &[RaiseArg],
     ) -> Result<ast::StmtKind, Either<CannotRaiseIntrinsic, MustDecompress>> {
-        let abi = self.expect_abi(instr);
+        let abi = self.expect_abi(instr.opcode);
 
         let (kind, abi_info) = match self.intrinsic_instrs.get_intrinsic_and_props(instr.opcode) {
             Some(tuple) => tuple,
@@ -789,6 +767,12 @@ impl SingleSubRaiser<'_> {
             },
 
 
+            // Should be handled earlier.
+            // We can't decompile it now, as we have already read past the other instructions
+            // containing the values we'd want to put as function call arguments.
+            IKind::CallReg => Err(Either::This(CannotRaiseIntrinsic)),
+
+
             // Individual pieces of multipart intrinsics, which can show up in this method when
             // they appear alone or with e.g. time labels in-between.
             | IKind::CondJmp2A { .. }
@@ -800,16 +784,16 @@ impl SingleSubRaiser<'_> {
     /// Try to raise an intrinsic that is two instructions long.
     fn try_raise_double_instr_intrinsic(
         &self,
-        instr_1: &CompressedInstr,
-        instr_2: &CompressedInstr,
-        args_1: &[CompressedArg],
-        args_2: &[CompressedArg],
+        instr_1: &RaiseInstr,
+        instr_2: &RaiseInstr,
+        args_1: &[RaiseArg],
+        args_2: &[RaiseArg],
     ) -> Option<ast::StmtKind> {
         assert_eq!(instr_1.time, instr_2.time, "already checked by caller");
         assert_eq!(instr_1.difficulty_mask, instr_2.difficulty_mask, "already checked by caller");
 
-        let abi_1 = self.expect_abi(instr_1);
-        let abi_2 = self.expect_abi(instr_2);
+        let abi_1 = self.expect_abi(instr_1.opcode);
+        let abi_2 = self.expect_abi(instr_2.opcode);
 
         match self.intrinsic_instrs.get_intrinsic_and_props(instr_1.opcode) {
             Some((IKind::CondJmp2A(_), abi_info_1)) => match self.intrinsic_instrs.get_intrinsic_and_props(instr_2.opcode) {
@@ -838,15 +822,71 @@ impl SingleSubRaiser<'_> {
         }
     }
 
+    // fn try_raise_reg_call_intrinsic(
+    //     &self,
+    //     instrs: &[RaiseInstr],
+    // ) -> Result<ast::StmtKind, CannotRaiseIntrinsic> {
+    //     // we can have (optional) ints followed by (optional) floats followed by a call.
+    //     #[derive(PartialEq, Eq, PartialOrd, Ord)]
+    //     enum State { NoArgsYet, HasReadInts, HasReadFloats }
+    //
+    //     let mut state = State::NoArgsYet;
+    //     let mut instr_index = 0;
+    //
+    //     loop {
+    //         let abi = self.expect_abi(instrs[instr_index].opcode);
+    //         let (kind, _) = match self.intrinsic_instrs.get_intrinsic_and_props(instrs[instr_index].opcode) {
+    //             Some(tuple) => tuple,
+    //             None => return Err(CannotRaiseIntrinsic), // not an intrinsic!
+    //         };
+    //
+    //         match kind {
+    //             IKind::AssignOp(token![=], ty) => {
+    //                 let state_after_read = match ty {
+    //                     ScalarType::Int => State::HasReadInts,
+    //                     ScalarType::Floats => State::HasReadFloats,
+    //                     ScalarType::String => return Err(CannotRaiseIntrinsic),
+    //                 };
+    //                 let ty = ReadType::from_ty(ty).unwrap();
+    //
+    //                 if state >= state_after_read {
+    //                     return Err(CannotRaiseIntrinsic);
+    //                 }
+    //
+    //                 for &reg_id in arg_registers[ty] {
+    //                     let abi = self.expect_abi(instrs[instr_index].opcode);
+    //                     let (kind, abi_info) = match self.intrinsic_instrs.get_intrinsic_and_props(instrs[instr_index].opcode) {
+    //                         Some(tuple) => tuple,
+    //                         None => return Err(CannotRaiseIntrinsic),
+    //                     };
+    //
+    //                     instr_index += 1;
+    //                 }
+    //                 let abi = self.expect_abi(instr.opcode);
+    //                 let (kind, _) = match self.intrinsic_instrs.get_intrinsic_and_props(instr.opcode) {
+    //
+    //                 }
+    //             },
+    //
+    //             IKind::CallReg => {
+    //
+    //             },
+    //         }
+    //     }
+    //
+    //     let mut parts = self.raise_intrinsic_parts(instr, args, abi, abi_info)?;
+    //
+    // }
+
     /// Raise an instr to raw `ins_` syntax, with decoded args.
     fn raise_raw_ins(
         &self,
         emitter: &impl Emitter,
-        instr: &CompressedInstr,
-        args: &[CompressedArg],  // args decoded from the blob
+        instr: &RaiseInstr,
+        args: &[RaiseArg],  // args decoded from the blob
     ) -> Result<ast::StmtKind, ErrorReported> {
         let language = self.hooks.language();
-        let abi = self.expect_abi(instr);
+        let abi = self.expect_abi(instr.opcode);
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
 
         if args.len() != encodings.len() {
@@ -866,14 +906,14 @@ impl SingleSubRaiser<'_> {
 
                     // (we want to make a DiffSwitchVec so iterate over instr.offset which has the desired shape,
                     //  and we'll read off the corresponding case args in parallel)
-                    let mut remaining_case_args = offset_compressed_arg.iter_raw_args();
-                    let dest_labels = instr.offset.iter().map(|opt| opt.map(|case_instr_offset| {
+                    let mut remaining_case_args = offset_compressed_arg.iter_explicit_values();
+                    let dest_labels = instr.offsets.iter().map(|opt| opt.copied().map(|case_instr_offset| {
                         // get the destination label for one explicit difficulty
                         let case_offset_arg = remaining_case_args.next().expect("fewer offset args than instr's own offsets");
                         let case_offset = self.hooks.decode_label(case_instr_offset, case_offset_arg.expect_int() as u32);
                         self.offset_labels.get(&case_offset)
                             .ok_or(IllegalOffset)  // if it was a valid offset, it would have a label
-                    })).collect::<DiffSwitchVec<_>>();
+                    })).collect::<MaybeDiffSwitch<_>>();
 
                     assert!(remaining_case_args.next().is_none(), "more offset args than instr's own offsets");
                     dest_labels
@@ -882,7 +922,7 @@ impl SingleSubRaiser<'_> {
 
         let mut raised_args = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
             emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
-                Ok(sp!(self.raise_compressed(emitter, &arg, enc, dest_label.as_deref())?))
+                Ok(sp!(self.raise_compressed(emitter, &arg, enc, dest_label.as_ref())?))
             })
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
@@ -904,9 +944,7 @@ impl SingleSubRaiser<'_> {
         // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
         for (enc, arg) in abi.arg_encodings().zip(args).rev() {
             match enc {
-                ArgEncoding::Padding if arg.iter_raw_args().all(|raw| matches!(raw, SimpleArg { value: ScalarValue::Int(0), .. })) => {
-                    raised_args.pop()
-                },
+                ArgEncoding::Padding if arg.iter_explicit_values().all(|x| x.is_immediate_zero()) => raised_args.pop(),
                 _ => break,
             };
         }
@@ -917,10 +955,10 @@ impl SingleSubRaiser<'_> {
         }))))
     }
 
-    fn expect_abi<T, U>(&self, instr: &RaiseInstr<T, U>) -> &InstrAbi {
+    fn expect_abi(&self, opcode: raw::Opcode) -> &InstrAbi {
         // if we have RaiseInstr then we already used the signature earlier to decode the arg bytes
-        self.defs.ins_abi(self.hooks.language(), instr.opcode).unwrap_or_else(|| {
-            unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", instr.opcode)
+        self.defs.ins_abi(self.hooks.language(), opcode).unwrap_or_else(|| {
+            unreachable!("(BUG!) signature not known for opcode {}, but this should have been caught earlier!", opcode)
         }).0
     }
 }
@@ -931,13 +969,13 @@ struct IllegalOffset;
 
 /// Adapts a [`SimpleArg`]-raising function to raise a [`CompressedArg`] instead.
 fn raise_compressed_with<E>(
-    arg: &CompressedArg,
+    arg: &RaiseArg,
     mut raise_raw: impl FnMut(usize, &SimpleArg) -> Result<ast::Expr, E>,
 ) -> Result<ast::Expr, E> {
     match arg {
-        CompressedArg::Single(raw) => raise_raw(0, raw),
+        MaybeDiffSwitch::Scalar(raw) => raise_raw(0, raw),
 
-        CompressedArg::DiffSwitch(cases) => Ok(ast::Expr::DiffSwitch({
+        MaybeDiffSwitch::DiffSwitch(cases) => Ok(ast::Expr::DiffSwitch({
             cases.iter().enumerate().map(|(case_index, case_opt)| {
                 case_opt.as_ref().map(|raw| Ok(sp!(raise_raw(case_index, raw)?))).transpose()
             }).collect::<Result<_, E>>()?
@@ -949,13 +987,13 @@ impl SingleSubRaiser<'_> {
     fn raise_compressed(
         &self,
         emitter: &impl Emitter,
-        arg: &CompressedArg,
+        arg: &RaiseArg,
         enc: ArgEncoding,
-        dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
+        dest_label: Option<&MaybeDiffSwitch<Result<&Label, IllegalOffset>>>,
     ) -> Result<ast::Expr, ErrorReported> {
         raise_compressed_with(arg, |case_index, raw| {
-            let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
-            self.raise_arg(emitter, raw, enc, case_dest_label)
+            let case_dest_label = dest_label.map(|slice| slice.index(case_index).expect("mismatched diff-switch shapes"));
+            self.raise_arg(emitter, raw, enc, case_dest_label.copied())
         })
     }
 
@@ -979,13 +1017,13 @@ impl SingleSubRaiser<'_> {
     fn raise_compressed_to_literal(
         &self,
         emitter: &impl Emitter,
-        arg: &CompressedArg,
+        arg: &RaiseArg,
         enc: ArgEncoding,
-        dest_label: Option<&DiffSwitchSlice<Result<&Label, IllegalOffset>>>,
+        dest_label: Option<&MaybeDiffSwitch<Result<&Label, IllegalOffset>>>,
     ) -> Result<ast::Expr, ErrorReported> {
         raise_compressed_with(arg, |case_index, raw| {
-            let case_dest_label = dest_label.map(|slice| slice[case_index].unwrap());
-            self.raise_arg_to_literal(emitter, raw, enc, case_dest_label)
+            let case_dest_label = dest_label.map(|slice| slice.index(case_index).expect("mismatched diff-switch shapes"));
+            self.raise_arg_to_literal(emitter, raw, enc, case_dest_label.copied())
         })
     }
 
@@ -1107,8 +1145,8 @@ struct RaisedIntrinsicParts {
 impl SingleSubRaiser<'_> {
     fn raise_intrinsic_parts(
         &self,
-        instr: &CompressedInstr,
-        args: &[CompressedArg],
+        instr: &RaiseInstr,
+        args: &[RaiseArg],
         abi: &InstrAbi,
         abi_parts: &IntrinsicInstrAbiParts,
     ) -> Result<RaisedIntrinsicParts, Either<CannotRaiseIntrinsic, MustDecompress>> {
@@ -1123,15 +1161,15 @@ impl SingleSubRaiser<'_> {
         } = abi_parts;
 
         let padding_range = padding_info.index..padding_info.index + padding_info.count;
-        if !args[padding_range].iter().all(|a| a.iter_raw_args().all(|r| !r.is_reg && r.expect_immediate_int() == 0)) {
+        if !args[padding_range].iter().all(|a| a.iter_explicit_values().all(|r| r.is_immediate_zero())) {
             return Err(Either::This(CannotRaiseIntrinsic));  // data in padding
         }
 
         macro_rules! require_no_diff_switch {
             ($expr:expr) => {
                 match $expr {
-                    CompressedArg::DiffSwitch(_) => return Err(Either::That(MustDecompress)),
-                    CompressedArg::Single(arg) => arg,
+                    MaybeDiffSwitch::DiffSwitch(_) => return Err(Either::That(MustDecompress)),
+                    MaybeDiffSwitch::Scalar(arg) => arg,
                 }
             };
         }
@@ -1144,8 +1182,15 @@ impl SingleSubRaiser<'_> {
                 abi_parts::JumpArgOrder::Loc => (&args[index], None),
             };
 
-            // we don't allow diff switches for the label so we only need the first offset
-            let instr_offset = instr.offset[0].unwrap();
+            let instr_offset = match instr.offsets.as_scalar() {
+                Some(&instr_offset) => instr_offset,
+                None => {
+                    // FIXME: technically we could do this maybe? we would need to accept a
+                    //        dest_label: Option<&MaybeDiffSwitch<Result<&Label, IllegalOffset>>> argument
+                    //        to make sure the correct offset was used to decode each label.
+                    return Err(Either::That(MustDecompress));
+                }
+            };
 
             let label_offset = self.hooks.decode_label(instr_offset, require_no_diff_switch!(offset_arg).expect_immediate_int() as u32);
             let label = &self.offset_labels[&label_offset];
@@ -1205,7 +1250,7 @@ impl Raiser<'_> {
 
         // Fall back to decompiling as a blob.
         Ok(RaiseInstr {
-            offset: instr_offset,
+            offsets: MaybeDiffSwitch::Scalar(instr_offset),
             time: instr.time,
             opcode: instr.opcode,
             difficulty_mask: instr.difficulty,
@@ -1302,7 +1347,7 @@ fn decode_args_with_abi(
                 },
             };
 
-            args.push(SimpleArg { value, is_reg });
+            args.push(MaybeDiffSwitch::Scalar(SimpleArg { value, is_reg }));
             Ok(())
         })?;
     }
@@ -1323,7 +1368,7 @@ fn decode_args_with_abi(
         )).ignore();
     }
     Ok(RaiseInstr {
-        offset: instr_offset,
+        offsets: MaybeDiffSwitch::Scalar(instr_offset),
         time: instr.time,
         opcode: instr.opcode,
         difficulty_mask: instr.difficulty,
@@ -1354,12 +1399,12 @@ impl<'a> LabelEmitter<'a> {
         self.emit_labels_with(offset, time, &mut |stmt| out.push(stmt))
     }
 
-    fn emit_labels_for_instr(&mut self, out: &mut Vec<Sp<ast::Stmt>>, instr: &CompressedInstr) {
+    fn emit_labels_for_instr(&mut self, out: &mut Vec<Sp<ast::Stmt>>, instr: &RaiseInstr) {
         self.emit_labels_for_instr_with(instr, &mut |stmt| out.push(stmt))
     }
 
     /// Determine if the label emitter would emit a label here.
-    fn would_emit_labels(&self, instr: &CompressedInstr) -> bool {
+    fn would_emit_labels(&self, instr: &RaiseInstr) -> bool {
         let mut emitted = false;
         let mut temp_emitter = self.clone();
         temp_emitter.emit_labels_for_instr_with(instr, &mut |_| emitted = true);
@@ -1369,10 +1414,10 @@ impl<'a> LabelEmitter<'a> {
     // -----------------
     // underlying implementation which uses a callback
 
-    fn emit_labels_for_instr_with(&mut self, instr: &CompressedInstr, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
-        let offset = instr.offset[0].expect("no easy offset?");
+    fn emit_labels_for_instr_with(&mut self, instr: &RaiseInstr, emit: &mut impl FnMut(Sp<ast::Stmt>)) {
+        let &offset = instr.offsets.easy_value();
         assert!(
-            instr.offset[1..].iter().copied().flatten().all(|offset| !self.offset_labels.contains_key(&offset)),
+            instr.offsets.iter().skip(1).filter_map(|opt| opt.copied()).all(|offset| !self.offset_labels.contains_key(&offset)),
             "a label got compressed into the middle of a diff switch!!",
         );
 

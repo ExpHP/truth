@@ -4,7 +4,7 @@ use crate::raw;
 use crate::game::LanguageKey;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::diagnostic::{Diagnostic, Emitter};
-use crate::value::{ScalarValue, ScalarType};
+use crate::value::{ScalarValue, ScalarType, ReadType};
 use crate::resolve::{RegId};
 
 pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind};
@@ -99,6 +99,10 @@ impl SimpleArg {
             ScalarValue::String(ref x) => x,
             _ => panic!("{:?}", self),
         }
+    }
+
+    pub fn is_immediate_zero(&self) -> bool {
+        matches!(self, SimpleArg { is_reg: false, value: ScalarValue::Int(0), .. })
     }
 }
 
@@ -310,6 +314,9 @@ pub trait LanguageHooks {
     /// In EoSD ECL, the value of an argument can, in some cases, decide if it is
     /// a literal or a register.
     fn register_style(&self) -> RegisterEncodingStyle { RegisterEncodingStyle::ByParamMask }
+
+    /// The argument registers of each type for [`IntrinsicInstrKind::CallReg`].
+    fn arg_registers(&self) -> Option<EnumMap<ReadType, &[RegId]>> { None }
 
     /// Get the [`InstrFormat`].  One might've expected that the raising/lowering phases *shouldn't*
     /// need this, but they do need it in order to deal with jump offsets.

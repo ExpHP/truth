@@ -119,6 +119,12 @@ pub enum IntrinsicInstrKind {
     /// Calls a sub in EoSD.  Takes two immediates for `I0` and `F0`.
     #[strum_discriminants(strum(serialize = "CallEosd"))]
     CallEosd,
+
+    /// Calls a sub in PCB-StB.
+    ///
+    /// Args are passed in by setting global "arg" registers prior to this instruction.
+    #[strum_discriminants(strum(serialize = "CallReg"))]
+    CallReg,
 }
 
 impl IntrinsicInstrKind {
@@ -126,6 +132,7 @@ impl IntrinsicInstrKind {
         match self {
             Self::Jmp { .. } => "unconditional jump",
             Self::CallEosd { .. } => "call (EoSD)",
+            Self::CallReg { .. } => "call (reg-based)",
             Self::InterruptLabel { .. } => "interrupt label",
             Self::AssignOp { .. } => "assign op",
             Self::BinOp { .. } => "binary op",
@@ -142,6 +149,7 @@ impl IntrinsicInstrKind {
         match self {
             | Self::Jmp { .. }
             | Self::CallEosd { .. }
+            | Self::CallReg { .. }
             | Self::InterruptLabel { .. }
             | Self::CountJmp { .. }
             | Self::CondJmp2A { .. }
@@ -401,6 +409,9 @@ impl IntrinsicInstrAbiParts {
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Float)?);
             },
+            I::CallReg => {
+                out.sub_id = Some(find_and_remove_sub_id(&mut encodings, abi_loc)?);
+            },
             I::InterruptLabel => {
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
             }
@@ -494,6 +505,7 @@ impl std::str::FromStr for IntrinsicInstrKind {
         let out = match tag {
             Tag::Jmp => IKind::Jmp,
             Tag::CallEosd => IKind::CallEosd,
+            Tag::CallReg => IKind::CallReg,
             Tag::InterruptLabel => IKind::InterruptLabel,
             Tag::AssignOp => IKind::AssignOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
             Tag::BinOp => IKind::BinOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
@@ -525,6 +537,7 @@ impl std::fmt::Display for IntrinsicInstrKind {
         match self {
             IKind::Jmp => write!(f, "{}()", tag),
             IKind::CallEosd => write!(f, "{}()", tag),
+            IKind::CallReg => write!(f, "{}()", tag),
             IKind::InterruptLabel => write!(f, "{}()", tag),
             IKind::AssignOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
             IKind::BinOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
