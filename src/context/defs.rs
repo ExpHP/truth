@@ -638,8 +638,6 @@ impl CompilerContext<'_> {
     ///
     /// This can be different from the variable's innate type.  E.g. an integer global `I0` can be
     /// cast as a float using `%I0`.
-    ///
-    /// This returns [`ScalarType`] instead of [`ast::VarReadType`] because const vars could be strings.
     pub fn var_read_ty_from_ast(&self, var: &ast::Var) -> VarType {
         match var.ty_sigil {
             Some(sigil) => VarType::Typed(sigil.into()),

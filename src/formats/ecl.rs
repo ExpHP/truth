@@ -76,6 +76,7 @@ fn decompile(
     // Decompile bodies of ECL subs
     let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     sub_raiser.add_ecl_sub_names((0..ecl.subs.len()).map(|i| (i as i32, ecl.subs.get_index(i).unwrap().0.clone())));
+    sub_raiser.set_olde_sub_format(sub_format);
 
     let mut decompiled_subs = IndexMap::new();
     for (ident, instrs) in ecl.subs.iter() {
@@ -451,6 +452,17 @@ fn game_sub_format(game: Game) -> Box<dyn OldeSubFormat> {
 }
 
 pub trait OldeSubFormat {
+    fn param_reg_id(&self, ty: ReadType, number: usize) -> RegId;
+
+    /// If `true` it's like PCB and has argument registers.
+    /// If `false` it's like EoSD and puts the args in the call instruction.
+    fn has_arg_regs(&self) -> bool;
+
+    /// Get a global argument register, used in PCB and later at callsites.
+    ///
+    /// Meaningless/may panics if [`Self::has_arg_regs`] returns `false`.
+    fn arg_reg_id(&self, _ty: ReadType, _number: usize) -> RegId { panic!("no arg regs") }
+
     // ---------
     // --- used during compilation ---
 
@@ -461,8 +473,6 @@ pub trait OldeSubFormat {
 
     fn limits_msg(&self) -> &'static str;
 
-    fn param_reg_id(&self, ty: ReadType, number: usize) -> RegId;
-
     // ---------
     // --- used during decompilation ---
 
@@ -471,6 +481,8 @@ pub trait OldeSubFormat {
 
 impl OldeSubFormat for EosdSubFormat {
     fn max_params_per_type(&self) -> usize { 1 }
+
+    fn has_arg_regs(&self) -> bool { false }
 
     fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
         let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
@@ -508,6 +520,8 @@ impl OldeSubFormat for EosdSubFormat {
 impl OldeSubFormat for PcbSubFormat {
     fn max_params_per_type(&self) -> usize { 4 }
 
+    fn has_arg_regs(&self) -> bool { true }
+
     fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
         let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
         Some(format!(
@@ -539,6 +553,10 @@ impl OldeSubFormat for PcbSubFormat {
             _ => unreachable!(),
         };
         RegId(param_a_id + ty_offset + number as i32)
+    }
+
+    fn arg_reg_id(&self, ty: ReadType, number: usize) -> RegId {
+        RegId(self.param_reg_id(ty, number).0 + 8)
     }
 
     fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {
@@ -801,7 +819,7 @@ impl LanguageHooks for OldeEclHooks {
                     (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 5),
                     (I::UnOp(ast::UnOpKind::Sin, ScalarType::Float), 24),
                     (I::UnOp(ast::UnOpKind::Cos, ScalarType::Float), 25),
-                    // (I::CallPcb, 41),
+                    (I::CallReg, 41),
                     // (I::Return, 42),
                 ];
                 I::register_binary_ops_of_type(&mut out, 12, ScalarType::Int);

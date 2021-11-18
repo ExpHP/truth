@@ -583,6 +583,145 @@ void baz(int a, float x) {
     sbsb: |_| { /* just need it to round-trip */ },
 );
 
+source_test!(
+    // This one doesn't contain reads so the decompiler might have more trouble
+    // inferring the params.  Make sure it still roundtrips.
+    ECL_06, eosd_param_decompile_calls_without_reads,
+    items: r#"
+void foo(int a) {}
+void bar(float x) {}
+void baz(int a, float x) {}
+"#,
+    main_body: r#"
+    foo(3);
+    bar(6.0);
+    baz(2, 1.5);
+    "#,
+    sbsb: |_| { /* just need it to round-trip */ },
+);
+
+source_test!(
+    ECL_07, pcb_param_decompile_calls,
+    items: r#"
+void neither() {}
+void anInt(int a) {}
+void twoInts(int a, int b) {}
+void aFloat(float a) {}
+void mixed(int a, int b, float x, int c, float y) {}
+"#,
+    main_body: r#"
+    neither();
+    anInt(7);
+    twoInts(2, 4);
+    aFloat(4.0);
+    mixed(2, I0, 2.0, 7, F0);
+    "#,
+    sbsb: |decompiled| {
+        decompiled.contains("();");
+        decompiled.contains("(7);");
+        decompiled.contains("(2, 4);");
+        decompiled.contains("(4.0);");
+        decompiled.contains(" 2.0, "); // check for a big argument list
+    },
+);
+
+source_test!(
+    // you know, in case somebody added PCB style calls to EoSD,
+    // make sure it doesn't get tripped up by the funky signature.
+    ECL_07, pcb_param_decompile_calls_eosd_assign,
+    mapfile: r#"!eclmap
+!ins_signatures
+5  Sf  # set_float
+"#,
+    items: r#"
+void foo(int a, int b, float x, int c, float y) {
+    int t1 = a;
+}
+"#,
+    main_body: r#"
+    foo(2, I0, 2.0, 7, F0);
+    "#,
+    sbsb: |decompiled| {
+        decompiled.contains(" 2.0, "); // check for a big argument list
+    },
+);
+
+macro_rules! pcb_funky_call_decomp_rt_test {
+    ($test_name:ident, $body:expr) => {
+        source_test!(
+            ECL_07, $test_name,
+            items: r#"void testSub() {}"#,
+            main_body: $body,
+            sbsb: |_| {
+                // just roundtrip
+            },
+        );
+    };
+}
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_not_too_funky, r#"
+    ARG_A = 7;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_skip, r#"
+    ARG_B = 8;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_expr, r#"
+    ARG_A = 3;
+    ARG_B = (I0 * 2) + 3;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_1, r#"
+    ARG_B = 7;
+    ARG_A = 3;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_2, r#"
+    ARG_R = 2;
+    ARG_A = 5;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_diff_differ, r#"
+    ARG_A = 5;
+    {"EN"}: ARG_B = 7;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_diff_same, r#"
+    {"EN"}: ARG_A = 5;
+    {"EN"}: ARG_B = 7;
+    {"EN"}: call(testSub);
+"#);
+
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_time, r#"
+    ARG_A = 5;
++10:
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_label, r#"
+    ARG_A = 5;
+label:
+    call(testSub);
+    goto label
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_sigil, r#"
+    %ARG_A = 3.0;
+    call(testSub);
+"#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_end_of_script, r#"
+    ARG_A = 3;
+"#);
+
 // =============================================================================
 
 source_test!(

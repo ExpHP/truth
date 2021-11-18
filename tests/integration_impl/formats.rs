@@ -177,6 +177,11 @@ void sub0() {{
 "#, body),
 };
 
+pub const ECL_07: Format = Format {
+    game: Game::Th07,
+    ..ECL_06
+};
+
 pub const ECL_08: Format = Format {
     game: Game::Th08,
     ..ECL_06
