@@ -664,6 +664,18 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_not_too_funky, r#"
     call(testSub);
 "#);
 
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_full_house, r#"
+    ARG_R = 7.0;
+    ARG_S = 8.0;
+    ARG_M = 9.0;
+    ARG_N = 10.0;
+    ARG_A = 7;
+    ARG_B = 8;
+    ARG_C = 9;
+    ARG_D = 10;
+    call(testSub);
+"#);
+
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_skip, r#"
     ARG_B = 8;
     call(testSub);
@@ -682,8 +694,8 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_1, r#"
 "#);
 
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_2, r#"
-    ARG_R = 2;
     ARG_A = 5;
+    ARG_R = 2;
     call(testSub);
 "#);
 
@@ -698,7 +710,6 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_diff_same, r#"
     {"EN"}: ARG_B = 7;
     {"EN"}: call(testSub);
 "#);
-
 
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_time, r#"
     ARG_A = 5;

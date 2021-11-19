@@ -6,11 +6,11 @@ use super::{unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs, Ar
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp};
-use crate::resolve::DefId;
+use crate::resolve::{DefId};
 use crate::ident::{Ident};
 use crate::context::{self, CompilerContext};
 use crate::io::{Encoded, DEFAULT_ENCODING};
-use crate::value::ScalarValue;
+use crate::value::{ScalarValue};
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use crate::diff_switch_utils as ds_util;
 
@@ -115,9 +115,15 @@ impl LowerArg {
 /// This is a panic-bomb, so `.finish()` must be called.
 pub struct Lowerer<'a> {
     hooks: &'a dyn LanguageHooks,
-    sub_info: Option<(&'a dyn crate::ecl::OldeSubFormat, &'a crate::ecl::OldeExportedSubs)>,
+    sub_info: Option<SubInfo<'a>>,
     // NOTE: later this can become Box<dyn Trait> and just let the implementations downcast
     inner: stackless::PersistentState,
+}
+
+struct SubInfo<'a> {
+    sub_format: &'a dyn crate::ecl::OldeSubFormat,
+    exported_subs: &'a crate::ecl::OldeExportedSubs,
+    call_reg_info: Option<crate::ecl::CallRegInfo>,
 }
 
 impl Drop for Lowerer<'_> {
@@ -135,8 +141,9 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Add information about exported subroutines, in languages that support calls.
-    pub fn with_export_info(mut self, sub_format: &'a dyn crate::ecl::OldeSubFormat, export_info: &'a crate::ecl::OldeExportedSubs) -> Self {
-        self.sub_info = Some((sub_format, export_info));
+    pub fn with_export_info(mut self, sub_format: &'a dyn crate::ecl::OldeSubFormat, exported_subs: &'a crate::ecl::OldeExportedSubs) -> Self {
+        let call_reg_info = sub_format.call_reg_info();
+        self.sub_info = Some(SubInfo { sub_format, exported_subs, call_reg_info });
         self
     }
 
@@ -173,7 +180,7 @@ fn lower_sub_ast_to_instrs(
         out: vec![],
         intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(&code, &ctx.emitter)?,
-        sub_info: lowerer.sub_info,
+        sub_info: lowerer.sub_info.as_ref(),
         ctx,
         hooks,
     };
@@ -181,7 +188,7 @@ fn lower_sub_ast_to_instrs(
     let mut out = sub_lowerer.out;
 
     // And now postprocess
-    assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.sub_info, def_id, &ctx)?;
+    assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx)?;
 
     // This can't happen before register assignment or we might allocate something multiple times
     out = elaborate_diff_switches(out);

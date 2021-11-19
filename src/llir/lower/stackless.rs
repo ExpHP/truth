@@ -25,7 +25,7 @@ pub (in crate::llir::lower) struct SingleSubLowerer<'a, 'ctx> {
     pub hooks: &'a dyn LanguageHooks,
     pub ctx: &'a mut CompilerContext<'ctx>,
     pub stmt_data: IdMap<NodeId, TimeAndDifficulty>,
-    pub sub_info: Option<(&'a dyn crate::ecl::OldeSubFormat, &'a crate::ecl::OldeExportedSubs)>,
+    pub sub_info: Option<&'a super::SubInfo<'a>>,
 }
 
 impl SingleSubLowerer<'_, '_> {
@@ -125,13 +125,21 @@ impl SingleSubLowerer<'_, '_> {
                 }
                 Ok(())
             },
+
             Err(def_id) => {
                 // exported sub
-                let (_, export_info) = self.sub_info.unwrap();
+                let sub_info = self.sub_info.unwrap();
                 match self.ctx.defs.user_func_qualifier(def_id).expect("isn't user func?") {
                     Some(sp_pat!(token![inline])) => Err(self.unsupported(&stmt_span, "call to inline func")),
                     Some(sp_pat!(token![const])) => panic!("leftover const func call during lowering"),
-                    None => self.lower_eosd_call(stmt_span, stmt_data, call, &export_info.subs[&def_id]),
+                    None => match sub_info.call_reg_info.as_ref() {
+                        None => {
+                            self.lower_eosd_call(stmt_span, stmt_data, call, &sub_info.exported_subs.subs[&def_id])
+                        },
+                        Some(call_reg_info) => {
+                            self.lower_reg_call(stmt_span, stmt_data, call, &sub_info.exported_subs.subs[&def_id], call_reg_info)
+                        },
+                    },
                 }
             },
         }
@@ -161,6 +169,37 @@ impl SingleSubLowerer<'_, '_> {
             },
         )
     }
+
+    fn lower_reg_call(
+        &mut self,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        call: &ast::ExprCall,
+        sub: &crate::ecl::OldeExportedSub,
+        call_reg_info: &crate::ecl::CallRegInfo,
+    ) -> Result<(), ErrorReported> {
+        // Each argument gets assigned to a special "arg register."
+        for &ty in &[ReadType::Float, ReadType::Int][..] {
+            let params_by_ty = sub.params_by_ty[ty].iter();
+            let arg_regs_by_ty = &call_reg_info.arg_regs_by_type[ty];
+            for (&(param_index, _), &arg_reg) in params_by_ty.zip(arg_regs_by_ty) {
+                let arg_expr = &call.args[param_index];
+                let arg_var = self.reg_to_var(sp!(arg_expr.span => arg_reg), ty);
+                let eq_sign = sp!(arg_expr.span => token![=]);
+                self.lower_assign_op(arg_expr.span, stmt_data, &arg_var, &eq_sign, arg_expr)?;
+            }
+        }
+
+        let lowered_sub_id = sp!(call.name.span => LowerArg::Raw(sub.index.into()));
+        self.lower_intrinsic(
+            stmt_span, stmt_data, IKind::CallReg, "sub call",
+            |bld| {
+                bld.sub_id = Some(lowered_sub_id);
+            },
+        )
+    }
+
+    // FIXME: ideally we shouldn't need this, but the majority of this code takes
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
     fn lower_instruction(
@@ -251,41 +290,6 @@ impl SingleSubLowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lowers `x = 2:a+4:6:7;`
-    fn lower_assign_diff_switch(
-        &mut self,
-        stmt_span: Span,
-        stmt_data: TimeAndDifficulty,
-        whole_expr: &Sp<ast::Expr>,
-        var: &Sp<ast::Var>,
-        eq_sign: &Sp<ast::AssignOpKind>,
-        cases: &[Option<Sp<ast::Expr>>],
-    ) -> Result<(), ErrorReported>{
-        // It should be impossible to get here for a simple expression, I think?
-        // Those would've hit an ExprClass::Simple case in another method first...
-        match classify_expr(whole_expr, self.ctx)? {
-            ExprClass::Simple(SimpleExpr { .. }) => {
-                self.ctx.emitter.emit(bug!(
-                    message("unhandled simple diff switch"),
-                    note("I didn't think this was possible. You get a cookie!"),
-                )).ignore();
-            },
-            ExprClass::NeedsElaboration(TemporaryExpr { .. }) => {},
-        }
-
-        // This doesn't actually need a temporary.
-        // We can just elaborate it into separate assignment statements on each difficulty.
-        let instr_diff_mask = stmt_data.difficulty_mask;
-        for (case_mask, case) in crate::diff_switch_utils::explicit_difficulty_cases(cases) {
-            let new_mask = instr_diff_mask & case_mask;
-            if !new_mask.is_empty() {
-                let modified_stmt_data = TimeAndDifficulty { difficulty_mask: new_mask, ..stmt_data };
-                self.lower_assign_op(stmt_span, modified_stmt_data, var, &eq_sign, case)?;
-            }
-        }
-        Ok(())
-    }
-
     /// Lowers `a = <B>;`  or  `a *= <B>;`
     fn lower_assign_op(
         &mut self,
@@ -363,6 +367,54 @@ impl SingleSubLowerer<'_, '_> {
                 }
             },
         }
+    }
+
+    // NOTE:  It feels silly that this needs to exist in lowering code, but there's no avoiding it.
+    //        We can't just change all the ast::Var usage to SimpleExpr because it can't accomodate
+    //        temporaries, and `ast::Var` is useful anyways by allowing things like `expr_uses_var`.
+    fn reg_to_var(&self, reg: Sp<RegId>, ty: ReadType) -> Sp<ast::Var> {
+        sp!(reg.span => ast::Var {
+            ty_sigil: Some(ty),
+            name: ast::VarName::Reg {
+                reg: reg.value,
+                language: Some(self.hooks.language()),
+            },
+        })
+    }
+
+    /// Lowers `x = 2:a+4:6:7;`
+    fn lower_assign_diff_switch(
+        &mut self,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        whole_expr: &Sp<ast::Expr>,
+        var: &Sp<ast::Var>,
+        eq_sign: &Sp<ast::AssignOpKind>,
+        cases: &[Option<Sp<ast::Expr>>],
+    ) -> Result<(), ErrorReported>{
+        // It should be impossible to get here for a simple expression, I think?
+        // Those would've hit an ExprClass::Simple case in another method first...
+        match classify_expr(whole_expr, self.ctx)? {
+            ExprClass::Simple(SimpleExpr { .. }) => {
+                self.ctx.emitter.emit(bug!(
+                    message("unhandled simple diff switch"),
+                    note("I didn't think this was possible. You get a cookie!"),
+                )).ignore();
+            },
+            ExprClass::NeedsElaboration(TemporaryExpr { .. }) => {},
+        }
+
+        // This doesn't actually need a temporary.
+        // We can just elaborate it into separate assignment statements on each difficulty.
+        let instr_diff_mask = stmt_data.difficulty_mask;
+        for (case_mask, case) in crate::diff_switch_utils::explicit_difficulty_cases(cases) {
+            let new_mask = instr_diff_mask & case_mask;
+            if !new_mask.is_empty() {
+                let modified_stmt_data = TimeAndDifficulty { difficulty_mask: new_mask, ..stmt_data };
+                self.lower_assign_op(stmt_span, modified_stmt_data, var, &eq_sign, case)?;
+            }
+        }
+        Ok(())
     }
 
     /// Lowers `a = <B> * <C>;`
@@ -1002,7 +1054,7 @@ pub (in crate::llir::lower) fn assign_registers(
     code: &mut [Sp<LowerStmt>],
     global_scratch_results: &mut PersistentState,
     hooks: &dyn LanguageHooks,
-    export_info: Option<(&dyn crate::ecl::OldeSubFormat, &crate::ecl::OldeExportedSubs)>,
+    sub_info: Option<&super::SubInfo>,
     def_id: Option<DefId>,
     ctx: &CompilerContext,
 ) -> Result<(), ErrorReported> {
@@ -1037,12 +1089,12 @@ pub (in crate::llir::lower) fn assign_registers(
 
     // assign registers to the params in accordance with however calls in this game work
     let param_note; // defined out here for lifetime purposes
-    assert_eq!(export_info.is_some(), def_id.is_some());
-    if let (Some((sub_format, export_info)), Some(def_id)) = (export_info, def_id) {
-        param_note = sub_format.reg_usage_explanation(ctx);
-        let this_sub_info = &export_info.subs[&def_id];
+    assert_eq!(sub_info.is_some(), def_id.is_some());
+    if let (Some(sub_info), Some(def_id)) = (sub_info, def_id) {
+        param_note = sub_info.sub_format.reg_usage_explanation(ctx);
+        let this_sub_info = &sub_info.exported_subs.subs[&def_id];
 
-        for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers(sub_format) {
+        for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers(sub_info.sub_format) {
             local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
 
             names_used_for_regs.entry(param_reg).or_insert_with(Default::default)

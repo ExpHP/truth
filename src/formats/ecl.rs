@@ -454,14 +454,8 @@ fn game_sub_format(game: Game) -> Box<dyn OldeSubFormat> {
 pub trait OldeSubFormat {
     fn param_reg_id(&self, ty: ReadType, number: usize) -> RegId;
 
-    /// If `true` it's like PCB and has argument registers.
-    /// If `false` it's like EoSD and puts the args in the call instruction.
-    fn has_arg_regs(&self) -> bool;
-
-    /// Get a global argument register, used in PCB and later at callsites.
-    ///
-    /// Meaningless/may panics if [`Self::has_arg_regs`] returns `false`.
-    fn arg_reg_id(&self, _ty: ReadType, _number: usize) -> RegId { panic!("no arg regs") }
+    /// Info for [`IntrinsicInstrKind::CallReg`] for games that use it.
+    fn call_reg_info(&self) -> Option<CallRegInfo>;
 
     // ---------
     // --- used during compilation ---
@@ -479,10 +473,12 @@ pub trait OldeSubFormat {
     fn infer_params(&self, sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub;
 }
 
+pub struct CallRegInfo {
+    pub arg_regs_by_type: EnumMap<ReadType, Vec<RegId>>,
+}
+
 impl OldeSubFormat for EosdSubFormat {
     fn max_params_per_type(&self) -> usize { 1 }
-
-    fn has_arg_regs(&self) -> bool { false }
 
     fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
         let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
@@ -506,6 +502,8 @@ impl OldeSubFormat for EosdSubFormat {
         }
     }
 
+    fn call_reg_info(&self) -> Option<CallRegInfo> { None }  // uses a different intrinsic
+
     fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {
         // TODO: detect which params are actually used in each sub
         let tys = [(ReadType::Int, "I"), (ReadType::Float, "F")];
@@ -519,8 +517,6 @@ impl OldeSubFormat for EosdSubFormat {
 
 impl OldeSubFormat for PcbSubFormat {
     fn max_params_per_type(&self) -> usize { 4 }
-
-    fn has_arg_regs(&self) -> bool { true }
 
     fn reg_usage_explanation(&self, ctx: &CompilerContext<'_>) -> Option<String> {
         let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(LanguageKey::Ecl, reg));
@@ -555,8 +551,15 @@ impl OldeSubFormat for PcbSubFormat {
         RegId(param_a_id + ty_offset + number as i32)
     }
 
-    fn arg_reg_id(&self, ty: ReadType, number: usize) -> RegId {
-        RegId(self.param_reg_id(ty, number).0 + 8)
+    fn call_reg_info(&self) -> Option<CallRegInfo> {
+        Some(CallRegInfo {
+            arg_regs_by_type: enum_map::enum_map!{
+                ty => {
+                    (0..self.max_params_per_type())
+                        .map(|index| RegId(self.param_reg_id(ty, index).0 + 8)).collect()
+                },
+            },
+        })
     }
 
     fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {

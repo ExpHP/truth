@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use enum_map::EnumMap;
-
 use crate::raw;
 use crate::ast::{self, pseudo};
 use crate::ast::diff_str::DiffFlagNames;
@@ -89,12 +87,7 @@ pub struct Raiser<'a> {
     intrinsic_instrs: IntrinsicInstrs,
     item_names: ItemNames,
     /// Caches information about PCB-style argument registers
-    call_reg_data: Option<CallRegData>,
-}
-
-/// Precomputed data pertaining to [`IntrinsicInstrKind::CallReg`].
-struct CallRegData {
-    arg_regs_by_ty: EnumMap<ReadType, Vec<RegId>>,
+    call_reg_info: Option<crate::ecl::CallRegInfo>,
 }
 
 #[derive(Default)]
@@ -128,7 +121,7 @@ impl<'a> Raiser<'a> {
             },
             options,
             item_names: Default::default(),
-            call_reg_data: None,
+            call_reg_info: None,
         })
     }
 
@@ -149,15 +142,7 @@ impl<'a> Raiser<'a> {
 
     /// Supply data for raising subs in this particular format.
     pub fn set_olde_sub_format(&mut self, sub_format: &dyn crate::ecl::OldeSubFormat) {
-        if sub_format.has_arg_regs() {
-            let arg_regs_by_ty = enum_map::enum_map!{
-                ty => {
-                    (0..sub_format.max_params_per_type())
-                        .map(|index| RegId(sub_format.param_reg_id(ty, index).0 + 8)).collect()
-                },
-            };
-            self.call_reg_data = Some(CallRegData { arg_regs_by_ty });
-        }
+        self.call_reg_info = sub_format.call_reg_info();
     }
 
     pub fn raise_instrs_to_sub_ast(
@@ -213,7 +198,7 @@ fn _raise_instrs_to_sub_ast(
         language: hooks.language(),
         ctx,
         item_names: &raiser.item_names,
-        call_reg_data: raiser.call_reg_data.as_ref(),
+        call_reg_data: raiser.call_reg_info.as_ref(),
     }.raise_instrs(emitter, &script)
 }
 
@@ -228,7 +213,7 @@ struct SingleSubRaiser<'a, 'ctx> {
     language: LanguageKey,
     ctx: &'a CompilerContext<'ctx>,
     item_names: &'a ItemNames,
-    call_reg_data: Option<&'a CallRegData>,
+    call_reg_data: Option<&'a crate::ecl::CallRegInfo>,
     // NOTE: No Emitter because the chain methods are used to add contextual info.
 }
 
@@ -282,8 +267,8 @@ impl SingleSubRaiser<'_, '_> {
             let has_labels_predicate = |offset| self.offset_labels.contains_key(&offset);
 
             // Try identifying a PCB call.  This may be several instructions long.
-            if self.call_reg_data.is_some() {
-                if let Some((call_stmt, num_instrs_used)) = self.try_raise_reg_call_intrinsic(remaining_instrs, has_labels_predicate) {
+            if let Some(call_reg_data) = self.call_reg_data {
+                if let Some((call_stmt, num_instrs_used)) = self.try_raise_reg_call_intrinsic(remaining_instrs, call_reg_data, has_labels_predicate) {
                     label_gen.emit_labels_for_instr(&mut out, &remaining_instrs[0]);
                     out.push(self.make_stmt(remaining_instrs[0].difficulty_mask, call_stmt));
                     remaining_instrs = &remaining_instrs[num_instrs_used..];
@@ -863,10 +848,11 @@ impl SingleSubRaiser<'_, '_> {
     fn try_raise_reg_call_intrinsic(
         &self,
         instrs: &[RaiseInstr],
+        call_reg_data: &crate::ecl::CallRegInfo,
         // for looking up whether an offset is jumped to from anywhere
         mut has_label: impl FnMut(raw::BytePos) -> bool,
     ) -> Option<(ast::StmtKind, usize)> {
-        let CallRegData { arg_regs_by_ty } = self.call_reg_data.expect("PCB call raiser called without sub info?!");
+        let arg_regs_by_ty = &call_reg_data.arg_regs_by_type;
 
         // we will expect args of any given type to use the registers of that type in order;
         // otherwise we can't really roundtrip it.
@@ -880,7 +866,9 @@ impl SingleSubRaiser<'_, '_> {
             let instr = &instrs[instr_index];
             let args = match &instr.args {
                 RaiseArgs::Decoded(args) => args,
-                RaiseArgs::Unknown(_) => return None,  // can't be a call or assignment
+                RaiseArgs::Unknown(_) => {
+                    return None;
+                },
             };
             let abi = self.expect_abi(instr.opcode);
             let (kind, abi_info) = match self.intrinsic_instrs.get_intrinsic_and_props(instr.opcode) {
@@ -911,7 +899,8 @@ impl SingleSubRaiser<'_, '_> {
                     };
                     let out_var = parts.outputs.next().unwrap();
                     let (_, var_reg) = self.ctx.var_reg_from_ast(&out_var.name).unwrap();
-                    if Some(var_reg) != expected_regs_by_ty[ty].next() {
+                    let expected_reg = expected_regs_by_ty[ty].next();
+                    if Some(var_reg) != expected_reg {
                         // either:
                         // - (expected_reg is Some): not an arg var, or vars of type assigned out of sequence
                         // - (expected_reg is None): too many vars of one type
@@ -930,7 +919,7 @@ impl SingleSubRaiser<'_, '_> {
                 IKind::CallReg => {
                     let mut parts = match self.raise_intrinsic_parts(instr, args, &abi, &abi_info) {
                         Ok(parts) => parts,
-                        Err(Either::This(CannotRaiseIntrinsic)) => { return None; },  // might write to immediate or sumtn
+                        Err(Either::This(CannotRaiseIntrinsic)) => return None,  // might write to immediate or sumtn
                         Err(Either::That(MustDecompress)) => unreachable!(),
                     };
                     let name = parts.sub_id.take().unwrap();
