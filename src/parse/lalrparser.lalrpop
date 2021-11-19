@@ -688,36 +688,14 @@ PseudoArgKind: ast::PseudoArgKind = {
 
 LitString: ast::LitString = {
     <l: @L> <s:STRING> <r: @R> =>? {
-        let mut out = String::new();
-        let mut escape = false;
-        for c in s[1..s.len()-1].chars() {
-            if escape {
-                escape = false;
-                match c {
-                    '0' => out.push_str("\0"),
-                    '"' => out.push_str("\""),
-                    '\\' => out.push_str("\\"),
-                    'n' => out.push_str("\n"),
-                    'r' => out.push_str("\r"),
-                    _ => {
-                        let escape = match c.is_ascii_graphic() {
-                            true => format!("'{}'", c),
-                            false => format!("U+{:04x}", c as u32),
-                        };
-                        return Err(error!(
-                            message("invalid escape character {}", escape),
-                            primary(Span::from_locs(l, r), "contains invalid escape"),
-                        ).into());
-                    },
-                }
-            } else if c == '\\' {
-                escape = true;
-            } else {
-                out.push(c);
-            }
-        }
-        assert!(!escape);  // should be impossible due to the token's regex
-        Ok(ast::LitString { string: out })
+        let string = {
+            util::parse_string_literal(s)
+                .map_err(|mut e| {
+                    e.primary(Span::from_locs(l, r), format!("contains invalid escape"));
+                    e
+                })?
+        };
+        Ok(ast::LitString { string })
     },
 };
 

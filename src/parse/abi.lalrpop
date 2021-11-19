@@ -1,18 +1,22 @@
-use crate::diagnostic::Emitter;
+use crate::diagnostic::Diagnostic;
 use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind};
 use crate::parse::lalrparser_util as util;
 
-grammar<'st>(emitter: &'st dyn Emitter);
+grammar<'st>(diagnostics: &mut Vec<Diagnostic>);
 
 extern {
-    type Error = std::num::ParseIntError;
+    // we put our actual error payload in the vec alongside warnings,
+    // but we can't display LALRPOP's own errors unless this thing impls display
+    type Error = util::PanicDisplay;
 }
 
 pub(crate) Abi = <ArgEncoding*>;
 
 ArgEncoding: ArgEncoding = {
-    "S" => ArgEncoding::Dword,
-    "s" => ArgEncoding::Word,
+    "S" OptionalEnum => ArgEncoding::Dword,
+    "s" OptionalEnum => ArgEncoding::Word,
+    "U" OptionalEnum => ArgEncoding::Dword,  // FIXME
+    "u" OptionalEnum => ArgEncoding::Word,  // FIXME
     "C" => ArgEncoding::Color,
     "o" => ArgEncoding::JumpOffset,
     "t" => ArgEncoding::JumpTime,
@@ -26,6 +30,11 @@ ArgEncoding: ArgEncoding = {
     TArg,
 };
 
+OptionalEnum: () = {
+    "(" "enum" "=" StringLiteral ")" => (),
+    => (),
+};
+
 ZString: ArgEncoding = {
     "z" "(" <block_size:BlockSizeArg> ")"
     => {
@@ -34,9 +43,9 @@ ZString: ArgEncoding = {
     },
 
     "z" => {
-        emitter.as_sized().emit(warning!(
+        diagnostics.push(warning!(
             "'z' without arguments is deprecated; please write 'z(bs=4)'",
-        )).ignore();
+        ));
 
         let mask = AcceleratingByteMask::constant(0x00);
         ArgEncoding::String { block_size: 4, mask, furibug: false }
@@ -48,9 +57,9 @@ MString: ArgEncoding = {
     => ArgEncoding::String { block_size: block_size as _, mask, furibug: furibug.is_some() },
 
     "m" => {
-        emitter.as_sized().emit(warning!(
+        diagnostics.push(warning!(
             "'m' without arguments is deprecated; please write 'm(bs=4;mask=0x77,0,0)'",
-        )).ignore();
+        ));
 
         let mask = AcceleratingByteMask::constant(0x77);
         ArgEncoding::String { block_size: 4, mask, furibug: false }
@@ -68,14 +77,21 @@ TArg: ArgEncoding = {
     "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::MsgSub),
     "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::EclSub),
     "T" "(" "s" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
+    "T" "(" "u" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),
 };
 
 UnsignedInt: u32 = {
     <s:r"[0-9]+"> =>? {
         #![allow(unused_braces)]  // without these braces, lalrpop can't parse this turbofish
-        util::parse_ascii::<_, u32>(s).map_err(Into::into)
+        util::parse_ascii::<_, u32>(s).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() })
     },
-    <s:r"0[xX][0-9a-fA-F]+"> =>? util::u32_from_ascii_radix(&s[2..], 16).map_err(Into::into),
-    <s:r"0[bB][0-1]+"> =>? util::u32_from_ascii_radix(&s[2..], 2).map_err(Into::into),
+    <s:r"0[xX][0-9a-fA-F]+"> =>? util::u32_from_ascii_radix(&s[2..], 16).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() }),
+    <s:r"0[bB][0-1]+"> =>? util::u32_from_ascii_radix(&s[2..], 2).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() }),
+};
+
+StringLiteral: String = {
+    <l:@L> <s:r##""([^\\"]|\\.)*""##> <r:@R> =>? {
+        util::parse_string_literal(s).map_err(|e| { diagnostics.push(e); util::PanicDisplay.into() })
+    },
 };

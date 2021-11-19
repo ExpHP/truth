@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap};
 
+use crate::resolve::IdMap;
 use crate::pos::{Sp, FileId};
 use crate::game::{Game, LanguageKey};
 use crate::diagnostic::{RootEmitter, Emitter};
@@ -23,6 +24,7 @@ pub struct Mapfile {
     pub timeline_ins_names: Vec<(i32, Sp<Ident>)>,
     pub timeline_ins_signatures: Vec<(i32, Sp<String>)>,
     pub difficulty_flags: Vec<(i32, Sp<String>)>,
+    pub enums: IdMap<Sp<Ident>, Vec<(i32, Sp<Ident>)>>,
 
     /// Indicates that this mapfile contains builtin definitions.
     ///
@@ -46,6 +48,7 @@ impl Mapfile {
             timeline_ins_signatures: Default::default(),
             difficulty_flags: Default::default(),
             ins_intrinsics: Default::default(),
+            enums: Default::default(),
             is_core_mapfile: true,
         }
     }
@@ -104,7 +107,7 @@ impl Mapfile {
         emitter: &impl Emitter,
     ) -> Result<std::path::PathBuf, ErrorReported> {
         let SeqmapRaw { magic, sections } = seqmap;
-        let mut maps = gather_seqmaps(sections);
+        let GatheredSeqmaps { mut maps, enum_maps } = gather_seqmaps(sections);
 
         let game_files_header = "game_files".to_string();
 
@@ -115,7 +118,7 @@ impl Mapfile {
                 primary(magic, "gamemap without !game_files section"),
             ))),
         };
-        for (key, _) in maps {
+        for (key, _) in maps.into_iter().chain(enum_maps) {
             emitter.emit(warning!(
                 message("unrecognized section in gamemap: {:?}", key),
                 primary(key, "unrecognized section"),
@@ -134,8 +137,7 @@ impl Mapfile {
 
     pub fn from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
         let SeqmapRaw { magic, sections } = seqmap;
-
-        let mut maps = gather_seqmaps(sections);
+        let GatheredSeqmaps { mut maps, enum_maps } = gather_seqmaps(sections);
 
         // NOTE: Experimental.  We have two options for deciding the language:
         //
@@ -173,6 +175,17 @@ impl Mapfile {
             ($name:literal) => { parse_idents($name, pop_map($name)) }
         }
 
+        let enums = enum_maps.into_iter().map(|(enum_name, data)| {
+            let enum_ident = enum_name.parse::<Ident>().map_err(|e| {
+                emitter.emit(error!(
+                    message("at enum {:?}: {}", enum_name, e),
+                    primary(enum_name, "bad identifier"),
+                ))
+            })?;
+            let new_data = parse_idents(&format!("{}{}{}", ENUM_SECT_START, enum_name, ENUM_SECT_END), data)?;
+            Ok((sp!(enum_name.span => enum_ident), new_data))
+        }).collect_with_recovery()?;
+
         let out = Mapfile {
             language,
             ins_names: pop_ident_map!("ins_names")?,
@@ -184,6 +197,7 @@ impl Mapfile {
             timeline_ins_signatures: pop_map("timeline_ins_signatures"),
             ins_intrinsics: pop_map("ins_intrinsics"),
             difficulty_flags: pop_map("difficulty_flags"),
+            enums,
             is_core_mapfile: false,
         };
         for (key, _) in maps {
@@ -197,17 +211,31 @@ impl Mapfile {
     }
 }
 
-type GatheredSeqmaps = BTreeMap<Sp<String>, Vec<(i32, Sp<String>)>>;
+const ENUM_SECT_START: &'static str = "enum(name=\"";
+const ENUM_SECT_END: &'static str = "\")";
+
+struct GatheredSeqmaps {
+    maps: BTreeMap<Sp<String>, Vec<(i32, Sp<String>)>>,
+    enum_maps: BTreeMap<Sp<String>, Vec<(i32, Sp<String>)>>,
+}
 
 fn gather_seqmaps(sections: Vec<SeqmapRawSection<'_>>) -> GatheredSeqmaps {
     let mut maps = BTreeMap::new();
+    let mut enum_maps = BTreeMap::new();
     for section in sections {
         let cur_map = maps.entry(section.header.sp_map(ToString::to_string)).or_insert_with(Vec::new);
         for (number, value) in section.lines {
             cur_map.push((number.value, value.sp_map(ToString::to_string)));
         }
     }
-    maps
+    for key in maps.keys().cloned().collect::<Vec<_>>() {
+        if key.starts_with(ENUM_SECT_START) && key.ends_with(ENUM_SECT_END) {
+            let map = maps.remove(&key).unwrap();
+            let enum_name = sp!(key.span => key[ENUM_SECT_START.len()..key.len()-ENUM_SECT_END.len()].to_string());
+            enum_maps.insert(enum_name, map);
+        }
+    }
+    GatheredSeqmaps { maps, enum_maps }
 }
 
 fn mapify_section(header: &str, section: Vec<(i32, Sp<String>)>, emitter: &impl Emitter) -> Result<BTreeMap<i32, Sp<String>>, ErrorReported> {

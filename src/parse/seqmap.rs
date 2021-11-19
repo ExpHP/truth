@@ -23,8 +23,9 @@ pub struct SeqmapRawSection<'a> {
     pub lines: Vec<(Sp<i32>, Sp<&'a str>)>,
 }
 
+const IDENT_RE_STR: &str = "[_a-zA-Z][_a-zA-Z0-9]*";
 lazy_static! {
-    static ref SEQMAP_START_RE: Regex = Regex::new(r"^!([_a-zA-Z][_a-zA-Z0-9]*)$").unwrap();
+    static ref SEQMAP_START_RE: Regex = Regex::new(&format!(r"^!({}(?:\([^\)]+\))?)$", IDENT_RE_STR)).unwrap();
     static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s*(\S*)$").unwrap();
 }
 

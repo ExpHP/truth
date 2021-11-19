@@ -4,7 +4,7 @@ use crate::diagnostic::Diagnostic;
 use crate::ast;
 use crate::pos::{Sp, Span};
 
-mod lalrparser_util;
+pub(crate) mod lalrparser_util;
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 
