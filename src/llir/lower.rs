@@ -164,16 +164,20 @@ fn lower_sub_ast_to_instrs(
 ) -> Result<Vec<RawInstr>, ErrorReported> {
     use stackless::{SingleSubLowerer, assign_registers};
 
+    // see test bad_instr_alias_expr_ordering
+    let mut code = ast::Block(code.to_vec());
+    crate::passes::resolution::aliases_to_raw(&mut code, ctx)?;
+
     let hooks = lowerer.hooks;
     let mut sub_lowerer = SingleSubLowerer {
         out: vec![],
         intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
-        stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
+        stmt_data: crate::passes::semantics::time_and_difficulty::run(&code, &ctx.emitter)?,
         sub_info: lowerer.sub_info,
         ctx,
         hooks,
     };
-    sub_lowerer.lower_sub_ast(code)?;
+    sub_lowerer.lower_sub_ast(&code.0)?;
     let mut out = sub_lowerer.out;
 
     // And now postprocess

@@ -609,3 +609,22 @@ script main {}
     "#,
     expect_error: "too long",
 );
+
+source_test!(
+    ANM_10, bad_instr_alias_expr_ordering,
+    mapfile: r#"!anmmap
+!gvar_names
+10003  FOO
+10003  BAR
+    "#,
+    main_body: r#"
+    FOO = BAR + (I2 * 2);
+    FOO = I1;  // make sure I0 is the only scratch var for easier testing
+    "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        // Truth should detect that BAR is the same as FOO, disabling the scratch register optimization that
+        // would normally begin compiling this with FOO = I2 * 2.
+        assert_eq!(&anm.entries[0].scripts[0].instrs[0].args_blob[0..4], &blobify![10000 as i32][..]);
+    },
+);
