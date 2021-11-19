@@ -628,3 +628,15 @@ source_test!(
         assert_eq!(&anm.entries[0].scripts[0].instrs[0].args_blob[0..4], &blobify![10000 as i32][..]);
     },
 );
+
+source_test!(
+    ANM_10, decompile_string_reg,
+    mapfile: r#"!anmmap
+!ins_signatures
+444  z(bs=4)
+    "#,
+    main_body: r#"
+    ins_444(@mask=0b1, "abc");
+    "#,
+    sbsb: |_| { /* just roundtrip */ },
+);
