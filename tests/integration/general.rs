@@ -640,3 +640,12 @@ source_test!(
     "#,
     sbsb: |_| { /* just roundtrip */ },
 );
+
+source_test!(
+    ANM_10, jump_to_end_of_script_at_different_time,
+    main_body: r#"
+      goto label @ 100;
+    label:
+    "#,
+    sbsb: |_| { /* just roundtrip */ },
+);

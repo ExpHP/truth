@@ -267,6 +267,14 @@ pub trait Emitter {
         Label: fmt::Display + 'a,
     { Node { parent: self, label } }
 
+    /// Form of [`Self::chain_with`] that returns the new emitter instead of taking a callback.
+    /// Less idiomatic, but sometimes necessary.
+    fn get_chained_with<'a, Label>(&'a self, label: Label) -> Node<&'a Self, DisplayFn<Label>>
+    where
+        Self: Sized,
+        Label: Fn(&mut fmt::Formatter) -> fmt::Result + 'a,
+    { self.get_chained(DisplayFn { func: label }) }
+
     /// Emit any number of diagnostic messages.
     fn emit(&self, diagnostics: impl IntoDiagnostics) -> ErrorReported
     where
