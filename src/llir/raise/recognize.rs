@@ -16,8 +16,7 @@ impl SingleSubRaiser<'_, '_> {
         &self,
         instrs: Vec<RaiseInstr>,
     ) -> Vec<RaiseInstr> {
-
-        unimplemented!("call the other recognize functions")
+        instrs
     }
 }
 
@@ -247,7 +246,7 @@ fn diff_switchify_parts(
     }
 
     let mut has_leftover_diff_switch = false;
-    let mut to_diff_switch_or_scalar = |explicit_cases: Vec<ast::Expr>| {
+    let to_diff_switch_or_scalar = |explicit_cases: Vec<ast::Expr>| {
         let first_case = &explicit_cases[0];
         if explicit_cases.iter().all(|case| case == first_case) {
             // all values for this arg are identical, keep just one

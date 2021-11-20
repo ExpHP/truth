@@ -121,28 +121,38 @@ fn early_raise_intrinsics(
                 })),
         };
 
+        // basic instruction call syntax
+        // (create now so it can be a fallback for intrinsics)
+        let ins_instr = make_instr(
+            RaiseIntrinsicKind::Instruction,
+            atom_raiser.raise_raw_ins_args(emitter, instr, raw_args)?,
+        );
+
         // intrinsic?
         let abi = atom_raiser.expect_abi(instr.opcode);
         if let Some((intrinsic, abi_info)) = raiser.intrinsic_instrs.get_intrinsic_and_props(instr.opcode) {
             match atom_raiser.raise_intrinsic_parts(instr, raw_args, abi, abi_info) {
                 Ok(parts) => {
-                    return Ok(make_instr(RaiseIntrinsicKind::Standard(intrinsic), parts));
+                    let mut intrinsic_instr = make_instr(RaiseIntrinsicKind::Standard(intrinsic), parts);
+
+                    // FIXME: this is for things like EoSD split jumps and PCB calls that are not single-instruction
+                    //        intrinsics and have no syntax they can be raised into.  They require an ins_ fallback
+                    //        in case we are unable to merge them together into their larger, full intrinsics.
+                    intrinsic_instr.fallback_expansion = Some(vec![ins_instr]);
+                    return Ok(intrinsic_instr);
                 },
                 Err(CannotRaiseIntrinsic) => {},  // fall through
             }
         };
 
-        // basic instruction call
-        Ok(make_instr(
-            RaiseIntrinsicKind::Instruction,
-            atom_raiser.raise_raw_ins_args(emitter, instr, raw_args)?,
-        ))
+        // not intrinsic
+        Ok(ins_instr)
     }).collect_with_recovery::<Vec<_>>()?;
 
     let end_time = {
         offset_labels.get(&end_offset)
             .map(|label| label.time_label)
-            .or_else(|| instrs.get(0).map(|instr| instr.time))
+            .or_else(|| instrs.last().map(|instr| instr.time))
             .unwrap_or(0)  // beginning of script time
     };
 

@@ -8,61 +8,6 @@ pub type DiffSwitchVec<T> = Vec<Option<T>>;
 /// Slice form of DiffSwitchVec.
 pub type DiffSwitchSlice<T> = [Option<T>];
 
-/// A wrapper around [`DiffSwitchVec`] which provides helper methods for specifically
-/// treating a Vec of length 1 as a scalar value.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MaybeDiffSwitch<T> {
-    inner: DiffSwitchVec<T>,
-}
-
-impl<T> core::ops::Deref for MaybeDiffSwitch<T> {
-    type Target = DiffSwitchSlice<T>;
-
-    fn deref(&self) -> &Self::Target { &self.inner }
-}
-
-impl<T> core::ops::DerefMut for MaybeDiffSwitch<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.inner }
-}
-
-impl<T> MaybeDiffSwitch<T> {
-    pub fn new_scalar(item: T) -> Self {
-        MaybeDiffSwitch { inner: vec![Some(item)] }
-    }
-    /// Obtain a [`DiffSwitchSlice`], only if this actually is a diff switch.
-    pub fn as_diff_switch(&self) -> Option<&DiffSwitchSlice<T>> {
-        match self.len() {
-            1 => None,
-            _ => Some(self),
-        }
-    }
-
-    pub fn as_scalar(&self) -> Option<&T> {
-        match self.len() {
-            1 => Some(self.easy_value()),
-            _ => None,
-        }
-    }
-
-    pub fn is_diff_switch(&self) -> bool {
-        self.as_diff_switch().is_some()
-    }
-
-    pub fn easy_value(&self) -> &T {
-        self[0].as_ref().expect("no easy value?!")
-    }
-
-    pub fn iter_explicit_values(&self) -> impl Iterator<Item=&T> + '_ {
-        self.iter().filter_map(|opt| opt.as_ref())
-    }
-}
-
-impl<T> FromIterator<Option<T>> for MaybeDiffSwitch<T> {
-    fn from_iter<Ts: IntoIterator<Item=Option<T>>>(iter: Ts) -> Self {
-        MaybeDiffSwitch { inner: FromIterator::from_iter(iter) }
-    }
-}
-
 /// An aggregator type used to help identify the union of explicit difficulty levels
 /// between all of the difficulty switches in a statement.
 ///

@@ -211,14 +211,26 @@ fn _raise_instrs_to_sub_ast(
     raw_script: &[RawInstr],
     ctx: &CompilerContext,
 ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-    unimplemented!()
+    let mut middle_instrs = early::early_raise_instrs(raiser, emitter, raw_script, ctx)?;
+
+    let mut sub_raiser = SingleSubRaiser {
+        hooks: raiser.hooks,
+        intrinsic_instrs: &raiser.intrinsic_instrs,
+        language: raiser.hooks.language(),
+        ctx,
+        item_names: &raiser.item_names,
+        call_reg_data: raiser.call_reg_info.as_ref(),
+    };
+
+    middle_instrs = sub_raiser.perform_recognition(middle_instrs);
+
+    sub_raiser.raise_instrs(emitter, &middle_instrs)
 }
 
 /// Type containing all sorts of info about the current sub so that functions involved in
 /// raising instrs to statements don't need to take 50 arguments.
 struct SingleSubRaiser<'a, 'ctx> {
     // context
-    end_offset: raw::BytePos,
     intrinsic_instrs: &'a IntrinsicInstrs,
     hooks: &'a dyn LanguageHooks,
     language: LanguageKey,
@@ -230,7 +242,6 @@ struct SingleSubRaiser<'a, 'ctx> {
 
 /// Methods where all of the fallback logic concerning diff switches and intrinsics is implemented.
 impl SingleSubRaiser<'_, '_> {
-
     fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, kind: ast::StmtKind) -> Sp<ast::Stmt> {
         sp!(ast::Stmt {
             node_id: None,
@@ -255,30 +266,8 @@ impl SingleSubRaiser<'_, '_> {
     }
 }
 
-// =============================================================================
-
-/// Diff-switch detection pass
-///
-/// This is where we turn a series of instructions with different difficulty flags into
-/// something like `ins_10(4:4:5:6);`
-///
-/// Doing this on the AST is a nigh-intractable problem, so it is done at the instruction level
-/// during raising. Series of instructions that look like diff switches are eagerly compressed.
-/// If this compression later causes an issue, the compressed instruction can be ignored
-/// and multiple instructions can be decoded as a fallback.
-
-// try compressing instrs beginning at the beginning of a slice into a diff switch
-
-// =============================================================================
-
-
 /// An error indicating that the data cannot be represented correctly as an intrinsic,
 /// so a fallback to raw `ins_` should be tried.
 struct CannotRaiseIntrinsic;
-
-enum Either<A, B> { This(A), That(B) }
-
-// =============================================================================
-
 
 // =============================================================================
