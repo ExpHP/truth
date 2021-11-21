@@ -122,6 +122,10 @@ impl DiffFlagNames {
         out.into()
     }
 
+    pub fn default_enabled_flags(&self) -> BitSet32 {
+        self.flag_default_enable
+    }
+
     fn currently_known_flags_msg(&self) -> String {
         self.by_name.keys().map(ToString::to_string).collect::<Vec<_>>().join(", ")
     }

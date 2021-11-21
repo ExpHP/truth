@@ -354,6 +354,57 @@ label:
     },
 );
 
+const ECL_IN_DIFFICULTY_MAPFILE: &'static str = r#"!eclmap
+!difficulty_flags
+0 E-
+1 N-
+2 H-
+3 L-
+4 4+
+5 F+
+6 U+
+7 7+
+"#;
+
+source_test!(
+    ECL_06, diff_switch_with_aux_bits_all_on,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    {"EN"}: I0 = I1 + 2;
+    {"HL"}: I0 = I1 + 3;
+"#,
+    sbsb: |decompiled| {
+        assert!(!decompiled.contains("EN"));  // no diff flags
+        assert!(decompiled.contains(": 3 :"));
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_with_aux_bit_off,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    {"EN-F"}: I0 = I1 + 2;
+    {"HL-F"}: I0 = I1 + 3;
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"{"ENHL-F"}"#));
+        assert!(decompiled.contains(": 3 :"));
+    },
+);
+
+source_test!(
+    ECL_06, diff_switch_with_aux_bit_mismatch,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    {"EN-F"}: I0 = I1 + 2;
+    {"HL-F"}: I0 = I1 + 3;
+"#,
+    sbsb: |decompiled| {
+        assert!(decompiled.contains(r#"{"ENHL-F"}"#));  // FIXME: {"*-F"} maybe
+        assert!(decompiled.contains(": 3 :"));
+    },
+);
+
 source_test!(
     ANM_10, diff_switch_in_non_ecl,
     main_body: r#"

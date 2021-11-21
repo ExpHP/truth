@@ -25,7 +25,7 @@ impl SingleSubRaiser<'_, '_> {
                 continue;
             }
 
-            if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining) {
+            if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining, &self.ctx.diff_flag_names) {
                 out.push(new_instr);
                 remaining = &remaining[num_replaced..];
                 continue;
@@ -174,6 +174,7 @@ fn recognize_reg_call(
 
 fn recognize_diff_switch(
     instrs: &[RaiseInstr],
+    diff_flag_names: &crate::ast::diff_str::DiffFlagNames,
 ) -> Option<(RaiseInstr, usize)> {
     if instrs.len() < 2 || instrs[0].kind != instrs[1].kind || instrs[0].time != instrs[1].time
         || instrs[0].difficulty_mask == DEFAULT_DIFFICULTY_MASK_BYTE
@@ -186,18 +187,27 @@ fn recognize_diff_switch(
     let mut next_difficulty = 0;
     let mut explicit_parts = vec![];
     let mut explicit_difficulties = BitSet32::new();
+    let mut first_aux_mask = None;
     for instr in instrs {
         // do a full destructure to remind us to update this when adding a new field
         let &RaiseInstr {
             fallback_expansion: _,
             labels: ref this_labels,
             time: this_time,
-            difficulty_mask: this_mask,
+            difficulty_mask: this_full_mask,
             kind: ref this_kind,
             parts: ref this_parts,
         } = instr;
-        let this_mask = BitSet32::from_mask(this_mask as _);
+        let this_full_mask = BitSet32::from_mask(this_full_mask as _);
+        // split into the default off part (difficulties) and default on part (aux flags)
+        let this_aux_mask = this_full_mask & diff_flag_names.default_enabled_flags();
+        let this_diff_mask = this_full_mask ^ this_aux_mask;
 
+        if &this_aux_mask != first_aux_mask.get_or_insert(this_aux_mask) {
+            break;
+        }
+
+        // label after first instruction
         if explicit_parts.len() > 0 && !this_labels.is_empty() {
             break;
         }
@@ -207,13 +217,13 @@ fn recognize_diff_switch(
             break;
         }
         // don't allow any "holes" in the difficulties
-        if !(this_mask.first() == Some(next_difficulty) && bitmask_bits_are_contiguous(this_mask)) {
+        if !(this_diff_mask.first() == Some(next_difficulty) && bitmask_bits_are_contiguous(this_diff_mask)) {
             break;
         }
 
         explicit_parts.push(this_parts);
         explicit_difficulties.insert(next_difficulty);
-        next_difficulty += this_mask.len() as u32;
+        next_difficulty += this_diff_mask.len() as u32;
     }
     let diff_meta = ds_util::DiffSwitchMeta {
         explicit_difficulties,
@@ -232,12 +242,16 @@ fn recognize_diff_switch(
     // now make each individual arg into a diff switch if necessary
     let parts = diff_switchify_parts(&diff_meta, &explicit_parts)?;
 
+    // The final instruction will have the same aux bits as the original instructions,
+    // but with all difficulty bits filled.
+    let new_mask = first_aux_mask.unwrap() | diff_flag_names.default_enabled_flags().complement(8);
+
     Some((RaiseInstr {
         fallback_expansion: Some(instrs[..num_instrs_compressed].iter().cloned().collect()),
         labels: instrs[0].labels.clone(),
         time: instrs[0].time,
         kind: instrs[0].kind.clone(),
-        difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
+        difficulty_mask: new_mask.mask() as _,
         parts,
     }, explicit_parts.len()))
 }
