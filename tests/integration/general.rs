@@ -638,7 +638,7 @@ source_test!(
     main_body: r#"
     ins_444(@mask=0b1, "abc");
     "#,
-    sbsb: |_| { /* just roundtrip */ },
+    expect_decompile_error: "register bit",
 );
 
 source_test!(

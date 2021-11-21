@@ -2,9 +2,11 @@ use super::{
     RaiseInstr, RaiseIntrinsicKind, RaisedIntrinsicParts, IntrinsicInstrKind,
     SingleSubRaiser, CannotRaiseIntrinsic, Label,
 };
+
 use crate::raw;
 use crate::ast::{self, pseudo};
 use crate::ast::diff_str::DiffFlagNames;
+use crate::ident::ResIdent;
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
@@ -13,7 +15,8 @@ use RaiseIntrinsicKind as RIKind;
 use IntrinsicInstrKind as IKind;
 
 impl SingleSubRaiser<'_, '_> {
-    pub fn raise_instrs(&self, emitter: &impl Emitter, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+    /// The final pass of raising a stmt, which converts our intermediate format into AST statements.
+    pub fn raise_middle_to_ast(&self, emitter: &impl Emitter, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut out = vec![];
         let mut label_gen = LabelEmitter::new(&self.ctx.diff_flag_names);
 
@@ -27,19 +30,16 @@ impl SingleSubRaiser<'_, '_> {
         Ok(out)
     }
 
-    /// The final pass of raising a stmt, which converts our intermediate format into
-    /// AST statements.
-    pub fn raise_instr(
+    fn raise_instr(
         &self,
         emitter: &impl Emitter,
         instr: &RaiseInstr,
         mut emit_stmt: impl FnMut(ast::StmtKind),
     ) {
+        // &mut dyn FnMut so it can be passed recursively
         self._raise_instr(emitter, instr, &mut emit_stmt)
     }
 
-    /// The final pass of raising a stmt, which converts our intermediate format into
-    /// AST statements.
     fn _raise_instr(
         &self,
         emitter: &impl Emitter,
@@ -48,12 +48,16 @@ impl SingleSubRaiser<'_, '_> {
     ) {
         match self.try_raise_intrinsic(instr, emit_stmt) {
             Ok(()) => {},
-            Err(CannotRaiseIntrinsic) => {
-                if let Some(fallback_instrs) = &instr.fallback_expansion {
+            Err(CannotRaiseIntrinsic) => match &instr.fallback_expansion {
+                Some(fallback_instrs) => {
                     for child_instr in fallback_instrs {
                         self._raise_instr(emitter, child_instr, emit_stmt);
                     }
-                }
+                },
+                None => {
+                    // (FIXME: should CannotRaiseIntrinsic have a minor payload to provide more context?)
+                    panic!("cannot render instr of kind {:?} with no fallback", instr.kind);
+                },
             },
         }
     }
@@ -185,12 +189,14 @@ impl SingleSubRaiser<'_, '_> {
 
 
             RIKind::Standard(IKind::CallEosd) => {
-                let name = sub_id.take().unwrap();
+                let ident = ResIdent::new_null(sub_id.take().unwrap());
+                let name = ast::CallableName::Normal { ident, language_if_ins: None };
+
                 let int = plain_args.next().unwrap();
                 let float = plain_args.next().unwrap();
 
                 emit_stmt(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
-                    name: sp!(name),
+                    name: sp!(name.into()),
                     pseudos: vec![],
                     // FIXME: If we decompile functions to have different signatures on a per-function
                     //        basis we'll need to adjust the argument order appropriately here
@@ -217,13 +223,14 @@ impl SingleSubRaiser<'_, '_> {
 
 
             // if this hasn't been upgraded to CallProper yet then it may not match the sub definition;
-            // we can't raise this
+            // we can't raise this.
             | RIKind::CallRegsGiven => return Err(CannotRaiseIntrinsic),
 
 
             // a call that matches the sub definition
             | RIKind::CallProper => {
-                let name = sub_id.take().unwrap();
+                let ident = ResIdent::new_null(sub_id.take().unwrap());
+                let name = ast::CallableName::Normal { ident, language_if_ins: None };
 
                 emit_stmt(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
                     name: sp!(name),
@@ -254,20 +261,8 @@ impl<'a> LabelEmitter<'a> {
         }
     }
 
-    fn emit_labels(&mut self, out: &mut Vec<Sp<ast::Stmt>>, label: Option<&Label>, time: raw::Time) {
-        self.emit_labels_with(label, time, &mut |stmt| out.push(stmt))
-    }
-
     fn emit_labels_for_instr(&mut self, out: &mut Vec<Sp<ast::Stmt>>, instr: &RaiseInstr) {
         self.emit_labels_for_instr_with(instr, &mut |stmt| out.push(stmt))
-    }
-
-    /// Determine if the label emitter would emit a label here.
-    fn would_emit_labels(&self, instr: &RaiseInstr) -> bool {
-        let mut emitted = false;
-        let mut temp_emitter = self.clone();
-        temp_emitter.emit_labels_for_instr_with(instr, &mut |_| emitted = true);
-        emitted
     }
 
     // -----------------

@@ -1,4 +1,3 @@
-use core::ops::Range;
 use std::collections::{BTreeSet};
 
 use crate::raw;
@@ -7,11 +6,14 @@ use crate::ident::{Ident};
 use crate::pos::{Sp};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
-use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs};
+use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrs, IntrinsicInstrKind};
 use crate::resolve::{IdMap};
 use crate::context::{self, CompilerContext};
 use crate::game::LanguageKey;
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK_BYTE};
+use crate::bitset::BitSet32;
+
+use IntrinsicInstrKind as IKind;
 
 macro_rules! ensure {
     ($emitter:expr, $cond:expr, $($arg:tt)+) => {
@@ -27,11 +29,13 @@ macro_rules! warn_unless {
 
 use early::{Label};
 mod early;
+
 mod late;
 mod recognize;
 
-use IntrinsicInstrKind as IKind;
-use crate::bitset::BitSet32;
+/// FIXME yucko hack y dis public
+pub use infer_pcb_signatures::CallRegSignatures;
+mod infer_pcb_signatures;
 
 #[derive(Debug, Clone)]
 pub struct DecompileOptions {
@@ -51,23 +55,36 @@ impl Default for DecompileOptions {
     }
 }
 
+/// A partially-raised form for an exported sub in a file.
+///
+/// This can be used to perform some global analyses, such as deducing PCB sub
+/// parameters from callsites.
+pub struct RaiseScript {
+    instrs: Vec<RaiseInstr>,
+}
+
 /// Intermediate form of an instruction only used during decompilation.
 ///
 /// In this format:
 ///
-/// * FIXME TODO TODO TODO TODO TODO
+/// * Intrinsics are identified without needing to look up the opcode.
+/// * An instruction in this format may represent a group of raw instructions.
+///   (e.g. combining a compare and jump into a single conditional jump)
+/// * Arguments have been raised to a variety of AST nodes, through [`RaisedIntrinsicParts`].
+///   Notably, label offsets are decodes so that offset do not need to be known.
 ///
-/// This is useful for an early pass at generating offset labels.
+/// This is useful for low level transformations, particularly at the granularity of statements
+/// (without blocks).
 #[derive(Debug, Clone)]
 struct RaiseInstr {
-    fallback_expansion: Option<Vec<RaiseInstr>>,
     labels: Vec<Label>,
-    /// Indices into the [`EarlyRaiseInstr`]s.
-    instr_range: Range<usize>,
     time: raw::Time,
     difficulty_mask: raw::DifficultyMask,
     kind: RaiseIntrinsicKind,
     parts: RaisedIntrinsicParts,
+    /// If something prevents this [`RaiseInstr`] from being converted into AST statements,
+    /// it needs a fallback to render instead.
+    fallback_expansion: Option<Vec<RaiseInstr>>,
 }
 
 /// Result of raising an intrinsic's arguments.
@@ -76,7 +93,7 @@ struct RaiseInstr {
 #[derive(Debug, Clone, Default)]
 struct RaisedIntrinsicParts {
     pub jump: Option<ast::StmtGoto>,
-    pub sub_id: Option<ast::CallableName>,
+    pub sub_id: Option<Ident>,
     pub outputs: Vec<ast::Var>,
     pub plain_args: Vec<ast::Expr>,
     // additional things used by e.g. the "instruction" intrinsic
@@ -178,15 +195,46 @@ impl<'a> Raiser<'a> {
         self.call_reg_info = sub_format.call_reg_info();
     }
 
+    fn sub_raiser<'ctx>(&'a self, ctx: &'a CompilerContext<'ctx>) -> SingleSubRaiser<'a, 'ctx> {
+        SingleSubRaiser {
+            language: self.hooks.language(),
+            ctx,
+            call_reg_data: self.call_reg_info.as_ref(),
+        }
+    }
+
     pub fn raise_instrs_to_sub_ast(
         &mut self,
         emitter: &dyn Emitter,
         raw_script: &[RawInstr],
         ctx: &CompilerContext<'_>,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
-        let mut stmts = _raise_instrs_to_sub_ast(self, &emitter, raw_script, ctx)?;
+        let middle = self.raise_instrs_to_middle(&emitter, raw_script, ctx)?;
+        self.raise_middle_to_sub_ast(emitter, &middle, ctx)
+    }
+
+    pub fn raise_instrs_to_middle(
+        &mut self,
+        emitter: &dyn Emitter,
+        raw_script: &[RawInstr],
+        ctx: &CompilerContext<'_>,
+    ) -> Result<RaiseScript, ErrorReported> {
+        Ok(RaiseScript { instrs: _raise_instrs_to_middle(self, &emitter, raw_script, ctx)? })
+    }
+
+    pub fn raise_middle_to_sub_ast(
+        &mut self,
+        emitter: &dyn Emitter,
+        middle: &RaiseScript,
+        ctx: &CompilerContext<'_>,
+    ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+        let mut stmts = self.sub_raiser(ctx).raise_middle_to_ast(emitter.as_sized(), &middle.instrs)?;
         crate::passes::resolution::fill_missing_node_ids(&mut stmts[..], &ctx.unused_node_ids)?;
         Ok(stmts)
+    }
+
+    pub fn infer_pcb_signatures_and_certify_calls<'c>(&self, middles: impl IntoIterator<Item=&'c mut RaiseScript>, ctx: &CompilerContext<'_>) -> CallRegSignatures {
+        CallRegSignatures::infer_from_calls(middles, ctx)
     }
 
     pub fn generate_warnings(&mut self) {
@@ -205,42 +253,29 @@ impl<'a> Raiser<'a> {
     }
 }
 
-fn _raise_instrs_to_sub_ast(
+fn _raise_instrs_to_middle(
     raiser: &mut Raiser,
     emitter: &impl Emitter,
     raw_script: &[RawInstr],
     ctx: &CompilerContext,
-) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
+) -> Result<Vec<RaiseInstr>, ErrorReported> {
     let mut middle_instrs = early::early_raise_instrs(raiser, emitter, raw_script, ctx)?;
 
-    let mut sub_raiser = SingleSubRaiser {
-        hooks: raiser.hooks,
-        intrinsic_instrs: &raiser.intrinsic_instrs,
-        language: raiser.hooks.language(),
-        ctx,
-        item_names: &raiser.item_names,
-        call_reg_data: raiser.call_reg_info.as_ref(),
-    };
-
+    let sub_raiser = raiser.sub_raiser(ctx);
     middle_instrs = sub_raiser.perform_recognition(middle_instrs);
 
-    sub_raiser.raise_instrs(emitter, &middle_instrs)
+    Ok(middle_instrs)
 }
 
-/// Type containing all sorts of info about the current sub so that functions involved in
-/// raising instrs to statements don't need to take 50 arguments.
+// FIXME: This might not need to exist anymore, it was created to reduce the number of arguments
+//        to all methods that potentially needed to raise expressions, which is now all done in
+//        an earlier pass.
 struct SingleSubRaiser<'a, 'ctx> {
-    // context
-    intrinsic_instrs: &'a IntrinsicInstrs,
-    hooks: &'a dyn LanguageHooks,
     language: LanguageKey,
     ctx: &'a CompilerContext<'ctx>,
-    item_names: &'a ItemNames,
     call_reg_data: Option<&'a crate::ecl::CallRegInfo>,
-    // NOTE: No Emitter because the chain methods are used to add contextual info.
 }
 
-/// Methods where all of the fallback logic concerning diff switches and intrinsics is implemented.
 impl SingleSubRaiser<'_, '_> {
     fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, kind: ast::StmtKind) -> Sp<ast::Stmt> {
         sp!(ast::Stmt {
@@ -269,5 +304,3 @@ impl SingleSubRaiser<'_, '_> {
 /// An error indicating that the data cannot be represented correctly as an intrinsic,
 /// so a fallback to raw `ins_` should be tried.
 struct CannotRaiseIntrinsic;
-
-// =============================================================================

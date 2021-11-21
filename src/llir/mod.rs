@@ -13,7 +13,7 @@ mod abi;
 pub use lower::Lowerer;
 mod lower;
 
-pub use raise::{Raiser, DecompileOptions};
+pub use raise::{Raiser, DecompileOptions, CallRegSignatures};
 mod raise;
 
 pub use intrinsic::{IntrinsicInstrs, IntrinsicInstrKind};

@@ -55,10 +55,14 @@ pub(in crate::llir::raise) fn early_raise_instrs(
     let hooks = raiser.hooks;
     let ref instr_offsets = gather_instr_offsets(raw_script, hooks);
 
-    // Preprocess by using mapfile signatures to parse arguments
+    // Parse blobs into args
     let instrs: Vec<EarlyRaiseInstr> = {
         raw_script.iter().zip(instr_offsets)
-            .map(|(raw_instr, &instr_offset)| raiser.decode_args(emitter, raw_instr, instr_offset, &ctx.defs))
+            .enumerate()
+            .map(|(index, (raw_instr, &offset))| {
+                let ref emitter = add_instr_context(emitter, index, raw_instr.opcode, offset);
+                raiser.decode_args(emitter, raw_instr, offset, &ctx.defs)
+            })
             .collect::<Result<_, _>>()?
     };
 
@@ -94,14 +98,10 @@ fn early_raise_intrinsics(
     };
 
     let mut out = instrs.iter().enumerate().map(|(instr_index, instr)| {
-        let ref emitter = emitter.get_chained_with(|f| write!(
-            f, "in instr {} (opcode {}, offset {:#X})",
-            instr_index, instr.opcode, instr.offset,
-        ));
+        let ref emitter = add_instr_context(emitter, instr_index, instr.opcode, instr.offset);
         let make_instr = |kind, parts| RaiseInstr {
             fallback_expansion: None,
             labels: Vec::from_iter(offset_labels.get(&instr.offset).cloned()),
-            instr_range: instr_index..instr_index + 1,
             time: instr.time,
             difficulty_mask: instr.difficulty_mask,
             kind, parts,
@@ -159,7 +159,6 @@ fn early_raise_intrinsics(
     out.push(RaiseInstr {
         fallback_expansion: None,
         labels: Vec::from_iter(offset_labels.get(&end_offset).cloned()),
-        instr_range: Default::default(),
         time: end_time,
         difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
         kind: RaiseIntrinsicKind::End,
@@ -220,69 +219,68 @@ fn decode_args_with_abi(
 
     let reg_style = hooks.register_style();
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
+        let ref emitter = add_argument_context(emitter, arg_index);
+
         let param_mask_bit = param_mask % 2 == 1;
         param_mask /= 2;
 
-        emitter.chain_with(|f| write!(f, "in argument {} of ins_{}", arg_index + 1, instr.opcode), |emitter| {
-            let value = match enc {
-                | ArgEncoding::Dword
-                | ArgEncoding::Color
-                | ArgEncoding::JumpOffset
-                | ArgEncoding::JumpTime
-                | ArgEncoding::Padding
-                | ArgEncoding::Sprite
-                | ArgEncoding::Script
-                | ArgEncoding::Sub
-                => {
-                    decrease_len(emitter, &mut remaining_len, 4)?;
-                    ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
-                },
+        let value = match enc {
+            | ArgEncoding::Dword
+            | ArgEncoding::Color
+            | ArgEncoding::JumpOffset
+            | ArgEncoding::JumpTime
+            | ArgEncoding::Padding
+            | ArgEncoding::Sprite
+            | ArgEncoding::Script
+            | ArgEncoding::Sub
+            => {
+                decrease_len(emitter, &mut remaining_len, 4)?;
+                ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+            },
 
-                | ArgEncoding::Float
-                => {
-                    decrease_len(emitter, &mut remaining_len, 4)?;
-                    ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
-                },
+            | ArgEncoding::Float
+            => {
+                decrease_len(emitter, &mut remaining_len, 4)?;
+                ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
+            },
 
-                | ArgEncoding::Word
-                => {
-                    decrease_len(emitter, &mut remaining_len, 2)?;
-                    ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
-                },
+            | ArgEncoding::Word
+            => {
+                decrease_len(emitter, &mut remaining_len, 2)?;
+                ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+            },
 
-                | ArgEncoding::String { block_size: _, mask, furibug: _ }
-                => {
-                    // read to end
-                    let read_len = remaining_len;
-                    decrease_len(emitter, &mut remaining_len, read_len)?;
+            | ArgEncoding::String { block_size: _, mask, furibug: _ }
+            => {
+                // read to end
+                let read_len = remaining_len;
+                decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                    let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
-                    encoded.apply_xor_mask(mask);
-                    encoded.trim_first_nul(emitter);
+                let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
+                encoded.apply_xor_mask(mask);
+                encoded.trim_first_nul(emitter);
 
-                    let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
-                    ScalarValue::String(string)
-                },
+                let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
+                ScalarValue::String(string)
+            },
 
-                | ArgEncoding::TimelineArg { .. }
-                => {
-                    // a check that non-timeline languages don't have timeline args in their signature
-                    // is done earlier so we can unwrap this
-                    let extra_arg = instr.extra_arg.expect("timeline arg in sig for non-timeline language");
-                    ScalarValue::Int(extra_arg as _)
-                },
-            };
+            | ArgEncoding::TimelineArg { .. }
+            => {
+                // a check that non-timeline languages don't have timeline args in their signature
+                // is done earlier so we can unwrap this
+                let extra_arg = instr.extra_arg.expect("timeline arg in sig for non-timeline language");
+                ScalarValue::Int(extra_arg as _)
+            },
+        };
 
-            let is_reg = match reg_style {
-                RegisterEncodingStyle::ByParamMask => param_mask_bit,
-                RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register } => {
-                    does_value_look_like_a_register(&value)
-                },
-            };
+        let is_reg = match reg_style {
+            RegisterEncodingStyle::ByParamMask => param_mask_bit,
+            RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register } => {
+                does_value_look_like_a_register(&value)
+            },
+        };
 
-            args.push(SimpleArg { value, is_reg });
-            Ok(())
-        })?;
+        args.push(SimpleArg { value, is_reg });
     }
 
     if args_blob.position() != args_blob.get_ref().len() as u64 {
@@ -493,15 +491,17 @@ impl AtomRaiser<'_, '_> {
         };
 
         let mut raised_args = encodings.iter().zip(args).enumerate().map(|(i, (&enc, arg))| {
-            emitter.chain_with(|f| write!(f, "in argument {}", i + 1), |emitter| {
-                Ok(self.raise_arg(emitter, &arg, enc, dest_label)?)
-            })
+            let ref emitter = add_argument_context(emitter, i);
+            Ok(self.raise_arg(emitter, &arg, enc, dest_label)?)
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
         // Move unused timeline arguments out of the argument list and into a pseudo-arg.
         let mut pseudo_arg0 = None;
         if matches!(encodings.get(0), Some(ArgEncoding::TimelineArg(TimelineArgKind::Unused))) {
-            pseudo_arg0 = Some(raised_args.remove(0));
+            let arg0_expr = raised_args.remove(0);
+            if arg0_expr.as_const_int().unwrap() != 0 {
+                pseudo_arg0 = Some(arg0_expr);
+            }
         }
 
         // drop early STD padding args from the end as long as they're zero.
@@ -567,9 +567,7 @@ impl AtomRaiser<'_, '_> {
         if let &Some(index) = sub_id_info {
             // FIXME: What if the sub id is invalid?  It'd be nice to fall back to raw instruction syntax...
             let sub_index = args[index].expect_immediate_int() as _;
-            let ident = ResIdent::new_null(self.item_names.ecl_subs[&sub_index].clone());
-            let name = ast::CallableName::Normal { ident, language_if_ins: Some(self.language) };
-            sub_id = Some(name);
+            sub_id = Some(self.item_names.ecl_subs[&sub_index].clone());
         }
 
         let mut outputs = vec![];
@@ -682,7 +680,9 @@ impl AtomRaiser<'_, '_> {
     ) -> Result<ast::Var, ErrorReported> {
         ensure!(emitter, raw.is_reg, "expected a variable, got an immediate");
 
-        let storage_ty_sigil = encoding.expr_type().sigil().expect("(bug!) raise_arg_to_reg used on invalid type");
+        let storage_ty_sigil = encoding.expr_type().sigil().ok_or_else(|| {
+            emitter.emit(error!("unexpected register bit on {} value", encoding.expr_type().descr()))
+        })?;
         let ast_ty_sigil = match storage_mode {
             abi_parts::OutputArgMode::FloatAsInt => ast::VarSigil::Float,
             abi_parts::OutputArgMode::Natural => storage_ty_sigil,
@@ -719,4 +719,17 @@ fn raise_to_possibly_named_constant(names: &IdMap<i32, Ident>, id: i32) -> ast::
         },
         None => id.into(),
     }
+}
+
+// =============================================================================
+
+fn add_instr_context(emitter: &impl Emitter, instr_index: usize, opcode: raw::Opcode, offset: raw::BytePos) -> impl Emitter + '_ {
+    emitter.get_chained_with(move |f| write!(
+        f, "instr {} (opcode {}, offset {:#X})",
+        instr_index, opcode, offset,
+    ))
+}
+
+fn add_argument_context(emitter: &impl Emitter, arg_index: usize) -> impl Emitter + '_{
+    emitter.get_chained_with(move |f| write!(f, "argument {}", arg_index + 1))
 }

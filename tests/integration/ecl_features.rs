@@ -694,8 +694,8 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_1, r#"
 "#);
 
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_2, r#"
+    ARG_R = 2.0;
     ARG_A = 5;
-    ARG_R = 2;
     call(testSub);
 "#);
 
@@ -721,7 +721,7 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_label, r#"
     ARG_A = 5;
 label:
     call(testSub);
-    goto label
+    goto label;
 "#);
 
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_sigil, r#"
@@ -732,6 +732,16 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_sigil, r#"
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_end_of_script, r#"
     ARG_A = 3;
 "#);
+
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_mismatch, r#"
+    ARG_A = 3;
+    ARG_B = 4;
+    call(testSub);
+
+    ARG_A = 3;
+    call(testSub);
+"#);
+
 
 // =============================================================================
 
@@ -1012,10 +1022,7 @@ source_test!(
     {"EN"}: ins_200(I0, 10, 0);
     {"HL"}: ins_200(I0, 10, 16);
 "#,
-    sbsb: |decompiled| {
-        assert_eq!(decompiled.matches("ins_200").count(), 1);
-        assert!(!decompiled.contains(", 0)"));  // check that the second padding arg was dropped
-    },
+    sbsb: |_| { /* just round-trip */ },
 );
 
 source_test!(

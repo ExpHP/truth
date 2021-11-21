@@ -62,34 +62,35 @@ fn recognize_double_instr_intrinsic(
         return None;
     }
 
-    let combined_range = instr_1.instr_range.start..instr_2.instr_range.end;
-    let combined_instr = match (instr_1, instr_2) {
+    let (combined_kind, combined_parts);
+    match (&instr_1.kind, &instr_2.kind) {
         (
-            &RaiseInstr { kind: RIKind::Standard(IKind::CondJmp2A(ty)), .. },
-            &RaiseInstr { kind: RIKind::Standard(IKind::CondJmp2B(op)), .. },
+            &RIKind::Standard(IKind::CondJmp2A(ty)),
+            &RIKind::Standard(IKind::CondJmp2B(op)),
         ) => {
             let (cmp_instr, jmp_instr) = (instr_1, instr_2);
-            RaiseInstr {
-                fallback_expansion: Some(vec![instr_1.clone(), instr_2.clone()]),
-                labels: instr_1.labels.clone(),
-                /// Indices into the [`EarlyRaiseInstr`]s.
-                instr_range: combined_range,
-                time: instr_1.time,
-                difficulty_mask: instr_1.difficulty_mask,
-                kind: RIKind::Standard(IKind::CondJmp(op, ty)),
-                parts: RaisedIntrinsicParts {
-                    plain_args: cmp_instr.parts.plain_args.clone(),
-                    jump: jmp_instr.parts.jump.clone(),
-                    ..Default::default()
-                },
-            }
+            combined_kind = RIKind::Standard(IKind::CondJmp(op, ty));
+            combined_parts = RaisedIntrinsicParts {
+                plain_args: cmp_instr.parts.plain_args.clone(),
+                jump: jmp_instr.parts.jump.clone(),
+                ..Default::default()
+            };
         },
         _ => return None,
+    };
+
+    let combined_instr = RaiseInstr {
+        fallback_expansion: Some(vec![instr_1.clone(), instr_2.clone()]),
+        labels: instr_1.labels.clone(),
+        time: instr_1.time,
+        difficulty_mask: instr_1.difficulty_mask,
+        kind: combined_kind,
+        parts: combined_parts,
     };
     Some((combined_instr, 2))
 }
 
-/// Raise a PCB ECL sub call.
+/// Recognize a PCB ECL sub call.
 ///
 /// Return value includes number of instructions read.
 fn recognize_reg_call(
@@ -150,7 +151,6 @@ fn recognize_reg_call(
                 let new_instr = RaiseInstr {
                     fallback_expansion: Some(instrs[..num_instrs_used].iter().cloned().collect()),
                     labels: first_instr.labels.clone(),
-                    instr_range: first_instr.instr_range.start..instr.instr_range.end,
                     time: first_instr.time,
                     difficulty_mask: first_instr.difficulty_mask,
                     kind: RIKind::CallRegsGiven,
@@ -164,8 +164,9 @@ fn recognize_reg_call(
             },
 
             _ => {
+                // something other than assign or call
                 return None;
-            },  // something other than assign or call
+            },
         }
     }
     None  // encountered end of script
@@ -190,7 +191,6 @@ fn recognize_diff_switch(
         let &RaiseInstr {
             fallback_expansion: _,
             labels: ref this_labels,
-            instr_range: _,
             time: this_time,
             difficulty_mask: this_mask,
             kind: ref this_kind,
@@ -235,7 +235,6 @@ fn recognize_diff_switch(
     Some((RaiseInstr {
         fallback_expansion: Some(instrs[..num_instrs_compressed].iter().cloned().collect()),
         labels: instrs[0].labels.clone(),
-        instr_range: instrs[0].instr_range.start..instrs[num_instrs_compressed - 1].instr_range.end,
         time: instrs[0].time,
         kind: instrs[0].kind.clone(),
         difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,

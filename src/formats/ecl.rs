@@ -73,23 +73,33 @@ fn decompile(
         }));
     }
 
-    // Decompile bodies of ECL subs
     let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
     sub_raiser.add_ecl_sub_names((0..ecl.subs.len()).map(|i| (i as i32, ecl.subs.get_index(i).unwrap().0.clone())));
     sub_raiser.set_olde_sub_format(sub_format);
 
-    let mut decompiled_subs = IndexMap::new();
+    // Decompile ECL subs only halfway
+    let mut sub_middles = IndexMap::new();
     for (ident, instrs) in ecl.subs.iter() {
+        sub_middles.insert(ident.clone(), {
+            emitter.chain_with(|f| write!(f, "in {}", ident), |emitter| {
+                sub_raiser.raise_instrs_to_middle(emitter, instrs, ctx)
+            })?
+        });
+    }
+
+    // In this intermediate form we can easily deduce signatures of exported subs.
+    let pcb_call_signatures = sub_raiser.infer_pcb_signatures_and_certify_calls(sub_middles.values_mut(), ctx);
+
+    let mut decompiled_subs = IndexMap::new();
+    for (ident, middle) in sub_middles.iter() {
         decompiled_subs.insert(ident.clone(), ast::Block({
             emitter.chain_with(|f| write!(f, "in {}", ident), |emitter| {
-                sub_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
+                sub_raiser.raise_middle_to_sub_ast(emitter, middle, ctx)
             })?
         }));
     }
 
-    // Detect which subs have parameters; this may involve a bit of global analysis
-    // so we had to be wait until after decompiling everything to do this.
-    let param_infos = OldeRaiseSubs::from_subs(sub_format, decompiled_subs.values().map(|stmts| &stmts.0[..]));
+    let param_infos = OldeRaiseSubs::from_subs(sub_format, decompiled_subs.iter().map(|(ident, stmts)| (ident, &stmts.0[..])), &pcb_call_signatures);
 
     // Rename registers in each sub after their parameters.
     for (stmts, param_info) in decompiled_subs.values_mut().zip(param_infos.subs.iter()) {
@@ -470,7 +480,7 @@ pub trait OldeSubFormat {
     // ---------
     // --- used during decompilation ---
 
-    fn infer_params(&self, sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub;
+    fn infer_params(&self, ident: &Ident, sub: &[Sp<ast::Stmt>], call_reg_signatures: &llir::CallRegSignatures) -> OldeRaiseSub;
 }
 
 pub struct CallRegInfo {
@@ -504,7 +514,7 @@ impl OldeSubFormat for EosdSubFormat {
 
     fn call_reg_info(&self) -> Option<CallRegInfo> { None }  // uses a different intrinsic
 
-    fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {
+    fn infer_params(&self, _ident: &Ident, _sub: &[Sp<ast::Stmt>], _: &llir::CallRegSignatures) -> OldeRaiseSub {
         // TODO: detect which params are actually used in each sub
         let tys = [(ReadType::Int, "I"), (ReadType::Float, "F")];
         OldeRaiseSub {
@@ -562,13 +572,21 @@ impl OldeSubFormat for PcbSubFormat {
         })
     }
 
-    fn infer_params(&self, _sub: &[Sp<ast::Stmt>]) -> OldeRaiseSub {
-        // TODO: detect which params are actually used in each sub
-        let tys = [(ReadType::Int, "I"), (ReadType::Float, "F")];
+    fn infer_params(&self, ident: &Ident, _sub: &[Sp<ast::Stmt>], call_reg_signatures: &llir::CallRegSignatures) -> OldeRaiseSub {
+        let ty_chars = enum_map::enum_map!{
+            ReadType::Int => "I",
+            ReadType::Float => "F",
+        };
+        let mut next_indices = enum_map::enum_map!(_ => 0..);
+
+        let param_tys = call_reg_signatures.signatures.get(ident).map(|x| &x[..]).unwrap_or(&[][..]);
+
         OldeRaiseSub {
-            params: tys.into_iter().flat_map(|(ty, tychar)| (0..4).map(move |i| {
-                (self.param_reg_id(ty, i), ty.into(), format!("{}PAR_{}", tychar, i).parse().unwrap())
-            })).collect(),
+            params: param_tys.iter().map(|&ty| {
+                let i = next_indices[ty].next().unwrap();
+                let name = format!("{}PAR_{}", ty_chars[ty], i).parse().unwrap();
+                (self.param_reg_id(ty, i), ty.into(), name)
+            }).collect(),
         }
     }
 }
@@ -680,8 +698,14 @@ pub struct OldeRaiseSub {
 }
 
 impl OldeRaiseSubs {
-    fn from_subs<'a>(sub_format: &dyn OldeSubFormat, subs: impl IntoIterator<Item=&'a [Sp<ast::Stmt>]>) -> Self {
-        let subs = subs.into_iter().map(|sub| sub_format.infer_params(sub)).collect();
+    fn from_subs<'a>(
+        sub_format: &dyn OldeSubFormat,
+        subs: impl IntoIterator<Item=(&'a Ident, &'a [Sp<ast::Stmt>])>,
+        pcb_call_signatures: &llir::CallRegSignatures,
+    ) -> Self {
+        let subs = subs.into_iter().map(|(ident, sub)| {
+            sub_format.infer_params(ident, sub, pcb_call_signatures)
+        }).collect();
         OldeRaiseSubs { subs }
     }
 }
@@ -689,13 +713,13 @@ impl OldeRaiseSubs {
 impl OldeRaiseSub {
     /// Get a function for looking up registers in use for backing parameters.
     pub fn reg_lookup_function(&self) -> impl Fn(LanguageKey, RegId) -> Option<(ResIdent, VarType)> + '_ {
-        let lookup = {
+        let precomputed_map = {
             self.params.iter()
                 .map(|&(reg, var_ty, ref ident)| (reg, (ResIdent::new_null(ident.clone()), var_ty)))
                 .collect::<IdMap<_, _>>()
         };
         move |language, reg| match language {
-            LanguageKey::Ecl => lookup.get(&reg).cloned(),
+            LanguageKey::Ecl => precomputed_map.get(&reg).cloned(),
             _ => None,
         }
     }
