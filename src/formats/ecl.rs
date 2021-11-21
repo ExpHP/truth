@@ -857,7 +857,23 @@ impl LanguageHooks for OldeEclHooks {
                 // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
                 out
             },
-            Game::Th08 => vec![],
+            Game::Th08 => {
+                let mut out = vec![
+                    (I::Jmp, 4),
+                    (I::CountJmp, 5),
+                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Int), 6),
+                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 7),
+                    (I::UnOp(ast::UnOpKind::Sin, ScalarType::Float), 32),
+                    (I::UnOp(ast::UnOpKind::Cos, ScalarType::Float), 33),
+                    (I::CallReg, 52),
+                    // (I::Return, 53),
+                ];
+                I::register_binary_ops_of_type(&mut out, 20, ScalarType::Int);
+                I::register_binary_ops_of_type(&mut out, 25, ScalarType::Float);
+                I::register_cond_jumps(&mut out, 40);
+                // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
+                out
+            },
             Game::Th09 => vec![],
             Game::Th095 => vec![],
             _ => unreachable!(),
