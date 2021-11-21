@@ -68,11 +68,14 @@ impl Encoded {
     }
 
     /// Given a string that is expected to have an explicit NUL terminator, trim it before the first NUL.
-    pub fn trim_first_nul(&mut self, emitter: &dyn Emitter) {
+    pub fn trim_first_nul(&mut self, emitter: &dyn Emitter, warn_on_data: bool) {
         let zero_idx = self.0.iter().position(|&x| x == 0).unwrap_or_else(|| {
             emitter.as_sized().emit(warning!("missing null terminator will be appended to string")).ignore();
             self.len()
         });
+        if warn_on_data && self.0[zero_idx..].iter().any(|&x| x != 0) {
+            emitter.as_sized().emit(warning!("string will be truncated at first null")).ignore();
+        }
         self.0.truncate(zero_idx);
     }
 
@@ -370,7 +373,7 @@ pub trait BinRead {
     /// Reads the given number of bytes as a string, and trims before the first nul.
     fn read_cstring_exact(&mut self, num_bytes: usize, emitter: &dyn Emitter) -> Result<Encoded, Self::Err> {
         let mut out = Encoded(self.read_byte_vec(num_bytes)?);
-        out.trim_first_nul(emitter);
+        out.trim_first_nul(emitter, true);
         Ok(out)
     }
 

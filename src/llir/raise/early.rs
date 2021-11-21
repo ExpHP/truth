@@ -15,7 +15,7 @@ use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, IdMap};
 use crate::context::{self, Defs, CompilerContext};
 use crate::game::LanguageKey;
-use crate::llir::{ArgEncoding, TimelineArgKind, InstrAbi, RegisterEncodingStyle};
+use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 use crate::llir::raise::{CannotRaiseIntrinsic, ItemNames, RaisedIntrinsicParts};
@@ -250,15 +250,19 @@ fn decode_args_with_abi(
                 ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
             },
 
-            | ArgEncoding::String { block_size: _, mask, furibug: _ }
+            | ArgEncoding::String { size: size_spec, mask, furibug }
             => {
-                // read to end
-                let read_len = remaining_len;
+                let read_len = match size_spec {
+                    StringArgSize::Block { .. } => remaining_len,  // read to end
+                    StringArgSize::Fixed { len } => len,
+                };
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
                 let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
                 encoded.apply_xor_mask(mask);
-                encoded.trim_first_nul(emitter);
+
+                let warn_on_trimmed_data = !furibug;  // furibug DOES leave garbage after the null
+                encoded.trim_first_nul(emitter, warn_on_trimmed_data);
 
                 let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
                 ScalarValue::String(string)

@@ -321,7 +321,7 @@ fn read_mission_text_lines<const N: usize>(
             }
 
             let mut encoded = Encoded(bytes);
-            encoded.trim_first_nul(emitter);
+            encoded.trim_first_nul(emitter, true);
             encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e)).map(|s| sp!(s))
         })
     }).collect::<Result<Vec<_>, _>>()?.try_into().unwrap();

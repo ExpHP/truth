@@ -287,7 +287,7 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 87, Some("Sfff")),
         (Th07, 88, Some("S")),
         (Th07, 89, Some("S")),
-        (Th07, 90, Some("ssm(bs=34;mask=0xaa,0,0)")),
+        (Th07, 90, Some("ssm(bs=48;mask=0xaa,0,0)")),
         (Th07, 91, Some("")),
         (Th07, 92, Some("SfffSSS")),
         (Th07, 93, Some("SfffSSS")),

@@ -1,8 +1,12 @@
 use std::collections::{HashMap};
 
+use super::{
+    unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs,
+    ArgEncoding, StringArgSize, TimelineArgKind, ScalarType,
+};
+
 use crate::raw;
 use crate::ast;
-use super::{unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs, ArgEncoding, TimelineArgKind, ScalarType};
 use crate::diagnostic::Emitter;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp};
@@ -528,7 +532,7 @@ fn encode_args(
             | ArgEncoding::Word
             => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
 
-            | ArgEncoding::String { block_size, mask, furibug }
+            | ArgEncoding::String { size: size_spec, mask, furibug }
             => {
                 let string = arg.expect_raw().expect_string();
 
@@ -543,8 +547,22 @@ fn encode_args(
                     }
                 }
 
-                if encoded.len() % block_size != 0 {
-                    encoded.null_pad(block_size);
+                match size_spec {
+                    StringArgSize::Block { block_size } => {
+                        if encoded.len() % block_size != 0 {
+                            encoded.null_pad(block_size);
+                        }
+                    },
+                    StringArgSize::Fixed { len } => {
+                        if encoded.len() > len {
+                            return Err(emitter.emit(error!(
+                                message("string argument too large for buffer"),
+                                primary(arg, "requires {} bytes", encoded.len()),
+                                note("this argument is written to a {}-byte buffer", len),
+                            )))
+                        }
+                        encoded.0.resize(len, b'\0');
+                    },
                 }
                 encoded.apply_xor_mask(mask);
 

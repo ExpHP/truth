@@ -152,8 +152,16 @@ impl SingleSubLowerer<'_, '_> {
         call: &ast::ExprCall,
         sub: &crate::ecl::OldeExportedSub,
     ) -> Result<(), ErrorReported> {
-        let int = sub.params_by_ty[ReadType::Int].get(0).map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0).into()));
-        let float = sub.params_by_ty[ReadType::Float].get(0).map(|&(index, _)| call.args[index].clone()).unwrap_or(sp!((0.0).into()));
+        let int = {
+            sub.params_by_ty[ReadType::Int].get(0)
+                .map(|&(index, _)| call.args[index].clone())
+                .unwrap_or(sp!((0).into()))
+        };
+        let float = {
+            sub.params_by_ty[ReadType::Float].get(0)
+                .map(|&(index, _)| call.args[index].clone())
+                .unwrap_or(sp!((0.0).into()))
+        };
 
         // EoSD args must be const
         let lowered_int = classify_expr(&int, self.ctx)?.expect_simple().lowered.clone();
@@ -179,15 +187,15 @@ impl SingleSubLowerer<'_, '_> {
         call_reg_info: &crate::ecl::CallRegInfo,
     ) -> Result<(), ErrorReported> {
         // Each argument gets assigned to a special "arg register."
-        for &ty in &[ReadType::Float, ReadType::Int][..] {
-            let params_by_ty = sub.params_by_ty[ty].iter();
-            let arg_regs_by_ty = &call_reg_info.arg_regs_by_type[ty];
-            for (&(param_index, _), &arg_reg) in params_by_ty.zip(arg_regs_by_ty) {
-                let arg_expr = &call.args[param_index];
-                let arg_var = self.reg_to_var(sp!(arg_expr.span => arg_reg), ty);
-                let eq_sign = sp!(arg_expr.span => token![=]);
-                self.lower_assign_op(arg_expr.span, stmt_data, &arg_var, &eq_sign, arg_expr)?;
-            }
+        let mut arg_regs_iter_by_ty = enum_map::enum_map!{
+            ty => call_reg_info.arg_regs_by_type[ty].iter().copied()
+        };
+        for (param_index, &(_, ty, _)) in sub.params_in_sig.iter().enumerate() {
+            let arg_reg = arg_regs_iter_by_ty[ty].next().unwrap();
+            let arg_expr = &call.args[param_index];
+            let arg_var = self.reg_to_var(sp!(arg_expr.span => arg_reg), ty);
+            let eq_sign = sp!(arg_expr.span => token![=]);
+            self.lower_assign_op(arg_expr.span, stmt_data, &arg_var, &eq_sign, arg_expr)?;
         }
 
         let lowered_sub_id = sp!(call.name.span => LowerArg::Raw(sub.index.into()));
@@ -198,8 +206,6 @@ impl SingleSubLowerer<'_, '_> {
             },
         )
     }
-
-    // FIXME: ideally we shouldn't need this, but the majority of this code takes
 
     /// Lowers `func(<ARG1>, <ARG2>, <...>);` where `func` is an instruction alias.
     fn lower_instruction(

@@ -573,6 +573,7 @@ impl OldeSubFormat for PcbSubFormat {
     }
 
     fn infer_params(&self, ident: &Ident, _sub: &[Sp<ast::Stmt>], call_reg_signatures: &llir::CallRegSignatures) -> OldeRaiseSub {
+        // For PCB subs we look at callsites to infer parameters, rather than the function body.
         let ty_chars = enum_map::enum_map!{
             ReadType::Int => "I",
             ReadType::Float => "F",
@@ -599,9 +600,10 @@ pub struct OldeExportedSubs {
 pub struct OldeExportedSub {
     pub index: raw::LangInt,
     pub name: Sp<ResIdent>,
-    // EoSD params have at most one of each type; for PCB+ it's 4
+    /// The params that this sub actually has, grouped by type.
     pub params_by_ty: EnumMap<ReadType, ArrayVec<(usize, Sp<ast::FuncParam>), 4>>,
-    param_info: Vec<(DefId, ReadType, Span)>,
+    /// The params that this sub actually has, in their order in the signature.
+    pub params_in_sig: Vec<(DefId, ReadType, Span)>,
 }
 
 impl OldeExportedSubs {
@@ -644,7 +646,7 @@ impl OldeExportedSub {
             index: sub_index as _,
             name: func.ident.clone(),
             params_by_ty: Default::default(),
-            param_info: Default::default(),
+            params_in_sig: Default::default(),
         };
 
         for (param_index, param) in func.params.iter().enumerate() {
@@ -673,7 +675,7 @@ impl OldeExportedSub {
             out.params_by_ty[param_ty].push((param_index, param.clone()));
 
             let param_def_id = ctx.resolutions.expect_def(&param.ident);
-            out.param_info.push((param_def_id, param_ty, param.span));
+            out.params_in_sig.push((param_def_id, param_ty, param.span));
         }
         Ok(out)
     }
@@ -681,7 +683,7 @@ impl OldeExportedSub {
     /// Produces the RegId for each parameter, along with other info needed by the register allocator.
     pub fn param_registers<'a>(&'a self, sub_format: &'a dyn OldeSubFormat) -> impl IntoIterator<Item=(DefId, RegId, ReadType, Span)> + 'a {
         let mut offsets = enum_map::enum_map!(_ => 0..);
-        self.param_info.iter().map(move |&(def_id, ty, span)| {
+        self.params_in_sig.iter().map(move |&(def_id, ty, span)| {
             let reg = sub_format.param_reg_id(ty, offsets[ty].next().unwrap());
             (def_id, reg, ty, span)
         })

@@ -1,5 +1,5 @@
 use crate::diagnostic::Diagnostic;
-use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind};
+use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
 use crate::parse::lalrparser_util as util;
 
 grammar<'st>(diagnostics: &mut Vec<Diagnostic>);
@@ -36,10 +36,10 @@ OptionalEnum: () = {
 };
 
 ZString: ArgEncoding = {
-    "z" "(" <block_size:BlockSizeArg> ")"
+    "z" "(" <size:StringArgSize> ")"
     => {
         let mask = AcceleratingByteMask::constant(0x00);
-        ArgEncoding::String { block_size, mask, furibug: false }
+        ArgEncoding::String { size, mask, furibug: false }
     },
 
     "z" => {
@@ -48,13 +48,14 @@ ZString: ArgEncoding = {
         ));
 
         let mask = AcceleratingByteMask::constant(0x00);
-        ArgEncoding::String { block_size: 4, mask, furibug: false }
+        let size = StringArgSize::Block { block_size: 4 };
+        ArgEncoding::String { size, mask, furibug: false }
     },
 };
 
 MString: ArgEncoding = {
-    "m" "(" <block_size:BlockSizeArg> ";" <mask:MaskArg> <furibug:(";" "furibug")?> ")"
-    => ArgEncoding::String { block_size: block_size as _, mask, furibug: furibug.is_some() },
+    "m" "(" <size:StringArgSize> ";" <mask:MaskArg> <furibug:(";" "furibug")?> ")"
+    => ArgEncoding::String { size, mask, furibug: furibug.is_some() },
 
     "m" => {
         diagnostics.push(warning!(
@@ -62,11 +63,15 @@ MString: ArgEncoding = {
         ));
 
         let mask = AcceleratingByteMask::constant(0x77);
-        ArgEncoding::String { block_size: 4, mask, furibug: false }
+        let size = StringArgSize::Block { block_size: 4 };
+        ArgEncoding::String { size, mask, furibug: false }
     },
 };
 
-BlockSizeArg: usize = "bs" "=" <x:UnsignedInt> => x as _;
+StringArgSize: StringArgSize = {
+    "len" "=" <x:UnsignedInt> => StringArgSize::Fixed { len: x as _ },
+    "bs" "=" <x:UnsignedInt> => StringArgSize::Block { block_size: x as _ },
+};
 
 MaskArg: AcceleratingByteMask = {
     "mask" "=" <mask:UnsignedInt> "," <vel:UnsignedInt> "," <accel:UnsignedInt>

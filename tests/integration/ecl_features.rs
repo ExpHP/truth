@@ -699,6 +699,13 @@ pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_2, r#"
     call(testSub);
 "#);
 
+pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_order_3, r#"
+    ARG_A = 5;
+    ARG_R = 2.0;
+    ARG_B = 7;
+    call(testSub);
+"#);
+
 pcb_funky_call_decomp_rt_test!(pcb_param_decomp_call_funky_diff_differ, r#"
     ARG_A = 5;
     {"EN"}: ARG_B = 7;

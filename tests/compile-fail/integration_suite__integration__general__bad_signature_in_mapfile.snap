@@ -2,10 +2,10 @@
 source: tests/integration/general.rs
 expression: stderr
 ---
-error: bad signature: 'z' or 'm' arguments can only appear at the very end
+error: bad signature: 'z' or 'm' arguments with 'bs=' can only appear at the very end
   ┌─ <mapfile>:3:6
   │
 3 │ 1000 z(bs=4)S
-  │      ^^^^^^^^ 'z' or 'm' arguments can only appear at the very end
+  │      ^^^^^^^^ 'z' or 'm' arguments with 'bs=' can only appear at the very end
 
 

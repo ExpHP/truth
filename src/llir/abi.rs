@@ -52,18 +52,16 @@ pub enum ArgEncoding {
     Sprite,
     /// `E` in mapfile. Dword index of an olde-format ECL sub.  When decompiled, prefers to use the name of that sub.
     Sub,
-    /// `z(bs=<int>)` or `m(bs=<int>;mask=<int>,<int>,<int>)` in mapfile.
+    /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or  `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
-    /// A null-terminated string argument which must be the last argument in the signature and
-    /// consists of all remaining bytes. When written, it is padded to a multiple of `bs`
-    /// bytes.
+    /// See [`StringArgSize`] about the size args.
     ///
     /// The string can be encoded with an accelerating XOR mask. The three integers supplied to
     /// `mask` are the initial mask value, the initial velocity, and acceleration.
     ///
     /// Adding `;furibug` replicates a strange quirk in TH12+ MSG files related to strings that represent furigana.
     String {
-        block_size: usize,
+        size: StringArgSize,
         mask: AcceleratingByteMask,
         furibug: bool,
     },
@@ -74,6 +72,20 @@ pub enum ArgEncoding {
     ///
     /// In the binary encoding, it is stored in the instruction header rather than the args blob.
     TimelineArg(TimelineArgKind),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StringArgSize {
+    /// A string arg that uses `len=`.
+    ///
+    /// A fixed length string buffer.  A trailing null is required to be present INSIDE the buffer
+    /// as in some cases it may be copied to another buffer of identical length.
+    Fixed { len: usize },
+    /// A string arg that uses `bs=`.
+    ///
+    /// A null-terminated string argument which **can only be the final argument**, and
+    /// consists of all remaining bytes. When written, it is padded to a multiple of `bs` bytes.
+    Block { block_size: usize },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -241,8 +253,8 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
         return err(format!("'T()' arguments may only appear at the beginning of a signature"));
     }
 
-    if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { .. })) {
-        return err(format!("'z' or 'm' arguments can only appear at the very end"));
+    if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { size: StringArgSize::Block { .. }, .. })) {
+        return err(format!("'z' or 'm' arguments with 'bs=' can only appear at the very end"));
     }
 
     let trailing_pad_count = encodings.iter().rev().take_while(|c| matches!(c, Enc::Padding)).count();
