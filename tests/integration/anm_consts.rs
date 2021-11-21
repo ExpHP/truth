@@ -1,3 +1,4 @@
+#[allow(unused)]
 use crate::integration_impl::{expected, formats::*};
 
 // This is the first written test of const vars that depend on other const vars.

@@ -1,0 +1,11 @@
+---
+source: tests/integration/timeline_arg0.rs
+expression: stderr
+---
+error: T(...) is invalid outside of timeline languages
+  ┌─ <mapfile>:3:6
+  │
+3 │ 1000 T(m)
+  │      ^^^^ T(...) is invalid outside of timeline languages
+
+

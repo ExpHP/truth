@@ -1,0 +1,7 @@
+---
+source: tests/integration/image_sources.rs
+expression: stderr
+---
+error: while resolving 'this/is/a/bad/path': No such file or directory (os error 2)
+
+

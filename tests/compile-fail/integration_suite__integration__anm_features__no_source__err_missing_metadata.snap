@@ -1,8 +1,0 @@
----
-source: tests/integration/anm_features.rs
-expression: stderr
----
-error: while writing '<output>':in entry 0 (for 'subdir/file.png'): missing required field 'rt_width'!
- = if this data is available in an existing anm file, try using '-i ANM_FILE'
-
-

@@ -8,7 +8,8 @@
 //! Tests for things like loop- and if- decompilation (which used to be here) are better suited to the
 //! [`Self::sbsb_test`], which start from a readable script file.
 
-use crate::integration_impl::formats::*;
+#[allow(unused)]
+use crate::integration_impl::{expected, formats::*};
 
 #[track_caller]
 fn file(fname: &str) -> std::path::PathBuf {

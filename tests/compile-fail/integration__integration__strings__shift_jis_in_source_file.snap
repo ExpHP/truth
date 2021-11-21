@@ -1,0 +1,13 @@
+---
+source: tests/integration/strings.rs
+expression: stderr
+---
+error: invalid UTF-8
+  ┌─ <input>:6:18
+  │
+6 │     stage_name: "����ɂ���",
+  │                  ^ not valid UTF-8
+  │
+  = truth expects all input script files to be UTF-8 regardless of the output encoding
+
+

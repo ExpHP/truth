@@ -1,8 +1,6 @@
-use crate::integration_impl::formats::*;
+#[allow(unused)]
+use crate::integration_impl::{expected, formats::*};
 use truth::ast::meta::ToMeta;
-
-// =============================================================================
-// Image sources
 
 source_test!(
     MSG_06, empty,

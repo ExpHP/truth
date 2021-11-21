@@ -1,0 +1,7 @@
+---
+source: tests/integration/strings.rs
+expression: stderr
+---
+error: <decompile-input>: in script0: instr 0 (opcode 444, offset 0x0): argument 1: unexpected register bit on a string value
+
+

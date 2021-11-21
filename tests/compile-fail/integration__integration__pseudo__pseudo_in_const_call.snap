@@ -1,0 +1,13 @@
+---
+source: tests/integration/pseudo.rs
+expression: stderr
+---
+error: forbidden pseudo-arg in function call
+   ┌─ <input>:30:21
+   │
+30 │         int x = foo(@mask=0b1, 12);
+   │                 --- ^^^^^^^^^
+   │                 │    
+   │                 not an instruction
+
+

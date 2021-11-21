@@ -1,4 +1,5 @@
-use crate::integration_impl::formats::*;
+#[allow(unused)]
+use crate::integration_impl::{expected, formats::*};
 
 source_test!(
     ECL_06, general_1,

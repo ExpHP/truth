@@ -1,4 +1,13 @@
-use crate::integration_impl::formats::*;
+#[allow(unused)]
+use crate::integration_impl::{expected, formats::*};
+
+source_test!(
+    ANM_10, mapfile_does_not_exist,
+    items: r#"
+        #pragma mapfile "this/is/a/bad/path"
+    "#,
+    expect_error: "while resolving",
+);
 
 source_test!(
     ANM_10, seqmap_missing_section_header,

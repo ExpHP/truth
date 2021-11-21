@@ -189,9 +189,9 @@ pub const ECL_08: Format = Format {
 
 /// Variant of ECL_08 where main_body is inserted into a timeline instead.
 /// There are no subs by default.
-pub const ECL_TIMELINE_08: Format = Format {
+pub const ECL_TIMELINE_06: Format = Format {
     cmd: "truecl",
-    game: Game::Th08,
+    game: Game::Th06,
     script_head: r#""#,
     make_main: |body| format!(r#"
 timeline 0 {{

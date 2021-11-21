@@ -1,7 +1,0 @@
----
-source: tests/integration/general.rs
-expression: stderr
----
-error: <decompile-input>: in script0: unexpected register in interrupt label
-
-

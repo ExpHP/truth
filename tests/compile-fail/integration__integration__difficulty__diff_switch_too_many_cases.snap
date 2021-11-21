@@ -1,0 +1,13 @@
+---
+source: tests/integration/difficulty.rs
+expression: stderr
+---
+error: too many cases in diff switch
+   ┌─ <input>:10:10
+   │
+10 │     I0 = (2::::::::);
+   │          ^^^^^^^^^^^ 9 cases
+   │
+   = difficulty masks are only 8 bits wide
+
+

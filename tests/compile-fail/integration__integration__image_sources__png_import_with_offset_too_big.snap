@@ -1,0 +1,7 @@
+---
+source: tests/integration/image_sources.rs
+expression: stderr
+---
+error: tests/integration/resources/dir-with-images/subdir/hai-10x18+105+9.png: image too small (115x27) for an offset of (1050, 90)
+
+

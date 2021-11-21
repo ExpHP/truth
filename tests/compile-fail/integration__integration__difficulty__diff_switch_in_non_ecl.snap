@@ -1,0 +1,11 @@
+---
+source: tests/integration/difficulty.rs
+expression: stderr
+---
+error: difficulty is not supported in this format
+   ┌─ <input>:28:13
+   │
+28 │     int x = (1:2:3:4);
+   │             ^^^^^^^^^ difficulty switch
+
+

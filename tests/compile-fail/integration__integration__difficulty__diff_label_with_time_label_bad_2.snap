@@ -1,0 +1,16 @@
+---
+source: tests/integration/difficulty.rs
+expression: stderr
+---
+warning: conditional chain inside difficulty label may have surprising behavior
+   ┌─ <input>:10:5
+   │  
+10 │ ╭     {"ENH"}: if (I0 == 0) {
+   │       -------- in this difficulty label
+11 │ │         {"L"}: nop();
+12 │ │     }
+   │ ╰─────^ conditional chain
+   │  
+   = This code may not behave as expected! Try using the difficulty register instead, e.g. `if (DIFFICULTY == 2)` instead of a difficulty label. 
+
+

@@ -1,5 +1,5 @@
-use crate::integration_impl::formats::*;
-use crate::integration_impl::expected;
+#[allow(unused)]
+use crate::integration_impl::{expected, formats::*};
 
 // NOTE: 'stackless__' is a prefix for things that used to be type-checked during lowering
 //       (so they were special cases handled by the stackless lowerer), and 'const__' is a

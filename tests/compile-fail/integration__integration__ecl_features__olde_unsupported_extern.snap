@@ -1,0 +1,23 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: extern functions are not supported in old-style ECL file
+  ┌─ <input>:7:1
+  │
+7 │ void externFunc();
+  │ ^^^^^^^^^^^^^^^^^^ unsupported extern function
+
+error: bad ABI for intrinsic: unexpected dword integer arg at index 1
+    ┌─ /home/exp/asd/clone/truth/map/th08.eclm:194:3
+    │
+194 │ 4 So
+    │   ^^ unexpected dword integer arg at index 1
+
+error: bad ABI for intrinsic: unexpected dword integer arg at index 3
+    ┌─ /home/exp/asd/clone/truth/map/th08.eclm:195:3
+    │
+195 │ 5 SoS
+    │   ^^^ unexpected dword integer arg at index 3
+
+
