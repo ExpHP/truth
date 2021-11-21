@@ -16,7 +16,33 @@ impl SingleSubRaiser<'_, '_> {
         &self,
         instrs: Vec<RaiseInstr>,
     ) -> Vec<RaiseInstr> {
-        instrs
+        let mut out = vec![];
+        let mut remaining = &instrs[..];
+        while !remaining.is_empty() {
+            if let Some((new_instr, num_replaced)) = recognize_double_instr_intrinsic(remaining) {
+                out.push(new_instr);
+                remaining = &remaining[num_replaced..];
+                continue;
+            }
+
+            if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining) {
+                out.push(new_instr);
+                remaining = &remaining[num_replaced..];
+                continue;
+            }
+
+            if let Some(call_reg_data) = self.call_reg_data {
+                if let Some((new_instr, num_replaced)) = recognize_reg_call(remaining, call_reg_data, self.ctx) {
+                    out.push(new_instr);
+                    remaining = &remaining[num_replaced..];
+                    continue;
+                }
+            }
+
+            out.push(remaining[0].clone());
+            remaining = &remaining[1..];
+        }
+        out
     }
 }
 
@@ -137,7 +163,9 @@ fn recognize_reg_call(
                 return Some((new_instr, num_instrs_used));
             },
 
-            _ => return None,  // something other than assign or call
+            _ => {
+                return None;
+            },  // something other than assign or call
         }
     }
     None  // encountered end of script
