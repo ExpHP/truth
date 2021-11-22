@@ -35,9 +35,11 @@ impl Default for DiffFlagNames {
     }
 }
 
+const NUM_BITS: u32 = 8;
+
 impl DiffFlagNames {
     pub fn define_flag_from_mapfile(&mut self, index: Sp<i32>, str: Sp<&str>) -> Result<(), Diagnostic> {
-        if !(0 <= index.value && index.value < 8) {
+        if !(0 <= index.value && index.value < NUM_BITS as i32) {
             return Err(error!(
                 message("difficulty flag index out of range"),
                 primary(index, "must be from 0 to 7 inclusive"),
@@ -69,7 +71,7 @@ impl DiffFlagNames {
     }
 
     pub fn define_flag(&mut self, name: char, index: u32, enable: bool) {
-        assert!(index < 8);
+        assert!(index < NUM_BITS);
         assert!(matches!(name, diff_flag_char_pat!()));
 
         self.flag_default_enable.set_bit(index as _, enable);
@@ -78,12 +80,17 @@ impl DiffFlagNames {
     }
 
     pub fn parse_diff_string(&self, str: Sp<&str>) -> Result<Sp<BitSet32>, Diagnostic> {
-        let mut out = BitSet32::new();
+        let mut out = self.flag_default_enable;
         let mut enable = true;
         for char in str.chars() {
             match char {
                 '-' => enable = false,
                 '+' => enable = true,
+
+                '*' => out = BitSet32::from_mask(match enable {
+                    false => 0,
+                    true => (1u32 << NUM_BITS) - 1,
+                }),
 
                 diff_flag_char_pat!() => match self.by_name.get(&char) {
                     Some(&index) => out.set_bit(index as _, enable),
@@ -105,14 +112,19 @@ impl DiffFlagNames {
     }
 
     pub fn mask_to_diff_label(&self, mask: BitSet32) -> ast::LitString {
-        let must_enable = mask & self.flag_default_enable.complement(8);
-        let must_disable = mask.complement(8) & self.flag_default_enable;
+        let must_enable = mask & self.difficulty_bits();
+        let must_disable = mask.complement(NUM_BITS) & self.aux_bits();
 
         let mut out = String::new();
-        for bit in must_enable {
-            out.push(self.by_flag[&bit]);
+        if must_enable == self.difficulty_bits() {
+            out.push('*');  // all difficulties
+        } else {
+            for bit in must_enable {
+                out.push(self.by_flag[&bit]);
+            }
         }
 
+        // disabled aux flags after a '-'
         if !must_disable.is_empty() {
             out.push('-');
             for bit in must_disable {
@@ -122,7 +134,13 @@ impl DiffFlagNames {
         out.into()
     }
 
-    pub fn default_enabled_flags(&self) -> BitSet32 {
+    /// Get the set of flags not enabled by default.  Diff switches expand over these.
+    pub fn difficulty_bits(&self) -> BitSet32 {
+        self.flag_default_enable.complement(NUM_BITS)
+    }
+
+    /// Get the set of flags enabled by default.
+    pub fn aux_bits(&self) -> BitSet32 {
         self.flag_default_enable
     }
 

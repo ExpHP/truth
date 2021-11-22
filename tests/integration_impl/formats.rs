@@ -177,6 +177,20 @@ void sub0() {{
 "#, body),
 };
 
+// FIXME: Maybe default difficulty names shouldn't be in the default mapfile
+pub const ECL_06_NO_DEFAULT_MAP: Format = Format {
+    cmd: "truecl",
+    game: Game::Th06,
+    script_head: r#"
+timeline 0 {}
+"#,
+    make_main: |body| format!(r#"
+void sub0() {{
+    {}
+}}
+"#, body),
+};
+
 pub const ECL_07: Format = Format {
     game: Game::Th07,
     ..ECL_06

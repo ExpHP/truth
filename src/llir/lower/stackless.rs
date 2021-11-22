@@ -412,9 +412,11 @@ impl SingleSubLowerer<'_, '_> {
 
         // This doesn't actually need a temporary.
         // We can just elaborate it into separate assignment statements on each difficulty.
-        let instr_diff_mask = stmt_data.difficulty_mask;
+        let instr_full_mask = stmt_data.difficulty_mask;
+        let instr_diff_mask = instr_full_mask & self.ctx.diff_flag_names.difficulty_bits();
+        let instr_aux_mask = instr_full_mask & self.ctx.diff_flag_names.aux_bits();
         for (case_mask, case) in crate::diff_switch_utils::explicit_difficulty_cases(cases) {
-            let new_mask = instr_diff_mask & case_mask;
+            let new_mask = instr_diff_mask & case_mask | instr_aux_mask;
             if !new_mask.is_empty() {
                 let modified_stmt_data = TimeAndDifficulty { difficulty_mask: new_mask, ..stmt_data };
                 self.lower_assign_op(stmt_span, modified_stmt_data, var, &eq_sign, case)?;

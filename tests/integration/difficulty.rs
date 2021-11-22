@@ -367,11 +367,71 @@ const ECL_IN_DIFFICULTY_MAPFILE: &'static str = r#"!eclmap
 "#;
 
 source_test!(
-    ECL_06, diff_switch_with_aux_bits_all_on,
+    ECL_06_NO_DEFAULT_MAP, diff_switch_simple_aux_bits_all_on,
     mapfile: ECL_IN_DIFFICULTY_MAPFILE,
     main_body: r#"
-    {"EN"}: I0 = I1 + 2;
-    {"HL"}: I0 = I1 + 3;
+    ins_4($REG[-10001], (2 : : 3 : ));
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+
+        assert_eq!(ecl.subs[0].len(), 2);
+        assert_eq!(ecl.subs[0][0].difficulty, 0b1111_0011);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b1111_1100);
+    },
+);
+
+source_test!(
+    ECL_06_NO_DEFAULT_MAP, diff_switch_simple_aux_bit_off,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    {"*-F"}: ins_4($REG[-10001], (2 : : 3 : ));
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+
+        assert_eq!(ecl.subs[0].len(), 2);
+        assert_eq!(ecl.subs[0][0].difficulty, 0b1101_0011);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b1101_1100);
+    },
+);
+
+source_test!(
+    ECL_06_NO_DEFAULT_MAP, diff_switch_complex_aux_bits_all_on,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    ins_4($REG[-10001], (2 : : 3 + $REG[-10003] : ));
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+
+        assert_eq!(ecl.subs[0].len(), 3);
+        assert_eq!(ecl.subs[0][0].difficulty, 0b1111_0011);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b1111_1100);
+    },
+);
+
+source_test!(
+    ECL_06_NO_DEFAULT_MAP, diff_switch_complex_aux_bit_off,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    {"*-F"}: ins_4($REG[-10001], (2 : : 3 + $REG[-10003] : ));
+"#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+
+        assert_eq!(ecl.subs[0].len(), 3);
+        assert_eq!(ecl.subs[0][0].difficulty, 0b1101_0011);
+        assert_eq!(ecl.subs[0][1].difficulty, 0b1101_1100);
+    },
+);
+
+source_test!(
+    ECL_06_NO_DEFAULT_MAP, diff_switch_decomp_aux_bits_all_on,
+    mapfile: ECL_IN_DIFFICULTY_MAPFILE,
+    main_body: r#"
+    {"EN"}: ins_4($REG[-10001], 2);
+    {"HL"}: ins_4($REG[-10001], 3);
 "#,
     sbsb: |decompiled| {
         assert!(!decompiled.contains("EN"));  // no diff flags
@@ -380,28 +440,27 @@ source_test!(
 );
 
 source_test!(
-    ECL_06, diff_switch_with_aux_bit_off,
+    ECL_06_NO_DEFAULT_MAP, diff_switch_decomp_aux_bit_off,
     mapfile: ECL_IN_DIFFICULTY_MAPFILE,
     main_body: r#"
-    {"EN-F"}: I0 = I1 + 2;
-    {"HL-F"}: I0 = I1 + 3;
+    {"EN-F"}: ins_4($REG[-10001], 2);
+    {"HL-F"}: ins_4($REG[-10001], 3);
 "#,
     sbsb: |decompiled| {
-        assert!(decompiled.contains(r#"{"ENHL-F"}"#));
+        assert!(decompiled.contains(r#"{"*-F"}"#));
         assert!(decompiled.contains(": 3 :"));
     },
 );
 
 source_test!(
-    ECL_06, diff_switch_with_aux_bit_mismatch,
+    ECL_06_NO_DEFAULT_MAP, diff_switch_decomp_aux_bit_mismatch,
     mapfile: ECL_IN_DIFFICULTY_MAPFILE,
     main_body: r#"
-    {"EN-F"}: I0 = I1 + 2;
-    {"HL-F"}: I0 = I1 + 3;
+    {"EN-F"}: ins_4($REG[-10001], 2);
+    {"HL"}:  ins_4($REG[-10001], 3);
 "#,
     sbsb: |decompiled| {
-        assert!(decompiled.contains(r#"{"ENHL-F"}"#));  // FIXME: {"*-F"} maybe
-        assert!(decompiled.contains(": 3 :"));
+        assert!(!decompiled.contains(": 3 :"));
     },
 );
 

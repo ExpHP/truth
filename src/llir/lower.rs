@@ -195,7 +195,7 @@ fn lower_sub_ast_to_instrs(
     assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx)?;
 
     // This can't happen before register assignment or we might allocate something multiple times
-    out = elaborate_diff_switches(out);
+    out = elaborate_diff_switches(out, &ctx.diff_flag_names);
 
     let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
@@ -216,7 +216,7 @@ fn lower_sub_ast_to_instrs(
 
 // =============================================================================
 
-fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
+fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>, diff_flag_names: &crate::ast::diff_str::DiffFlagNames) -> Vec<Sp<LowerStmt>> {
     let mut out = vec![];
     'stmt: for stmt in stmts {
         if let LowerStmt::Instr(instr) = &stmt.value {
@@ -236,11 +236,15 @@ fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>) -> Vec<Sp<LowerStmt>> {
 
                 // ------------
                 // all conditions are met, so generate instructions for each difficulty.
-                for case_mask in switch_props.explicit_case_bitmasks() {
-                    let new_mask = case_mask & instr.stmt_data.difficulty_mask;
-                    if !new_mask.is_empty() {
+                let instr_diff_mask = instr.stmt_data.difficulty_mask & diff_flag_names.difficulty_bits();
+                let instr_aux_mask = instr.stmt_data.difficulty_mask & diff_flag_names.aux_bits();
+                for case_diff_mask in switch_props.explicit_case_bitmasks() {
+                    let new_diff_mask = instr_diff_mask & case_diff_mask;
+                    if !new_diff_mask.is_empty() {
+                        let new_mask = new_diff_mask | instr_aux_mask;
+
                         // compress each switch into just the case for this difficulty
-                        let case_first_difficulty = case_mask.into_iter().next().unwrap();
+                        let case_first_difficulty = case_diff_mask.into_iter().next().unwrap();
                         let new_args = select_diff_for_lower_args(args, case_first_difficulty as u32);
                         out.push(sp!(stmt.span => LowerStmt::Instr({
                             LowerInstr {

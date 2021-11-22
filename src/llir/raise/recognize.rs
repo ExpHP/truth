@@ -200,7 +200,7 @@ fn recognize_diff_switch(
         } = instr;
         let this_full_mask = BitSet32::from_mask(this_full_mask as _);
         // split into the default off part (difficulties) and default on part (aux flags)
-        let this_aux_mask = this_full_mask & diff_flag_names.default_enabled_flags();
+        let this_aux_mask = this_full_mask & diff_flag_names.aux_bits();
         let this_diff_mask = this_full_mask ^ this_aux_mask;
 
         if &this_aux_mask != first_aux_mask.get_or_insert(this_aux_mask) {
@@ -244,7 +244,7 @@ fn recognize_diff_switch(
 
     // The final instruction will have the same aux bits as the original instructions,
     // but with all difficulty bits filled.
-    let new_mask = first_aux_mask.unwrap() | diff_flag_names.default_enabled_flags().complement(8);
+    let new_mask = first_aux_mask.unwrap() | diff_flag_names.difficulty_bits();
 
     Some((RaiseInstr {
         fallback_expansion: Some(instrs[..num_instrs_compressed].iter().cloned().collect()),
