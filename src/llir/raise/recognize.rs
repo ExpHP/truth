@@ -25,10 +25,12 @@ impl SingleSubRaiser<'_, '_> {
                 continue;
             }
 
-            if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining, &self.ctx.diff_flag_defs) {
-                out.push(new_instr);
-                remaining = &remaining[num_replaced..];
-                continue;
+            if self.options.diff_switches {
+                if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining, &self.ctx.diff_flag_defs) {
+                    out.push(new_instr);
+                    remaining = &remaining[num_replaced..];
+                    continue;
+                }
             }
 
             if let Some(call_reg_data) = self.call_reg_data {

@@ -718,8 +718,14 @@ mod cli {
             short: "", long: "no-arguments",
             help: "prevent decompilation of arguments, leaving all instructions in their most raw format possible. A last resort for troublesome files",
         };
-        no_intrinsics.zip(no_blocks).zip(no_arguments).map(|((no_intrinsics, no_blocks), no_arguments)| DecompileOptions {
+        let no_diff_switches = opts::Flag {
+            short: "", long: "no-diff-switches",
+            help: "prevent decompilation of diff switches, forcing direct usage of difficulty flags",
+        };
+        let zipped = no_intrinsics.zip(no_blocks).zip(no_arguments).zip(no_diff_switches);
+        zipped.map(|(((no_intrinsics, no_blocks), no_arguments), no_diff_switches)| DecompileOptions {
             intrinsics: !no_intrinsics, blocks: !no_blocks, arguments: !no_arguments,
+            diff_switches: !no_diff_switches
         })
     }
 

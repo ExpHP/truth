@@ -42,6 +42,7 @@ pub struct DecompileOptions {
     pub arguments: bool,
     pub intrinsics: bool,  // invariant: intrinsics implies arguments
     pub blocks: bool,
+    pub diff_switches: bool,
 }
 
 impl DecompileOptions {
@@ -51,7 +52,12 @@ impl DecompileOptions {
 
 impl Default for DecompileOptions {
     fn default() -> Self {
-        DecompileOptions { arguments: true, intrinsics: true, blocks: true }
+        DecompileOptions {
+            arguments: true,
+            intrinsics: true,
+            blocks: true,
+            diff_switches: true,
+        }
     }
 }
 
@@ -199,6 +205,7 @@ impl<'a> Raiser<'a> {
         SingleSubRaiser {
             language: self.hooks.language(),
             ctx,
+            options: self.options,
             call_reg_data: self.call_reg_info.as_ref(),
         }
     }
@@ -273,6 +280,7 @@ fn _raise_instrs_to_middle(
 struct SingleSubRaiser<'a, 'ctx> {
     language: LanguageKey,
     ctx: &'a CompilerContext<'ctx>,
+    options: &'a DecompileOptions,
     call_reg_data: Option<&'a crate::ecl::CallRegInfo>,
 }
 

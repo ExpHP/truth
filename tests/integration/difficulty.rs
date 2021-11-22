@@ -204,12 +204,26 @@ source_test!(
 );
 
 source_test!(
+    ECL_06, diff_switch_decomp_disabled,
+    main_body: r#"
+    {"EN"}: I0 = 2;
+    {"HL"}: I0 = 3;
+"#,
+    decompile_args: ["--no-diff-switches"],
+    sbsb: |decompiled| {
+        // decomp should NOT have occurred due to --no-diff-switches
+        assert_eq!(decompiled.matches(" = ").count(), 2);
+    },
+);
+
+source_test!(
     ECL_06, diff_switch_decomp_bad_output,
     main_body: r#"
     {"EN"}: I0 = 2;
     {"HL"}: I1 = 2;
 "#,
     sbsb: |decompiled| {
+        // decomp should NOT have occurred due to the output reg changing
         assert_eq!(decompiled.matches("= 2").count(), 2);
     },
 );
