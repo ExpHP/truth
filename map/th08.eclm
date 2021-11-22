@@ -191,8 +191,8 @@
 1
 2 S
 3 S
-4 So
-5 SoS
+4 to
+5 toS
 6 SS
 7 ff
 8 SS
@@ -391,23 +391,23 @@
 16 show_retry_menu
 
 !timeline_ins_signatures
-0 T(_)EffSSS
-1 T(_)EffSSS
-2 T(_)EfffSSS
-3 T(_)EfSSS
-4 T(_)EfffSSS
-5 T(_)EfSSS
-6 T(_)S
-7 T(_)
-8 T(_)SS
-9 T(_)S
-10 T(_)S
-11 T(_)EffSSSS
-12 T(_)EffSSSS
-13 T(_)S
-14 T(_)S
-15 T(_)EffSSS
-16 T(_)
+0 EffSSS
+1 EffSSS
+2 EfffSSS
+3 EfSSS
+4 EfffSSS
+5 EfSSS
+6 S
+7
+8 SS
+9 S
+10 S
+11 EffSSSS
+12 EffSSSS
+13 S
+14 S
+15 EffSSS
+16
 
 !gvar_names
 10000 I0

@@ -62,7 +62,7 @@ where
     A: Parse,
     Sp<A>: ast::Visitable,
 {
-    truth.apply_mapfile_str(ECLMAP).unwrap();
+    truth.apply_mapfile_str(ECLMAP, crate::Game::Th12).unwrap();
 
     let mut parsed = truth.parse::<A>("<input>", text.as_ref()).unwrap();
 
@@ -551,7 +551,7 @@ test!(
 fn panics_on_cloned_res() {
     let mut scope = crate::Builder::new().build();
     let mut truth = scope.truth();
-    truth.apply_mapfile_str(ECLMAP).unwrap();
+    truth.apply_mapfile_str(ECLMAP, crate::Game::Th11).unwrap();
 
     let def = truth.parse::<ast::Stmt>("<input>", b"  int x = 2;  ").unwrap();
     let cloned = truth.parse::<ast::Stmt>("<input>", b"  x = 3;  ").unwrap();

@@ -600,11 +600,11 @@ fn load_mapfiles(
 ) -> Result<(), ErrorReported> {
     for &language in core_mapfile_languages {
         let core_mapfile = crate::core_mapfiles::core_mapfile(game, language);
-        truth.apply_mapfile(&core_mapfile).expect("failed to apply core mapfile!?");
+        truth.apply_mapfile(&core_mapfile, game).expect("failed to apply core mapfile!?");
     }
 
     for path in mapfile_args {
-        truth.load_mapfile(&path, Some(game))?;
+        truth.load_mapfile(&path, game)?;
     }
     Ok(())
 }

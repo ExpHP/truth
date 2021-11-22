@@ -7,7 +7,7 @@ use crate::ast;
 use crate::context::CompilerContext;
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
-use crate::game::LanguageKey;
+use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, rib};
 use crate::mapfile::Mapfile;
@@ -438,6 +438,8 @@ impl CompilerContext<'_> {
         &mut self,
         path: Option<&std::path::Path>,
         mapfile: &Mapfile,
+        // NOTE: this is only needed to check if it's < th08 or >= th08 for timeline arg0
+        game: Game,
     ) -> Result<(), ErrorReported> {
         let emitter = self.emitter;
 
@@ -455,7 +457,7 @@ impl CompilerContext<'_> {
 
             signatures.iter().map(|&(opcode, ref abi_str)| {
                 let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
-                abi.validate_against_language(abi_str.span, language, emitter)?;
+                abi.validate_against_language(abi_str.span, game, language, emitter)?;
 
                 let abi_loc = match mapfile.is_core_mapfile {
                     false => InstrAbiLoc::Span(abi_str.span),

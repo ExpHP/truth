@@ -22,17 +22,27 @@ const TIMELINE_DEBUGGING_ECLMAP: &'static str = r#"!eclmap
 "#;
 
 source_test!(
-    ECL_08, signature_with_arg0_in_not_timeline,
+    ECL_06, signature_with_arg0_in_not_timeline,
     mapfile: r#"!eclmap
 !ins_signatures
 1000 T(m)
     "#,
     main_body: "",
-    expect_error: "invalid outside of timeline",
+    expect_error: "only valid in",
 );
 
 source_test!(
-    ECL_08, signature_without_arg0_in_not_timeline,
+    ECL_08, signature_with_arg0_in_th08_timeline,
+    mapfile: r#"!eclmap
+!timeline_ins_signatures
+1000 T(m)
+    "#,
+    main_body: "",
+    expect_error: "only valid in",
+);
+
+source_test!(
+    ECL_06, signature_without_arg0_in_th06_timeline,
     mapfile: r#"!eclmap
 !timeline_ins_signatures
 1000 SS
@@ -42,7 +52,17 @@ source_test!(
 );
 
 source_test!(
-    ECL_08, wrong_lang,
+    ECL_08, signature_without_arg0_in_th08_timeline,
+    mapfile: r#"!eclmap
+!timeline_ins_signatures
+1000 SS
+    "#,
+    main_body: "",
+    check_compiled: |_, _| {},
+);
+
+source_test!(
+    ECL_06, wrong_lang,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     full_source: r#"
 timeline 0 {

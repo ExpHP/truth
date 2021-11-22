@@ -70,25 +70,27 @@ impl Truth<'_> {
 
 /// # Reading text files
 impl Truth<'_> {
+    // FIXME: These mapfile functions shouldn't have to take a game,
+    //        but they do so that they can verify timeline arg0 presence...
     /// For unit tests.
-    pub fn apply_mapfile_str(&mut self, text: &str) -> Result<(), ErrorReported> {
+    pub fn apply_mapfile_str(&mut self, text: &str, game: Game) -> Result<(), ErrorReported> {
         let (file_id, source_str) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
         let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &source_str[..], &self.ctx.emitter)?;
-        self.apply_mapfile(&crate::Mapfile::from_seqmap(seqmap, &self.ctx.emitter)?)
+        self.apply_mapfile(&crate::Mapfile::from_seqmap(seqmap, &self.ctx.emitter)?, game)
     }
 
-    pub fn apply_mapfile(&mut self, mapfile: &crate::Mapfile) -> Result<(), ErrorReported> {
-        self.ctx.extend_from_mapfile(None, &mapfile)
+    pub fn apply_mapfile(&mut self, mapfile: &crate::Mapfile, game: Game) -> Result<(), ErrorReported> {
+        self.ctx.extend_from_mapfile(None, &mapfile, game)
     }
 
-    pub fn load_mapfile(&mut self, filepath: &Path, game: Option<Game>) -> Result<(), ErrorReported> {
-        let eclmap = crate::Mapfile::load(filepath, game, &self.ctx.emitter, |path| {
+    pub fn load_mapfile(&mut self, filepath: &Path, game: Game) -> Result<(), ErrorReported> {
+        let eclmap = crate::Mapfile::load(filepath, Some(game), &self.ctx.emitter, |path| {
             let bytes = self.fs().read(path)?;
             self.ctx.emitter.files.add(&path.to_string_lossy(), &bytes)
                 .map_err(|e| self.ctx.emitter.emit(e))
                 .map(|(file_id, str)| (file_id, str.to_string()))
         })?;
-        self.ctx.extend_from_mapfile(Some(filepath), &eclmap)
+        self.ctx.extend_from_mapfile(Some(filepath), &eclmap, game)
     }
 
     pub fn read_script(&mut self, path: &Path) -> Result<ast::ScriptFile, ErrorReported> {
@@ -127,7 +129,7 @@ impl Truth<'_> {
     pub fn load_mapfiles_from_pragmas(&mut self, game: Game, script: &ast::ScriptFile) -> Result<(), ErrorReported> {
         for path_literal in &script.mapfiles {
             let path: &Path = path_literal.string.as_ref();
-            self.load_mapfile(&path, Some(game))?;
+            self.load_mapfile(&path, game)?;
         }
         Ok(())
     }

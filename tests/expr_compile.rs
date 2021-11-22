@@ -101,7 +101,7 @@ fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
     lines.extend(ins_names_lines);
     lines.push(format!("!ins_signatures"));
     lines.extend(ins_signatures_lines);
-    truth.apply_mapfile_str(&lines.join("\n"))
+    truth.apply_mapfile_str(&lines.join("\n"), truth::Game::Th10)
         .unwrap_or_else(|_| panic!("{}", truth.get_captured_diagnostics().unwrap()));
 }
 

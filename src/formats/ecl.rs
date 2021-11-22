@@ -781,7 +781,10 @@ impl OldeFileFormat {
     fn new(game: Game) -> Self {
         assert!(game < Game::Th10);
         let ecl_hooks = Box::new(OldeEclHooks { game });
-        let timeline_hooks = Box::new(TimelineHooks { game });
+        let timeline_hooks = Box::new(TimelineHooks { format: match game {
+            Game::Th06 | Game::Th07 => Box::new(TimelineFormat06),
+            _ => Box::new(TimelineFormat08),
+        }});
         Self { game, ecl_hooks, timeline_hooks }
     }
 
@@ -1021,16 +1024,9 @@ impl InstrFormat for OldeEclHooks {
 
 // ------------
 
-struct TimelineHooks { game: Game }
-impl TimelineHooks {
-    /// In some games, the terminal instruction is shorter than an actual instruction.
-    fn has_short_terminal(&self) -> bool {
-        self.game < Game::Th08
-    }
-    fn has_difficulty(&self) -> bool {
-        self.game >= Game::Th08
-    }
-}
+struct TimelineHooks { format: Box<dyn InstrFormat> }
+struct TimelineFormat06;
+struct TimelineFormat08;
 
 impl LanguageHooks for TimelineHooks {
     fn language(&self) -> LanguageKey { LanguageKey::Timeline }
@@ -1041,39 +1037,25 @@ impl LanguageHooks for TimelineHooks {
         vec![]
     }
 
-    fn instr_format(&self) -> &dyn InstrFormat { self }
+    fn instr_format(&self) -> &dyn InstrFormat { &*self.format }
 }
 
-impl InstrFormat for TimelineHooks {
+impl InstrFormat for TimelineFormat06 {
     fn instr_header_size(&self) -> usize { 8 }
 
     fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i16()? as i32;
         let arg_0 = f.read_i16()? as i32;
 
-        // with some games the terminal instruction is only 4 bytes long so we must check now
-        if self.has_short_terminal() && (time, arg_0) == (-1, 4) {
+        // the terminal instruction is only 4 bytes long so we must check now
+        if (time, arg_0) == (-1, 4) {
             // FIXME: really should be MaybeTerminal since both arg_0 = 4 and time = -1
             //        are things that naturally occur on real instructions.
             return Ok(ReadInstr::Terminal);
         }
 
         let opcode = f.read_u16()?;
-
-        let (size, difficulty): (usize, _);
-        if self.has_difficulty() {
-            size = f.read_u8()? as _;
-            difficulty = f.read_u8()? as _;
-        } else {
-            size = f.read_u16()? as _;
-            difficulty = RawInstr::DEFAULTS.difficulty;
-        }
-
-        // in games with the normal-sized terminal, the size is incorrectly 0, so check before reading args
-        if !self.has_short_terminal() && (time, arg_0, opcode, size, difficulty) == (-1, -1, 0, 0, 0) {
-            // FIXME: really should be MaybeTerminal
-            return Ok(ReadInstr::Terminal);
-        }
+        let size = f.read_u16()? as usize;
 
         let args_size = size.checked_sub(self.instr_header_size()).ok_or_else(|| {
             emitter.as_sized().emit(error!("bad instruction size ({} < {})", size, self.instr_header_size()))
@@ -1081,7 +1063,7 @@ impl InstrFormat for TimelineHooks {
         let args_blob = f.read_byte_vec(args_size)?;
 
         let instr = RawInstr {
-            time, opcode, difficulty, args_blob,
+            time, opcode, args_blob,
             extra_arg: Some(arg_0 as _),
             ..RawInstr::DEFAULTS
         };
@@ -1092,25 +1074,55 @@ impl InstrFormat for TimelineHooks {
         f.write_i16(instr.time as _)?;
         f.write_i16(instr.extra_arg.unwrap_or(0) as _)?;
         f.write_u16(instr.opcode)?;
-        if self.has_difficulty() {
-            f.write_u8(self.instr_size(instr) as _)?;
-            f.write_u8(instr.difficulty as _)?;
-        } else {
-            f.write_u16(self.instr_size(instr) as _)?;
-        }
+        f.write_u16(self.instr_size(instr) as _)?;
         f.write_all(&instr.args_blob)?;
         Ok(())
     }
 
     fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
-        if self.has_short_terminal() {
-            f.write_i16(-1)?; // time
-            f.write_i16(4)?; // arg_0
-        } else {
-            f.write_i16(-1)?; // time
-            f.write_i16(-1)?; // arg_0
-            f.write_u32(0)?; // opcode, size, difficulty
+        f.write_i16(-1)?; // time
+        f.write_i16(4)?; // arg_0
+        Ok(())
+    }
+}
+
+
+impl InstrFormat for TimelineFormat08 {
+    fn instr_header_size(&self) -> usize { 8 }
+
+    fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
+        let time = f.read_i32()? as i32;
+        let opcode = f.read_u16()?;
+        let size = f.read_u8()? as usize;
+        let difficulty = f.read_u8()?;
+
+        // the size is incorrectly 0, so check before reading args
+        if (time, opcode, size, difficulty) == (-1, 0, 0, 0) {
+            // FIXME: really should be MaybeTerminal
+            return Ok(ReadInstr::Terminal);
         }
+
+        let args_size = size.checked_sub(self.instr_header_size()).ok_or_else(|| {
+            emitter.as_sized().emit(error!("bad instruction size ({} < {})", size, self.instr_header_size()))
+        })?;
+        let args_blob = f.read_byte_vec(args_size)?;
+
+        let instr = RawInstr { time, opcode, difficulty, args_blob, ..RawInstr::DEFAULTS };
+        Ok(ReadInstr::Instr(instr))
+    }
+
+    fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
+        f.write_i32(instr.time as _)?;
+        f.write_u16(instr.opcode)?;
+        f.write_u8(self.instr_size(instr) as _)?;
+        f.write_u8(instr.difficulty as _)?;
+        f.write_all(&instr.args_blob)?;
+        Ok(())
+    }
+
+    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
+        f.write_i32(-1)?; // time
+        f.write_u32(0)?; // opcode, size, difficulty
         Ok(())
     }
 }
