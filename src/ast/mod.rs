@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::raw;
-use crate::resolve::{DefId, RegId, NodeId, LoopId};
+use crate::resolve::{DefId, LoopId, NodeId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::game::LanguageKey;
@@ -10,8 +10,6 @@ use crate::diff_switch_utils as ds_util;
 
 pub use meta::Meta;
 pub mod meta;
-
-pub mod diff_str;
 
 pub mod pseudo;
 
@@ -1259,21 +1257,21 @@ mod mut_ {
 }
 pub use self::mut_::{
     VisitMut,
+    walk_block as walk_block_mut,
+    walk_callable_name as walk_callable_name_mut,
+    walk_expr as walk_expr_mut,
     walk_file as walk_file_mut,
     walk_item as walk_item_mut,
-    walk_meta as walk_meta_mut,
-    walk_block as walk_block_mut,
-    walk_stmt as walk_stmt_mut,
     walk_jump as walk_jump_mut,
-    walk_expr as walk_expr_mut,
+    walk_meta as walk_meta_mut,
+    walk_stmt as walk_stmt_mut,
     walk_var as walk_var_mut,
-    walk_callable_name as walk_callable_name_mut,
 };
 mod ref_ {
     use super::*;
     generate_visitor_stuff!(Visit, Visitable::visit);
 }
 pub use self::ref_::{
-    Visit, walk_file, walk_item, walk_meta, walk_block, walk_stmt, walk_jump, walk_expr, walk_var,
-    walk_callable_name,
+    Visit, walk_block, walk_callable_name, walk_expr, walk_file, walk_item, walk_jump, walk_meta, walk_stmt,
+    walk_var,
 };

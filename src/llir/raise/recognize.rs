@@ -2,7 +2,7 @@ use super::{RaiseInstr, RaiseIntrinsicKind, RaisedIntrinsicParts, SingleSubRaise
 
 use crate::ast;
 use crate::llir::{IntrinsicInstrKind};
-use crate::context::{CompilerContext};
+use crate::context::{self, CompilerContext};
 use crate::value::{ReadType};
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK_BYTE};
 use crate::diff_switch_utils as ds_util;
@@ -25,7 +25,7 @@ impl SingleSubRaiser<'_, '_> {
                 continue;
             }
 
-            if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining, &self.ctx.diff_flag_names) {
+            if let Some((new_instr, num_replaced)) = recognize_diff_switch(remaining, &self.ctx.diff_flag_defs) {
                 out.push(new_instr);
                 remaining = &remaining[num_replaced..];
                 continue;
@@ -174,7 +174,7 @@ fn recognize_reg_call(
 
 fn recognize_diff_switch(
     instrs: &[RaiseInstr],
-    diff_flag_names: &crate::ast::diff_str::DiffFlagNames,
+    diff_flag_names: &context::DiffFlagDefs,
 ) -> Option<(RaiseInstr, usize)> {
     if instrs.len() < 2 || instrs[0].kind != instrs[1].kind || instrs[0].time != instrs[1].time
         || instrs[0].difficulty_mask == DEFAULT_DIFFICULTY_MASK_BYTE

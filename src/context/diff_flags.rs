@@ -8,7 +8,7 @@ use crate::pos::Sp;
 type FlagIndex = u32;
 
 #[derive(Debug, Clone)]
-pub struct DiffFlagNames {
+pub struct DiffFlagDefs {
     flag_default_enable: BitSet32,
     by_name: BTreeMap<char, FlagIndex>,
     by_flag: BTreeMap<FlagIndex, char>,
@@ -19,9 +19,9 @@ macro_rules! diff_flag_char_pat {
     () => { '0'..='9' | 'a'..='z' | 'A'..='Z' };
 }
 
-impl Default for DiffFlagNames {
+impl Default for DiffFlagDefs {
     fn default() -> Self {
-        let mut out = DiffFlagNames {
+        let mut out = DiffFlagDefs {
             flag_default_enable: Default::default(),
             by_name: Default::default(),
             by_flag: Default::default(),
@@ -37,7 +37,7 @@ impl Default for DiffFlagNames {
 
 const NUM_BITS: u32 = 8;
 
-impl DiffFlagNames {
+impl DiffFlagDefs {
     pub fn define_flag_from_mapfile(&mut self, index: Sp<i32>, str: Sp<&str>) -> Result<(), Diagnostic> {
         if !(0 <= index.value && index.value < NUM_BITS as i32) {
             return Err(error!(

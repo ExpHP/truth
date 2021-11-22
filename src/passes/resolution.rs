@@ -317,7 +317,7 @@ impl ast::VisitMut for FillDiffLabelsVisitor<'_, '_> {
         ast::walk_stmt_mut(self, stmt);
 
         if let Some(ast::DiffLabel { mask, string }) = stmt.diff_label.as_mut().map(|d| &mut d.value) {
-            match self.ctx.diff_flag_names.parse_diff_string(sp!(string.span => string.string.as_str())) {
+            match self.ctx.diff_flag_defs.parse_diff_string(sp!(string.span => string.string.as_str())) {
                 Ok(computed_mask) => *mask = Some(computed_mask.value),
                 Err(diag) => self.errors.set(self.ctx.emitter.emit(diag)),
             }

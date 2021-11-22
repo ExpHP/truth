@@ -294,7 +294,7 @@ impl SingleSubRaiser<'_, '_> {
                 let mask = BitSet32::from_mask(mask_byte as _);
                 Some(sp!(ast::DiffLabel {
                     mask: Some(mask),
-                    string: sp!(self.ctx.diff_flag_names.mask_to_diff_label(mask)),
+                    string: sp!(self.ctx.diff_flag_defs.mask_to_diff_label(mask)),
                 }))
             },
         }

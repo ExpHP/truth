@@ -5,7 +5,7 @@ use super::{
 
 use crate::raw;
 use crate::ast::{self, pseudo};
-use crate::ast::diff_str::DiffFlagNames;
+use crate::context;
 use crate::ident::ResIdent;
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Emitter};
@@ -18,7 +18,7 @@ impl SingleSubRaiser<'_, '_> {
     /// The final pass of raising a stmt, which converts our intermediate format into AST statements.
     pub fn raise_middle_to_ast(&self, emitter: &impl Emitter, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut out = vec![];
-        let mut label_gen = LabelEmitter::new(&self.ctx.diff_flag_names);
+        let mut label_gen = LabelEmitter::new(&self.ctx.diff_flag_defs);
 
         for instr in script {
             label_gen.emit_labels_for_instr(&mut out, instr);
@@ -250,11 +250,11 @@ impl SingleSubRaiser<'_, '_> {
 #[derive(Debug, Clone)]
 struct LabelEmitter<'a> {
     prev_time: raw::Time,
-    diff_flag_names: &'a DiffFlagNames,
+    diff_flag_names: &'a context::DiffFlagDefs,
 }
 
 impl<'a> LabelEmitter<'a> {
-    fn new(diff_flag_names: &'a DiffFlagNames) -> Self {
+    fn new(diff_flag_names: &'a context::DiffFlagDefs) -> Self {
         LabelEmitter {
             prev_time: 0,
             diff_flag_names,

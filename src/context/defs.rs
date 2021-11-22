@@ -501,7 +501,7 @@ impl CompilerContext<'_> {
         mapfile.difficulty_flags.iter().map(|&(index, ref flag_str)| {
             let index = sp!(flag_str.span => index); // FIXME remind me why the indices don't have spans again?
             let flag_str = sp!(flag_str.span => &flag_str[..]);
-            self.diff_flag_names.define_flag_from_mapfile(index, flag_str)
+            self.diff_flag_defs.define_flag_from_mapfile(index, flag_str)
                 .map_err(|e| emitter.emit(e))
         }).collect_with_recovery::<()>()?;
 

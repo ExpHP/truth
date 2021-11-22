@@ -195,7 +195,7 @@ fn lower_sub_ast_to_instrs(
     assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx)?;
 
     // This can't happen before register assignment or we might allocate something multiple times
-    out = elaborate_diff_switches(out, &ctx.diff_flag_names);
+    out = elaborate_diff_switches(out, &ctx.diff_flag_defs);
 
     let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
@@ -216,7 +216,7 @@ fn lower_sub_ast_to_instrs(
 
 // =============================================================================
 
-fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>, diff_flag_names: &crate::ast::diff_str::DiffFlagNames) -> Vec<Sp<LowerStmt>> {
+fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>, diff_flag_names: &context::DiffFlagDefs) -> Vec<Sp<LowerStmt>> {
     let mut out = vec![];
     'stmt: for stmt in stmts {
         if let LowerStmt::Instr(instr) = &stmt.value {

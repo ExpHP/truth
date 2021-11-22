@@ -2,9 +2,8 @@
 
 use std::path::PathBuf;
 
-use crate::ast::diff_str::DiffFlagNames;
 use crate::ident::GensymContext;
-use crate::resolve::{Resolutions, UnusedIds, NodeId, LoopId};
+use crate::resolve::{LoopId, NodeId, Resolutions, UnusedIds};
 use crate::resolve::rib::Rib;
 
 pub use defs::Defs;
@@ -12,6 +11,9 @@ pub mod defs;
 
 pub use consts::Consts;
 pub mod consts;
+
+pub use diff_flags::DiffFlagDefs;
+mod diff_flags;
 
 pub use crate::diagnostic::RootEmitter;
 
@@ -70,7 +72,7 @@ pub struct CompilerContext<'ctx> {
     pub unused_loop_ids: UnusedIds<LoopId>,
 
     /// Maintains names of difficulty flags.
-    pub diff_flag_names: DiffFlagNames,
+    pub diff_flag_defs: DiffFlagDefs,
 
     // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
     // may eventually have AST nodes inside a struct inside a RefCell), so let's force this constraint now.
@@ -87,7 +89,7 @@ impl<'ctx> CompilerContext<'ctx> {
             gensym: Default::default(),
             consts: Default::default(),
             initial_ribs: Default::default(),
-            diff_flag_names: Default::default(),
+            diff_flag_defs: Default::default(),
             _scope: scope,
             unused_node_ids: UnusedIds::new(),
             unused_loop_ids: UnusedIds::new(),
