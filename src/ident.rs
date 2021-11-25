@@ -22,7 +22,7 @@ use crate::pos::Sp;
 /// # Uniqueness
 ///
 /// There are some considerations that must be taken into account when cloning this type
-/// (and in turn, for cloning AST nodes in general); please see [`RegId`] for more information.
+/// (and in turn, for cloning AST nodes in general); please see [`ResId`] for more information.
 ///
 /// # Comparison and equality
 ///

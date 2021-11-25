@@ -1,5 +1,5 @@
 ---
-source: tests/integration/image_sources.rs
+source: tests/integration/anm_features.rs
 expression: stderr
 ---
 error: scratch registers are disabled in this script
