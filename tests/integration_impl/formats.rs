@@ -96,7 +96,23 @@ pub const STD_08: Format = Format {
 pub const STD_12: Format = Format {
     cmd: "trustd",
     game: Game::Th12,
-    script_head: STD_06.script_head,  // FIXME: this is wrong, it should have anm_path
+    script_head: r#"
+#pragma mapfile "map/any.stdm"
+
+meta {
+    unknown: 0,
+    anm_path: "stage01.anm",
+    objects: {
+        thing: {
+            layer: 4,
+            pos: [10.0, 20.0, 30.0],
+            size: [10.0, 20.0, 30.0],
+            quads: [],
+        },
+    },
+    instances: [],
+}
+"#,
     make_main: STD_06.make_main,
 };
 

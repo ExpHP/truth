@@ -15,6 +15,7 @@ mod integration {
     mod decompile_block;
     mod difficulty;
     mod ecl_features;
+    mod enums;
     mod general;
     mod image_sources;
     mod mapfiles;

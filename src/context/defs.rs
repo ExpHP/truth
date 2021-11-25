@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use enum_map::{EnumMap, enum_map};
 
 use crate::raw;
@@ -9,7 +7,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, rib};
+use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, IdMap, rib};
 use crate::mapfile::Mapfile;
 use crate::value::{ScalarValue, ScalarType, VarType, ExprType};
 use crate::llir::{InstrAbi, IntrinsicInstrKind};
@@ -30,16 +28,17 @@ pub const CANONICAL_NAN_BITS: u32 = 0x7FC0_0000;
 /// more easily record information for name resolution.
 #[derive(Debug, Clone)]
 pub struct Defs {
-    regs: HashMap<(LanguageKey, RegId), RegData>,
-    instrs: HashMap<(LanguageKey, raw::Opcode), InsData>,
+    regs: IdMap<(LanguageKey, RegId), RegData>,
+    instrs: IdMap<(LanguageKey, raw::Opcode), InsData>,
 
-    vars: HashMap<DefId, VarData>,
-    funcs: HashMap<DefId, FuncData>,
+    vars: IdMap<DefId, VarData>,
+    funcs: IdMap<DefId, FuncData>,
+    enums: IdMap<Ident, EnumData>,
 
     /// Preferred alias (i.e. the one we decompile to) for each register.
-    reg_aliases: HashMap<(LanguageKey, RegId), DefId>,
+    reg_aliases: IdMap<(LanguageKey, RegId), DefId>,
     /// Preferred alias (i.e. the one we decompile to) for each instruction.
-    ins_aliases: HashMap<(LanguageKey, raw::Opcode), DefId>,
+    ins_aliases: IdMap<(LanguageKey, raw::Opcode), DefId>,
 
     /// Some of the initial ribs for name resolution, containing register aliases from mapfiles.
     reg_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
@@ -54,6 +53,94 @@ pub struct Defs {
     user_defined_intrinsics: EnumMap<LanguageKey, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
 }
 
+#[derive(Debug, Clone)]
+struct RegData {
+    ty: VarType,
+}
+
+#[derive(Debug, Clone)]
+struct VarData {
+    kind: VarKind,
+    /// Inherent type.  `None` for [`VarKind::RegisterAlias`].
+    ty: Option<VarType>,
+}
+
+#[derive(Debug, Clone)]
+enum VarKind {
+    RegisterAlias {
+        ident: ResIdent,
+        language: LanguageKey,
+        reg: RegId,
+        // TODO: location where alias is defined, follow the example set by InstrAbiLoc
+    },
+    Local {
+        /// NOTE: For auto-generated temporaries, the span may point to their expression instead.
+        ident: Sp<ResIdent>,
+    },
+    BuiltinConst {
+        ident: ResIdent,
+        expr: ast::Expr,
+    },
+    Const {
+        ident: Sp<ResIdent>,
+        expr: Sp<ast::Expr>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstExprLoc {
+    Span(Span),  // string in a mapfile
+    Builtin,
+}
+
+impl From<Span> for ConstExprLoc {
+    fn from(s: Span) -> Self { ConstExprLoc::Span(s) }
+}
+
+#[derive(Debug, Clone)]
+struct InsData {
+    abi_loc: InstrAbiLoc,
+    abi: InstrAbi,
+    sig: Signature,
+}
+
+/// Diagnostic information about where an instruction ABI is defined.
+#[derive(Debug, Clone)]
+pub enum InstrAbiLoc {
+    Span(Span),  // string in a mapfile
+    CoreMapfile {
+        language: LanguageKey,
+        opcode: raw::Opcode,
+        abi_str: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct FuncData {
+    kind: FuncKind,
+    /// `None` for [`FuncKind::InstructionAlias`].
+    sig: Option<Signature>,
+}
+
+#[derive(Debug, Clone)]
+pub enum FuncKind {
+    InstructionAlias {
+        ident: ResIdent,
+        language: LanguageKey,
+        opcode: raw::Opcode,
+        // TODO: location where alias is defined
+    },
+    User {
+        ident: Sp<ResIdent>,
+        qualifier: Option<Sp<ast::FuncQualifier>>,
+    },
+}
+
+#[derive(Debug, Clone, Default)]
+struct EnumData {
+    consts: IdMap<i32, Sp<ResIdent>>,
+}
+
 // =============================================================================
 
 impl Default for Defs {
@@ -65,6 +152,7 @@ impl Default for Defs {
             instrs: Default::default(),
             vars: Default::default(),
             funcs: Default::default(),
+            enums: Default::default(),
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
             reg_alias_ribs: enum_map![language => Rib::new(Namespace::Vars, RibKind::Mapfile { language })],
@@ -141,6 +229,18 @@ impl CompilerContext<'_> {
             self.consts.defer_equality_check(self.defs.auto_const_rib.noun(), old.def_id, def_id);
         }
         def_id
+    }
+
+    /// Declare an enum const from a mapfile, resolving the ident to a brand new [`DefId`].
+    pub fn define_mapfile_enum_const_var(&mut self, ident: Sp<Ident>, value: Sp<i32>, enum_name: Sp<Ident>) -> DefId {
+        let res_ident = sp!(ident.span => self.resolutions.attach_fresh_res(ident.value.clone()));
+
+        let enum_info = self.defs.enums.entry(enum_name.value).or_insert_with(Default::default);
+        enum_info.consts.insert(value.value, res_ident.clone());
+
+        // FIXME not the ideal way to handle name resolution, we would like to allow
+        //       conflicts to be resolved in favor of the instruction argument type
+        self.define_auto_const_var(res_ident, ScalarType::Int, value.sp_map(Into::into))
     }
 
     /// Define a const like `INF`.
@@ -507,6 +607,13 @@ impl CompilerContext<'_> {
                 .map_err(|e| emitter.emit(e))
         }).collect_with_recovery::<()>()?;
 
+        for (enum_name, enum_pairs) in &mapfile.enums {
+            for &(value, ref const_name) in enum_pairs {
+                let value = sp!(const_name.span => value); // FIXME remind me why the indices don't have spans again?
+                self.define_mapfile_enum_const_var(const_name.clone(), value, enum_name.clone());
+            }
+        }
+
         Ok(())
     }
 
@@ -544,89 +651,6 @@ impl Defs {
     pub fn iter_user_intrinsics(&self, language: LanguageKey) -> impl Iterator<Item=(raw::Opcode, Sp<IntrinsicInstrKind>)> + '_ {
         self.user_defined_intrinsics[language].iter().copied()
     }
-}
-
-#[derive(Debug, Clone)]
-struct RegData {
-    ty: VarType,
-}
-
-#[derive(Debug, Clone)]
-struct VarData {
-    kind: VarKind,
-    /// Inherent type.  `None` for [`VarKind::RegisterAlias`].
-    ty: Option<VarType>,
-}
-
-#[derive(Debug, Clone)]
-enum VarKind {
-    RegisterAlias {
-        ident: ResIdent,
-        language: LanguageKey,
-        reg: RegId,
-        // TODO: location where alias is defined, follow the example set by InstrAbiLoc
-    },
-    Local {
-        /// NOTE: For auto-generated temporaries, the span may point to their expression instead.
-        ident: Sp<ResIdent>,
-    },
-    BuiltinConst {
-        ident: ResIdent,
-        expr: ast::Expr,
-    },
-    Const {
-        ident: Sp<ResIdent>,
-        expr: Sp<ast::Expr>,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum ConstExprLoc {
-    Span(Span),  // string in a mapfile
-    Builtin,
-}
-
-impl From<Span> for ConstExprLoc {
-    fn from(s: Span) -> Self { ConstExprLoc::Span(s) }
-}
-
-#[derive(Debug, Clone)]
-struct InsData {
-    abi_loc: InstrAbiLoc,
-    abi: InstrAbi,
-    sig: Signature,
-}
-
-/// Diagnostic information about where an instruction ABI is defined.
-#[derive(Debug, Clone)]
-pub enum InstrAbiLoc {
-    Span(Span),  // string in a mapfile
-    CoreMapfile {
-        language: LanguageKey,
-        opcode: raw::Opcode,
-        abi_str: String,
-    },
-}
-
-#[derive(Debug, Clone)]
-struct FuncData {
-    kind: FuncKind,
-    /// `None` for [`FuncKind::InstructionAlias`].
-    sig: Option<Signature>,
-}
-
-#[derive(Debug, Clone)]
-pub enum FuncKind {
-    InstructionAlias {
-        ident: ResIdent,
-        language: LanguageKey,
-        opcode: raw::Opcode,
-        // TODO: location where alias is defined
-    },
-    User {
-        ident: Sp<ResIdent>,
-        qualifier: Option<Sp<ast::FuncQualifier>>,
-    },
 }
 
 // =============================================================================
