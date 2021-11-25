@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/ExpHP/truth.svg?branch=main)](https://travis-ci.org/ExpHP/truth)
 
-Multipass compiler for touhou binary script files.
+Multipass compiler/decompiler suite for touhou binary script files.
 
 ![Sexy error message example](./doc/img/sexy-error.png)
 
