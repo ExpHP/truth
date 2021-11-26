@@ -114,7 +114,7 @@ source_test!(
     jump(30, offsetof(label):::);
 label:
 "#,
-    sbsb: |_| { /* just checking that it doesn't crash tbh */ },
+    check_decompiled: |_| { /* just checking that it doesn't crash tbh */ },
 );
 
 source_test!(
@@ -198,7 +198,7 @@ source_test!(
     {"EN"}: I0 = 2;
     {"HL"}: I0 = 3;
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(": 3 :"));
     },
 );
@@ -209,8 +209,8 @@ source_test!(
     {"EN"}: I0 = 2;
     {"HL"}: I0 = 3;
 "#,
-    decompile_args: ["--no-diff-switches"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-diff-switches"],
+    check_decompiled: |decompiled| {
         // decomp should NOT have occurred due to --no-diff-switches
         assert_eq!(decompiled.matches(" = ").count(), 2);
     },
@@ -222,7 +222,7 @@ source_test!(
     {"EN"}: I0 = 2;
     {"HL"}: I1 = 2;
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // decomp should NOT have occurred due to the output reg changing
         assert_eq!(decompiled.matches("= 2").count(), 2);
     },
@@ -238,7 +238,7 @@ void bar(int x) {}
     {"EN"}: foo(1337);
     {"HL"}: bar(1337);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("(1337,"), "didn't decomp intrinsic");
         // other than that, just roundtrip
     },
@@ -256,7 +256,7 @@ void bar(int x) {}
 label:
     nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("goto"), "didn't decomp intrinsic");
         // other than that, just roundtrip
     },
@@ -276,7 +276,7 @@ label1:
 label2:
     nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("goto"), "didn't decomp intrinsic");
         // other than that, just roundtrip
     },
@@ -292,7 +292,7 @@ source_test!(
     {"EN"}: ins_200(I0, 10, 0);
     {"HL"}: ins_200(I0, 10, 16);
 "#,
-    sbsb: |_| { /* just round-trip */ },
+    check_decompiled: |_| { /* just round-trip */ },
 );
 
 source_test!(
@@ -308,7 +308,7 @@ source_test!(
     {"HL"}: ins_10(I0, 10, 16);
     ins_10(I0, 15, 0);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // specificity: show that the second instance does decompile
         assert!(decompiled.contains("= 15;"));
         // doesn't really matter how this decompiles as long as it round-trips.
@@ -332,7 +332,7 @@ label1:
 label2:
     nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("offsetof"));
         assert!(decompiled.contains("timeof"));
         // other than that, just roundtrip
@@ -349,7 +349,7 @@ label2:
     goto label1;
     goto label2;
 "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // just roundtrip
     },
 );
@@ -363,7 +363,7 @@ label:
     {"HL"}: I0 = I1 + 3;
     goto label;
 "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // just roundtrip
     },
 );
@@ -447,7 +447,7 @@ source_test!(
     {"EN"}: ins_4($REG[-10001], 2);
     {"HL"}: ins_4($REG[-10001], 3);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("EN"));  // no diff flags
         assert!(decompiled.contains(": 3 :"));
     },
@@ -460,7 +460,7 @@ source_test!(
     {"EN-F"}: ins_4($REG[-10001], 2);
     {"HL-F"}: ins_4($REG[-10001], 3);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"{"*-F"}"#));
         assert!(decompiled.contains(": 3 :"));
     },
@@ -473,7 +473,7 @@ source_test!(
     {"EN-F"}: ins_4($REG[-10001], 2);
     {"HL"}:  ins_4($REG[-10001], 3);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains(": 3 :"));
     },
 );

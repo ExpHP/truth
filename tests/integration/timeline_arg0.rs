@@ -169,7 +169,7 @@ source_test!(
     main_body: r#"
     hasUnusedArg0(3, 3);
 "#,
-    sbsb: |decompiled| assert!(decompiled.contains("(3, 3)")),
+    check_decompiled: |decompiled| assert!(decompiled.contains("(3, 3)")),
 );
 
 source_test!(
@@ -178,7 +178,7 @@ source_test!(
     main_body: r#"
     hasUnusedArg0(@arg0=5, 3, 3);
 "#,
-    sbsb: |decompiled| assert!(decompiled.contains("(@arg0=5, 3, 3)")),
+    check_decompiled: |decompiled| assert!(decompiled.contains("(@arg0=5, 3, 3)")),
 );
 
 source_test!(
@@ -194,7 +194,7 @@ source_test!(
     ins_200(1, 4, 4, 0);
     ins_200(1, 5, 5, 5);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // make sure it cut the padding off at the right index each time
         assert!(decompiled.contains("(1, 3)"));
         assert!(decompiled.contains("(1, 4, 4)"));

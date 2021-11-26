@@ -8,7 +8,7 @@ source_test!(
     2: nop();
     5: nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("\n0:"));  // suppress initial 0 label
         assert!(decompiled.contains("\n+2:"));  // prefer relative labels
         assert_snapshot!(decompiled)
@@ -22,7 +22,7 @@ source_test!(
     3: nop();
     0: nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("5:"));  // nonzero beginning, don't care if rel or absolute
         assert!(decompiled.contains("\n3:"));  // decreased label
         assert!(decompiled.contains("\n0:"));  // explicit zero label
@@ -39,7 +39,7 @@ source_test!(
     -1: nop();
     6: nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert_eq!(decompiled.matches("\n-1:").count(), 2);
         assert_eq!(decompiled.matches("\n0:").count(), 2);  // the "6:" should become "0: +6"
         assert_eq!(decompiled.matches("\n+6:").count(), 1);
@@ -55,7 +55,7 @@ source_test!(
     -2: nop();
     -1: nop();
 "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // mostly just care that the output is correct, this never shows up in practice
     },
 );
@@ -68,7 +68,7 @@ source_test!(
     6: nop(); nop();
     -1: nop(); nop();
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert_eq!(decompiled.matches(":").count(), 2);
         assert_snapshot!(decompiled);
     },

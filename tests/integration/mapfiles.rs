@@ -50,7 +50,7 @@ source_test!(
     blue(5);
     bloo(7);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // prefer the most recent name
         assert!(decompiled.contains("bloo"));
         assert!(!decompiled.contains("blue"));
@@ -269,7 +269,7 @@ blah:
     +50:
     ins_99($I0, timeof(blah), offsetof(blah));
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // should decompile to a `do { } while (--$I0)` loop!
         assert!(decompiled.contains("while (--"));
     },
@@ -294,7 +294,7 @@ source_test!(
     main_body: r#"
     ins_99($REG[10], %REG[20], 3.5f);
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // The raw ins_ used $REG but the decompiled op should use %REG syntax
         assert!(decompiled.contains("%REG[10] = %REG[20] + 3.5"));
     },
@@ -328,7 +328,7 @@ source_test!(
 
 source_test!(
     ANM_10, multiple_m_arguments,
-    compile_args: [
+    compile_args: &[
         "-m", "tests/integration/resources/multiple-mapfiles-1.anmm",
         "-m", "tests/integration/resources/multiple-mapfiles-2.anmm",
     ],

@@ -26,7 +26,7 @@ label:
     cmp_int(I0, 5);
     jump_lss(timeof(label), offsetof(label));
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("while"));
         assert!(decompiled.contains("< 5"));
     },
@@ -40,7 +40,7 @@ label:
 +1:
     jump_lss(timeof(label), offsetof(label));
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("while"));
     },
 );
@@ -56,7 +56,7 @@ label2:
     {"H"}: cmp_int(I0, 5);
     jump_lss(timeof(label2), offsetof(label2));
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("while"));
     },
 );
@@ -70,7 +70,7 @@ otherLabelLol:
     jump_lss(timeof(label), offsetof(label));
     goto otherLabelLol;
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("while"));
     },
 );
@@ -81,7 +81,7 @@ source_test!(
     // complex enough to require both F1 and F2
     F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // should use F1 and F2 for temporaries, and not integer variables
         // (even though the instructions written to file use integer outputs)
         assert!(decompiled.contains("%REG[-10006]"));
@@ -321,7 +321,7 @@ void foo(int a, float x) {
     float t1 = x;
 }
 "#,
-    sbsb: |decompiled| assert!(decompiled.contains("= FPAR")),
+    check_decompiled: |decompiled| assert!(decompiled.contains("= FPAR")),
 );
 
 source_test!(
@@ -331,7 +331,7 @@ void foo(int a, float x) {
     float t1 = %a;
 }
 "#,
-    sbsb: |decompiled| assert!(decompiled.contains("= %IPAR")),
+    check_decompiled: |decompiled| assert!(decompiled.contains("= %IPAR")),
 );
 
 // -------------
@@ -356,7 +356,7 @@ void baz(int a, float x) {
     bar(6.0);
     baz(2, 1.5);
     "#,
-    sbsb: |_| { /* just need it to round-trip */ },
+    check_decompiled: |_| { /* just need it to round-trip */ },
 );
 
 source_test!(
@@ -373,7 +373,7 @@ void baz(int a, float x) {}
     bar(6.0);
     baz(2, 1.5);
     "#,
-    sbsb: |_| { /* just need it to round-trip */ },
+    check_decompiled: |_| { /* just need it to round-trip */ },
 );
 
 source_test!(
@@ -392,7 +392,7 @@ void mixed(int a, int b, float x, int c, float y) {}
     aFloat(4.0);
     mixed(2, I0, 2.0, 7, F0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         decompiled.contains("();");
         decompiled.contains("(7);");
         decompiled.contains("(2, 4);");
@@ -417,7 +417,7 @@ void foo(int a, int b, float x, int c, float y) {
     main_body: r#"
     foo(2, I0, 2.0, 7, F0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         decompiled.contains(" 2.0, "); // check for a big argument list
     },
 );
@@ -428,7 +428,7 @@ macro_rules! pcb_funky_call_decomp_rt_test {
             ECL_07, $test_name,
             items: r#"void testSub() {}"#,
             main_body: $body,
-            sbsb: |_| {
+            check_decompiled: |_| {
                 // just roundtrip
             },
         );

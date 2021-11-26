@@ -247,7 +247,7 @@ source_test!(
         F0 = -INF;
         F0 = NAN;
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("= INF;"));
         assert!(decompiled.contains("= -INF;"));
         assert!(decompiled.contains("= NAN;"));
@@ -328,7 +328,7 @@ source_test!(
         interrupt[3]:
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // test for blank line before interrupt[2] but NOT before interrupt[3]
         assert!(decompiled.contains("\n\ninterrupt[2]:\ninterrupt[3]:\n"), "{:?}", decompiled);
     },
@@ -340,7 +340,7 @@ source_test!(
         ins_64(45);
         ins_64($REG[10000]);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // the second one should have fallen back to raw syntax
         assert!(decompiled.contains("($REG[10000])"));
         // specificity (prove that we have the right opcode)
@@ -393,7 +393,7 @@ label:
 source_test!(
     ANM_12, decompile_no_nothing,  // "control group" test that keeps it all enabled
     main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("goto "));
         assert!(decompiled.contains("loop"));
     },
@@ -402,8 +402,8 @@ source_test!(
 source_test!(
     ANM_12, decompile_no_blocks,
     main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
-    decompile_args: ["--no-blocks"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-blocks"],
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("goto "));
         assert!(!decompiled.contains("loop"));
     },
@@ -412,8 +412,8 @@ source_test!(
 source_test!(
     ANM_12, decompile_no_intrinsics,
     main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
-    decompile_args: ["--no-intrinsics"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-intrinsics"],
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("ins_64(10)"));
         assert!(decompiled.contains("ins_4(offsetof("));
         assert!(decompiled.contains("ins_18($REG[10000], $REG[10002], 3)"));
@@ -423,8 +423,8 @@ source_test!(
 source_test!(
     ANM_12, decompile_no_arguments,
     main_body: SNIPPET_WITH_SEVERAL_INTRINSICS,
-    decompile_args: ["--no-arguments"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-arguments"],
+    check_decompiled: |decompiled| {
         assert_eq!(decompiled.matches("@blob").count(), 3);
         assert_eq!(decompiled.matches("@mask").count(), 1);
     },
@@ -455,5 +455,5 @@ source_test!(
       goto label @ 100;
     label:
     "#,
-    sbsb: |_| { /* just roundtrip */ },
+    check_decompiled: |_| { /* just roundtrip */ },
 );

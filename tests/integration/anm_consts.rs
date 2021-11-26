@@ -504,7 +504,7 @@ script script3 {
     sprite(5);
 }
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("ins_3(sprite2)"));
         assert!(decompiled.contains("ins_3(5)")); // sprite5 doesn't exist
 

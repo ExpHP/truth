@@ -18,7 +18,7 @@ source_test!(
     -1:
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("loop {"));
     },
 );
@@ -39,7 +39,7 @@ source_test!(
     -1:
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("loop {"));
     },
 );
@@ -60,7 +60,7 @@ source_test!(
     -1:
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("loop {"));
         assert!(decompiled.contains("+20:"));
         assert!(decompiled.find("loop {").unwrap() < decompiled.find("+20:").unwrap());
@@ -82,7 +82,7 @@ source_test!(
     -1:
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("loop {"));
     },
 );
@@ -96,7 +96,7 @@ source_test!(
         up(0.0, 1.0, -1.0);
         goto label;
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // should decompile to a nested loop
         assert!(decompiled.contains("loop {"));
         assert!(decompiled[decompiled.find("loop {").unwrap()..].contains("loop {"));
@@ -112,7 +112,7 @@ source_test!(
         goto label;
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("loop {"));
     },
 );
@@ -127,7 +127,7 @@ source_test!(
         goto label @ 10;
         posKeyframe(0.0, 0.0, 0.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // This should decompile to something like 'loop { +5: }'
         assert!(decompiled.contains("loop {"));
     },
@@ -141,7 +141,7 @@ source_test!(
         pos(0.0, 0.0, 0.0);
         goto label;
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // This is a regression test for a bug where raising would place this label
         // at the wrong time due to having no "previous instruction"
         assert!(decompiled.contains("loop {"));
@@ -166,7 +166,7 @@ source_test!(
         ins_0();
         goto B;
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert_eq!(decompiled.matches("loop {").count(), 2);
     },
 );
@@ -183,7 +183,7 @@ source_test!(
     label_100:
         pos(0.0, 5240.0, 20.0);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("loop {"));
     },
 );
@@ -197,7 +197,7 @@ source_test!(
         I1 = I1 + 1;
         {"E"}: goto label;
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(!decompiled.contains("loop {"));
     },
 );
@@ -210,7 +210,7 @@ source_test!(
         if (--I0) goto start;
         end:
     "#,
-    sbsb: |decompiled| assert!(decompiled.contains("break;")),
+    check_decompiled: |decompiled| assert!(decompiled.contains("break;")),
 );
 
 source_test!(
@@ -222,7 +222,7 @@ source_test!(
         +1:    // this should prevent decompilation of 'break'
         end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -238,7 +238,7 @@ source_test!(
     end:
         sprite(3);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[10000] == 0) {
         ins_3(sprite2);
@@ -257,7 +257,7 @@ source_test!(
     end:
         sprite(3);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[10000] == 0) {
     }
@@ -278,7 +278,7 @@ source_test!(
     end:
         sprite(4);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[10000] == 0) {
         ins_3(sprite2);
@@ -303,7 +303,7 @@ source_test!(
     end:
         sprite(4);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[10000] == 0) {
         ins_3(sprite2);
@@ -330,7 +330,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[10000] == 0) {
         ins_3(sprite2);
@@ -359,7 +359,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -380,7 +380,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -402,7 +402,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -424,7 +424,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -447,7 +447,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -479,7 +479,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -502,7 +502,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -525,7 +525,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -545,7 +545,7 @@ source_test!(
         I1 = 1;
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -565,7 +565,7 @@ source_test!(
         I1 = 1;
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -586,7 +586,7 @@ source_test!(
         {"E"}: I1 = 1;
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -613,7 +613,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -629,7 +629,7 @@ source_test!(
     not0:           // test is to make sure this guy doesn't get deleted
         sprite(3);
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -650,7 +650,7 @@ source_test!(
     not1:
         sprite(1);
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't really care what this does, it probably decompiles into a bunch
         // of horrific looking nested loops.  Doesn't matter as long as it's correct.
     },
@@ -673,7 +673,7 @@ source_test!(
         pos(0.0, 0.0, 0.0);
     endb:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -694,7 +694,7 @@ source_test!(
         sprite(1);
     end:
     "#,
-    sbsb: |_decompiled| {
+    check_decompiled: |_decompiled| {
         // don't care so long as it compiles back
     },
 );
@@ -708,7 +708,7 @@ source_test!(
             pos(0.0, 4984.0, 20.0);
         }
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // don't decompile a block
         assert!(decompiled.contains("!= 0) goto"));
         assert!(!decompiled.contains("== 0) {"));
@@ -726,7 +726,7 @@ source_test!(
             pos(0.0, 4984.0, 20.0);
         }
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // don't decompile a block
         assert!(decompiled.contains("!= 0) goto"));
         assert!(!decompiled.contains("== 0) {"));
@@ -751,7 +751,7 @@ source_test!(
             }
         }
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[-10002] == 0) {
         ins_0();
@@ -779,7 +779,7 @@ source_test!(
             } while ($I1 == 2);
         }
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r#"
     if ($REG[-10002] == 0) {
     } else {
@@ -801,8 +801,8 @@ source_test!(
             nop();
         }
     "#,
-    decompile_args: ["--no-intrinsics"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-intrinsics"],
+    check_decompiled: |decompiled| {
         // --nointrinsics should result in these
         assert!(decompiled.contains(r"offsetof"));
         assert!(decompiled.contains(r"timeof"));
@@ -819,8 +819,8 @@ source_test!(
         nop();
         goto label0 @ 30;
     "#,
-    decompile_args: ["--no-intrinsics"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-intrinsics"],
+    check_decompiled: |decompiled| {
         // --nointrinsics should result in this
         assert!(decompiled.contains(r"offsetof"));
         // but this can't use timeof in this case
@@ -842,8 +842,8 @@ source_test!(
         nop();
         jump(20, -0x40);
     "#,
-    decompile_args: ["--no-intrinsics"],
-    sbsb: |decompiled| {
+    decompile_args: &["--no-intrinsics"],
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains(r"-0x40"));
         assert!(decompiled.contains(r"(30,"));
     },
@@ -867,7 +867,7 @@ source_test!(
         nop();
         jump(timeof(label), offsetof(label));
     "#,
-    sbsb: |_| { /* just needs to roundtrip */ },
+    check_decompiled: |_| { /* just needs to roundtrip */ },
 );
 
 source_test!(
@@ -902,7 +902,7 @@ source_test!(
         ins_9999(@blob="00112233");
         goto label4;
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // check that all labels and time labels decompiled
         assert_eq!(decompiled.matches("+10:").count(), 4);
         assert_eq!(decompiled.matches("loop {").count(), 4);

@@ -7,7 +7,7 @@ source_test!(
     main_body: r#"
         anchor(@blob="01000200");
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("(1, 2)"));  // turned into words
     },
 );
@@ -18,7 +18,7 @@ source_test!(
     main_body: r#"
         color(@mask=0b100, I2, 10, 20);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("[20]"));  // turned into reg
         assert!(decompiled.contains("10002,"));  // turned into immediate
     },

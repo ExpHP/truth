@@ -160,7 +160,7 @@ blah2:
     ins_4(offsetof(blah), timeof(blah), 50);  // 50 is padding
     ins_4(offsetof(blah), timeof(blah));
 "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         // intrinsic syntax has nowhere to put padding, so this must fall back to raw syntax
         assert!(decompiled.contains(", 50)"));
         // specificity: double check that this instruction is indeed the jump intrinsic

@@ -39,7 +39,7 @@ source_test!(
     main_body: r#"
         testIns(20, 20);
     "#,
-    sbsb: |decompiled| {
+    check_decompiled: |decompiled| {
         assert!(decompiled.contains("(20, Red)"));
     },
 );
