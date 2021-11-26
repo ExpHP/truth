@@ -14,6 +14,11 @@ macro_rules! snapshot_path {
 
 pub mod formats;
 
+pub use test_file::TestFile;
+mod test_file;
+
+// =============================================================================
+
 pub struct Format {
     pub cmd: &'static str,
     pub game: Game,
@@ -21,11 +26,6 @@ pub struct Format {
     /// Embed a series of statements inside some sort of subroutine definition;
     /// whatever is appropriate for the language in question.
     pub make_main: fn(&str) -> String,
-}
-
-pub struct ScriptParts<'a> {
-    pub items: &'a str,
-    pub main_body: &'a str,
 }
 
 impl Format {
@@ -41,7 +41,10 @@ impl Format {
 
         let original = TestFile::from_path(infile.as_ref());
         let mapfile = TestFile::from_path(mapfile.as_ref());
-        let decompiled = self.decompile_with_args(&original, &[], Some(&mapfile));
+        let decompile_result = self.decompile(&original, &[], &[mapfile][..]);
+
+        assert!(decompile_result.stderr.is_none(), "unexpected stderr: {}", decompile_result.stderr.unwrap());
+        let decompiled = decompile_result.output.unwrap();
 
         do_with_text(&decompiled.read_to_string());
 
@@ -51,104 +54,18 @@ impl Format {
             args.push(infile.as_ref().as_ref());
         }
 
-        let recompile_mapfile = None; // decompiled source already includes mapfile
-        let recompiled = self.compile_with_args(&decompiled, &args, recompile_mapfile);
+        let recompile_mapfiles = &[][..]; // decompiled source already includes mapfile
+        let recompile_result = self.compile(&decompiled, &args, recompile_mapfiles);
+        let recompiled = recompile_result.output.unwrap();
         assert_eq!(original.read(), recompiled.read());
     }
 
-    /// Source-to-binary-to-source-to-binary (sbsb) tests.
-    ///
-    /// This is similar to [`Self::bits_to_bits`], but with an additional step at the beginning that lets
-    /// the inputs be readable text files instead of binary files.
-    ///
-    /// 1. The input script consists of SIMPLE instructions. (as close as we can
-    ///    get to a textual representation of a compiled file)
-    /// 2. It is compiled.
-    /// 3. That gets decompiled. **This is the step that we're really testing!!**
-    /// 4. The decompiled text can be checked to see if it contains something desired.
-    /// 5. It then gets compiled again and checked against the first compile.
-    ///
-    /// The comparison of the two compiled files helps check to make sure that the decompilation
-    /// step did not accidentally change the meaning of the code.
-    pub fn sbsb_test(&self, original_source: &TestFile, decompile_args: &[impl AsRef<OsStr>], mapfile: Option<&TestFile>, with_decompiled: impl FnOnce(&str)) {
-        truth::setup_for_test_harness();
-
-        let decompile_args = decompile_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-
-        let compiled = self.compile(&original_source, mapfile);
-        let decompiled = self.decompile_with_args(&compiled, &decompile_args, mapfile);
-        let decompiled_str = decompiled.read_to_string();
-
-        eprintln!("== DECOMPILED:");
-        eprintln!("{}", &decompiled_str);
-        with_decompiled(&decompiled_str);
-
-        let recompile_mapfile = None; // decompiled file already links mapfile
-        let recompiled = self.compile(&decompiled, recompile_mapfile);
-
-        assert_eq!(compiled.read(), recompiled.read());
-    }
-
-    /// In essence, a "decompile-fail" test.
-    ///
-    /// This is like `sbsb` but rather than compiling to binary one last time,
-    /// it instead expects to find a message in stderr from decompilation.
-    ///
-    /// stderr will be snapshotted.
-    pub fn sbsb_fail_test(
+    pub fn compile<'a>(
         &self,
-        original_source: &TestFile,
-        decompile_args: &[impl AsRef<OsStr>],
-        mapfile: Option<&TestFile>,
-        should_error: bool,
-        check_compile_fail_output: impl FnOnce(&str),
-    ) {
-        truth::setup_for_test_harness();
-
-        let decompile_args = decompile_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-
-        let compiled = self.compile(&original_source, mapfile);
-        let (_decompiled, decompiled_output) = self._decompile_with_args(&compiled, &decompile_args, mapfile);
-
-        check_compile_fail_output(&String::from_utf8(decompiled_output.stderr).unwrap());
-        assert_eq!(decompiled_output.status.success(), !should_error);
-    }
-
-    pub fn make_source(&self, descr: &str, script_parts: ScriptParts<'_>) -> TestFile {
-        TestFile::from_content(descr, format!(
-            "{}\n{}\n{}",
-            self.script_head,
-            script_parts.items,
-            (self.make_main)(script_parts.main_body),
-        ))
-    }
-}
-
-/// A file possibly backed by a temp directory (which, if so, will be deleted on drop).
-///
-/// The file need not necessarily even exist yet; e.g. you can use [`Self::new_temp`] to create a
-/// temp dir, then use [`Self::as_path`] as an output file argument to a CLI command.
-pub struct TestFile {
-    descr: String,
-    _tempdir: Option<tempfile::TempDir>,
-    filepath: PathBuf,
-}
-
-impl Format {
-    pub fn compile(&self, src: &TestFile, mapfile: Option<&TestFile>) -> TestFile {
-        self.compile_with_args(src, &[], mapfile)
-    }
-
-    pub fn compile_and_capture(&self, src: &TestFile, args: &[impl AsRef<OsStr>], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
-        let args = args.into_iter().map(|arg| arg.as_ref()).collect::<Vec<_>>();
-        self._compile_with_args(src, &args, mapfile)
-    }
-
-    pub fn compile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {
-        self._compile_with_args(src, args, mapfile).0
-    }
-
-    fn _compile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
+        src: &TestFile,
+        args: &[&OsStr],
+        mapfiles: impl IntoIterator<Item=&'a TestFile>,
+    ) -> ProgramResult {
         let outfile = TestFile::new_temp("Xx_COMPILATION OUTPUT_xX");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
@@ -156,7 +73,7 @@ impl Format {
                 .arg("-g").arg(format!("{}", self.game))
                 .arg(src.as_path())
                 .arg("-o").arg(outfile.as_path())
-                .args(optional_mapfile_args(mapfile))
+                .args(mapfile_args(mapfiles))
                 .args(args)
                 .output().expect("failed to execute process")
         };
@@ -168,111 +85,53 @@ impl Format {
             eprintln!("== COMPILE STDERR:");
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));
         }
-        assert!(output.status.success());
-        (outfile, output)
+
+        ProgramResult {
+            output: output.status.success().then(|| outfile),
+            stderr: (!output.stderr.is_empty()).then(|| String::from_utf8(output.stderr).unwrap()),
+        }
     }
 
-    fn _decompile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> (TestFile, std::process::Output) {
+    pub fn decompile<'a>(
+        &self,
+        infile: &TestFile,
+        args: &[&OsStr],
+        mapfiles: impl IntoIterator<Item=&'a TestFile>,
+    ) -> ProgramResult {
         let outfile = TestFile::new_temp("Xx_DECOMPILATION OUTPUT_xX");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("decompile")
                 .arg("-g").arg(format!("{}", self.game))
-                .arg(src.as_path())
+                .arg(infile.as_path())
                 .stdout(outfile.create())
-                .args(optional_mapfile_args(mapfile))
+                .args(mapfile_args(mapfiles))
                 .args(args)
                 .output().expect("failed to execute process")
         };
-        (outfile, output)
-    }
-
-    pub fn decompile_with_args(&self, src: &TestFile, args: &[&OsStr], mapfile: Option<&TestFile>) -> TestFile {
-        let (outfile, output) = self._decompile_with_args(src, args, mapfile);
         if !output.stderr.is_empty() {
             eprintln!("== DECOMPILE STDERR:");
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));
         }
-        assert!(output.status.success());
-        outfile
+
+        ProgramResult {
+            output: output.status.success().then(move || outfile),
+            stderr: (!output.stderr.is_empty()).then(move || String::from_utf8(output.stderr).unwrap()),
+        }
     }
 }
 
-fn optional_mapfile_args(mapfile: Option<&TestFile>) -> Vec<String> {
-    match mapfile {
-        Some(mapfile) => vec!["-m".to_string(), mapfile.filepath.to_string_lossy().into()],
-        None => vec![],
-    }
+pub struct ProgramResult {
+    /// Only `Some` if the program had an exit code of 0.
+    pub output: Option<TestFile>,
+    /// Only `Some` if non-empty.
+    pub stderr: Option<String>,
 }
 
-impl TestFile {
-    /// Construct a [`TestFile`] referring to a (not yet created) filepath inside a newly created
-    /// tempdir.  The tempdir will be deleted on drop.
-    pub fn new_temp(filename: &str) -> Self {
-        let descr = filename.to_string();
-        let tempdir = tempfile::tempdir().unwrap_or_else(|e| panic!("while making tempdir for {}: {}", descr, e));
-        let filepath = tempdir.path().join(filename);
-        TestFile { descr, _tempdir: Some(tempdir), filepath }
-    }
-
-    /// Construct a [`TestFile`] from file contents, which will be written to a new file inside
-    /// of a new temporary directory.  The tempdir will be deleted on drop.
-    pub fn from_content(filename: &str, bytes: impl AsRef<[u8]>) -> Self {
-        let out = TestFile::new_temp(filename);
-        std::fs::write(out.as_path(), bytes)
-            .unwrap_or_else(|e| panic!("while writing to {}: {}", filename, e));
-        out
-    }
-
-    /// Construct from an existing file without creating a tempdir.
-    pub fn from_path(filepath: impl AsRef<Path>) -> Self {
-        let filepath = filepath.as_ref().to_owned();
-        let descr = filepath.display().to_string();
-        TestFile { descr, filepath, _tempdir: None }
-    }
-
-    pub fn as_path(&self) -> &Path {
-        &self.filepath
-    }
-
-    pub fn create(&self) -> std::fs::File {
-        std::fs::File::create(&self.filepath)
-            .unwrap_or_else(|e| panic!("while creating file for {}: {}", self.descr, e))
-    }
-
-    pub fn read(&self) -> Vec<u8> {
-        std::fs::read(&self.filepath)
-            .unwrap_or_else(|e| panic!("while reading bytes from {}: {}", self.descr, e))
-    }
-
-    pub fn read_to_string(&self) -> String {
-        std::fs::read_to_string(&self.filepath)
-            .unwrap_or_else(|e| panic!("while reading text from {}: {}", self.descr, e))
-    }
-
-    pub fn read_anm(&self, format: &Format) -> truth::AnmFile {
-        let mut scope = truth::Builder::new().build();
-        let mut truth = scope.truth();
-        truth.read_anm(format.game, self.as_path(), true).unwrap()
-    }
-
-    pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
-        let mut scope = truth::Builder::new().build();
-        let mut truth = scope.truth();
-        truth.read_msg(format.game, truth::LanguageKey::Msg, self.as_path()).unwrap()
-    }
-
-    pub fn read_std(&self, format: &Format) -> truth::StdFile {
-        let mut scope = truth::Builder::new().build();
-        let mut truth = scope.truth();
-        truth.read_std(format.game, self.as_path()).unwrap()
-    }
-
-    pub fn read_ecl(&self, format: &Format) -> truth::EclFile {
-        let mut scope = truth::Builder::new().build();
-        let mut truth = scope.truth();
-        truth.read_ecl(format.game, self.as_path()).unwrap()
-    }
+fn mapfile_args<'a>(mapfiles: impl IntoIterator<Item=&'a TestFile>) -> Vec<String> {
+    mapfiles.into_iter().flat_map(|mapfile| {
+        vec!["-m".to_string(), mapfile.as_path().to_string_lossy().into()]
+    }).collect()
 }
 
 // =============================================================================
@@ -288,24 +147,6 @@ lazy_static::lazy_static! {
             (regex::Regex::new(pat).unwrap(), subst)
         }).collect()
     };
-}
-
-impl Format {
-    /// Attempt to compile but expect failure and extract stderr.
-    pub fn compile_fail_stderr(&self, source: &TestFile, mapfile: Option<&TestFile>) -> String {
-        let output = {
-            Command::cargo_bin(self.cmd).unwrap()
-                .arg("compile")
-                .arg("-g").arg(format!("{}", self.game))
-                .arg(source.as_path())
-                .arg("-o").arg("/dev/null")
-                .args(optional_mapfile_args(mapfile))
-                .output().expect("failed to execute process")
-        };
-        assert!(!output.status.success());
-
-        String::from_utf8(output.stderr).unwrap()
-    }
 }
 
 fn make_output_deterministic(stderr: &str) -> String {
@@ -360,10 +201,10 @@ pub fn _check_compile_fail_output(
 /// Certain unreliable parts of the stderr will be made deterministic before performing the snapshot check.
 macro_rules! check_compile_fail_output {
     ($stderr:expr, $expected:expr) => {{
-        crate::integration_impl::_check_compile_fail_output(&$stderr, $expected, |stderr| {
-            assert_snapshot!{stderr};
+        crate::integration_impl::_check_compile_fail_output($stderr, $expected, |normalized_stderr| {
+            assert_snapshot!{normalized_stderr};
         });
-    }}
+    }};
 }
 
 /// Perform a snapshot test of something.
@@ -372,8 +213,10 @@ macro_rules! assert_snapshot {
         insta::with_settings!{{snapshot_path => snapshot_path!()}, {
             insta::assert_snapshot!{$stderr};
         }}
-    }}
+    }};
 }
+
+// =============================================================================
 
 /// stderr search strings for ubiquitous error messages
 pub mod expected {
@@ -381,6 +224,7 @@ pub mod expected {
     pub const PARSE_ERROR: &'static str = "unexpected token";
     pub const UNIMPLEMENTED: &'static str = "not implemented";
     pub const NOT_SUPPORTED_BY_FORMAT: &'static str = "not supported";
+    pub const DECOMP_UNKNOWN_SIG: &'static str = "were decompiled to byte blobs";
 }
 
 #[macro_use]

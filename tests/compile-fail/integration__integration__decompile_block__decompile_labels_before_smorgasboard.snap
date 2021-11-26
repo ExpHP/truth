@@ -1,0 +1,8 @@
+---
+source: tests/integration/decompile_block.rs
+expression: normalized_stderr
+---
+warning: ECL instructions with unknown signatures were decompiled to byte blobs.
+ = The following opcodes were affected: 9999
+
+

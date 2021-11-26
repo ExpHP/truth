@@ -531,4 +531,5 @@ entry {
 script script0 {}
 "#,
     expect_decompile_warning: "appeared twice",
+    require_roundtrip: false,
 );

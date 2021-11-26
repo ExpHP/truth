@@ -79,12 +79,6 @@ b2b_test!(
     ANM_12, "map/any.anmm", anm12_registers, "th12-registers.anm",
     expected="I1",
 );
-// Decompilation of instructions with no signature.
-b2b_test!(
-    ANM_12, file("th12-unknown-signature.anmm"), anm12_unknown_signature, "th12-unknown-signature.anm",
-    expected="hasNameButNoSignature",  // there's a named instr with no signature in the mapfile...
-    expected="ins_1011",  // ...as well as an unnamed one.
-);
 
 // Decompilation of word-sized arguments.
 b2b_test!(ANM_12, "map/any.anmm", anm12_anchor_ss_signature, "th12-anchor-ss-signature.anm");

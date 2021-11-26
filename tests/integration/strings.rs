@@ -133,6 +133,7 @@ source_test!(
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#" block("a\0b"); "#,
     expect_decompile_warning: "first null",
+    require_roundtrip: false,
 );
 
 source_test!(
@@ -141,6 +142,7 @@ source_test!(
     // null at end of interior block
     main_body: r#" block("abc\0abd"); "#,
     expect_decompile_warning: "first null",
+    require_roundtrip: false,
 );
 
 source_test!(
@@ -148,6 +150,7 @@ source_test!(
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#" fixed("abc\0def"); "#,
     expect_decompile_warning: "first null",
+    require_roundtrip: false,
 );
 
 source_test!(
@@ -155,6 +158,7 @@ source_test!(
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#" block(@blob="40404040"); "#,
     expect_decompile_warning: "missing null terminator",
+    require_roundtrip: false,
 );
 
 source_test!(
@@ -162,6 +166,7 @@ source_test!(
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#" fixed(@blob="40404040 40404040"); "#,
     expect_decompile_warning: "missing null terminator",
+    recompile: false,
 );
 
 source_test!(
@@ -171,6 +176,7 @@ source_test!(
     fixed("abcdefgh");
     "#,
     expect_error: "too large",
+    require_roundtrip: false,
 );
 
 source_test!(
@@ -180,4 +186,5 @@ source_test!(
     fixed("abcdefghi");
     "#,
     expect_error: "too large",
+    require_roundtrip: false,
 );

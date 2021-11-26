@@ -88,7 +88,7 @@ source_test!(
 fn thecl_defs() {
     let format = &ANM_12;
     let thecl_defs = TestFile::new_temp("thecl defs output");
-    format.compile_with_args(&TestFile::from_content("input", r#"
+    format.compile(&TestFile::from_content("input", r#"
 #pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
 
 entry {
@@ -108,7 +108,7 @@ entry {
 }
 
 script howyado {}
-    "#), &["--output-thecl-defs".as_ref(), thecl_defs.as_path().as_ref()], None);
+    "#), &["--output-thecl-defs".as_ref(), thecl_defs.as_path().as_ref()], &[]);
 
     let actual = thecl_defs.read_to_string();
     let expected = r#"

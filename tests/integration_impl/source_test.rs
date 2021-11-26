@@ -1,26 +1,25 @@
-use super::{Format, TestFile};
+use super::{Format, TestFile, ProgramResult};
+use std::ffi::{OsStr, OsString};
 
 // used to implement defaults for some optional macro parts by writing `first_token!( $($thing)?  "" )`
 macro_rules! first_token {
     ($tok:tt $($rest:tt)*) => { $tok };
 }
 
-/// Generates a test that does *something* to a source script.
+/// Generates a test that compiles a source script and maybe also decompiles it.
 ///
 /// The purpose of this is to reduce the friction to writing tests as much as possible.
 /// It reduces noise by allowing things not relevant to a given test to be left out.  It also
 /// reduces the amount of busywork in converting a test back and forth between a compile-succeed
 /// test and a compile-fail test (a thing you frequently have to do when making a group of tests
 /// that share a lot of source).
-///
-/// This is largely a wrapper around the TestFile API.  You can use that directly if you need
-/// to do something not supported by the macro.
 macro_rules! source_test {
     (
         $(# $attr:tt)*
         $format:ident, $test_name:ident
 
         $(, mapfile: $mapfile:expr)?
+        $(, compile_mapfile: $compile_mapfile:expr)?
         $(, compile_args: $compile_args:expr)?
         // -------------------------
         // args to make_source!
@@ -61,31 +60,40 @@ macro_rules! source_test {
         // These are like a "failing" version of SBSB.  They compile and then check for stderr during decompilation.
         $(, expect_decompile_warning: $expect_decompile_warning_msg:expr)?
         $(, expect_decompile_error: $expect_decompile_error_msg:expr)?
+        $(, require_roundtrip: $require_roundtrip:expr )?
+        $(, recompile: $recompile:expr )?
 
         $(,)?
     ) => {
         #[test]
         $(# $attr)*
         fn $test_name() {
+            use crate::integration_impl::source_test;
+
             let format = &$format;
-            crate::integration_impl::source_test::SourceTest {
+            let source = source_test::SourceBuilder {
                 format,
-                source: make_source!(
-                    $format
-                    $(, items: $items)?
-                    $(, main_body: $main_body)?
-                    $(, full_source: $full_source)?
-                ),
-                mapfile: question_kleene_to_option!( $($mapfile.to_string())? ),
-                compile_args: question_kleene_to_option!( $(&$compile_args)? ),
-                expect_error: question_kleene_to_option!( $($expect_error_msg.to_string())? ),
-                expect_warning: question_kleene_to_option!( $($expect_warning_msg.to_string())? ),
-                expect_decompile_error: question_kleene_to_option!( $($expect_decompile_error_msg.to_string())? ),
-                expect_decompile_warning: question_kleene_to_option!( $($expect_decompile_warning_msg.to_string())? ),
-                sbsb: question_kleene_to_option!( $($sbsb_check_fn)? ),
-                check_compiled: question_kleene_to_option!( $($check_fn)? ),
-                sbsb_decompile_args: question_kleene_to_option!( $(&$sbsb_decompile_args)? ),
-            }.run(|stderr, expected| check_compile_fail_output!(stderr, expected))
+                items: question_kleene_to_option!( $($items)? ),
+                main_body: question_kleene_to_option!( $($main_body)? ),
+                full_source: question_kleene_to_option!( $($full_source.into())? ),
+            }.build("original.spec");
+            let mut test = source_test::SourceTest::new(format, source);
+            $( test.mapfile( $mapfile.to_string() ); )?
+            $( test.compile_mapfile( $compile_mapfile.to_string() ); )?
+            $( test.compile_args( &$compile_args[..] ); )?
+            $( test.decompile_args( &$sbsb_decompile_args[..] ); )?
+            $( test.expect_error( $expect_error_msg.to_string() ); )?
+            $( test.expect_warning( $expect_warning_msg.to_string() ); )?
+            $( test.expect_decompile_error( $expect_decompile_error_msg.to_string() ); )?
+            $( test.expect_decompile_warning( $expect_decompile_warning_msg.to_string() ); )?
+            $( test.check_decompiled( $sbsb_check_fn ); )?
+            $( test.check_compiled( $check_fn ); )?
+            $( test.check_decompiled( $sbsb_check_fn ); )?
+            $( test.require_roundtrip( $require_roundtrip ); )?
+            $( test.recompile( $recompile ); )?
+            test.run(
+                |stderr, expected| check_compile_fail_output!(stderr, expected),
+            );
         }
     };
 }
@@ -94,126 +102,229 @@ macro_rules! source_test {
 pub struct SourceTest {
     pub format: &'static Format,
     pub source: TestFile,
-    pub mapfile: Option<String>,
-    pub compile_args: Option<&'static [&'static str]>,
-    pub check_compiled: Option<fn(&TestFile, &Format)>,
-    pub expect_warning: Option<String>,
-    pub expect_error: Option<String>,
-    pub expect_decompile_warning: Option<String>,
-    pub expect_decompile_error: Option<String>,
-    pub sbsb_decompile_args: Option<&'static [&'static str]>,
-    pub sbsb: Option<fn(&str)>,
+    options: SourceTestOptions,
+}
+
+struct SourceTestOptions {
+    shared_mapfiles: Vec<String>,
+    compile_props: TestCommandProps,
+    decompile_props: TestCommandProps,
+    check_compiled: Option<Box<dyn FnMut(&TestFile, &Format)>>,
+    check_decompiled: Option<Box<dyn FnMut(&str)>>,
+    /// If true (default), recompilation is attempted after any decompilation.
+    recompile: bool,
+    /// If true (default) and recompilation occurs, it must match the first compilation.
+    require_roundtrip: bool,
+}
+
+impl Default for SourceTestOptions {
+    fn default() -> Self {
+        SourceTestOptions {
+            shared_mapfiles: Default::default(),
+            compile_props: Default::default(),
+            decompile_props: Default::default(),
+            check_compiled: Default::default(),
+            check_decompiled: Default::default(),
+            recompile: true,
+            require_roundtrip: true,
+        }
+    }
+}
+
+impl SourceTest {
+    pub fn new(format: &'static Format, source: TestFile) -> Self {
+        SourceTest { format, source, options: Default::default() }
+    }
+
+    pub fn compile_args(&mut self, args: &[impl AsRef<OsStr>]) { self.options.compile_props.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned())); }
+    pub fn mapfile(&mut self, text: String) { self.options.shared_mapfiles.push(text); }
+    pub fn expect_warning(&mut self, text: String) { self.options.compile_props.expected.expect_warning(text); }
+    pub fn expect_error(&mut self, text: String) { self.options.compile_props.expected.expect_error(text); }
+
+    pub fn compile_mapfile(&mut self, text: String) { self.options.compile_props.mapfiles.push(text); }
+
+    pub fn decompile_args(&mut self, args: &[impl AsRef<OsStr>]) { self.options.decompile_props.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned())); }
+    pub fn decompile_mapfile(&mut self, text: String) { self.options.decompile_props.mapfiles.push(text); }
+    pub fn expect_decompile_warning(&mut self, text: String) {
+        self.options.compile_props.expected.expect_success();
+        self.options.decompile_props.expected.expect_warning(text);
+    }
+    pub fn expect_decompile_error(&mut self, text: String) {
+        self.options.compile_props.expected.expect_success();
+        self.options.decompile_props.expected.expect_error(text);
+    }
+
+    pub fn check_compiled(&mut self, func: impl FnMut(&TestFile, &Format) + 'static) {
+        self.options.compile_props.expected.expect_success();
+        self.options.check_compiled = Some(Box::new(func));
+    }
+    pub fn check_decompiled(&mut self, func: impl FnMut(&str) + 'static) {
+        self.options.compile_props.expected.expect_success();
+        self.options.decompile_props.expected.expect_success();
+        self.options.check_decompiled = Some(Box::new(func));
+    }
+    pub fn require_roundtrip(&mut self, value: bool) {
+        self.options.require_roundtrip = value;
+    }
+    pub fn recompile(&mut self, value: bool) {
+        self.options.recompile = value;
+    }
+}
+
+#[derive(Debug, Default)]
+struct TestCommandProps {
+    mapfiles: Vec<String>,
+    extra_args: Vec<OsString>,
+    expected: ExpectedResult,
+}
+
+#[derive(Debug, Default)]
+pub struct ExpectedResult {
+    is_error: Option<bool>,
+    message: Option<String>,
+}
+
+impl ExpectedResult {
+    fn expect_success(&mut self) {
+        self.is_error.get_or_insert(false);
+    }
+
+    fn expect_warning(&mut self, message: String) {
+        assert!(self.message.is_none(), "multiple expect_warning/expect_error not yet supported");
+        self.is_error.get_or_insert(false);
+        self.message = Some(message);
+    }
+
+    fn expect_error(&mut self, message: String) {
+        assert!(self.message.is_none(), "multiple expect_warning/expect_error not yet supported");
+        self.is_error = Some(true);
+        self.message = Some(message);
+    }
+}
+
+impl TestCommandProps {
+    /// Should this test command run?
+    fn has_action(&self) -> bool { self.expected.is_error.is_some() }
+}
+
+impl ProgramResult {
+    #[track_caller]
+    pub fn check_with_expected(
+        &self,
+        expected_result: &ExpectedResult,
+        mut check_compile_fail_output: impl FnMut(&str, &str),
+    ) {
+        assert_eq!(self.output.is_none(), expected_result.is_error.unwrap(), "exit code mismatch");
+        match (self.output.is_some(), expected_result.is_error) {
+            (_, None) => panic!("check_with_expected called when no action was expected (bug in test utils)"),
+            (true, Some(false)) => {},
+            (false, Some(true)) => {},
+            (true, Some(true)) => panic!("expected success but got error"),
+            (false, Some(false)) => panic!("expected error but program succeeded"),
+        }
+        match (&self.stderr, &expected_result.message) {
+            (None, None) => {},
+            (None, Some(_pattern)) => panic!("no warning or error when one was expected"),
+            (Some(_stderr), None) => panic!("unexpected warning or error"),
+            (Some(stderr), Some(pattern)) => check_compile_fail_output(stderr, pattern),
+        }
+    }
 }
 
 impl SourceTest {
     #[track_caller]
     pub fn run(
-        &self,
+        &mut self,  // &mut to call FnMut closures
         // A closure that calls the check_compile_fail_output! macro.
         // This is a kludge to get the correct snapshot file name.
         check_compile_fail_output: fn(&str, &str),
     ) {
         truth::setup_for_test_harness();
 
-        let mut did_something = false;
+        let shared_mapfiles = {
+            self.options.shared_mapfiles.iter()
+                .map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s))
+                .collect::<Vec<_>>()
+        };
+        let compile_only_mapfiles = {
+            self.options.compile_props.mapfiles.iter()
+                .map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s))
+                .collect::<Vec<_>>()
+        };
+        // FIXME dumb way
+        let decompile_only_mapfiles = {
+            self.options.decompile_props.mapfiles.iter()
+                .map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s))
+                .collect::<Vec<_>>()
+        };
+        let compile_mapfiles = || shared_mapfiles.iter().chain(&compile_only_mapfiles);
+        let decompile_mapfiles = || shared_mapfiles.iter().chain(&decompile_only_mapfiles);
 
-        let mapfile = self.mapfile.as_ref().map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s));
-        let compile_args = self.compile_args.unwrap_or(&[]);
+        assert!(self.options.compile_props.has_action(), "nothing to do!");
 
-        if self.check_compiled.is_some() || self.expect_warning.is_some() {
-            let (outfile, output) = self.format.compile_and_capture(&self.source, compile_args, mapfile.as_ref());
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            match &self.expect_warning {
-                Some(expected) => {
-                    check_compile_fail_output(&stderr, expected);
-                    did_something = true;
-                },
-                None => assert_eq!(stderr, ""),
-            }
-            if let Some(check_fn) = self.check_compiled {
-                check_fn(&outfile, &self.format);
-                did_something = true;
-            }
+        let args = self.options.compile_props.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+        let result = self.format.compile(&self.source, &args, compile_mapfiles());
+        result.check_with_expected(&self.options.compile_props.expected, |stderr, expected| {
+            check_compile_fail_output(stderr, expected)
+        });
+        let compiled = result.output;
+
+        if !self.options.compile_props.expected.is_error.unwrap() {
+            if let Some(func) = &mut self.options.check_compiled {
+                func(compiled.as_ref().unwrap(), self.format);
+            };
         }
 
-        if let Some(sbsb_check_fn) = self.sbsb {
-            // decompile test
-            assert!(self.compile_args.is_none(), "sbsb + compile_args not implemented");
-            assert!(self.expect_decompile_warning.is_none(), "combining sbsb + expect_decompile_warning is not yet implemented");
-            self.format.sbsb_test(&self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(), sbsb_check_fn);
-            did_something = true;
+        if self.options.decompile_props.has_action() {
+            let compiled = compiled.as_ref().unwrap();
+            let args = self.options.decompile_props.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+            let result = self.format.decompile(compiled, &args, decompile_mapfiles());
+            result.check_with_expected(&self.options.decompile_props.expected, |stderr, expected| {
+                check_compile_fail_output(stderr, expected);
+            });
 
-        } else if self.expect_decompile_error.is_some() || self.expect_decompile_warning.is_some() {
-            // decompile-fail test
-            assert!(self.compile_args.is_none(), "decompile-fail + compile_args not implemented");
-            assert!(!(self.expect_decompile_error.is_some() && self.expect_decompile_warning.is_some()));
-            let should_error = self.expect_decompile_error.is_some();
-            let expect_msg = self.expect_decompile_error.as_deref().or(self.expect_decompile_warning.as_deref()).unwrap();
-            self.format.sbsb_fail_test(
-                &self.source, self.sbsb_decompile_args.unwrap_or(&[]), mapfile.as_ref(),
-                should_error, |stderr| check_compile_fail_output(stderr, expect_msg),
-            );
-            did_something = true;
-
-        } else {
-            if self.sbsb_decompile_args.is_some() {
-                panic!("Test was provided with decompile_args but was not an sbsb or decompile_fail test!")
+            if !self.options.decompile_props.expected.is_error.unwrap() {
+                let decompiled = result.output.unwrap();
+                if let Some(func) = &mut self.options.check_decompiled {
+                    func(&decompiled.read_to_string());
+                };
+                if self.options.recompile {
+                    let result = self.format.compile(&decompiled, &[][..], decompile_mapfiles());
+                    let recompiled = result.output.expect("recompile failed?!");
+                    if self.options.require_roundtrip {
+                        assert_eq!(compiled.read(), recompiled.read());
+                    }
+                }
             }
-        }
-
-        if let Some(expect_error_msg) = &&self.expect_error {
-            assert!(self.compile_args.is_none(), "compile-fail + compile_args not implemented");
-            let stderr = self.format.compile_fail_stderr(&self.source, mapfile.as_ref());
-            check_compile_fail_output(&stderr, expect_error_msg);
-            did_something = true;
-        }
-
-        if !did_something {
-            panic!("Test had nothing to do!");
         }
     }
 }
 
-macro_rules! make_source {
-    (
-        $format:expr
+pub struct SourceBuilder {
+    pub format: &'static Format,
+    pub items: Option<&'static str>,
+    pub main_body: Option<&'static str>,
+    pub full_source: Option<Vec<u8>>,
+}
 
-        // (optional) other items you want in the script
-        $(, items: $items:expr)?
+impl SourceBuilder {
+    pub fn build(self, filename: &'static str) -> TestFile {
+        let do_parts = self.main_body.is_some() || self.items.is_some();
+        let do_full = self.full_source.is_some();
+        assert!(do_full || do_parts, "missing 'main_body', 'items', or 'full_source'");
+        assert!(!(do_full && do_parts), "'full_source' cannot be used with 'main_body' or 'items'");
 
-        // the statements to compile into a function body
-        $(, main_body: $main_body:expr)?
-
-        // (optional) check that the STDERR text contains a substring.
-        // This helps ensure that compilation is failing for a legitimate reason.
-        //
-        // It's okay if a change to the compiler breaks a test by causing it to produce a different error!
-        // (e.g. because the order of passes changed, or something formerly unparseable is now parseable).
-        // Whenever this occurs, just review the new outputs and make sure that the new errors are still
-        // related to what they were originally testing.
-        // This is intended to be a slightly larger speed-bump than other cases of insta-snapshot test breakage.
-        $(, expected: $expected:expr)?
-        $(,)?
-    ) => {
-        $format.make_source("original.spec", crate::integration_impl::ScriptParts {
-            items: first_token!( $($items)? "" ),
-            main_body: first_token!( $($main_body)? "" ),
-        })
-    };
-
-    (
-        // Alternative that takes full source.  It is recommended to only use this when necessary
-        // (namely when testing things in meta), as there's a greater likelihood that the tests
-        // will be broken by innocent changes.
-        $format:expr
-
-        , full_source: $main_body:expr
-
-        $(, expected: $expected:expr)?
-        $(,)?
-    ) => {
-        crate::integration_impl::TestFile::from_content("original.spec", $main_body)
-    };
+        if do_parts {
+            TestFile::from_content(filename, format!(
+                "{}\n{}\n{}",
+                self.format.script_head,
+                self.items.unwrap_or(""),
+                (self.format.make_main)(&self.main_body.unwrap_or("")),
+            ))
+        } else {
+            TestFile::from_content(filename, self.full_source.unwrap())
+        }
+    }
 }
 
 macro_rules! question_kleene_to_option {

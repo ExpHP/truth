@@ -144,7 +144,7 @@
 138 trail_set
 139 set_life_bar
 140 __effect_unknown
-141 nop
+141 nop141
 142 enemy_flag_armored
 143 bullet_cancel_radius
 144 call_repeat

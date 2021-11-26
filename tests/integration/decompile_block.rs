@@ -913,4 +913,5 @@ source_test!(
         assert!(decompiled.contains("(3, 3)")); // for the fallback
         assert!(decompiled.contains("@blob=\"00112233\"")); // for the blob
     },
+    expect_decompile_warning: expected::DECOMP_UNKNOWN_SIG,
 );

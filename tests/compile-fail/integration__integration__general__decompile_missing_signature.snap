@@ -1,0 +1,8 @@
+---
+source: tests/integration/general.rs
+expression: normalized_stderr
+---
+warning: ANM instructions with unknown signatures were decompiled to byte blobs.
+ = The following opcodes were affected: 777
+
+

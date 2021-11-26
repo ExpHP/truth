@@ -370,6 +370,16 @@ source_test!(
     expect_error: "constant",
 );
 
+source_test!(
+    ANM_12, decompile_missing_signature,
+    compile_mapfile: r#"!anmmap
+    !ins_signatures
+    777 SS
+    "#,
+    main_body: r#"  ins_777(3, 5);  "#,
+    expect_decompile_warning: expected::DECOMP_UNKNOWN_SIG,
+);
+
 // TODO: STD script requirements (single sub called main...)
 
 // A snippet to try decompiling with several decreasing levels of features.
