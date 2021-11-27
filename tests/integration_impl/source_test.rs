@@ -1,4 +1,5 @@
 use super::{Format, TestFile, ProgramResult};
+use super::parse_errors::{self, ExpectedDiagnostic};
 use std::ffi::{OsStr, OsString};
 
 // used to implement defaults for some optional macro parts by writing `first_token!( $($thing)?  "" )`
@@ -56,26 +57,40 @@ pub struct SourceTest {
     options: SourceTestOptions,
 }
 
+#[derive(Default)]
 struct SourceTestOptions {
-    shared_mapfiles: Vec<String>,
-    compile_props: TestCommandProps,
-    decompile_props: TestCommandProps,
-    check_compiled: Option<Box<dyn FnMut(&TestFile, &Format)>>,
-    check_decompiled: Option<Box<dyn FnMut(&str)>>,
-    recompile: bool,
-    require_roundtrip: bool,
+    next_mapfile_index: usize,
+    shared_mapfiles: Vec<TestFile>,
+    compile: TestCommandProps,
+    decompile: TestCommandProps,
+    check_compiled: Option<Box<dyn FnOnce(&TestFile, &Format)>>,
+    check_decompiled: Option<Box<dyn FnOnce(&str)>>,
+    recompile: Option<bool>,
+    require_roundtrip: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TestCommandProps {
+    should_run: bool,
+    mapfiles: Vec<TestFile>,
+    extra_args: Vec<OsString>,
+    expected: ExpectedResult,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ExpectedResult {
+    is_error: Option<bool>,
+    diagnostics: Vec<ExpectedDiagnostic>,
 }
 
 impl Default for SourceTestOptions {
     fn default() -> Self {
         SourceTestOptions {
-            shared_mapfiles: Default::default(),
-            compile_props: Default::default(),
-            decompile_props: Default::default(),
-            check_compiled: Default::default(),
-            check_decompiled: Default::default(),
-            recompile: true,
-            require_roundtrip: true,
+            compile: TestCommandProps {
+                should_run: true,
+                ..Default::default()
+            },
+            ..Default::default()
         }
     }
 }
@@ -85,91 +100,127 @@ impl SourceTest {
         let source = SourceBuilder::new(format);
         SourceTest { format, source, options: Default::default() }
     }
+}
 
-    pub fn main_body(&mut self, text: impl Into<String>) { self.source.main_body = Some(text.into()); }
-    pub fn items(&mut self, text: impl Into<String>) { self.source.items = Some(text.into()); }
-    pub fn full_source(&mut self, text: impl Into<Vec<u8>>) { self.source.full_source = Some(text.into()); }
+/// These methods attempt to help identify malformed test inputs.
+///
+/// E.g. if a test has both an expected compile error and a flag related to decompilation,
+/// then something must be wrong because decompilation will not be possible.
+impl SourceTest {
+    fn sanity_check_for_no_decompile(&self) {
+        assert!(!self.options.decompile.should_run);
+        assert!(self.options.decompile.expected.is_error.is_none());
+        self.sanity_check_for_no_recompile();
+    }
 
-    pub fn compile_args(&mut self, args: &[impl AsRef<OsStr>]) { self.options.compile_props.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned())); }
-    pub fn mapfile(&mut self, text: impl Into<String>) { self.options.shared_mapfiles.push(text.into()); }
-    pub fn expect_error(&mut self, text: impl Into<String>) { self.options.compile_props.expected.expect_error(text.into()); }
-    pub fn expect_warning(&mut self, text: impl Into<String>) { self.options.compile_props.expected.expect_warning(text.into()); }
+    fn sanity_check_for_no_recompile(&self) {
+        assert!(self.options.recompile.is_none());
+        self.sanity_check_for_no_roundtrip();
+    }
 
-    pub fn compile_mapfile(&mut self, text: impl Into<String>) { self.options.compile_props.mapfiles.push(text.into()); }
+    fn sanity_check_for_no_roundtrip(&self) {
+        assert!(self.options.require_roundtrip.is_none());
+    }
+}
+
+impl SourceTest {
+    fn make_mapfile(&mut self, text: impl Into<String>) -> (TestFile, Vec<ExpectedDiagnostic>) {
+        self.next_mapfile_index += 1;
+        let filename = format!("Xx_MAPFILE INPUT {}_xX", self.next_mapfile_index);
+
+        let (text, diagnostics) = parse_errors::parse_expected_diagnostics(&filename, &text.into());
+        let file = TestFile::from_content(&filename, &text);
+        (file, diagnostics)
+    }
+
+    pub fn main_body(&mut self, text: impl Into<String>) {
+        self.source.main_body = Some(text.into());
+    }
+    pub fn items(&mut self, text: impl Into<String>) {
+        self.source.items = Some(text.into());
+    }
+    pub fn full_source(&mut self, text: impl Into<Vec<u8>>) {
+        self.source.full_source = Some(text.into());
+    }
+
+    pub fn compile_args(&mut self, args: &[impl AsRef<OsStr>]) { self.options.compile.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned())); }
+    pub fn mapfile(&mut self, text: impl Into<String>) {
+        let (mapfile, diagnostics) = self.make_mapfile(text);
+        self.options.shared_mapfiles.push(mapfile);
+        self.options.compile.expected.extend(diagnostics);
+    }
+    pub fn expect_error(&mut self, text: impl Into<String>) { self.options.compile.expected.expect_error(text.into()); }
+    pub fn expect_warning(&mut self, text: impl Into<String>) { self.options.compile.expected.expect_warning(text.into()); }
+
+    pub fn compile_mapfile(&mut self, text: impl Into<String>) {
+        let (mapfile, diagnostics) = self.make_mapfile(text);
+        self.options.compile.mapfiles.push(mapfile);
+        self.options.compile.expected.extend(diagnostics);
+    }
 
     pub fn decompile_args(&mut self, args: &[impl AsRef<OsStr>]) {
-        self.options.decompile_props.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned()));
+        self.options.decompile.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned()));
     }
     pub fn decompile_mapfile(&mut self, text: impl Into<String>) {
-        self.options.decompile_props.mapfiles.push(text.into());
+        let (mapfile, diagnostics) = self.make_mapfile(text);
+        self.options.decompile.mapfiles.push(mapfile);
+        self.options.decompile.expected.extend(diagnostics);
     }
     pub fn expect_decompile_warning(&mut self, text: impl Into<String>) {
-        self.options.compile_props.expected.expect_success();
-        self.options.decompile_props.expected.expect_warning(text.into());
+        self.options.compile.expected.expect_success();
+        self.options.decompile.expected.expect_warning(text.into());
     }
     pub fn expect_decompile_error(&mut self, text: impl Into<String>) {
-        self.options.compile_props.expected.expect_success();
-        self.options.decompile_props.expected.expect_error(text.into());
+        self.options.compile.expected.expect_success();
+        self.options.decompile.expected.expect_error(text.into());
     }
 
     pub fn check_compiled(&mut self, func: impl FnMut(&TestFile, &Format) + 'static) {
-        self.options.compile_props.expected.expect_success();
+        self.options.compile.expected.expect_success();
         self.options.check_compiled = Some(Box::new(func));
     }
     pub fn check_decompiled(&mut self, func: impl FnMut(&str) + 'static) {
-        self.options.compile_props.expected.expect_success();
-        self.options.decompile_props.expected.expect_success();
+        self.options.compile.expected.expect_success();
+        self.options.decompile.expected.expect_success();
         self.options.check_decompiled = Some(Box::new(func));
     }
     /// If true (default), recompilation is attempted after any decompilation.
     ///
     /// (mind: decompilation is normally only attempted if [`Self::check_decompiled`],
     ///  [`Self::expect_decompile_warning`], or [`Self::expect_decompile_error`] is used)
-    pub fn require_roundtrip(&mut self, value: bool) {
-        self.options.require_roundtrip = value;
+    pub fn recompile(&mut self, value: bool) {
+        self.options.recompile = Some(value);
     }
     /// If true (default) and recompilation occurs, it must match the first compilation.
     ///
     /// (mind: recompilation normally occurs only if decompilation occurs AND succeeds)
-    pub fn recompile(&mut self, value: bool) {
-        self.options.recompile = value;
+    pub fn require_roundtrip(&mut self, value: bool) {
+        self.options.require_roundtrip = Some(value);
     }
-}
-
-#[derive(Debug, Default)]
-struct TestCommandProps {
-    mapfiles: Vec<String>,
-    extra_args: Vec<OsString>,
-    expected: ExpectedResult,
-}
-
-#[derive(Debug, Default)]
-pub struct ExpectedResult {
-    is_error: Option<bool>,
-    message: Option<String>,
 }
 
 impl ExpectedResult {
-    fn expect_success(&mut self) {
-        self.is_error.get_or_insert(false);
+    fn expect_success(&mut self, success: bool) {
+        assert_ne!(self.is_error, Some(!success), "conflicting expectations on command (must succeed and fail)");
+        self.is_error = Some(success);
     }
 
-    fn expect_warning(&mut self, message: String) {
-        assert!(self.message.is_none(), "multiple expect_warning/expect_error not yet supported");
-        self.is_error.get_or_insert(false);
-        self.message = Some(message);
+    fn expect_diagnostics(&mut self, diagnostics: impl IntoIterator<Item=ExpectedDiagnostic>) {
+        for diagnostic in diagnostics {
+            if diagnostic.implies_failure() {
+                self.expect_success(false);
+            }
+            self.diagnostics.push(diagnostic);
+        }
     }
 
-    fn expect_error(&mut self, message: String) {
-        assert!(self.message.is_none(), "multiple expect_warning/expect_error not yet supported");
-        self.is_error = Some(true);
-        self.message = Some(message);
+    fn expect_error(&mut self, pattern: String) {
+        self.expect_diagnostics(vec![ExpectedDiagnostic::new_error_without_location(pattern)])
     }
-}
 
-impl TestCommandProps {
-    /// Should this test command run?
-    fn has_action(&self) -> bool { self.expected.is_error.is_some() }
+    fn expect_warning(&mut self, pattern: String) {
+        self.expect_diagnostics(vec![ExpectedDiagnostic::new_warning_without_location(pattern)])
+    }
 }
 
 impl ProgramResult {
@@ -179,7 +230,7 @@ impl ProgramResult {
         expected_result: &ExpectedResult,
         mut check_compile_fail_output: impl FnMut(&str, &str),
     ) {
-        assert_eq!(self.output.is_none(), expected_result.is_error.unwrap(), "exit code mismatch");
+        assert_eq!(self.output.is_none(), expected_result.is_error.unwrap_or(false), "exit code mismatch");
         match (self.output.is_some(), expected_result.is_error) {
             (_, None) => panic!("check_with_expected called when no action was expected (bug in test utils)"),
             (true, Some(false)) => {},
@@ -199,65 +250,65 @@ impl ProgramResult {
 impl SourceTest {
     #[track_caller]
     pub fn run(
-        &mut self,  // &mut to call FnMut closures
+        mut self,
         // A closure that calls the check_compile_fail_output! macro.
         // This is a kludge to get the correct snapshot file name.
         check_compile_fail_output: fn(&str, &str),
     ) {
+        // do some last minute preparation/modifications that couldn't be done until the
+        // user was finished with the builder
+        let (source, source_diagnostics) = self.source.build("original.spec");
+        self.options.compile.expected.expect_diagnostics(source_diagnostics);
+
+        // defer to pure impl
+        Self::run_impl(self.format, &source, self.options, check_compile_fail_output)
+    }
+
+    #[track_caller]
+    fn run_impl(
+        format: &Format,
+        source: &TestFile,
+        options: SourceTestOptions,
+        check_compile_fail_output: fn(&str, &str),
+    ) {
         truth::setup_for_test_harness();
 
-        let shared_mapfiles = {
-            self.options.shared_mapfiles.iter()
-                .map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s))
-                .collect::<Vec<_>>()
-        };
-        let compile_only_mapfiles = {
-            self.options.compile_props.mapfiles.iter()
-                .map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s))
-                .collect::<Vec<_>>()
-        };
-        // FIXME dumb way
-        let decompile_only_mapfiles = {
-            self.options.decompile_props.mapfiles.iter()
-                .map(|s| TestFile::from_content("Xx_MAPFILE INPUT_xX", s))
-                .collect::<Vec<_>>()
-        };
-        let compile_mapfiles = || shared_mapfiles.iter().chain(&compile_only_mapfiles);
-        let decompile_mapfiles = || shared_mapfiles.iter().chain(&decompile_only_mapfiles);
+        let compile_mapfiles = options.shared_mapfiles.iter().chain(&options.compile.mapfiles);
+        let decompile_mapfiles = options.shared_mapfiles.iter().chain(&options.decompile.mapfiles);
+        let recompile_mapfiles = options.shared_mapfiles.iter().chain(&options.decompile.mapfiles);
 
-        assert!(self.options.compile_props.has_action(), "nothing to do!");
+        assert!(options.compile.should_run, "nothing to do!");
 
-        let source = self.source.build("original.spec");
-        let args = self.options.compile_props.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-        let result = self.format.compile(&source, &args, compile_mapfiles());
-        result.check_with_expected(&self.options.compile_props.expected, |stderr, expected| {
+        let args = options.compile.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+        let result = format.compile(&source, &args, compile_mapfiles());
+        result.check_with_expected(&options.compile.expected, |stderr, expected| {
             check_compile_fail_output(stderr, expected)
         });
         let compiled = result.output;
 
-        if !self.options.compile_props.expected.is_error.unwrap() {
-            if let Some(func) = &mut self.options.check_compiled {
-                func(compiled.as_ref().unwrap(), self.format);
+        if !options.compile.expected.is_error.unwrap() {
+            if let Some(func) = &mut options.check_compiled {
+                func(compiled.as_ref().unwrap(), format);
             };
         }
 
-        if self.options.decompile_props.has_action() {
+        if options.decompile.has_action() {
             let compiled = compiled.as_ref().unwrap();
-            let args = self.options.decompile_props.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-            let result = self.format.decompile(compiled, &args, decompile_mapfiles());
-            result.check_with_expected(&self.options.decompile_props.expected, |stderr, expected| {
+            let args = options.decompile.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+            let result = format.decompile(compiled, &args, decompile_mapfiles());
+            result.check_with_expected(&options.decompile.expected, |stderr, expected| {
                 check_compile_fail_output(stderr, expected);
             });
 
-            if !self.options.decompile_props.expected.is_error.unwrap() {
+            if !options.decompile.expected.is_error.unwrap() {
                 let decompiled = result.output.unwrap();
-                if let Some(func) = &mut self.options.check_decompiled {
+                if let Some(func) = options.check_decompiled {
                     func(&decompiled.read_to_string());
                 };
-                if self.options.recompile {
-                    let result = self.format.compile(&decompiled, &[][..], decompile_mapfiles());
+                if options.recompile.unwrap_or(true) {
+                    let result = format.compile(&decompiled, &[][..], decompile_mapfiles());
                     let recompiled = result.output.expect("recompile failed?!");
-                    if self.options.require_roundtrip {
+                    if options.require_roundtrip {
                         assert_eq!(compiled.read(), recompiled.read());
                     }
                 }
@@ -280,21 +331,28 @@ impl SourceBuilder {
         }
     }
 
-    fn build(&self, filename: &'static str) -> TestFile {
+    fn build(&self, filename: &'static str) -> (TestFile, Vec<ExpectedDiagnostic>) {
+        let content = self.build_utf8();
+        let normalized_filename = "<input>";
+        let (content, diagnostics) = parse_errors::parse_expected_diagnostics(normalized_filename, &content);
+        (TestFile::from_content(filename, content), diagnostics)
+    }
+
+    fn build_utf8(&self) -> Vec<u8> {
         let do_parts = self.main_body.is_some() || self.items.is_some();
         let do_full = self.full_source.is_some();
         assert!(do_full || do_parts, "missing 'main_body', 'items', or 'full_source'");
         assert!(!(do_full && do_parts), "'full_source' cannot be used with 'main_body' or 'items'");
 
         if do_parts {
-            TestFile::from_content(filename, format!(
+            format!(
                 "{}\n{}\n{}",
                 self.format.script_head,
                 self.items.clone().unwrap_or_else(String::new),
                 (self.format.make_main)(&self.main_body.clone().unwrap_or_else(String::new)),
-            ))
+            ).into()
         } else {
-            TestFile::from_content(filename, self.full_source.clone().unwrap())
+            self.full_source.clone().unwrap()
         }
     }
 }

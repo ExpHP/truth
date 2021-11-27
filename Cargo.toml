@@ -40,6 +40,7 @@ tempfile = "3.0"
 assert_cmd = "1.0"
 predicates = "1.0"
 rand = "0.7.3"
+bstr = "0.2"
 
 [profile.release]
 debug = true

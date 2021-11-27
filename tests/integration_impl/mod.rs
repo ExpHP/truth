@@ -17,6 +17,8 @@ pub mod formats;
 pub use test_file::TestFile;
 mod test_file;
 
+mod parse_errors;
+
 // =============================================================================
 
 pub struct Format {
@@ -140,7 +142,7 @@ lazy_static::lazy_static! {
     static ref TEMP_FILE_SUBSTS: Vec<(regex::Regex, &'static str)> = {
         vec![
             (r#"┌─ .+[/\\]original\.spec"#, "┌─ <input>"),
-            (r#"┌─ .+[/\\]Xx_MAPFILE INPUT_xX"#, "┌─ <mapfile>"),
+            (r#"┌─ .+[/\\]Xx_MAPFILE INPUT (\d+)_xX"#, "┌─ <mapfile-$1>"),
             (r#"while writing '[^']+': "#, "while writing '<output>':"),
             (r#"^(warning|error): .+[/\\]Xx_COMPILATION OUTPUT_xX:"#, r#"$1: <decompile-input>:"#),
         ].into_iter().map(|(pat, subst)| {
