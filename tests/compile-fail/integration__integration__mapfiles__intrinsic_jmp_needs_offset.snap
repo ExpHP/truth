@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: bad signature: signature has a 't' arg without an 'o' arg
-  ┌─ <mapfile>:5:3
+  ┌─ <mapfile-1>:5:3
   │
 5 │ 4 St
   │   ^^ signature has a 't' arg without an 'o' arg

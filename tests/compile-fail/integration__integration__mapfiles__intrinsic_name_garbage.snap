@@ -3,9 +3,33 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: invalid intrinsic name: missing '('
-  ┌─ <mapfile>:3:3
+  ┌─ <mapfile-1>:5:3
   │
-3 │ 4 lmfao
+5 │ 4 lmfao
   │   ^^^^^ missing '('
+
+error: invalid intrinsic name: missing ')'
+  ┌─ <mapfile-1>:8:3
+  │
+8 │ 5 CondJmp(>,int
+  │   ^^^^^^^^^^^^^ missing ')'
+
+error: invalid intrinsic name: too many arguments to intrinsic name
+   ┌─ <mapfile-1>:11:3
+   │
+11 │ 6 Jmp(int)
+   │   ^^^^^^^^ too many arguments to intrinsic name
+
+error: invalid intrinsic name: not enough arguments to intrinsic name
+   ┌─ <mapfile-1>:14:3
+   │
+14 │ 7 CondJmp(>=)
+   │   ^^^^^^^^^^^ not enough arguments to intrinsic name
+
+error: invalid intrinsic name: Matching variant not found
+   ┌─ <mapfile-1>:17:3
+   │
+17 │ 8 CondimentJmp(>=,int)
+   │   ^^^^^^^^^^^^^^^^^^^^ Matching variant not found
 
 

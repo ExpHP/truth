@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: bad ABI for intrinsic: output arg has unexpected encoding (float)
-  ┌─ <mapfile>:5:4
+  ┌─ <mapfile-1>:5:4
   │
 5 │ 99 fS
   │    ^^ output arg has unexpected encoding (float)

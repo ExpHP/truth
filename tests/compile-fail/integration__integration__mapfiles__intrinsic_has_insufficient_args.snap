@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: bad ABI for intrinsic: not enough arguments
-  ┌─ <mapfile>:5:4
+  ┌─ <mapfile-1>:5:4
   │
 5 │ 99 S
   │    ^ not enough arguments

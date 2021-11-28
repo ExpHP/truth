@@ -2,6 +2,6 @@
 source: tests/integration/anm_consts.rs
 expression: stderr
 ---
-warning: <decompile-input>: sprite ID 10 appeared twice in same entry; only one will be kept
+warning: <compiled-file>: sprite ID 10 appeared twice in same entry; only one will be kept
 
 

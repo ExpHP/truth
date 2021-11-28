@@ -1,0 +1,40 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:28:24
+   │
+28 │         F0 = 5 ? 1.0 : 0;      // ternary left
+   │                  --- - ^ an integer
+   │                  │   │  
+   │                  │   same types required by this
+   │                  a float
+
+error: type error
+   ┌─ <input>:29:26
+   │
+29 │         F0 = 0 ? "lol" : 1.0;  // ternary right
+   │                  ----- - ^^^ a float
+   │                  │     │  
+   │                  │     same types required by this
+   │                  a string
+
+error: type error
+   ┌─ <input>:30:19
+   │
+30 │         I0 = 1 && "lmao";      // and
+   │              - -- ^^^^^^ a string
+   │              │ │   
+   │              │ same types required by this
+   │              an integer
+
+error: type error
+   ┌─ <input>:31:14
+   │
+31 │         I0 = 0.0 || 1;         // or
+   │              ^^^ -- expects an integer
+   │              │    
+   │              a float
+
+

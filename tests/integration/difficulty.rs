@@ -26,32 +26,28 @@ source_test!(
     nop();
     {"ENH"}: {
         nop();
-        if (I0 == 0) {
-+10:
+        if (I0 == 0) {  //~ WARNING surprising
++10:                    //~ WARNING surprising
             nop();
         }
     }
 "#,
-    expect_warning: "surprising",
 );
 
 source_test!(
-    // in this one the `if` is directly annotated
     ECL_06, diff_label_with_time_label_bad_2,
     main_body: r#"
-    {"ENH"}: if (I0 == 0) {
+    {"ENH"}: if (I0 == 0) {  //~ WARNING surprising
         {"L"}: nop();
     }
 "#,
-    expect_warning: "surprising",
 );
 
 source_test!(
     ANM_10, diff_label_in_non_ecl,
     main_body: r#"
-    {"012"}: int x = 1;
+    {"012"}: int x = 1;  //~ ERROR not supported
 "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -119,34 +115,32 @@ label:
 
 source_test!(
     ECL_06, diff_switch_in_const_fn_call,
+    // Eventually const funcs will be supported, at which point this should hopefully
+    // get caught by another error
     items: r#"
-const int foo(int a) {
+const int foo(int a) {  //~ ERROR not supported
     return 2 * a;
 }
 
 void bar() {
-    I0 = foo(2:3:4:5);
+    I0 = foo(2:3:4:5);  //~ ERROR not supported
 }
 "#,
-    // Eventually const funcs will be supported, at which point this should hopefully
-    // get caught by another error
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
     ECL_06, diff_switch_in_inline_fn_call,
+    // Eventually inline funcs will be supported.
+    // I'm not sure what this should do in that case...
     items: r#"
-inline void foo(int a) {
+inline void foo(int a) {  //~ ERROR not supported
     I1 = 2 * a;
 }
 
 void bar() {
-    foo(2:3:4:5);
+    foo(2:3:4:5);  //~ ERROR not supported
 }
 "#,
-    // Eventually inline funcs will be supported.
-    // I'm not sure what this should do in that case.
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -164,17 +158,15 @@ source_test!(
 source_test!(
     ECL_06, diff_switch_too_many_cases,
     main_body: r#"
-    I0 = (2::::::::);
+    I0 = (2::::::::);  //~ ERROR too many
 "#,
-    expect_error: "too many",
 );
 
 source_test!(
     ECL_06, diff_switch_mismatched_number_of_cases,
     main_body: r#"
-    I0 = (2:3:4:5) + (1:2:3:4:5);
+    I0 = (2:3:4:5) + (1:2:3:4:5);  //~ ERROR switch lengths
 "#,
-    expect_error: "switch lengths",
 );
 
 source_test!(
@@ -481,7 +473,6 @@ source_test!(
 source_test!(
     ANM_10, diff_switch_in_non_ecl,
     main_body: r#"
-    int x = (1:2:3:4);
+    int x = (1:2:3:4);  //~ ERROR not supported
 "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );

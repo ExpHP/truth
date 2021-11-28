@@ -25,30 +25,27 @@ source_test!(
     ECL_06, signature_with_arg0_in_not_timeline,
     mapfile: r#"!eclmap
 !ins_signatures
-1000 T(m)
+1000 T(m)  //~ ERROR only valid in
     "#,
     main_body: "",
-    expect_error: "only valid in",
 );
 
 source_test!(
     ECL_08, signature_with_arg0_in_th08_timeline,
     mapfile: r#"!eclmap
 !timeline_ins_signatures
-1000 T(m)
+1000 T(m)  //~ ERROR only valid in
     "#,
     main_body: "",
-    expect_error: "only valid in",
 );
 
 source_test!(
     ECL_06, signature_without_arg0_in_th06_timeline,
     mapfile: r#"!eclmap
 !timeline_ins_signatures
-1000 SS
+1000 SS  //~ ERROR is missing
     "#,
     main_body: "",
-    expect_error: "is missing",
 );
 
 source_test!(
@@ -66,14 +63,13 @@ source_test!(
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     full_source: r#"
 timeline 0 {
-    eclOnly(0, 3, 3);
+    eclOnly(0, 3, 3);   //~ ERROR defined in ECL
 }
 
 void bouba() {
-    timelineOnly(0, 3, 3);
+    timelineOnly(0, 3, 3);   //~ ERROR defined in ECL Timeline
 }
 "#,
-    expect_error: "defined in ECL Timeline",
 );
 
 source_test!(
@@ -124,18 +120,16 @@ source_test!(
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     // arg0 cannot stand in for a positional arg, even if that positional arg technically serves the role of arg0
-    hasMsgArg0(@arg0=10, 3, 3);
+    hasMsgArg0(@arg0=10, 3, 3);  //~ ERROR expects 3 arguments, got 2
 "#,
-    expect_error: "expects 3 arguments, got 2",
 );
 
 source_test!(
     ECL_TIMELINE_06, warn_arg0_collision,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
-    hasMsgArg0(@arg0=10, 5, 3, 3);
+    hasMsgArg0(@arg0=10, 5, 3, 3);  //~ WARNING overrides value supplied naturally
 "#,
-    expect_warning: "overrides value supplied naturally",
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));  // i.e. not 5
@@ -146,9 +140,8 @@ source_test!(
     ECL_TIMELINE_06, bad_type_for_optional_arg0,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
-    hasUnusedArg0(@arg0=5.5, 3, 3);
+    hasUnusedArg0(@arg0=5.5, 3, 3);  //~ ERROR type error
 "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -232,16 +225,14 @@ source_test!(
     ECL_TIMELINE_06, reg_as_positional_arg0,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
-    hasMsgArg0($REG[20], 3, 3);
+    hasMsgArg0($REG[20], 3, 3);  //~ ERROR constant
 "#,
-    expect_error: "constant",
 );
 
 source_test!(
     ECL_TIMELINE_06, reg_as_other_timeline_arg,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
-    hasMsgArg0(3, $REG[20], 3);
+    hasMsgArg0(3, $REG[20], 3);  //~ ERROR non-const
 "#,
-    expect_error: "non-const",
 );

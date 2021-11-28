@@ -82,7 +82,7 @@ impl Consts {
                 let span_2 = defs.var_decl_span(def_2).expect("missing span for def_2");
                 return Err(emitter.emit(error!(
                     message("ambiguous value for {} '{}'", noun, ident),
-                    secondary(span_1, "definition with value {}", value_1),
+                    primary(span_1, "definition with value {}", value_1),
                     primary(span_2, "definition with value {}", value_2),
                 )));
             }

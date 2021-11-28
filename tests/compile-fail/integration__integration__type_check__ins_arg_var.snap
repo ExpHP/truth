@@ -1,0 +1,29 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:28:18
+   │
+28 │         pos(0.0, I0, 3.0);       // var
+   │         ---      ^^ an integer
+   │         │         
+   │         expects a float for parameter 2
+
+error: type error
+   ┌─ <input>:29:18
+   │
+29 │         pos(0.0, 5, 3.0);        // literal
+   │         ---      ^ an integer
+   │         │         
+   │         expects a float for parameter 2
+
+error: type error
+   ┌─ <input>:30:18
+   │
+30 │         pos(0.0, I0 + I2, 3.0);  // complex
+   │         ---      ^^^^^^^ an integer
+   │         │         
+   │         expects a float for parameter 2
+
+

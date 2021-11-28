@@ -51,13 +51,14 @@ entry {
     path: "subdir/file-2.png",
     has_data: false,
     sprites: {
+        okaySprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 100},
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
+        //~^ ERROR depends on its own value
         bestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolestSprite * 3},
         coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
     },
 }
     "#,
-    expect_error: "depends on its own value",
 );
 
 source_test!(
@@ -66,16 +67,13 @@ source_test!(
 entry {
     path: "subdir/file-2.png",
     has_data: false,
-    memory_priority: 3 * I0,
+    memory_priority: 3 * I0,  //~ ERROR const
     low_res_scale: false,
     sprites: {
         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 200},
     },
 }
     "#,
-    // NOTE: be careful changing this.  If the new error complains about missing fields
-    // or missing image data, fix the test input instead.
-    expect_error: "const",
 );
 
 // It is okay for two sprites to have the same name (this occurs in decompiled output),
@@ -159,6 +157,7 @@ entry {
     path: "subdir/file1.png",
     has_data: false,
     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 0}},
+    //~^ ERROR ambiguous
 }
 
 entry {
@@ -171,7 +170,6 @@ script script0 {
     ins_1();
 }
     "#,
-    expect_error: "ambiguous"
 );
 
 // Same but one's implicit.
@@ -184,6 +182,7 @@ entry {
     path: "subdir/file1.png",
     has_data: false,
     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
+    //~^ ERROR ambiguous
 }
 
 entry {
@@ -196,7 +195,6 @@ script script0 {
     ins_1();
 }
     "#,
-    expect_error: "ambiguous"
 );
 
 // Type-checking/const-checking sprite IDs is actually a bit annoying.
@@ -208,10 +206,10 @@ entry {
     has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+        //~^ ERROR type error
     },
 }
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -222,10 +220,10 @@ entry {
     has_data: false,
     sprites: {
         sprite200: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+        //~^ ERROR const
     },
 }
     "#,
-    expect_error: "const",
 );
 
 // Dupes may follow different code paths for type checking and const checking since
@@ -245,10 +243,10 @@ entry {
     has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3.5},
+        //~^ ERROR type error
     },
 }
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
@@ -266,10 +264,10 @@ entry {
     has_data: false,
     sprites: {
         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+        //~^ ERROR const
     },
 }
     "#,
-    expect_error: "const",
 );
 
 source_test!(
@@ -392,6 +390,7 @@ entry {
     has_data: false,
     sprites: {
         wild: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 22 * 2 - 2},
+        //~^ ERROR ambiguous
     },
 }
 
@@ -403,7 +402,6 @@ script wild {  // should have ID 1
     ins_3(-1);
 }
     "#,
-    expect_error: "ambiguous",
 );
 
 source_test!(

@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: bad ABI for intrinsic: offset ('o') and time ('t') args must be consecutive
-  ┌─ <mapfile>:3:5
+  ┌─ <mapfile-1>:3:5
   │
 3 │ 300 tSo
   │     ^^^ offset ('o') and time ('t') args must be consecutive

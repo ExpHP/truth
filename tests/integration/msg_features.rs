@@ -74,9 +74,8 @@ meta {
 }
 
 script script0 {}
-script script0 {}
+script script0 {}  //~ ERROR redefinition
 "#,
-    expect_error: "redefinition",
 );
 
 
@@ -113,7 +112,7 @@ meta {
     table_len: 1,
     table: {
         0: {script: "script0"},
-        1: {script: "script1"},
+        1: {script: "script1"},  //~ WARNING unused table entry
         2: {script: "script2"},
         3: {script: "script2"},
     },
@@ -123,7 +122,6 @@ script script2 {}
 script script0 {}
 script script1 {}
 "#,
-    expect_warning: "unused table entry",
 );
 
 source_test!(
@@ -134,13 +132,12 @@ meta {
     table: {
         0: {script: "script0"},
         1: {script: "script0"},
-        0x0: {script: "script0"},
+        0x0: {script: "script0"},  //~ ERROR duplicate
     },
 }
 
 script script0 {}
 "#,
-    expect_error: "duplicate",
 );
 
 source_test!(
@@ -154,9 +151,8 @@ meta {
 }
 
 script script0 {}
-script foo {}
+script foo {}      //~ WARNING unused script 'foo'
 "#,
-    expect_warning: "unused script 'foo'",
 );
 
 source_test!(

@@ -12,29 +12,26 @@ source_test!(
 source_test!(
     ANM_10, seqmap_missing_section_header,
     mapfile: r#"!anmmap
-300 ot
+300 ot  //~ ERROR missing section header
 "#,
     main_body: r#""#,
-    expect_error: "missing section header",
 );
 
 source_test!(
     ANM_10, seqmap_missing_magic,
-    mapfile: r#"
+    mapfile: r#"//~ ERROR missing magic
 300 ot
 "#,
     main_body: r#""#,
-    expect_error: "missing magic",
 );
 
 source_test!(
     ANM_10, abi_multiple_o,
     mapfile: r#"!anmmap
 !ins_signatures
-300 oot
+300 oot   //~ ERROR multiple 'o'
 "#,
     main_body: r#""#,
-    expect_error: "multiple 'o'",
 );
 
 source_test!(
@@ -80,50 +77,23 @@ source_test!(
     ANM_10, intrinsic_name_garbage,
     mapfile: r#"!anmmap
 !ins_intrinsics
-4 lmfao
-"#,
-    main_body: r#""#,
-    expect_error: "invalid intrinsic name",
-);
 
-source_test!(
-    ANM_10, intrinsic_name_xkcd_859,
-    mapfile: r#"!anmmap
-!ins_intrinsics
-4 CondJmp(>,int
-"#,
-    main_body: r#""#,
-    expect_error: "invalid intrinsic name",
-);
+# no parens
+4 lmfao            //~ ERROR invalid intrinsic name
 
-source_test!(
-    ANM_10, intrinsic_name_extra_arg,
-    mapfile: r#"!anmmap
-!ins_intrinsics
-4 Jmp(int)
-"#,
-    main_body: r#""#,
-    expect_error: "invalid intrinsic name",
-);
+# xkcd 859
+5 CondJmp(>,int    //~ ERROR invalid intrinsic name
 
-source_test!(
-    ANM_10, intrinsic_name_missing_arg,
-    mapfile: r#"!anmmap
-!ins_intrinsics
-4 CondJmp(>=)
-"#,
-    main_body: r#""#,
-    expect_error: "invalid intrinsic name",
-);
+# extra arg
+6 Jmp(int)         //~ ERROR invalid intrinsic name
 
-source_test!(
-    ANM_10, intrinsic_name_typo,
-    mapfile: r#"!anmmap
-!ins_intrinsics
-4 CondimentJmp(>=,int)
+# missing arg
+7 CondJmp(>=)      //~ ERROR invalid intrinsic name
+
+# intrinsic name typo
+8 CondimentJmp(>=,int)  //~ ERROR invalid intrinsic name
 "#,
     main_body: r#""#,
-    expect_error: "invalid intrinsic name",
 );
 
 source_test!(
@@ -132,10 +102,9 @@ source_test!(
 !ins_intrinsics
 4 Jmp(+)
 !ins_signatures
-4 St
+4 St     //~ ERROR without an 'o'
 "#,
     main_body: r#""#,
-    expect_error: "without an 'o'",
 );
 
 source_test!(
@@ -144,22 +113,20 @@ source_test!(
 !ins_intrinsics
 4 Jmp()
 !ins_signatures
-4 So
+4 So     //~ ERROR unexpected dword
 "#,
     main_body: r#""#,
-    expect_error: "unexpected dword",
 );
 
 source_test!(
     ANM_10, intrinsic_jmp_non_consecutive_offset_time,
     mapfile: r#"!anmmap
 !ins_signatures
-300 tSo
+300 tSo   //~ ERROR must be consecutive
 !ins_intrinsics
 300 CountJmp()
 "#,
     main_body: r#""#,
-    expect_error: "must be consecutive", // current limitation
 );
 
 source_test!(
@@ -168,10 +135,9 @@ source_test!(
 !ins_intrinsics
 99 AssignOp(=,int)
 !ins_signatures
-99 fS
+99 fS     //~ ERROR unexpected encoding
 "#,
     main_body: r#""#,
-    expect_error: "unexpected encoding",
 );
 
 source_test!(
@@ -180,10 +146,9 @@ source_test!(
 !ins_intrinsics
 99 AssignOp(=,int)
 !ins_signatures
-99 Sf
+99 Sf     //~ ERROR unexpected encoding
 "#,
     main_body: r#""#,
-    expect_error: "unexpected encoding",
 );
 
 source_test!(
@@ -192,10 +157,9 @@ source_test!(
 !ins_intrinsics
 99 AssignOp(=,int)
 !ins_signatures
-99 SSS
+99 SSS     //~ ERROR unexpected
 "#,
     main_body: r#""#,
-    expect_error: "unexpected",
 );
 
 source_test!(
@@ -204,10 +168,9 @@ source_test!(
 !ins_intrinsics
 99 AssignOp(=,int)
 !ins_signatures
-99 S
+99 S     //~ ERROR not enough arguments
 "#,
     main_body: r#""#,
-    expect_error: "not enough arguments",
 );
 
 source_test!(
@@ -224,16 +187,16 @@ source_test!(
     ANM_10, intrinsic_without_signature,
     mapfile: r#"!anmmap
 !ins_intrinsics
-999 Jmp()
+999 Jmp()  //~ ERROR has no signature
 "#,
     items: r#"
-// the multiple scripts are a regression test for commit c051299ba21de11e
-// (we should only get one copy of the error)
+// this particular error used to be generated once per script (commit c051299ba21de11e),
+// so put a couple here as a regression test.
+// (they don't need to actually use the instruction)
 script aaa { }
 script bbb { }
 "#,
     main_body: r#""#,
-    expect_error: "has no signature",
 );
 
 source_test!(
@@ -306,24 +269,21 @@ source_test!(
     ECL_06, diff_flags_bad_index,
     mapfile: r#"!eclmap
 !difficulty_flags
-8 b-
+8 b-  //~ ERROR out of range
 "#,
     main_body: "",
-    expect_error: "out of range",
 );
 
 source_test!(
     ECL_06, diff_flags_syntax_errors,
     mapfile: r#"!eclmap
 !difficulty_flags
-1 @-
-2 X@
-3 a
-4 θ   # a two byte character
-5 There_should_be_errors_on_all_lines_from_1_to_this_number
+1 @-                         //~ ERROR invalid difficulty
+2 X@                         //~ ERROR invalid difficulty
+3 a                          //~ ERROR invalid difficulty
+4 θ  # a two byte character  //~ ERROR invalid difficulty
 "#,
     main_body: "",
-    expect_error: "invalid difficulty",
 );
 
 source_test!(

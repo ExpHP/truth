@@ -2,6 +2,6 @@
 source: tests/integration/strings.rs
 expression: stderr
 ---
-warning: <decompile-input>: in sub0: instr 0 (opcode 555, offset 0x0): argument 1: missing null terminator will be appended to string
+warning: <compiled-file>: in sub0: instr 0 (opcode 555, offset 0x0): argument 1: missing null terminator will be appended to string
 
 

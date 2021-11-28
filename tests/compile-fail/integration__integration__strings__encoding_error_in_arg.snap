@@ -5,7 +5,7 @@ expression: stderr
 error: string encoding error
    ┌─ <input>:13:21
    │
-13 │       textSet(0, 0, "⏄");  
+13 │       textSet(0, 0, "⏄");
    │                     ^^^ cannot be encoded using 'Shift_JIS'
 
 

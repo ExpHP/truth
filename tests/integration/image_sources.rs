@@ -400,10 +400,9 @@ entry {
 entry {
     path: "lmao.png",
     has_data: true,
-    img_format: 8,
+    img_format: 8,   //~ ERROR into unknown color format
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "into unknown color format",
     );
 
     source_test!(
@@ -433,10 +432,9 @@ entry {
     has_data: "dummy",
     img_width: 27,
     img_height: 25,
-    img_format: 8,
+    img_format: 8,   //~ ERROR unknown color format
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "unknown color format",
     );
 
     source_test!(
@@ -465,10 +463,9 @@ entry {
 entry {
     path: "subdir/hi-7x20.png",
     has_data: true,
-    img_format: 8,
+    img_format: 8,  //~ ERROR into unknown color format
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "into unknown color format",
     );
 }
 
@@ -477,17 +474,24 @@ source_test!(
     STD_08, image_source_in_std,
     items: r#"
         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+        //~^ ERROR unexpected image_source
     "#,
-    expect_error: "unexpected image_source",
 );
 source_test!(
     MSG_06, image_source_in_msg,
     items: r#"
         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+        //~^ ERROR unexpected image_source
     "#,
-    expect_error: "unexpected image_source",
 );
-// FIXME: ECL test when ECL exists
+source_test!(
+    ECL_06, image_source_in_olde_ecl,
+    items: r#"
+        #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+        //~^ ERROR unexpected image_source
+    "#,
+);
+// FIXME: modern ECL test when it exists
 
 // =============================================================================
 // Directory image sources
@@ -786,11 +790,10 @@ source_test!(
 entry {
     path: "subdir/hi-7x20.png",
     has_data: false,
-    rt_width: 7,
-    rt_height: 21,
+    rt_width: 7,     //~ WARNING not a power of two
+    rt_height: 21,   //~ WARNING not a power of two
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_warning: "not a power of two",
 );
 
 source_test!(
@@ -802,8 +805,7 @@ entry {
     path: "subdir/hi-32x16.png",
     has_data: false,
     rt_height: 16,
-    rt_width: 16,
+    rt_width: 16,   //~ WARNING too small for
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_warning: "too small for",
 );

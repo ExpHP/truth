@@ -35,14 +35,13 @@ meta {
     instances: [
         blurb {pos: [-192.0, 6600.0, 0.0]},
         blorb {pos: [320.0, 4296.0, 0.0]},
-        blarb {pos: [-192.0, 6344.0, 0.0]},
+        blarb {pos: [-192.0, 6344.0, 0.0]},   //~ ERROR no object named
         blorb {pos: [320.0, 4296.0, 0.0]},
     ],
 }
 
 script main {}
 "#,
-    expect_error: "no object named",
 );
 
 source_test!(
@@ -89,7 +88,7 @@ meta {
     anm_path: "stage01.anm",
     objects: {
         thing: {
-            unknown: 3,  // <--- old name
+            unknown: 3,  // <--- old name, not yet deprecated
             pos: [10.0, 20.0, 30.0],
             size: [10.0, 20.0, 30.0],
             quads: [],
@@ -112,7 +111,7 @@ meta {
     unknown: 0,
     anm_path: "stage01.anm",
     objects: {
-        thing: {
+        thing: {                     //~ ERROR 'layer'
             pos: [10.0, 20.0, 30.0],
             size: [10.0, 20.0, 30.0],
             quads: [],
@@ -123,7 +122,6 @@ meta {
 
 script main {}
 "#,
-    expect_error: "'layer'",
 );
 
 source_test!(
@@ -136,7 +134,7 @@ meta {
     anm_path: "stage01.anm",
     objects: {
         thing: {
-            unknown: 3,
+            unknown: 3,   //~ ERROR both 'unknown' and 'layer'
             layer: 4,
             pos: [10.0, 20.0, 30.0],
             size: [10.0, 20.0, 30.0],
@@ -148,7 +146,6 @@ meta {
 
 script main {}
 "#,
-    expect_error: "both 'unknown' and 'layer'",
 );
 
 source_test!(

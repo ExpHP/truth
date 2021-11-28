@@ -1,0 +1,11 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: runtime temporary of non-numeric type
+   ┌─ <input>:11:31
+   │
+11 │         spellcard_start(0, 0, I0 ? "abc" : "def");
+   │                               ^^^^^^^^^^^^^^^^^^ temporary strings cannot be created
+
+

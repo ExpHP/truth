@@ -1,243 +1,153 @@
 #[allow(unused)]
 use crate::integration_impl::{expected, formats::*};
 
-// NOTE: 'stackless__' is a prefix for things that used to be type-checked during lowering
-//       (so they were special cases handled by the stackless lowerer), and 'const__' is a
-//       prefix for things that used to be type-checked during const folding.
-//
-//       All of these things are now type-checked during the dedicated type-checking pass,
-//       but we keep both of them in case that situation were to change again.
-
 source_test!(
     ANM_10, bad_declaration,
-    main_body: r#"  int %x;  "#,
-    expect_error: expected::PARSE_ERROR,  // currently 'int $x' is invalid too, but never say never...
+    // NOTE: currently 'int $x' is invalid too, but never say never...
+    main_body: r#"  int %x;  //~ ERROR unexpected token "#,
 );
 
 // =========================
-// Stackless expression assignments
+// Expression assignments
 
 source_test!(
-    ANM_10, stackless__assign_literal,
-    main_body: r#"  I0 = 4.0;  "#,
-    expect_error: expected::TYPE_ERROR,
+    ANM_10, simple_expr_types,
+    main_body: r#"
+        I0 = 4.0;  //~ ERROR type error
+        I0 = F0;   //~ ERROR type error
+        I0 = %I1;  //~ ERROR type error
+    "#,
 );
 
 source_test!(
-    ANM_10, stackless__assign_var,
-    main_body: r#"  I0 = F0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
+    ANM_10, basic_type_checking,
+    items: r#"
+script binops {
+    F0 = F1 + 4;        // arg     //~ ERROR type error
+    I0 = F1 + 2.0;      // output  //~ ERROR type error
+    int x = I0 + "abc"; // string  //~ ERROR type error
+}
 
-source_test!(
-    ANM_10, stackless__assign_var_sigil,
-    main_body: r#"  I0 = %I1;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
+script ternaries {
+    F0 = F2 ? 1.0 : 2.0;  // cond   //~ ERROR type error
+    F0 = I1 ? F1 : I0;    // cases  //~ ERROR type error
+    I0 = I0 ? F0 : F1;    // output //~ ERROR type error
+}
 
-source_test!(
-    ANM_10, stackless__binop_arg,
-    main_body: r#"  F0 = F1 + 4;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
+script functionUnops {
+    float f = sin(I0); // arg    //~ ERROR type error
+    int x = sin(F0);   // output //~ ERROR type error
+}
 
-source_test!(
-    ANM_10, stackless__binop_out,
-    main_body: r#"  I0 = F1 + 2.0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    MSG_06, stackless__binop_two_strings,
-    main_body: r#"  textSet(0, 0, "F1" - "2.0");  "#,
-    expect_error: "string",
-);
-
-source_test!(
-    ANM_10, const__binop,
-    main_body: r#"  I0 = 1 + 2.0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__sine_arg,
-    main_body: r#"  float x = sin(I0);  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__sine_out,
-    main_body: r#"  int x = sin(F0);  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, const__sine,
-    main_body: r#"  F0 = sin(1);  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, const__sprite,
-    main_body: r#"  F0 = sprite0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__ternary_cond,
-    main_body: r#"  F0 = F2 ? 1.0 : 2.0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__ternary_arg,
-    main_body: r#"  F0 = I1 ? F1 : I0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__ternary_out,
-    main_body: r#"  I0 = I0 ? F0 : F1;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, const__ternary_cond,
-    main_body: r#"  F0 = 1.5 ? 1.0 : 2.0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-// for ternary branch type mismatch in a const context, see the "short-circuit" tests below
-
-source_test!(
-    ANM_10, stackless__binop_str,
-    main_body: r#"  int x = I0 + "abc";  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__neg_str,
-    main_body: r#"  int x = -"abc";  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
+script unaries {
+    int x = -"abc";  //~ ERROR type error
     // ...hang on, should casting int to int really be an error?
-    ANM_10, stackless__cast,
-    main_body: r#"  int x = _S(I2);  "#,
-    expect_error: expected::TYPE_ERROR,
+    int y = _S(I2);  //~ ERROR type error
+}
+    "#,
 );
 
 source_test!(
-    // ...hang on, should casting int to int really be an error?
-    ANM_10, const__cast,
-    main_body: r#"  int x = _S(2);  "#,
-    expect_error: expected::TYPE_ERROR,
+    MSG_06, binop_two_strings,
+    main_body: r#"
+        textSet(0, 0, "F1" - "2.0");  //~ ERROR string
+    "#,
+);
+
+source_test!(
+    ANM_10, sprite_is_int,
+    main_body: r#"
+        F0 = sprite0;  //~ ERROR type error
+    "#,
 );
 
 // =========================
-// stackless jumps
+// jumps
 
 source_test!(
-    ANM_10, stackless__jump_comparison_arg,
-    main_body: r#"
-        if (2 == 3.0) goto label;
-      label:
+    ANM_10, jumps,
+    items: r#"
+script compare {
+    if (2 == 3.0) goto label;  //~ ERROR type error
+label:
+}
+
+script simpleCond {
+    if (3.0) goto label;  //~ ERROR type error
+label:
+}
+
+script logical {
+    // argument
+    if (2 && 3.0) goto label1;  //~ ERROR type error
+label1:
+    // result
+    if (2.0 && 3.0) goto label2;  //~ ERROR type error
+label2:
+}
+
+script predec {
+    if (--F0) goto label;  //~ ERROR type error
+label:
+}
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
-    ANM_10, stackless__jump_general_expr,
+    ANM_10, jump_time,
     main_body: r#"
-        if (3.0) goto label;
-      label:
+        if (2 == 2) goto label @ 2.4;  //~ ERROR unexpected token
+    label:
     "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__jump_logical_arg,
-    main_body: r#"
-        if (2 && 3.0) goto label;
-      label:
-    "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__jump_logical_result,
-    main_body: r#"
-        if (2.0 && 3.0) goto label;
-      label:
-    "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__jump_predec_float,
-    main_body: r#"
-        if (--F0) goto label;
-      label:
-    "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__jump_time,
-    main_body: r#"
-        if (2 == 2) goto label @ 2.4;
-      label:
-    "#,
-    expect_error: expected::PARSE_ERROR,
 );
 
 // =========================
-// stackless times
+// times
 
 source_test!(
-    ANM_10, stackless__times_count,
-    main_body: r#"  times(F0) {}  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, stackless__times_clobber,
-    main_body: r#"  times(F0 = 4) {}  "#,
-    expect_error: expected::TYPE_ERROR,
+    ANM_10, times,
+    main_body: r#"
+        times(F0) {}  // count  //~ ERROR type error
+        times(F0 = 4) {}  // clobber  //~ ERROR type error
+    "#,
 );
 
 // =========================
-// stackless instruction arguments
+// instruction arguments
 
 source_test!(
-    ANM_10, stackless__ins_arg_var,
-    main_body: r#"  pos(0.0, I0, 3.0);  "#,
-    expect_error: expected::TYPE_ERROR,
+    ANM_10, ins_arg_var,
+    main_body: r#"
+        pos(0.0, I0, 3.0);       // var      //~ ERROR type error
+        pos(0.0, 5, 3.0);        // literal  //~ ERROR type error
+        pos(0.0, I0 + I2, 3.0);  // complex  //~ ERROR type error
+    "#,
 );
 
 source_test!(
-    ANM_10, stackless__ins_arg_literal,
-    main_body: r#"  pos(0.0, 5, 3.0);  "#,
-    expect_error: expected::TYPE_ERROR,
+    MSG_06, ins_arg_neg_str,
+    main_body: r#"
+        textSet(0, 0, -"abc");  //~ ERROR string
+    "#,
 );
 
 source_test!(
-    ANM_10, stackless__ins_arg_complex,
-    main_body: r#"  pos(0.0, I0 + I2, 3.0);  "#,
-    expect_error: expected::TYPE_ERROR,
+    // this test is basically the only way that is guaranteed to hit a
+    // "no runtime string temporaries" check
+    ECL_06, ins_arg_binop_str__stackless,
+    main_body: r#"
+        spellcard_start(0, 0, 20 ? "abc" : "def");  // this is okay (const eval)
+        spellcard_start(0, 0, I0 ? "abc" : "def");  //~ ERROR temporary string
+    "#,
+    // FIXME: When stackful ECL is added, we should add a copy of this test for TH10+
 );
 
-source_test!(
-    MSG_06, stackless__func_arg_neg_str,
-    main_body: r#"  textSet(0, 0, -"abc");  "#,
-    expect_error: "string",
-);
 
 source_test!(
-    ANM_10, stackless__pseudo,
-    main_body: r#"  pos(@blob=12);  "#,
-    expect_error: expected::TYPE_ERROR,
+    ANM_10, pseudo,
+    main_body: r#"
+        pos(@blob=12);  //~ ERROR type error
+    "#,
 );
 
 // =========================
@@ -245,76 +155,45 @@ source_test!(
 
 source_test!(
     ECL_06, diffswitch__missing_first,
-    main_body: r#"int x = :4:4:6;"#,
-    expect_error: expected::PARSE_ERROR,
+    main_body: r#"
+        int x = :4:4:6;  //~ ERROR unexpected token
+    "#,
 );
 
 source_test!(
-    ECL_06, diffswitch__arg,
-    main_body: r#"int x = 3::4.5:;"#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ECL_06, diffswitch__out,
-    main_body: r#"float a = 3:4::4;"#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ECL_06, diffswitch__out_void,
-    main_body: r#"int x = ins_0():::;"#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ECL_06, diffswitch__interior,
-    main_body: r#"(3.0:4.0:3.0 + 1:5.0);"#,
-    expect_error: expected::TYPE_ERROR,
+    ECL_06, diffswitch,
+    main_body: r#"
+        int x = 3::4.5:;               // arg       //~ ERROR type error
+        float a = 3:4::4;              // out       //~ ERROR type error
+        int y = ins_0():::;            // void expr //~ ERROR type error
+        int z = (3.0:4.0:3.0 + 1:5.0); // interior  //~ ERROR type error
+        (ins_0():::);                  // void stmt //~ ERROR type error
+    "#,
 );
 
 // =========================
 // expression statements
 
 source_test!(
-    ANM_10, stackless__non_void_expr_statement,
-    main_body: r#"  3.0;  "#,
-    expect_error: expected::TYPE_ERROR,
+    ANM_10, non_void_expr_statement,
+    main_body: r#"
+        3.0;  //~ ERROR type error
+    "#,
 );
-
-// FIXME: Once we have ECL we should try `I0 ? "abc" : "def"` as an argument;
-//        this is more or less the only way guaranteed to hit a "no runtime string temporaries"
-//        check.  (at the time of writing, `-"abc"` and `"a" + "b"` currently hit it but, that's
-//        only because it's not currently caught during in const folding or shallow typing)
 
 // =========================
 // short-circuited const expressions
 
 // These tests look at subexpressions that get completely deleted from the AST during
 // constant folding.  We want to make sure they are still typechecked!
-
 source_test!(
-    ANM_10, const__short_circuit__ternary_left,
-    main_body: r#"  F0 = 5 ? 1.0 : 0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, const__short_circuit__ternary_right,
-    main_body: r#"  F0 = 0 ? "lol" : 1.0;  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, const__short_circuit__and,
-    main_body: r#"  I0 = 1 && "lmao";  "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
-    ANM_10, const__short_circuit__or,
-    main_body: r#"  I0 = 0.0 || 1;  "#,
-    expect_error: expected::TYPE_ERROR,
+    ANM_10, const_short_circuit,
+    main_body: r#"
+        F0 = 5 ? 1.0 : 0;      // ternary left   //~ ERROR type error
+        F0 = 0 ? "lol" : 1.0;  // ternary right  //~ ERROR type error
+        I0 = 1 && "lmao";      // and            //~ ERROR type error
+        I0 = 0.0 || 1;         // or             //~ ERROR type error
+    "#,
 );
 
 // =========================
@@ -323,19 +202,17 @@ source_test!(
 source_test!(
     ANM_10, return__value_from_void,
     items: r#"
-        inline void foo() { return 0; }
+inline void foo() { return 0; }  //~ ERROR type error
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, return__none_from_void,
-    items: r#"
-        inline void foo() { return; }
-    "#,
     // FIXME: Inline funcs should be supported eventually.
     //        Once they are, this should become a compile-succeed test.
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+    items: r#"
+inline void foo() { return; }  //~ ERROR not supported
+    "#,
 );
 
 // (if we want to allow this to compile, then each lowerer will need tests to check that this
@@ -343,49 +220,46 @@ source_test!(
 source_test!(
     ANM_10, return__void_from_void,
     items: r#"
-        inline void foo() { return sprite(0); }
+inline void foo() { return sprite(0); }  //~ ERROR type error
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, return__value_from_value,
     items: r#"
-        inline float foo() { return 0; }
+inline float foo() { return 0; }  //~ ERROR type error
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, return__none_from_value,
     items: r#"
-        inline float foo() { return; }
+inline float foo() { return; }  //~ ERROR type error
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, return__void_from_value,
     items: r#"
-        inline float foo() { return sprite(0); }
+inline float foo() { return sprite(0); }  //~ ERROR type error
     "#,
-    expect_error: expected::TYPE_ERROR,
 );
 
 source_test!(
     ANM_10, return__missing_from_value,
     items: r#"
-        inline int foo() { }
+inline int foo() { }
+//~^ WARNING has no return
+//~| ERROR not supported
     "#,
-    expect_error: "has no return",
 );
 
 source_test!(
-    ANM_10, return__missing_from_void,
-    items: r#"
-        inline void foo() { }
-    "#,
+    ANM_10, return__missing_from_void__stackless,
     // FIXME: Inline funcs should be supported eventually.
     //        Once they are, this should become a compile-succeed test.
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+    items: r#"
+inline void foo() { }  //~ ERROR not supported
+    "#,
+    // FIXME: This needs a stackful version
 );

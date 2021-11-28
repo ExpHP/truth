@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: difficulty flag index out of range
-  ┌─ <mapfile>:3:3
+  ┌─ <mapfile-1>:3:3
   │
 3 │ 8 b-
   │   ^^ must be from 0 to 7 inclusive

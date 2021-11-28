@@ -3,38 +3,39 @@ use crate::integration_impl::{expected, formats::*};
 
 source_test!(
     ANM_10, unknown_instr_signature,
-    main_body: r#"  ins_6000(0, 0, 0);  "#,
-    expect_error: "signature",
+    main_body: r#"
+        ins_6000(0, 0, 0);  //~ ERROR signature
+    "#,
 );
 
 source_test!(
     ANM_10, unknown_instr_name,
-    main_body: r#"  iMadeThisUpYesterday(0, 0, 0);  "#,
-    expect_error: "instruction or function",
+    main_body: r#"
+        iMadeThisUpYesterday(0, 0, 0);  //~ ERROR instruction or function
+    "#,
 );
 
 source_test!(
     ANM_10, unknown_variable,
-    main_body: r#"  int x = y;  "#,
-    expect_error: "register or variable",
+    main_body: r#"
+        int x = y;  //~ ERROR register or variable
+    "#,
 );
 
 source_test!(
     // even with explicit sigils, untyped vars simply can't exist in stackless langs
     ANM_10, stackless__untyped_var,
     main_body: r#"
-        var x;
+        var x;  //~ ERROR not supported
         $x = 4;
     "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
     ANM_10, anm_bitwise,
     main_body: r#"
-        I0 = I0 | I1;
+        I0 = I0 | I1;  //~ ERROR not supported
     "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -59,35 +60,31 @@ source_test!(
     ANM_10, bad_signature_in_mapfile,
     mapfile: r#"!anmmap
 !ins_signatures
-1000 z(bs=4)S
+1000 z(bs=4)S  //~ ERROR can only appear at the very end
 "#,
     main_body: "",
-    expect_error: "can only appear at the very end",
 );
 
 source_test!(
     STD_08, jump_missing_label,
     main_body: r#"
-        goto label;
+        goto label;  //~ ERROR undefined label
     "#,
-    expect_error: "undefined label",
 );
 
 source_test!(
     STD_08, duplicate_label,
     main_body: r#"
     label:
-    label:
+    label:  //~ ERROR duplicate label
     "#,
-    expect_error: "duplicate label",
 );
 
 source_test!(
     STD_08, break_outside_loop,
     main_body: r#"
-        break;
+        break;  //~ ERROR outside of a loop
     "#,
-    expect_error: "outside of a loop",
 );
 
 source_test!(
@@ -107,108 +104,96 @@ source_test!(
     main_body: r#"
         loop {
             const void nowHeyWhatsThis() {
-                break;
+                break;  //~ ERROR outside of a loop
             }
         }
     "#,
-    expect_error: "outside of a loop",
 );
 
 source_test!(
     STD_08, local_in_std,
     main_body: r#"
-        int x = 4;
+        int x = 4;  //~ ERROR not supported
     "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
     ANM_10, local_string,
     main_body: r#"
-        string x = "hi";
+        string x = "hi";  //~ ERROR non-const
     "#,
-    expect_error: "non-const",
 );
 
 source_test!(
     ANM_10, local_void,
     main_body: r#"
-        void x = delete();
+        void x = delete();  //~ ERROR must have a value
     "#,
-    expect_error: "must have a value",
 );
 
 source_test!(
     ANM_10, const_void,
     items: r#"
-        const void x = delete();
+        const void x = delete();  //~ ERROR must have a value
     "#,
-    expect_error: "must have a value",
 );
 
 source_test!(
     ANM_10, const_untyped,
     items: r#"
-        const var x = 3;
+        const var x = 3;  //~ ERROR untyped
     "#,
-    expect_error: "untyped",
 );
 
 source_test!(
     ANM_10, const_reg,
     items: r#"
-        const int y = $REG[10000];
+        const int y = $REG[10000];  //~ ERROR const context
     "#,
-    expect_error: "const context",
 );
 
 source_test!(
     ANM_10, func_untyped,
     items: r#"
-        var foo() { return 1; }
+        var foo() { return 1; }  //~ ERROR var-typed
     "#,
-    expect_error: "var-typed",
 );
 
 // FIXME: change this test to ECL once that is available
 source_test!(
     // this is going to become grammatically correct eventually; the test is here to make
     // sure it fails gracefully from the getgo
-    ANM_10, func_nonconst_string,
+    ANM_10, func_exported_string,
     items: r#"
-        string foo() { return "hi"; }
+        string foo() { return "hi"; }  //~ ERROR not supported
     "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
     ANM_10, func_inline_const,
     items: r#"
-        inline const int foo() { return 1; }
+        inline const int foo() { return 1; }  //~ ERROR extra qualifier
     "#,
-    expect_error: "extra qualifier",
 );
 
 source_test!(
     ANM_10, func_const_reg,
     items: r#"
         const int foo() {
-            int x = 3 + $REG[10000];
+            int x = 3 + $REG[10000];  //~ ERROR const context
             return x;
         }
     "#,
-    expect_error: "const context",
 );
 
 source_test!(
     ANM_10, func_const_ins,
     items: r#"
         const int foo() {
-            ins_23();
+            ins_23();  //~ ERROR const context
             return 5;
         }
     "#,
-    expect_error: "const context",
 );
 
 source_test!(
@@ -225,9 +210,8 @@ source_test!(
     // sure it fails gracefully from the getgo
     ANM_10, local_named_after_reg,
     main_body: r#"
-        int REG[100] = 3;
+        int REG[100] = 3;  //~ ERROR unexpected token
     "#,
-    expect_error: expected::PARSE_ERROR,
 );
 
 source_test!(
@@ -235,9 +219,8 @@ source_test!(
     // sure it fails gracefully from the getgo
     ANM_10, func_param_named_after_reg,
     items: r#"
-        void foo(int REG[100]) {}
+        void foo(int REG[100]) {}  //~ ERROR unexpected token
     "#,
-    expect_error: expected::PARSE_ERROR,
 );
 
 source_test!(
@@ -270,40 +253,28 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, const_string_to_int,
-    items: r#"
-        const string x = "hi";
-        const int y = $x;
-    "#,
-    expect_error: expected::TYPE_ERROR,
-);
-
-source_test!(
     ANM_10, uninitialized_const,
     items: r#"
-        const int y = 3, z, w = 4;
+        const int y = 3, z, w = 4;  //~ ERROR uninitialized const
     "#,
-    expect_error: "uninitialized const",
 );
 
 source_test!(
     STD_08, recursive_const,
     items: r#"
-        const int NO_ERROR_HERE = UH_OH;  // <-- this one should not be part of the error
-        const int UH_OH = UMMMM;
+        const int NO_ERROR_HERE = UH_OH;
+        const int UH_OH = UMMMM;  //~ ERROR depends on its own value
         const int UMMMM = HALP;
         const int HALP = UH_OH;
     "#,
-    expect_error: "depends on its own value",
 );
 
 source_test!(
     ANM_06, eosd_anm_early_end,
     main_body: r#"
         ins_0();
-        pos(0f, 0f, 0f);
+        pos(0f, 0f, 0f);  //~ ERROR after end
     "#,
-    expect_error: "after end",
 );
 
 source_test!(
@@ -312,10 +283,9 @@ source_test!(
     // that tries to stick a register in an offset argument and that doesn't even really use the
     // correct offset to begin with (since ECL offsets are relative)
     main_body: r#"
-        jump(30, (offsetof(label) + 4) * 2);
+        jump(30, (offsetof(label) + 4) * 2);  //~ ERROR constant
     label:
     "#,
-    expect_error: "constant",
 );
 
 source_test!(
@@ -351,23 +321,20 @@ source_test!(
 source_test!(
     STD_08, arg_count_range,
     main_body: r#"
-        ins_2();
+        ins_2();  //~ ERROR expects 1 to 3 arguments
     "#,
-    expect_error: "expects 1 to 3 arguments",
 );
 
 source_test!(
     STD_08, arg_count_fixed,
     main_body: r#"
-        posKeyframe(0f, 0f, 0f, 0f);
+        posKeyframe(0f, 0f, 0f, 0f);  //~ ERROR expects 3 arguments
     "#,
-    expect_error: "expects 3 arguments",
 );
 
 source_test!(
     MSG_06, reg_in_unsupported_lang,
-    main_body: r#"  textSet(0, $REG[0], "cheese");  "#,
-    expect_error: "constant",
+    main_body: r#"  textSet(0, $REG[0], "cheese");  //~ ERROR constant "#,
 );
 
 source_test!(

@@ -30,9 +30,8 @@ source_test!(
         const int foo(int x) { return x; }
     "#,
     main_body: r#"
-        int x = foo(@mask=0b1, 12);
+        int x = foo(@mask=0b1, 12);  //~ ERROR not an instruction
     "#,
-    expect_error: "not an instruction",
 );
 
 source_test!(
@@ -41,56 +40,49 @@ source_test!(
         inline void foo(int x) { wait(x); }
     "#,
     main_body: r#"
-        foo(@mask=0b1, 12);
+        foo(@mask=0b1, 12);  //~ ERROR not an instruction
     "#,
-    expect_error: "not an instruction",
 );
 
 source_test!(
     ANM_10, pseudo_after_arg,
     main_body: r#"
-        wait(12, @mask=0b1);
+        wait(12, @mask=0b1);  //~ ERROR before
     "#,
-    expect_error: "before",
 );
 
 source_test!(
     ANM_10, pseudo_blob_with_arg,
     main_body: r#"
-        wait(@blob="0f000000", 15);
+        wait(@blob="0f000000", 15);  //~ ERROR redundant
     "#,
-    expect_error: "redundant",
 );
 
 source_test!(
     ANM_10, pseudo_bad_name,
     main_body: r#"
-        wait(@blobloblob="0f000000");
+        wait(@blobloblob="0f000000");  //~ ERROR pseudo
     "#,
-    expect_error: "pseudo",
 );
 
 source_test!(
     ANM_10, pseudo_len_ndiv_4,
     main_body: r#"
-        wait(@blob="0f0000");
+        wait(@blob="0f0000");  //~ ERROR by 4
     "#,
-    expect_error: "by 4",
 );
 
 source_test!(
     ANM_10, pseudo_dupe,
     main_body: r#"
-        wait(@blob="0f000000", @blob="0f000000");
+        wait(@blob="0f000000", @blob="0f000000");  //~ ERROR duplicate
     "#,
-    expect_error: "duplicate",
 );
 
 source_test!(
     ANM_10, pseudo_non_const,
     main_body: r#"
         I0 = 1;
-        wait(@mask=I0, @blob="10270000");
+        wait(@mask=I0, @blob="10270000");  //~ ERROR const
     "#,
-    expect_error: "const",
 );

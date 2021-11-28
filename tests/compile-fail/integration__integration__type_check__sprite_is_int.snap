@@ -1,0 +1,14 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:28:14
+   │
+28 │         F0 = sprite0;
+   │         -- - ^^^^^^^ an integer
+   │         │  │  
+   │         │  same types required by this
+   │         a float
+
+

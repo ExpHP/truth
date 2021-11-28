@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: bad signature: signature has multiple 'o' args
-  ┌─ <mapfile>:3:5
+  ┌─ <mapfile-1>:3:5
   │
 3 │ 300 oot
   │     ^^^ signature has multiple 'o' args

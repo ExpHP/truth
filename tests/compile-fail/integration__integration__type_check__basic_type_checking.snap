@@ -1,0 +1,90 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:26:15
+   │
+26 │     F0 = F1 + 4;        // arg
+   │          -- - ^ an integer
+   │          │  │  
+   │          │  same types required by this
+   │          a float
+
+error: type error
+   ┌─ <input>:27:10
+   │
+27 │     I0 = F1 + 2.0;      // output
+   │     -- - ^^^^^^^^ a float
+   │     │  │  
+   │     │  same types required by this
+   │     an integer
+
+error: type error
+   ┌─ <input>:28:18
+   │
+28 │     int x = I0 + "abc"; // string
+   │             -- - ^^^^^ a string
+   │             │  │  
+   │             │  same types required by this
+   │             an integer
+
+error: type error
+   ┌─ <input>:32:10
+   │
+32 │     F0 = F2 ? 1.0 : 2.0;  // cond
+   │          ^^ - expects an integer
+   │          │   
+   │          a float
+
+error: type error
+   ┌─ <input>:33:20
+   │
+33 │     F0 = I1 ? F1 : I0;    // cases
+   │               -- - ^^ an integer
+   │               │  │  
+   │               │  same types required by this
+   │               a float
+
+error: type error
+   ┌─ <input>:34:10
+   │
+34 │     I0 = I0 ? F0 : F1;    // output
+   │     -- - ^^^^^^^^^^^^ a float
+   │     │  │  
+   │     │  same types required by this
+   │     an integer
+
+error: type error
+   ┌─ <input>:38:19
+   │
+38 │     float f = sin(I0); // arg
+   │               --- ^^ an integer
+   │               │    
+   │               expects a float
+
+error: type error
+   ┌─ <input>:39:13
+   │
+39 │     int x = sin(F0);   // output
+   │     ---     ^^^^^^^ a float
+   │     │        
+   │     expects an integer
+
+error: type error
+   ┌─ <input>:43:14
+   │
+43 │     int x = -"abc";
+   │             -^^^^^ a string
+   │             │ 
+   │             requires a numeric type
+
+error: type error
+   ┌─ <input>:45:16
+   │
+45 │     int y = _S(I2);
+   │             -- ^^ an integer
+   │             │   
+   │             expects a float
+
+

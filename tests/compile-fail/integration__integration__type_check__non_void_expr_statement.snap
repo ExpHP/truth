@@ -3,10 +3,10 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:27:7
+   ┌─ <input>:28:9
    │
-27 │       3.0;  
-   │       ^^^ a float
+28 │         3.0;
+   │         ^^^ a float
    │
    = expression statements must be of void type
 

@@ -3,11 +3,11 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:25:37
+   ┌─ <input>:25:29
    │
-25 │         inline float foo() { return 0; }
-   │                -----                ^ an integer
-   │                │                     
-   │                expects a float
+25 │ inline float foo() { return 0; }
+   │        -----                ^ an integer
+   │        │                     
+   │        expects a float
 
 

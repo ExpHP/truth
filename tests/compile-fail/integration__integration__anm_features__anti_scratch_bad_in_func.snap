@@ -7,7 +7,8 @@ error: scratch registers are disabled in this script
    │
 35 │         F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
    │                           ^^^^^^^^^^^^^^^^^^^^^^^^^ this fancy expression requires a scratch register
-36 │         copyVars();
+36 │ 
+37 │         copyVars();
    │         ^^^^^^^^^^^ this disables scratch registers
 
 

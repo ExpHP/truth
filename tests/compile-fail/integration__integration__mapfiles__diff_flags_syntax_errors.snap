@@ -3,7 +3,7 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: invalid difficulty flag definition
-  ┌─ <mapfile>:3:3
+  ┌─ <mapfile-1>:3:3
   │
 3 │ 1 @-
   │   ^^
@@ -11,7 +11,7 @@ error: invalid difficulty flag definition
   = the definition must consist of a ASCII alphanumeric character and a +/- (+ means enabled by default)
 
 error: invalid difficulty flag definition
-  ┌─ <mapfile>:4:3
+  ┌─ <mapfile-1>:4:3
   │
 4 │ 2 X@
   │   ^^
@@ -19,7 +19,7 @@ error: invalid difficulty flag definition
   = the definition must consist of a ASCII alphanumeric character and a +/- (+ means enabled by default)
 
 error: invalid difficulty flag definition
-  ┌─ <mapfile>:5:3
+  ┌─ <mapfile-1>:5:3
   │
 5 │ 3 a
   │   ^
@@ -27,18 +27,10 @@ error: invalid difficulty flag definition
   = the definition must consist of a ASCII alphanumeric character and a +/- (+ means enabled by default)
 
 error: invalid difficulty flag definition
-  ┌─ <mapfile>:6:3
+  ┌─ <mapfile-1>:6:3
   │
-6 │ 4 θ   # a two byte character
+6 │ 4 θ  # a two byte character
   │   ^
-  │
-  = the definition must consist of a ASCII alphanumeric character and a +/- (+ means enabled by default)
-
-error: invalid difficulty flag definition
-  ┌─ <mapfile>:7:3
-  │
-7 │ 5 There_should_be_errors_on_all_lines_from_1_to_this_number
-  │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   │
   = the definition must consist of a ASCII alphanumeric character and a +/- (+ means enabled by default)
 

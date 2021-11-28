@@ -4,19 +4,17 @@ use crate::integration_impl::{expected, formats::*};
 source_test!(
     ECL_08, olde_unsupported_return_type,
     items: r#"
-int bouba() {
+int bouba() {  //~ ERROR return types are not supported
     return 0;
 }
 "#,
-    expect_error: "return types are not supported",
 );
 
 source_test!(
     ECL_08, olde_unsupported_extern,
     items: r#"
-void externFunc();
+void externFunc();  //~ ERROR unsupported extern function
 "#,
-    expect_error: "unsupported extern function",
 );
 
 source_test!(
@@ -102,6 +100,8 @@ source_test!(
         // Even though this sub has no mention of F2, it is NOT safe to
         // use it for scratch purposes.
         F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+        //~^ ERROR scratch registers are disabled
+
         call(Sub12, 0, 1.0);
     }
 
@@ -109,7 +109,6 @@ source_test!(
         F0 = F2;  // this uses the value of F2 set in Sub10
     }
 "#,
-    expect_error: "scratch registers are disabled",
 );
 
 // source_test!(
@@ -147,38 +146,34 @@ source_test!(
     // FIXME this has to be separate from the next test because currently it's a PARSE ERROR?!?!
     //       WHY DID I IMPLEMENT THIS IN THE PARSER
     items: r#"
-void bad1(string arg) {}
+void bad1(string arg) {}  //~ ERROR only possible for const
 "#,
-    expect_error: "only possible for const",
 );
 
 source_test!(
     ECL_06, eosd_exported_fn_bad_siggies,
     items: r#"
-void bad2(var x) {}
+void bad2(var x) {}  //~ ERROR EoSD
 
-void bad3(int x, int y) {}
+void bad3(int x, int y) {}  //~ ERROR EoSD
 
-void bad4(float x, int y, float z) {}
+void bad4(float x, int y, float z) {}  //~ ERROR EoSD
 "#,
-    expect_error: "EoSD",
 );
 
 source_test!(
     ECL_06, eosd_exported_fn_bad_siggy_return_type,
     items: r#"
-int bad5(int x) { return 2; }
+int bad5(int x) { return 2; }  //~ ERROR not supported
 "#,
-    expect_error: "not supported",
 );
 
 source_test!(
     ECL_06, eosd_exported_fn_const_fn_name_clash,
     items: r#"
     void name() {}
-    const void name() {}
+    const void name() {}  //~ ERROR redefinition
     "#,
-    expect_error: "redefinition",
 );
 
 // -------------
@@ -223,18 +218,16 @@ source_test!(
     ECL_06, eosd_exported_fn_no_blob,
     items: EOSD_CALL_TEST_FUNCS,
     main_body: r#"
-    i(@blob="ffffffff");
+    i(@blob="ffffffff");  //~ ERROR not an instruction
 "#,
-    expect_error: "not an instruction",
 );
 
 source_test!(
     ECL_06, eosd_exported_fn_no_pseudos,
     items: EOSD_CALL_TEST_FUNCS,
     main_body: r#"
-    i(@mask=3, 4);
+    i(@mask=3, 4);  //~ ERROR not an instruction
 "#,
-    expect_error: "not an instruction",
 );
 
 source_test!(
@@ -278,23 +271,21 @@ void f_i(float x, int a) {
 source_test!(
     ECL_06, eosd_param_alias_warning_reg,
     items: r#"
-void foo(float x, int a) {
+void foo(float x, int a) {  //~ WARNING multiple names
     %REG[-10005] = 24.0;
     %REG[-10002] = x;
 }
 "#,
-    expect_warning: "multiple names",
 );
 
 source_test!(
     ECL_06, eosd_param_alias_warning_named,
     items: r#"
-void foo(float x, int a) {
+void foo(float x, int a) {  //~ WARNING multiple names
     %F0 = 24.0;
     %F2 = x;
 }
 "#,
-    expect_warning: "multiple names",
 );
 
 source_test!(
@@ -305,10 +296,9 @@ void i_f(int a, float x) {
     float t1 = 1.0;
     float t2 = 2.0;
     float t3 = 3.0;
-    float t4 = 4.0;
+    float t4 = 4.0;  //~ ERROR too complex
 }
 "#,
-    expect_error: "too complex",
 );
 
 // -------------

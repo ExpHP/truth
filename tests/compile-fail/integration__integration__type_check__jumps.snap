@@ -1,0 +1,47 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: type error
+   ┌─ <input>:26:14
+   │
+26 │     if (2 == 3.0) goto label;
+   │         - -- ^^^ a float
+   │         │ │   
+   │         │ same types required by this
+   │         an integer
+
+error: type error
+   ┌─ <input>:31:9
+   │
+31 │     if (3.0) goto label;
+   │         ^^^ a float
+   │
+   = an integer is required
+
+error: type error
+   ┌─ <input>:37:14
+   │
+37 │     if (2 && 3.0) goto label1;
+   │         - -- ^^^ a float
+   │         │ │   
+   │         │ same types required by this
+   │         an integer
+
+error: type error
+   ┌─ <input>:40:9
+   │
+40 │     if (2.0 && 3.0) goto label2;
+   │         ^^^ -- expects an integer
+   │         │    
+   │         a float
+
+error: type error
+   ┌─ <input>:45:9
+   │
+45 │     if (--F0) goto label;
+   │         ^^^^ a float
+   │
+   = an integer is required
+
+

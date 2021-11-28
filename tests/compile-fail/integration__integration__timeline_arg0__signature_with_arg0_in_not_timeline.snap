@@ -3,7 +3,7 @@ source: tests/integration/timeline_arg0.rs
 expression: stderr
 ---
 error: T(...) is only valid in th06 and th07 timelines
-  ┌─ <mapfile>:3:6
+  ┌─ <mapfile-1>:3:6
   │
 3 │ 1000 T(m)
   │      ^^^^ T(...) is only valid in th06 and th07 timelines

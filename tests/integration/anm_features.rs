@@ -18,6 +18,7 @@ source_test!(
         // Even though this sub has no mention of F2, it is NOT safe to
         // use it for scratch purposes.
         F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+        //~^ ERROR scratch registers are disabled
         copyVars();
         scriptNew(child);
     +100:
@@ -29,7 +30,6 @@ source_test!(
         F0 = F2;  // this uses the value of F2 set in grandparent
     }
 "#,
-    expect_error: "scratch registers are disabled",
 );
 
 source_test!(

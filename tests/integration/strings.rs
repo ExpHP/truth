@@ -4,6 +4,7 @@ use crate::integration_impl::{expected, formats::*};
 source_test!(
     STD_08, shift_jis_in_source_file,
     full_source: {
+        // this input is invalid utf-8; build it from a byte vec
         let mut text = vec![];
         text.extend(r#"
 #pragma mapfile "map/any.stdm"
@@ -12,7 +13,7 @@ meta {
     unknown: 0,
     stage_name: "#.bytes());
         text.extend(b"\"\x82\xB1\x82\xF1\x82\xC9\x82\xBF\x82\xCD\"".iter().copied());
-        text.extend(r#",
+        text.extend(r#",  //~ ERROR UTF-8
     bgm: [
         {path: "bgm/th08_08.mid", name: "dm"},
         {path: "bgm/th08_09.mid", name: "dm"},
@@ -27,13 +28,12 @@ sub main() {}
     "#.bytes());
         text
     },
-    expect_error: "UTF-8",
 );
 
 source_test!(
     MSG_06, encoding_error_in_arg,
-    main_body: r#"  textSet(0, 0, "⏄");  "#,  // character not available in SJIS
-    expect_error: "JIS",
+    // character not available in SJIS
+    main_body: r#"  textSet(0, 0, "⏄");  //~ ERROR JIS "#,
 );
 
 source_test!(
@@ -43,7 +43,7 @@ source_test!(
 
 meta {
     unknown: 0,
-    stage_name: "⏄",
+    stage_name: "⏄",  //~ ERROR JIS
     bgm: [
         {path: "bgm/th08_08.mid", name: "dm"},
         {path: "bgm/th08_09.mid", name: "dm"},
@@ -56,7 +56,6 @@ meta {
 
 script main {}
     "#,
-    expect_error: "JIS",
 );
 
 source_test!(
@@ -73,7 +72,7 @@ meta {
 0123456789abcdef 0123456789abcdef 0123456789abcdef
 0123456789abcdef 0123456789abcdef 0123456789abcdef
 0123456789abcdef 0123456789abcdef 0123456789abcdef
-",
+",                                    //~^^^^^^^ ERROR too long
     bgm: [
         {path: "bgm/th08_08.mid", name: "dm"},
         {path: "bgm/th08_09.mid", name: "dm"},
@@ -86,7 +85,6 @@ meta {
 
 script main {}
     "#,
-    expect_error: "too long",
 );
 
 source_test!(
@@ -173,18 +171,14 @@ source_test!(
     ECL_06, compile_string_arg_too_big_eq,
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#"
-    fixed("abcdefgh");
+    fixed("abcdefgh");  //~ ERROR too large
     "#,
-    expect_error: "too large",
-    require_roundtrip: false,
 );
 
 source_test!(
     ECL_06, compile_string_arg_too_big_gt,
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#"
-    fixed("abcdefghi");
+    fixed("abcdefghi");  //~ ERROR too large
     "#,
-    expect_error: "too large",
-    require_roundtrip: false,
 );
