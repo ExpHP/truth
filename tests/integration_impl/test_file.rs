@@ -1,13 +1,15 @@
 use super::Format;
 use std::path::{PathBuf, Path};
+use std::rc::Rc;
 
 /// A file possibly backed by a temp directory (which, if so, will be deleted on drop).
 ///
 /// The file need not necessarily even exist yet; e.g. you can use [`Self::new_temp`] to create a
 /// temp dir, then use [`Self::as_path`] as an output file argument to a CLI command.
+#[derive(Debug, Clone)]
 pub struct TestFile {
     descr: String,
-    _tempdir: Option<tempfile::TempDir>,
+    _tempdir: Option<Rc<tempfile::TempDir>>,
     filepath: PathBuf,
 }
 
@@ -18,7 +20,7 @@ impl TestFile {
         let descr = filename.to_string();
         let tempdir = tempfile::tempdir().unwrap_or_else(|e| panic!("while making tempdir for {}: {}", descr, e));
         let filepath = tempdir.path().join(filename);
-        TestFile { descr, _tempdir: Some(tempdir), filepath }
+        TestFile { descr, _tempdir: Some(Rc::new(tempdir)), filepath }
     }
 
     /// Construct a [`TestFile`] from file contents, which will be written to a new file inside

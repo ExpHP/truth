@@ -1,7 +1,11 @@
 use bstr::{ByteSlice, ByteVec};
+use core::fmt;
+use codespan_reporting::term::termcolor;
 
 lazy_static::lazy_static! {
-    static ref SOURCE_POS_RE: regex::Regex = regex::Regex::new(r"^ *┌─* (.+):(\d+):(\d+)\s*$");
+    static ref SOURCE_POS_RE: regex::Regex = {
+        regex::Regex::new(r"^ *┌─* (.+):(\d+):(\d+)\s*$").unwrap()
+    };
 }
 
 #[derive(Debug, Clone)]
@@ -14,14 +18,14 @@ pub struct ParsedDiagnostic {
     text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiagnosticKind { Error, Warning, Bug, Info }
 
 #[derive(Debug, Clone)]
 pub struct ExpectedDiagnostic {
     kind: DiagnosticKind,
-    src_filename: Option<String>,
     src_line_number: Option<i32>,
+    src_filename: Option<String>,
     pattern: String,
 }
 
@@ -50,12 +54,12 @@ impl ExpectedDiagnostic {
 // This screenscrapes diagnostic output for error messages.
 //
 // This is sadly what must be done, until a JSON output format is added to codespan_reporting.
-fn parse_diagnostics(text: &[u8]) -> Vec<ParsedDiagnostic> {
+pub fn parse_diagnostics(text: &[u8]) -> Vec<ParsedDiagnostic> {
     let line_starts = [
-        (b"bug: ", DiagnosticKind::Bug),
-        (b"error: ", DiagnosticKind::Error),
-        (b"warning: ", DiagnosticKind::Warning),
-        (b"info: ", DiagnosticKind::Info),
+        (&b"bug: "[..], DiagnosticKind::Bug),
+        (&b"error: "[..], DiagnosticKind::Error),
+        (&b"warning: "[..], DiagnosticKind::Warning),
+        (&b"info: "[..], DiagnosticKind::Info),
     ];
 
     let mut cur_diagnostic = None;
@@ -91,40 +95,48 @@ fn parse_diagnostics(text: &[u8]) -> Vec<ParsedDiagnostic> {
         }
 
         if let Some(diagnostic) = &mut cur_diagnostic {
-            diagnostic.text.extend_from_slice(line);
+            diagnostic.text.push_str(&String::from_utf8_lossy(line));
             diagnostic.text.push_str("\n");
         }
+    }
+
+    if let Some(diagnostic) = cur_diagnostic {
+        out.push(diagnostic);
     }
     out
 }
 
 /// Parse `//~` comments from source text.
 ///
-/// FIXME: Currently, this also strips them and returns a modified source text.
-///        This is necessary only because the actual diagnostics are currently screenscraped and
-///        we don't want them to trivially contain the expected pattern.
-///        Once codespan_reporting has JSON output we don't need to do this.
+/// NOTE: Currently, this also strips them and returns a modified source text, for a couple of reasons:
+/// 1. the actual diagnostics are currently screenscraped and we don't want them to trivially
+///    contain the expected pattern.
+/// 2. //~ isn't valid in mapfiles
 pub fn parse_expected_diagnostics(filename: &str, source: &[u8]) -> (Vec<u8>, Vec<ExpectedDiagnostic>) {
     let mut prev_diagnostic_line_num = None;
 
     let mut cleaned_source = Vec::new();
     let mut out = vec![];
     for (line_index, line) in source.lines().enumerate() {
-        let (match_index, match_str) = match line.match_indices("//~").next() {
-            Some(tup) => tup,
-            None => (line.len(), ""),
+        let (cleaned_line, comment) = match line.find("//~") {
+            Some(index) => (&line[..index], Some(&line[index + "//~".len()..])),
+            None => (line, None),
         };
-        cleaned_source.extend_from_slice(&line[..match_index]);
+        cleaned_source.extend_from_slice(cleaned_line.trim_end());
         cleaned_source.push_str("\n");
-        let mut remainder = &line[match_index + match_str.len()..];  // after the tilde
+
+        let mut remainder = match comment {
+            Some(comment) => comment,
+            None => continue,
+        };
 
         // determine expected line number
         let mut expected_diagnostic_line = line_index + 1;  // numbered from 1
-        if remainder.bytes().get(0) == Some(&b'|') {
+        if remainder.get(0) == Some(&b'|') {
             remainder = &remainder[1..];
             expected_diagnostic_line = prev_diagnostic_line_num.expect("invalid `//~|` (no previous annotation)");
         } else {
-            while let Some(&b'^') = remainder.bytes().get(0) {
+            while let Some(&b'^') = remainder.get(0) {
                 remainder = &remainder[1..];
                 expected_diagnostic_line -= 1;
             }
@@ -132,26 +144,27 @@ pub fn parse_expected_diagnostics(filename: &str, source: &[u8]) -> (Vec<u8>, Ve
 
         remainder = remainder.trim_start();
         let types = [
-            (b"BUG ", DiagnosticKind::Bug),
-            (b"ERROR ", DiagnosticKind::Error),
-            (b"WARNING ", DiagnosticKind::Warning),
-            (b"INFO ", DiagnosticKind::Info),
+            (&b"BUG "[..], DiagnosticKind::Bug),
+            (&b"ERROR "[..], DiagnosticKind::Error),
+            (&b"WARNING "[..], DiagnosticKind::Warning),
+            (&b"INFO "[..], DiagnosticKind::Info),
         ];
-        let Some(&(label, kind)) = match types.iter().find(|&(label, _)| line.starts_with(label)) {
+        let &(label, kind) = match types.iter().find(|&(label, _)| remainder.starts_with(label)) {
             Some(tup) => tup,
-            None => panic!("bad diagnostic line: {:?}", line),
+            None => panic!("bad diagnostic line: {:?}", std::str::from_utf8(line)),
         };
         remainder = &remainder[label.len()..];
         remainder = remainder.trim();
         if remainder.is_empty() {
-            panic!("diagnostic comment has no expected message: {:?}", line);
+            panic!("diagnostic comment has no expected message: {:?}", std::str::from_utf8(line));
         }
         out.push(ExpectedDiagnostic {
             kind,
             src_filename: Some(filename.to_string()),
             src_line_number: Some(expected_diagnostic_line as _),
-            pattern: remainder.to_string(),
+            pattern: remainder.to_str().expect("non-utf8 pattern").to_string(),
         });
+        prev_diagnostic_line_num = Some(expected_diagnostic_line);
     }
     (cleaned_source, out)
 }
@@ -187,18 +200,32 @@ pub fn compare_actual_and_expected_diagnostics(
     if has_missing || (has_extra && !allow_extra) {
         for (actual, seen) in actual_diagnostics.iter().zip(actual_seen) {
             if !seen {
-                eprintln!("== extra diagnostic ==");
-                eprintln!("{:#?}", actual);
+                let color = termcolor::Color::Red;
+                eprintln_as_color(color, format_args!("=== EXTRA diagnostic"));
+                eprintln_as_color(color, format_args!("{:?}", actual));
             }
         }
         if !allow_extra {
             for (pattern, seen) in expected_diagnostics.iter().zip(expected_seen) {
                 if !seen {
-                    eprintln!("== missing diagnostic ==");
-                    eprintln!("{:#?}", pattern);
+                    let color = termcolor::Color::Green;
+                    eprintln_as_color(color, format_args!("== MISSING diagnostic =="));
+                    eprintln_as_color(color, format_args!("{:?}", pattern));
                 }
             }
         }
         panic!("diagnostics did not match");
     }
+}
+
+fn eprintln_as_color(color: termcolor::Color, text: impl fmt::Display) {
+    use termcolor::WriteColor;
+    use std::io::Write;
+
+    let mut buf = termcolor::Ansi::new(vec![]);
+    buf.set_color(termcolor::ColorSpec::new().set_fg(Some(color))).unwrap();
+    write!(buf, "{}", text).unwrap();
+    buf.reset().unwrap();
+
+    eprintln!("{}", String::from_utf8_lossy(&buf.into_inner()));
 }

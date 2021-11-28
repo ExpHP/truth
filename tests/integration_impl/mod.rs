@@ -45,7 +45,7 @@ impl Format {
         let mapfile = TestFile::from_path(mapfile.as_ref());
         let decompile_result = self.decompile(&original, &[], &[mapfile][..]);
 
-        assert!(decompile_result.stderr.is_none(), "unexpected stderr: {}", decompile_result.stderr.unwrap());
+        assert!(decompile_result.stderr.is_empty(), "unexpected stderr: {}", String::from_utf8_lossy(&decompile_result.stderr));
         let decompiled = decompile_result.output.unwrap();
 
         do_with_text(&decompiled.read_to_string());
@@ -68,7 +68,7 @@ impl Format {
         args: &[&OsStr],
         mapfiles: impl IntoIterator<Item=&'a TestFile>,
     ) -> ProgramResult {
-        let outfile = TestFile::new_temp("Xx_COMPILATION OUTPUT_xX");
+        let outfile = TestFile::new_temp("Xx_compiled-file_xX");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("compile")
@@ -90,7 +90,7 @@ impl Format {
 
         ProgramResult {
             output: output.status.success().then(|| outfile),
-            stderr: (!output.stderr.is_empty()).then(|| String::from_utf8(output.stderr).unwrap()),
+            stderr: output.stderr,
         }
     }
 
@@ -100,7 +100,7 @@ impl Format {
         args: &[&OsStr],
         mapfiles: impl IntoIterator<Item=&'a TestFile>,
     ) -> ProgramResult {
-        let outfile = TestFile::new_temp("Xx_DECOMPILATION OUTPUT_xX");
+        let outfile = TestFile::new_temp("Xx_decompiled-text_xX");
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("decompile")
@@ -118,7 +118,7 @@ impl Format {
 
         ProgramResult {
             output: output.status.success().then(move || outfile),
-            stderr: (!output.stderr.is_empty()).then(move || String::from_utf8(output.stderr).unwrap()),
+            stderr: output.stderr,
         }
     }
 }
@@ -126,8 +126,7 @@ impl Format {
 pub struct ProgramResult {
     /// Only `Some` if the program had an exit code of 0.
     pub output: Option<TestFile>,
-    /// Only `Some` if non-empty.
-    pub stderr: Option<String>,
+    pub stderr: Vec<u8>,
 }
 
 fn mapfile_args<'a>(mapfiles: impl IntoIterator<Item=&'a TestFile>) -> Vec<String> {
@@ -141,10 +140,9 @@ fn mapfile_args<'a>(mapfiles: impl IntoIterator<Item=&'a TestFile>) -> Vec<Strin
 lazy_static::lazy_static! {
     static ref TEMP_FILE_SUBSTS: Vec<(regex::Regex, &'static str)> = {
         vec![
-            (r#"┌─ .+[/\\]original\.spec"#, "┌─ <input>"),
-            (r#"┌─ .+[/\\]Xx_MAPFILE INPUT (\d+)_xX"#, "┌─ <mapfile-$1>"),
+            (r#"┌─ .+[/\\]Xx_([^\r\n]+)_xX"#, "┌─ <$1>"),
             (r#"while writing '[^']+': "#, "while writing '<output>':"),
-            (r#"^(warning|error): .+[/\\]Xx_COMPILATION OUTPUT_xX:"#, r#"$1: <decompile-input>:"#),
+            (r#"^(warning|error): .+[/\\]Xx_([^\r\n]+)_xX:"#, r#"$1: <$2>:"#),
         ].into_iter().map(|(pat, subst)| {
             (regex::Regex::new(pat).unwrap(), subst)
         }).collect()
@@ -177,21 +175,6 @@ pub fn _check_compile_fail_output(
     perform_snapshot_test: impl FnOnce(&str),
 ) {
     let stderr = make_output_deterministic(&stderr);
-
-    // we don't want internal compiler errors.
-    let is_ice = false
-        || stderr.contains("panicked at") || stderr.contains("RUST_BACKTRACE=1")
-        || stderr.contains("bug!") || stderr.contains("BUG!")
-        ;
-    let allow_ice = expected == expected::UNIMPLEMENTED && stderr.contains(expected);
-
-    // hitting `unimplemented!` macro is okay if that's the expected error
-    let is_bad_ice = is_ice && !allow_ice;
-    let is_good_ice = is_ice && allow_ice;
-    assert!(!is_bad_ice, "INTERNAL COMPILER ERROR:\n{}", stderr);
-    if is_good_ice {
-        return; // don't do snapshot test; this test might be changed to succeed later
-    }
 
     let stderr = erase_panic_line_number_for_accepted_panics(&stderr);
     assert!(stderr.contains(expected), "Error did not contain expected! error: {}", stderr);
