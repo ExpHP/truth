@@ -1,6 +1,6 @@
 //! Utilities used by the tests in `tests/integration/`
 
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::process::Command;
 use std::ffi::OsStr;
 
@@ -156,42 +156,6 @@ fn make_output_deterministic(stderr: &str) -> String {
     )
 }
 
-fn erase_panic_line_number_for_accepted_panics(message: &str) -> String {
-    lazy_static::lazy_static! {
-        static ref PANIC_LINE_NUMBER_RE: regex::Regex = regex::Regex::new(r#"panicked at 'not implemented', ([^:]+):[0-9]+:[0-9]+"#).unwrap();
-    }
-    PANIC_LINE_NUMBER_RE.replace(message, "panicked at 'not implemented', ${1}:???:??").into_owned()
-}
-
-// Implementation of the check_compile_fail_output macro.
-#[track_caller]
-pub fn _check_compile_fail_output(
-    stderr: &str,
-    expected: &str,
-    // we can't put the snapshot test code in this function because then we wouldn't be able to
-    // automatically get the test name and path into the snapshot name.
-    //
-    // So it's taken via closure, and the macro automates the writing of this closure.
-    perform_snapshot_test: impl FnOnce(&str),
-) {
-    let stderr = make_output_deterministic(&stderr);
-
-    let stderr = erase_panic_line_number_for_accepted_panics(&stderr);
-    assert!(stderr.contains(expected), "Error did not contain expected! error: {}", stderr);
-    perform_snapshot_test(&stderr);
-}
-
-/// Performs a snapshot test of stderr while also verifying that it contains a certain substring.
-///
-/// Certain unreliable parts of the stderr will be made deterministic before performing the snapshot check.
-macro_rules! check_compile_fail_output {
-    ($stderr:expr, $expected:expr) => {{
-        crate::integration_impl::_check_compile_fail_output($stderr, $expected, |normalized_stderr| {
-            assert_snapshot!{normalized_stderr};
-        });
-    }};
-}
-
 /// Perform a snapshot test of something.
 macro_rules! assert_snapshot {
     ($stderr:expr) => {{
@@ -204,6 +168,7 @@ macro_rules! assert_snapshot {
 // =============================================================================
 
 /// stderr search strings for ubiquitous error messages
+#[allow(unused)]  // embedded error comments can't use this so some are unused now
 pub mod expected {
     pub const TYPE_ERROR: &'static str = "type error";
     pub const PARSE_ERROR: &'static str = "unexpected token";

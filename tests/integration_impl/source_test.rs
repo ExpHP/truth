@@ -2,11 +2,6 @@ use super::{Format, TestFile, ProgramResult};
 use super::parse_errors::{self, ExpectedDiagnostic};
 use std::ffi::{OsStr, OsString};
 
-// used to implement defaults for some optional macro parts by writing `first_token!( $($thing)?  "" )`
-macro_rules! first_token {
-    ($tok:tt $($rest:tt)*) => { $tok };
-}
-
 /// Generates a test that compiles a source script and maybe also decompiles it.
 ///
 /// The purpose of this is to reduce the friction to writing tests as much as possible.
@@ -208,6 +203,7 @@ impl SourceTest {
         self.expect_decompilation_can_run();
         self.options.decompile.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned()));
     }
+    #[allow(dead_code)]
     pub fn decompile_mapfile(&mut self, text: impl Into<String>) {
         self.expect_decompilation_can_run();
         let (mapfile, diagnostics) = self.make_mapfile(text);
@@ -374,9 +370,4 @@ impl SourceBuilder {
             self.full_source.clone().unwrap()
         }
     }
-}
-
-macro_rules! question_kleene_to_option {
-    ( $thing:expr ) => { Some($thing) };
-    ( ) => { None };
 }
