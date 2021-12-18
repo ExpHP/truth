@@ -860,7 +860,7 @@ impl LanguageHooks for OldeEclHooks {
                 // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
                 out
             },
-            Game::Th08 => {
+            Game::Th08 | Game::Th09 => {
                 let mut out = vec![
                     (I::Jmp, 4),
                     (I::CountJmp, 5),
@@ -877,7 +877,6 @@ impl LanguageHooks for OldeEclHooks {
                 // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
                 out
             },
-            Game::Th09 => vec![],
             Game::Th095 => vec![],
             _ => unreachable!(),
         }
