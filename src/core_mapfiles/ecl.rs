@@ -60,6 +60,14 @@ static TIMELINE: &'static CoreSignatures = &CoreSignatures {
         (Th08, 14, Some("S")),
         (Th08, 15, Some("EffSSS")),
         (Th08, 16, Some("")),
+
+        (Th09, 6, None),
+        (Th09, 7, None),
+        (Th09, 9, None),
+        (Th09, 17, Some("EffSSS")),
+
+        (Th095, 13, None),
+        (Th095, 14, None),
     ],
     var: &[],
 };
