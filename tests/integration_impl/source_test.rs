@@ -80,7 +80,7 @@ mod result {
 
     #[derive(Debug, Clone, Default)]
     pub(super) struct ExpectedResult {
-        is_error: Option<bool>,
+        is_success: Option<bool>,
         diagnostics: Vec<ExpectedDiagnostic>,
     }
 
@@ -89,18 +89,18 @@ mod result {
         /// the test step doesn't need to run.
         pub(super) fn should_run(&self) -> bool {
             // the diagnostics check is to ensure warnings get tested
-            !(self.is_error.is_none() && self.diagnostics.is_empty())
+            !(self.is_success.is_none() && self.diagnostics.is_empty())
         }
 
         pub(super) fn should_succeed(&self) -> bool {
-            self.is_error.unwrap_or(true)
+            self.is_success.unwrap_or(true)
         }
 
         /// Expect the program invocation to succeed (`true`) or (`fail`).  This can be called multiple times
         /// but will panic if called with conflicting values.
         pub(super) fn expect_success(&mut self, success: bool) {
-            assert_ne!(self.is_error, Some(!success), "conflicting expectations on command (must succeed and fail)");
-            self.is_error = Some(success);
+            assert_ne!(self.is_success, Some(!success), "conflicting expectations on command (must succeed and fail)");
+            self.is_success = Some(success);
         }
 
         pub(super) fn expect_diagnostics(&mut self, diagnostics: impl IntoIterator<Item=ExpectedDiagnostic>) {
