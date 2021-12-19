@@ -78,9 +78,11 @@ pub enum ArgEncoding {
 pub enum StringArgSize {
     /// A string arg that uses `len=`.
     ///
-    /// A fixed length string buffer.  A trailing null is required to be present INSIDE the buffer
-    /// as in some cases it may be copied to another buffer of identical length.
-    Fixed { len: usize },
+    /// A fixed length string buffer. Typically a trailing null is required to be present INSIDE the
+    /// buffer as in some cases it may be copied to another buffer of identical length.
+    /// `;nulless` may be added for specific cases where it is known that the lack of a trailing
+    /// null is not an issue.
+    Fixed { len: usize, nulless: bool },
     /// A string arg that uses `bs=`.
     ///
     /// A null-terminated string argument which **can only be the final argument**, and

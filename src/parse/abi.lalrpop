@@ -68,8 +68,12 @@ MString: ArgEncoding = {
     },
 };
 
+#[inline]
 StringArgSize: StringArgSize = {
-    "len" "=" <x:UnsignedInt> => StringArgSize::Fixed { len: x as _ },
+    "len" "=" <len:UnsignedInt> <nulless:(";" "nulless")?> => StringArgSize::Fixed {
+        len: len as _,
+        nulless: nulless.is_some(),
+    },
     "bs" "=" <x:UnsignedInt> => StringArgSize::Block { block_size: x as _ },
 };
 

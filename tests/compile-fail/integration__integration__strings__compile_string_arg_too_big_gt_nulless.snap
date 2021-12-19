@@ -1,0 +1,13 @@
+---
+source: tests/integration/strings.rs
+expression: stderr
+---
+error: string argument too large for buffer
+   ┌─ <input>:10:13
+   │
+10 │     nulless("abcdefghi");
+   │             ^^^^^^^^^^^ requires 9 bytes
+   │
+   = this argument is written to a 8-byte buffer
+
+

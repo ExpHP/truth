@@ -542,7 +542,16 @@ fn encode_args(
 
                 // convert to Shift-JIS or whatever
                 let mut encoded = Encoded::encode(&sp!(arg.span => string), DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
-                encoded.0.push(b'\0'); // have to do this eagerly to correctly reproduce TH17 Extra files
+
+                // have to append null eagerly to correctly reproduce TH17 Extra files
+                match size_spec {
+                    | StringArgSize::Block { .. }
+                    | StringArgSize::Fixed { nulless: false, .. }
+                    => encoded.0.push(b'\0'),
+
+                    | StringArgSize::Fixed { nulless: true, .. }
+                    => {}
+                }
 
                 // the furigana bug appends a copy of the masked bytes from a previous furigana string
                 if furibug {
@@ -557,7 +566,7 @@ fn encode_args(
                             encoded.null_pad(block_size);
                         }
                     },
-                    StringArgSize::Fixed { len } => {
+                    StringArgSize::Fixed { len, nulless: _ } => {
                         if encoded.len() > len {
                             return Err(emitter.emit(error!(
                                 message("string argument too large for buffer"),

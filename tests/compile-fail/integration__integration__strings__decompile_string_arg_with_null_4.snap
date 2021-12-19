@@ -1,0 +1,7 @@
+---
+source: tests/integration/strings.rs
+expression: stderr
+---
+warning: <compiled-file>: in sub0: instr 0 (opcode 666, offset 0x0): argument 1: string will be truncated at first null
+
+

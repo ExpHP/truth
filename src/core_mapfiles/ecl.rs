@@ -609,7 +609,7 @@ static ECL_08_09: &'static CoreSignatures = &CoreSignatures {
         (Th08, 119, Some("Sfff")),
         (Th08, 120, Some("S")),
         (Th08, 121, Some("S")),
-        (Th08, 122, Some("ssSm(len=48;mask=0xaa,0,0)m(len=48;mask=0xbb,0,0)m(len=64;mask=0xdd,0,0)m(len=64;mask=0xee,0,0)")),
+        (Th08, 122, Some("ssSm(len=48;mask=0xaa,0,0)m(len=48;mask=0xbb,0,0)m(len=64;nulless;mask=0xdd,0,0)m(len=64;nulless;mask=0xee,0,0)")),
         (Th08, 123, Some("")),
         (Th08, 124, Some("S")),
         (Th08, 125, Some("S")),

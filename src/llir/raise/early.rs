@@ -254,12 +254,19 @@ fn decode_args_with_abi(
             => {
                 let read_len = match size_spec {
                     StringArgSize::Block { .. } => remaining_len,  // read to end
-                    StringArgSize::Fixed { len } => len,
+                    StringArgSize::Fixed { len, nulless: _ } => len,
                 };
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
                 let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
                 encoded.apply_xor_mask(mask);
+
+                if let StringArgSize::Fixed { nulless: true, .. } = size_spec {
+                    // suppress the warning about missing nulls by adding one now if missing
+                    if !encoded.0.contains(&b'\0') {
+                        encoded.0.push(b'\0');
+                    }
+                };
 
                 let warn_on_trimmed_data = !furibug;  // furibug DOES leave garbage after the null
                 encoded.trim_first_nul(emitter, warn_on_trimmed_data);

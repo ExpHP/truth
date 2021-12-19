@@ -103,9 +103,11 @@ const STRING_ABI_TEST_SIGNATURES: &'static str = r#"!eclmap
 !ins_names
 444 block
 555 fixed
+666 nulless
 !ins_signatures
 444  z(bs=4)
 555  z(len=8)
+666  z(len=8;nulless)
 "#;
 
 source_test!(
@@ -152,6 +154,14 @@ source_test!(
 );
 
 source_test!(
+    ECL_06, decompile_string_arg_with_null_4,
+    mapfile: STRING_ABI_TEST_SIGNATURES,
+    main_body: r#" nulless("abc\0def"); "#,
+    expect_decompile_warning: "first null",
+    require_roundtrip: false,
+);
+
+source_test!(
     ECL_06, decompile_string_arg_without_null_bs,
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#" block(@blob="40404040"); "#,
@@ -168,6 +178,13 @@ source_test!(
 );
 
 source_test!(
+    ECL_06, decompile_string_arg_without_null_nulless,
+    mapfile: STRING_ABI_TEST_SIGNATURES,
+    main_body: r#" nulless(@blob="40404040 40404040"); "#,
+    check_decompiled: |text| assert!(text.contains("\"@@@@@@@@\"")),
+);
+
+source_test!(
     ECL_06, compile_string_arg_too_big_eq,
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#"
@@ -180,5 +197,25 @@ source_test!(
     mapfile: STRING_ABI_TEST_SIGNATURES,
     main_body: r#"
     fixed("abcdefghi");  //~ ERROR too large
+    "#,
+);
+
+source_test!(
+    ECL_06, compile_string_arg_too_big_eq_nulless,
+    mapfile: STRING_ABI_TEST_SIGNATURES,
+    main_body: r#"
+    nulless("abcdefgh");
+    "#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0][0].args_blob, b"abcdefgh");
+    }
+);
+
+source_test!(
+    ECL_06, compile_string_arg_too_big_gt_nulless,
+    mapfile: STRING_ABI_TEST_SIGNATURES,
+    main_body: r#"
+    nulless("abcdefghi");  //~ ERROR too large
     "#,
 );
