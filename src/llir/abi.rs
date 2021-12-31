@@ -28,7 +28,7 @@ pub struct InstrAbi {
 ///
 /// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
 /// [`ScalarType`] tends to be more relevant for variables.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ArgEncoding {
     /// `S` in mapfile. 4-byte integer immediate or register.  Displayed as signed.
     Dword,
@@ -152,8 +152,8 @@ impl InstrAbi {
         Ok(InstrAbi { encodings })
     }
 
-    pub fn arg_encodings(&self) -> impl crate::VeclikeIterator<Item=ArgEncoding> + '_ {
-        self.encodings.iter().copied()
+    pub fn arg_encodings(&self) -> impl crate::VeclikeIterator<Item=&'_ ArgEncoding> + '_ {
+        self.encodings.iter()
     }
 
     pub fn create_signature(&self, ctx: &mut CompilerContext) -> defs::Signature {
@@ -211,7 +211,7 @@ impl InstrAbi {
 }
 
 impl ArgEncoding {
-    pub fn expr_type(self) -> ScalarType {
+    pub fn expr_type(&self) -> ScalarType {
         match self {
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
@@ -239,8 +239,8 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
         message("bad signature: {}", message),
         primary(abi_span, "{}", message),
     ));
-    let o_count = encodings.iter().filter(|&&c| c == Enc::JumpOffset).count();
-    let t_count = encodings.iter().filter(|&&c| c == Enc::JumpTime).count();
+    let o_count = encodings.iter().filter(|&c| c == &Enc::JumpOffset).count();
+    let t_count = encodings.iter().filter(|&c| c == &Enc::JumpTime).count();
 
     for &(char, count) in &[('o', o_count), ('t', t_count)][..] {
         if count > 1 {
@@ -277,8 +277,8 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
 
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
-        params: abi.encodings.iter().enumerate().flat_map(|(index, &enc)| {
-            let Info { ty, default, reg_ok } = match enc {
+        params: abi.encodings.iter().enumerate().flat_map(|(index, enc)| {
+            let Info { ty, default, reg_ok } = match *enc {
                 | ArgEncoding::Dword
                 | ArgEncoding::Color
                 | ArgEncoding::Word
@@ -310,7 +310,7 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
             let var_ty = value::VarType::Typed(ty);
             ctx.define_local(name.clone(), var_ty);
 
-            let const_arg_reason = (!reg_ok).then(|| crate::context::defs::ConstArgReason::Encoding(enc));
+            let const_arg_reason = (!reg_ok).then(|| crate::context::defs::ConstArgReason::Encoding(enc.clone()));
             let qualifier = None; // irrelevant, there's no function body for an instruction
 
             Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier, const_arg_reason })

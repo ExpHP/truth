@@ -224,7 +224,7 @@ fn decode_args_with_abi(
         let param_mask_bit = param_mask % 2 == 1;
         param_mask /= 2;
 
-        let value = match enc {
+        let value = match *enc {
             | ArgEncoding::Dword
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
@@ -493,7 +493,7 @@ impl AtomRaiser<'_, '_> {
         // so we can use this info when decompiling the time arg.
         let dest_label = {
             encodings.iter().zip(args)
-                .find(|(&enc, _)| enc == ArgEncoding::JumpOffset)
+                .find(|(&enc, _)| enc == &ArgEncoding::JumpOffset)
                 .map(|(_, offset_arg)| {
                     let dest_offset = self.hooks.decode_label(instr.offset, offset_arg.expect_int() as u32);
                     self.offset_labels.get(&dest_offset)
@@ -583,7 +583,7 @@ impl AtomRaiser<'_, '_> {
 
         let mut outputs = vec![];
         for &(index, mode) in outputs_info {
-            let var = self.raise_arg_to_reg(emitter, &args[index], encodings[index], mode)
+            let var = self.raise_arg_to_reg(emitter, &args[index], &encodings[index], mode)
                 .map_err(|ErrorReported| CannotRaiseIntrinsic)?;
 
             outputs.push(var);
@@ -592,7 +592,7 @@ impl AtomRaiser<'_, '_> {
         let mut plain_args = vec![];
         for &index in plain_args_info {
             let dest_label = None;  // offset and time are not plain args so this is irrelevant
-            let expr = self.raise_arg(emitter, &args[index], encodings[index], dest_label)
+            let expr = self.raise_arg(emitter, &args[index], &encodings[index], dest_label)
                 .map_err(|ErrorReported| CannotRaiseIntrinsic)?;
 
             plain_args.push(expr);
@@ -609,7 +609,7 @@ impl AtomRaiser<'_, '_> {
         &self,
         emitter: &impl Emitter,
         raw: &SimpleArg,
-        enc: ArgEncoding,
+        enc: &ArgEncoding,
         dest_label: Option<Result<&Label, IllegalOffset>>,
     ) -> Result<ast::Expr, ErrorReported> {
         if raw.is_reg {
@@ -624,7 +624,7 @@ impl AtomRaiser<'_, '_> {
         &self,
         emitter: &impl Emitter,
         raw: &SimpleArg,
-        enc: ArgEncoding,
+        enc: &ArgEncoding,
         dest_label: Option<Result<&Label, IllegalOffset>>,
     ) -> Result<ast::Expr, ErrorReported> {
         ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
@@ -682,7 +682,7 @@ impl AtomRaiser<'_, '_> {
         &self,
         emitter: &impl Emitter,
         raw: &SimpleArg,
-        encoding: ArgEncoding,
+        encoding: &ArgEncoding,
         // ty: ScalarType,
         // FIXME: feels out of place.  But basically, the only place where the type of the raised
         //        variable can have a different type from its storage is in some intrinsics, yet the logic

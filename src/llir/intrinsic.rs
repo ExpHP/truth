@@ -306,7 +306,7 @@ fn remove_first_where<T>(vec: &mut Vec<T>, pred: impl FnMut(&T) -> bool) -> Opti
     }
 }
 
-fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, ArgEncoding)>, _abi_loc: &InstrAbiLoc) -> Result<abi_parts::PaddingInfo, Diagnostic> {
+fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, _abi_loc: &InstrAbiLoc) -> Result<abi_parts::PaddingInfo, Diagnostic> {
     let mut count = 0;
     let mut first_index = arg_encodings.len();
     while let Some(&(index, ArgEncoding::Padding)) = arg_encodings.last() {
@@ -320,9 +320,9 @@ fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, ArgEncoding)>, _abi_l
     Ok(abi_parts::PaddingInfo { count, index: first_index })
 }
 
-fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
-    let offset_data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::JumpOffset);
-    let time_data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::JumpTime);
+fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
+    let offset_data = remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::JumpOffset);
+    let time_data = remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::JumpTime);
 
     let offset_index = offset_data.map(|(index, _)| index);
     let time_index = time_data.map(|(index, _)| index);
@@ -344,8 +344,8 @@ fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span:
     }
 }
 
-fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
-    let data = remove_first_where(arg_encodings, |&(_, enc)| enc == ArgEncoding::Sub);
+fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
+    let data = remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::Sub);
     let index = data.map(|(index, _)| index);
     let index = index.ok_or_else(|| {
         intrinsic_abi_error(abi_span, "missing sub id ('E')")
@@ -353,7 +353,7 @@ fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_spa
     Ok(index)
 }
 
-fn remove_out_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
+fn remove_out_arg(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
     // it is expected that previous detect_and_remove functions have already removed everything before the out operand.
     let (index, encoding) = match arg_encodings.len() {
         0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
@@ -372,7 +372,7 @@ fn remove_out_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &Inst
     }
 }
 
-fn remove_plain_arg(arg_encodings: &mut Vec<(usize, ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<usize, Diagnostic> {
+fn remove_plain_arg(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<usize, Diagnostic> {
     let (index, encoding) = match arg_encodings.len() {
         0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
         _ => arg_encodings.remove(0),

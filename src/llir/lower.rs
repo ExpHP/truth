@@ -516,7 +516,7 @@ fn encode_args(
     //            to ensure that this loop reads an equal number of items from all iters.
     assert!(args_iter.len() <= arg_encodings_iter.len());
     for (arg, enc) in zip!(args_iter, arg_encodings_iter.by_ref()) {
-        match enc {
+        match *enc {
             | ArgEncoding::TimelineArg { .. }
             => unreachable!(),
 
@@ -589,7 +589,7 @@ fn encode_args(
     }
 
     for enc in arg_encodings_iter {
-        assert_eq!(enc, ArgEncoding::Padding);
+        assert_eq!(enc, &ArgEncoding::Padding);
         args_blob.write_u32(0).expect("Cursor<Vec> failed?!");
     }
 
