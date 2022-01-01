@@ -33,7 +33,8 @@ pub struct Defs {
 
     vars: IdMap<DefId, VarData>,
     funcs: IdMap<DefId, FuncData>,
-    enums: IdMap<Ident, EnumData>,
+    // FIXME: only idents and not the other keys, this is confusing
+    enums: IdMap<EnumKey, EnumData>,
 
     /// Preferred alias (i.e. the one we decompile to) for each register.
     reg_aliases: IdMap<(LanguageKey, RegId), DefId>,
@@ -44,6 +45,7 @@ pub struct Defs {
     reg_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
     /// Some of the initial ribs for name resolution, containing instruction aliases from mapfiles.
     ins_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
+    // FIXME replace with enum rib
     /// One of the initial ribs for name resolution, containing consts from meta.
     auto_const_rib: rib::Rib,
     /// One of the initial ribs for name resolution, containing consts like INF.
@@ -134,6 +136,29 @@ pub enum FuncKind {
         ident: Sp<ResIdent>,
         qualifier: Option<Sp<ast::FuncQualifier>>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EnumKey {
+    // Built-in enums with no actual name
+    AnmSprite,
+    AnmScript,
+    EclSub,
+    MsgSub,
+    // User enums
+    User(Ident),
+}
+
+impl EnumKey {
+    pub fn heavy_descr(&self) -> String {
+        match self {
+            EnumKey::AnmSprite => format!("ANM sprite"),
+            EnumKey::AnmScript => format!("ANM script"),
+            EnumKey::EclSub => format!("ECL sub id"),
+            EnumKey::MsgSub => format!("MSG sub id"),
+            EnumKey::User(name) => format!("enum {}", name),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -235,7 +260,7 @@ impl CompilerContext<'_> {
     pub fn define_mapfile_enum_const_var(&mut self, ident: Sp<Ident>, value: Sp<i32>, enum_name: Sp<Ident>) -> DefId {
         let res_ident = sp!(ident.span => self.resolutions.attach_fresh_res(ident.value.clone()));
 
-        let enum_info = self.defs.enums.entry(enum_name.value).or_insert_with(Default::default);
+        let enum_info = self.defs.enums.entry(EnumKey::User(enum_name.value)).or_insert_with(Default::default);
         enum_info.consts.insert(value.value, res_ident.clone());
 
         // FIXME not the ideal way to handle name resolution, we would like to allow

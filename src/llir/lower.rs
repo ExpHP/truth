@@ -520,21 +520,21 @@ fn encode_args(
             | ArgEncoding::TimelineArg { .. }
             => unreachable!(),
 
-            | ArgEncoding::Dword
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-            | ArgEncoding::Script
-            | ArgEncoding::Sub
-            | ArgEncoding::Sprite
+            | ArgEncoding::Integer { size: 4, .. }
             => args_blob.write_i32(arg.expect_raw().expect_int()).expect("Cursor<Vec> failed?!"),
+
+            | ArgEncoding::Integer { size: 2, .. }
+            => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+
+            | ArgEncoding::Integer { size, .. }
+            => panic!("unexpected integer size: {}", size),
 
             | ArgEncoding::Float
             => args_blob.write_f32(arg.expect_raw().expect_float()).expect("Cursor<Vec> failed?!"),
-
-            | ArgEncoding::Word
-            => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::String { size: size_spec, mask, furibug }
             => {

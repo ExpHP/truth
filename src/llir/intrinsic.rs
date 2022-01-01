@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use crate::raw;
 use crate::ast;
 use crate::context;
-use crate::context::defs::InstrAbiLoc;
+use crate::context::defs::{InstrAbiLoc, EnumKey};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{LanguageHooks, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
@@ -345,7 +345,9 @@ fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span
 }
 
 fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
-    let data = remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::Sub);
+    let data = remove_first_where(arg_encodings, |&(_, enc)| {
+        matches!(enc, ArgEncoding::Integer { size: _, enum_key: Some(EnumKey::EclSub) })
+    });
     let index = data.map(|(index, _)| index);
     let index = index.ok_or_else(|| {
         intrinsic_abi_error(abi_span, "missing sub id ('E')")
@@ -360,11 +362,11 @@ fn remove_out_arg(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &Ins
         _ => arg_encodings.remove(0),
     };
     match (ty_in_ast, encoding) {
-        | (ScalarType::Int, ArgEncoding::Dword)
+        | (ScalarType::Int, ArgEncoding::Integer { .. })
         | (ScalarType::Float, ArgEncoding::Float)
         => Ok((index, abi_parts::OutputArgMode::Natural)),
 
-        | (ScalarType::Float, ArgEncoding::Dword)
+        | (ScalarType::Float, ArgEncoding::Integer { .. })
         => Ok((index, abi_parts::OutputArgMode::FloatAsInt)),
 
         | (_, _)
@@ -378,7 +380,7 @@ fn remove_plain_arg(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &I
         _ => arg_encodings.remove(0),
     };
     match (ty_in_ast, encoding) {
-        | (ScalarType::Int, ArgEncoding::Dword)
+        | (ScalarType::Int, ArgEncoding::Integer { .. })
         | (ScalarType::Float, ArgEncoding::Float)
         => Ok(index),
 
@@ -448,7 +450,7 @@ impl IntrinsicInstrAbiParts {
         };
 
         if let Some(&(index, encoding)) = encodings.get(0) {
-            return Err(intrinsic_abi_error(abi_loc, &format!("unexpected {} arg at index {}", encoding.descr(), index + 1)));
+            return Err(intrinsic_abi_error(abi_loc, &format!("unexpected {} arg at index {}", encoding.heavy_descr(), index + 1)));
         }
         Ok(out)
     }

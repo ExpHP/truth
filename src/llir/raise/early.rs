@@ -13,12 +13,12 @@ use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, IdMap};
-use crate::context::{self, Defs, CompilerContext};
+use crate::context::{self, Defs, CompilerContext, defs::EnumKey};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
-use crate::llir::raise::{CannotRaiseIntrinsic, ItemNames, RaisedIntrinsicParts};
+use crate::llir::raise::{CannotRaiseIntrinsic, EnumNames, RaisedIntrinsicParts};
 use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE;
 
 /// Intermediate form of an instruction only used during decompilation.
@@ -91,7 +91,7 @@ fn early_raise_intrinsics(
 ) -> Result<Vec<RaiseInstr>, ErrorReported> {
     let atom_raiser = AtomRaiser {
         language: raiser.hooks.language(),
-        item_names: &raiser.item_names,
+        enum_names: &raiser.enum_names,
         hooks: raiser.hooks,
         offset_labels,
         ctx,
@@ -225,29 +225,29 @@ fn decode_args_with_abi(
         param_mask /= 2;
 
         let value = match *enc {
-            | ArgEncoding::Dword
+            | ArgEncoding::Integer { size: 4, enum_key: _ }
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-            | ArgEncoding::Sprite
-            | ArgEncoding::Script
-            | ArgEncoding::Sub
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
                 ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
             },
 
+            | ArgEncoding::Integer { size: 2, enum_key: _ }
+            => {
+                decrease_len(emitter, &mut remaining_len, 2)?;
+                ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { size, .. }
+            => panic!("unexpected integer size: {}", size),
+
             | ArgEncoding::Float
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
                 ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
-            },
-
-            | ArgEncoding::Word
-            => {
-                decrease_len(emitter, &mut remaining_len, 2)?;
-                ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
             },
 
             | ArgEncoding::String { size: size_spec, mask, furibug }
@@ -462,7 +462,7 @@ fn extract_jump_args_by_signature(
 
 struct AtomRaiser<'a, 'ctx> {
     language: LanguageKey,
-    item_names: &'a ItemNames,
+    enum_names: &'a EnumNames,
     offset_labels: &'a OffsetLabels,
     hooks: &'a dyn LanguageHooks,
     ctx: &'a CompilerContext<'ctx>,
@@ -578,7 +578,7 @@ impl AtomRaiser<'_, '_> {
         if let &Some(index) = sub_id_info {
             // FIXME: What if the sub id is invalid?  It'd be nice to fall back to raw instruction syntax...
             let sub_index = args[index].expect_immediate_int() as _;
-            sub_id = Some(self.item_names.ecl_subs[&sub_index].clone());
+            sub_id = Some(self.enum_names[&EnumKey::EclSub][&sub_index].clone());
         }
 
         let mut outputs = vec![];
@@ -631,22 +631,14 @@ impl AtomRaiser<'_, '_> {
 
         match enc {
             | ArgEncoding::Padding
-            | ArgEncoding::Word
-            | ArgEncoding::Dword
-            | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
+            | ArgEncoding::Integer { enum_key: None, .. }
             | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
             | ArgEncoding::TimelineArg(TimelineArgKind::Word)
             => Ok(ast::Expr::from(raw.expect_int())),
 
-            | ArgEncoding::Sprite
-            => Ok(raise_to_possibly_named_constant(&self.item_names.anm_sprites, raw.expect_int())),
-
-            | ArgEncoding::Script
-            => Ok(raise_to_possibly_named_constant(&self.item_names.anm_scripts, raw.expect_int())),
-
-            | ArgEncoding::Sub
-            | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
-            => Ok(raise_to_possibly_named_constant(&self.item_names.ecl_subs, raw.expect_int())),
+            | ArgEncoding::Integer { enum_key: Some(enum_key), .. }
+            | ArgEncoding::TimelineArg(TimelineArgKind::Enum(enum_key))
+            => Ok(raise_to_possibly_named_constant(&self.enum_names[enum_key], raw.expect_int())),
 
             | ArgEncoding::Color
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),

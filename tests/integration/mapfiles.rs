@@ -298,3 +298,12 @@ source_test!(
 "#,
     check_compiled: |_, _| {}, // just expecting no warnings/errors
 );
+
+source_test!(
+    ANM_10, enum_arg_not_ident,
+    mapfile: r#"!anmmap
+!ins_signatures
+999 S(enum="ax@3")  //~ ERROR ident
+"#,
+    main_body: "",
+);

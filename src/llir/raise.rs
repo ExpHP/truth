@@ -8,7 +8,7 @@ use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrs, IntrinsicInstrKind};
 use crate::resolve::{IdMap};
-use crate::context::{self, CompilerContext};
+use crate::context::{self, CompilerContext, defs::EnumKey};
 use crate::game::LanguageKey;
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK_BYTE};
 use crate::bitset::BitSet32;
@@ -141,17 +141,13 @@ pub struct Raiser<'a> {
     emitter_for_abi_warnings: &'a context::RootEmitter,
     options: &'a DecompileOptions,
     intrinsic_instrs: IntrinsicInstrs,
-    item_names: ItemNames,
+    enum_names: EnumNames,
     /// Caches information about PCB-style argument registers
     call_reg_info: Option<crate::ecl::CallRegInfo>,
 }
 
-#[derive(Default)]
-struct ItemNames {
-    anm_sprites: IdMap<i32, Ident>,
-    anm_scripts: IdMap<i32, Ident>,
-    ecl_subs: IdMap<i32, Ident>,
-}
+/// Note: guaranteed to have entries for non-ident keys
+type EnumNames = IdMap<EnumKey, IdMap<i32, Ident>>;
 
 impl Drop for Raiser<'_> {
     fn drop(&mut self) {
@@ -166,7 +162,7 @@ impl<'a> Raiser<'a> {
         defs: &context::Defs,
         options: &'a DecompileOptions,
     ) -> Result<Self, ErrorReported> {
-        Ok(Raiser {
+        let mut raiser = Raiser {
             hooks,
             opcodes_without_abis: Default::default(),
             emitter_for_abi_warnings: emitter,
@@ -176,24 +172,36 @@ impl<'a> Raiser<'a> {
                 false => Default::default(),
             },
             options,
-            item_names: Default::default(),
+            enum_names: vec![
+                (EnumKey::AnmSprite, Default::default()),
+                (EnumKey::AnmScript, Default::default()),
+                (EnumKey::EclSub, Default::default()),
+                (EnumKey::MsgSub, Default::default()),
+            ].into_iter().collect(),
             call_reg_info: None,
-        })
+        };
+
+        raiser.add_enum_consts_from_ctx(defs);
+        Ok(raiser)
+    }
+
+    fn add_enum_consts_from_ctx(&mut self, defs: &context::Defs) {
+        // TODO
     }
 
     /// Supply names for raising ANM sprite arguments.
     pub fn add_anm_sprite_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
-        self.item_names.anm_sprites.extend(names)
+        self.enum_names.get_mut(&EnumKey::AnmSprite).unwrap().extend(names)
     }
 
     /// Supply names for raising ANM script arguments.
     pub fn add_anm_script_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
-        self.item_names.anm_scripts.extend(names)
+        self.enum_names.get_mut(&EnumKey::AnmScript).unwrap().extend(names)
     }
 
     /// Supply names for raising ECL sub calls.
     pub fn add_ecl_sub_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
-        self.item_names.ecl_subs.extend(names)
+        self.enum_names.get_mut(&EnumKey::EclSub).unwrap().extend(names)
     }
 
     /// Supply data for raising subs in this particular format.

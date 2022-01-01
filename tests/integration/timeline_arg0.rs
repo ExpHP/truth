@@ -230,9 +230,37 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_06, reg_as_other_timeline_arg,
-    mapfile: TIMELINE_DEBUGGING_ECLMAP,
+    ECL_TIMELINE_06, timeline_sub_decomp,
     main_body: r#"
-    hasMsgArg0(3, $REG[20], 3);  //~ ERROR non-const
+    ins_0(0, 1.0, 2.0, 3.0, 4, 5, 6);
+    ins_0(1, 1.0, 2.0, 3.0, 4, 5, 6);
+    ins_0(2, 1.0, 2.0, 3.0, 4, 5, 6);
 "#,
+    items: r#"
+void sub0() {}
+void sub1() {}
+"#,
+    check_decompiled: |s| {
+        assert!(s.contains("(sub0,"));
+        assert!(s.contains("(sub1,"));
+        assert!(s.contains("(2,"));
+    },
+);
+
+source_test!(
+    ECL_TIMELINE_08, timeline_sub_decomp_not_arg0,
+    main_body: r#"
+    ins_0(0, 1.0, 2.0, 4, 5, 6);
+    ins_0(1, 1.0, 2.0, 4, 5, 6);
+    ins_0(2, 1.0, 2.0, 4, 5, 6);
+"#,
+    items: r#"
+void sub0() {}
+void sub1() {}
+"#,
+    check_decompiled: |s| {
+        assert!(s.contains("(sub0,"));
+        assert!(s.contains("(sub1,"));
+        assert!(s.contains("(2,"));
+    },
 );

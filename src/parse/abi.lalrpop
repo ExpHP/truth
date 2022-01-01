@@ -1,4 +1,5 @@
 use crate::diagnostic::Diagnostic;
+use crate::context::defs::EnumKey;
 use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
 use crate::parse::lalrparser_util as util;
 
@@ -13,26 +14,30 @@ extern {
 pub(crate) Abi = <ArgEncoding*>;
 
 ArgEncoding: ArgEncoding = {
-    "S" OptionalEnum => ArgEncoding::Dword,
-    "s" OptionalEnum => ArgEncoding::Word,
-    "U" OptionalEnum => ArgEncoding::Dword,  // FIXME
-    "u" OptionalEnum => ArgEncoding::Word,  // FIXME
+    "S" <enum_key:OptionalEnum> => ArgEncoding::Integer { size: 4, enum_key },
+    "s" <enum_key:OptionalEnum> => ArgEncoding::Integer { size: 2, enum_key },
+    // FIXME: these two should be unsigned
+    "U" <enum_key:OptionalEnum> => ArgEncoding::Integer { size: 4, enum_key },
+    "u" <enum_key:OptionalEnum> => ArgEncoding::Integer { size: 2, enum_key },
     "C" => ArgEncoding::Color,
     "o" => ArgEncoding::JumpOffset,
     "t" => ArgEncoding::JumpTime,
     "f" => ArgEncoding::Float,
     "_" => ArgEncoding::Padding,
-    "n" => ArgEncoding::Sprite,
-    "N" => ArgEncoding::Script,
-    "E" => ArgEncoding::Sub,
+    "n" => ArgEncoding::Integer { size: 4, enum_key: Some(EnumKey::AnmSprite) },
+    "N" => ArgEncoding::Integer { size: 4, enum_key: Some(EnumKey::AnmScript) },
+    "E" => ArgEncoding::Integer { size: 4, enum_key: Some(EnumKey::EclSub) },
     ZString,
     MString,
     TArg,
 };
 
-OptionalEnum: () = {
-    "(" "enum" "=" StringLiteral ")" => (),
-    => (),
+OptionalEnum: Option<EnumKey> = {
+    "(" "enum" "=" <name:StringLiteral> ")" =>? {
+        name.parse().map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() })
+            .map(|ident| Some(EnumKey::User(ident)))
+    },
+    => None,
 };
 
 ZString: ArgEncoding = {
@@ -83,8 +88,8 @@ MaskArg: AcceleratingByteMask = {
 };
 
 TArg: ArgEncoding = {
-    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::MsgSub),
-    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::EclSub),
+    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(EnumKey::MsgSub)),
+    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(EnumKey::EclSub)),
     "T" "(" "s" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "u" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),

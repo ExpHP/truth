@@ -217,7 +217,7 @@ pub const ECL_08: Format = Format {
     ..ECL_06
 };
 
-/// Variant of ECL_08 where main_body is inserted into a timeline instead.
+/// Variant of ECL_06 where main_body is inserted into a timeline instead.
 /// There are no subs by default.
 pub const ECL_TIMELINE_06: Format = Format {
     cmd: "truecl",
@@ -229,3 +229,15 @@ timeline 0 {{
 }}
 "#, body),
 };
+
+pub const ECL_TIMELINE_08: Format = Format {
+    cmd: "truecl",
+    game: Game::Th08,
+    script_head: r#""#,
+    make_main: |body| format!(r#"
+timeline 0 {{
+    {}
+}}
+"#, body),
+};
+

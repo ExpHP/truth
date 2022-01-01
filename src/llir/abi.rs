@@ -2,7 +2,7 @@ use crate::ast;
 use crate::pos::{Sp, Span};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::context::{CompilerContext, defs};
+use crate::context::{CompilerContext, defs::{self, EnumKey}};
 use crate::value::{self, ScalarType};
 use crate::game::{Game, LanguageKey};
 
@@ -28,12 +28,10 @@ pub struct InstrAbi {
 ///
 /// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
 /// [`ScalarType`] tends to be more relevant for variables.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArgEncoding {
-    /// `S` in mapfile. 4-byte integer immediate or register.  Displayed as signed.
-    Dword,
-    /// `s` in mapfile. 2-byte integer immediate.  Displayed as signed.
-    Word,
+    /// `S` or `s` in mapfile. 4-byte or 2-byte integer immediate or register.  Displayed as signed.
+    Integer { size: u8, enum_key: Option<EnumKey> },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
@@ -46,12 +44,6 @@ pub enum ArgEncoding {
     Color,
     /// `f` in mapfile. Single-precision float.
     Float,
-    /// `N` in mapfile. Dword index of an anm script.  When decompiled, prefers to use the name of that script.
-    Script,
-    /// `n` in mapfile. Dword index of an anm sprite.  When decompiled, prefers to use the name of that sprite.
-    Sprite,
-    /// `E` in mapfile. Dword index of an olde-format ECL sub.  When decompiled, prefers to use the name of that sub.
-    Sub,
     /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or  `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
     /// See [`StringArgSize`] about the size args.
@@ -90,7 +82,7 @@ pub enum StringArgSize {
     Block { block_size: usize },
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TimelineArgKind {
     /// `T(s)`.  Timeline argument that is just an integer.
     Word,
@@ -98,29 +90,39 @@ pub enum TimelineArgKind {
     ///
     /// It can still be explicitly set via `@arg0=`.
     Unused,
-    /// `T(e)`.  Timeline argument that is an ECL sub index.
+    /// `T(e)`, `T(m)`.  Timeline argument that is an ECL or MSG sub index.
     ///
     /// This mostly impacts decompilation, as it will try to decompile this arg to a symbol name.
-    EclSub,
-    /// `T(m)`.  Timeline argument that is a MSG script index.
-    MsgSub,
+    Enum(EnumKey),
 }
 
 impl ArgEncoding {
+    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, enum_key: None } }
+
     pub fn descr(&self) -> &'static str {
         match self {
-            Self::Dword => "dword integer",
-            Self::Word => "word-sized integer",
+            Self::Integer { size: 2, .. } => "word-sized integer",
+            Self::Integer { size: 4, .. } => "dword integer",
+            Self::Integer { size: _, .. } => "integer",
             Self::JumpOffset => "jump offset",
             Self::JumpTime => "jump time",
             Self::Padding => "padding",
             Self::Color => "hex integer",
             Self::Float => "float",
-            Self::Script => "script id",
-            Self::Sprite => "sprite id",
-            Self::Sub => "sub id",
             Self::String { .. } => "string",
             Self::TimelineArg { .. } => "timeline arg0",
+        }
+    }
+
+    pub fn heavy_descr(&self) -> String {
+        match self {
+            Self::Integer { enum_key: Some(en), size: 4 } => format!("{}", en.heavy_descr()),
+            Self::Integer { enum_key: Some(en), size } => format!("{}-byte {}", size, en.heavy_descr()),
+            Self::Integer { enum_key: None, size: 2 } => format!("word-sized integer"),
+            Self::Integer { enum_key: None, size: 4 } => format!("dword integer"),
+            Self::Integer { enum_key: None, size } => format!("{}-byte integer", size),
+            Self::TimelineArg(TimelineArgKind::Enum(en)) => format!("{} (in timeline arg0)", en.heavy_descr()),
+            _ => self.descr().to_string(),
         }
     }
 }
@@ -217,11 +219,7 @@ impl ArgEncoding {
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
             | ArgEncoding::Color
-            | ArgEncoding::Word
-            | ArgEncoding::Sprite
-            | ArgEncoding::Script
-            | ArgEncoding::Sub
-            | ArgEncoding::Dword
+            | ArgEncoding::Integer { .. }
             | ArgEncoding::TimelineArg { .. }
             => ScalarType::Int,
 
@@ -279,23 +277,18 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
         return_ty: sp!(value::ExprType::Void),
         params: abi.encodings.iter().enumerate().flat_map(|(index, enc)| {
             let Info { ty, default, reg_ok } = match *enc {
-                | ArgEncoding::Dword
+                | ArgEncoding::Integer { .. }
                 | ArgEncoding::Color
-                | ArgEncoding::Word
                 => Info { ty: ScalarType::Int, default: None, reg_ok: true },
 
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
-                | ArgEncoding::Sprite
-                | ArgEncoding::Script
-                | ArgEncoding::Sub
-                | ArgEncoding::TimelineArg(TimelineArgKind::EclSub)
-                | ArgEncoding::TimelineArg(TimelineArgKind::MsgSub)
                 | ArgEncoding::TimelineArg(TimelineArgKind::Word)
+                | ArgEncoding::TimelineArg(TimelineArgKind::Enum(_))
                 => Info { ty: ScalarType::Int, default: None, reg_ok: false },
 
                 | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
-                => return None,
+                => return None,  // leave out of the signature
 
                 | ArgEncoding::Padding
                 => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true },
@@ -330,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(Span::NULL, vec![Enc::Dword, Enc::Dword, Enc::Float]).unwrap());
+        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(Span::NULL, vec![Enc::dword(), Enc::dword(), Enc::Float]).unwrap());
     }
 
     #[test]
