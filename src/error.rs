@@ -25,7 +25,7 @@ impl ErrorReported {
 // FIXME: If this looks overengineered, it's because it is.
 //        It is naught but a ghastly remnant of some ErrorStore type that used to exist.
 /// An accumulator for errors that provides a straightforward way of converting to
-/// a `Result<T, CompileError>` based on whether any errors have occurred.
+/// a `Result<T, ErrorReported>` based on whether any errors have occurred.
 #[derive(Debug, Clone, Default)]
 pub struct ErrorFlag {
     errors: Option<ErrorReported>,

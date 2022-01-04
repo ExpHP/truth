@@ -1,5 +1,5 @@
 use crate::diagnostic::Diagnostic;
-use crate::context::defs::EnumKey;
+use crate::context::defs::{EnumKey, BuiltinEnum};
 use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
 use crate::parse::lalrparser_util as util;
 
@@ -24,9 +24,9 @@ ArgEncoding: ArgEncoding = {
     "t" => ArgEncoding::JumpTime,
     "f" => ArgEncoding::Float,
     "_" => ArgEncoding::Padding,
-    "n" => ArgEncoding::Integer { size: 4, enum_key: Some(EnumKey::AnmSprite) },
-    "N" => ArgEncoding::Integer { size: 4, enum_key: Some(EnumKey::AnmScript) },
-    "E" => ArgEncoding::Integer { size: 4, enum_key: Some(EnumKey::EclSub) },
+    "n" => ArgEncoding::Integer { size: 4, enum_key: Some(BuiltinEnum::AnmSprite.into()) },
+    "N" => ArgEncoding::Integer { size: 4, enum_key: Some(BuiltinEnum::AnmScript.into()) },
+    "E" => ArgEncoding::Integer { size: 4, enum_key: Some(BuiltinEnum::EclSub.into()) },
     ZString,
     MString,
     TArg,
@@ -88,8 +88,8 @@ MaskArg: AcceleratingByteMask = {
 };
 
 TArg: ArgEncoding = {
-    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(EnumKey::MsgSub)),
-    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(EnumKey::EclSub)),
+    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(BuiltinEnum::MsgSub.into())),
+    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(BuiltinEnum::EclSub.into())),
     "T" "(" "s" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "u" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),

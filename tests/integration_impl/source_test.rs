@@ -309,10 +309,15 @@ impl SourceTest {
         }
 
         if options.decompile.expected.should_run() {
-            println!("{:?}", options.decompile.expected);
             let compiled = compiled.as_ref().unwrap();
             let args = options.decompile.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
             let result = format.decompile(compiled, &args, decompile_mapfiles);
+
+            if let Some(output) = &result.output {
+                eprintln!("=== DECOMPILE OUTPUT ===");
+                eprintln!("{}", output.read_to_string());
+            }
+
             result.check_with_expected(&options.decompile.expected, do_snapshot);
 
             if options.decompile.expected.should_succeed() {

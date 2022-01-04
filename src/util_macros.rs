@@ -170,33 +170,53 @@ fn error_macro_examples() {
 
 /// Derives Debug, Display, and From for a newtyped Id type.
 macro_rules! newtype_id {
-    (
+    ( // tuple struct
         $(# $attr:tt)*
         $vis:vis struct $IdType:ident($inner_vis:vis $InnerType:ty);
     ) => {
         $(# $attr)*
         $vis struct $IdType($inner_vis $InnerType);
 
+        newtype_id!{@impls [field_name: 0] [IdType: $IdType] [InnerType: $InnerType]}
+    };
+
+    ( // regular struct (named field)
+        $(# $attr:tt)*
+        $vis:vis struct $IdType:ident {
+            $inner_vis:vis $field_name:ident : $InnerType:ty $(,)?
+        }
+    ) => {
+        $(# $attr)*
+        $vis struct $IdType { $inner_vis $field_name: $InnerType }
+
+        newtype_id!{@impls [field_name: $field_name] [IdType: $IdType] [InnerType: $InnerType]}
+    };
+
+    (
+        @impls
+        [field_name: $field_name:tt]
+        [IdType: $IdType:ident]
+        [InnerType: $InnerType:ty]
+    ) => {
         const _: () = {
             use ::core::fmt;
             use ::core::convert::From;
 
             impl fmt::Debug for $IdType {
                 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                    fmt::Display::fmt(&self.0, f)
+                    fmt::Display::fmt(&self.$field_name, f)
                 }
             }
 
             impl fmt::Display for $IdType {
                 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                    fmt::Display::fmt(&self.0, f)
+                    fmt::Display::fmt(&self.$field_name, f)
                 }
             }
 
             impl From<$InnerType> for $IdType {
-                fn from(x: $InnerType) -> Self { $IdType(x) }
+                fn from(x: $InnerType) -> Self { $IdType { $field_name: x } }
             }
         };
-
     };
 }

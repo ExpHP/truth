@@ -11,6 +11,7 @@ use crate::context::CompilerContext;
 mod tests;
 
 pub type IdMap<K, V> = HashMap<K, V>; // probably want to get FxHashMap
+pub use std::collections::hash_map as id_map;
 
 newtype_id!{
     /// Identifies a node in the AST that may be interesting to semantic analysis.
@@ -61,6 +62,15 @@ newtype_id! {
     /// from [`Resolutions`].
     #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct DefId(pub NonZeroU32);
+}
+
+newtype_id! {
+    /// A [`DefId`] for a const variable.  This can be used to look up its value, once const vars
+    /// have been evaluated. (see [`crate::passes::evaluate_const_vars`])
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct ConstId {
+        pub def_id: DefId,
+    }
 }
 
 newtype_id! {
@@ -387,9 +397,9 @@ mod resolve_vars {
                         let ident = var.name.expect_ident();
 
                         let sp_ident = sp!(var.span => ident.clone());
-                        let def_id = self.ctx.define_const_var(sp_ident.clone(), ty, expr.clone());
+                        let const_id = self.ctx.define_const_var(sp_ident.clone(), ty, expr.clone());
                         self.add_to_rib_with_redefinition_check(
-                            Namespace::Vars, RibKind::Items, sp_ident.clone(), def_id,
+                            Namespace::Vars, RibKind::Items, sp_ident.clone(), const_id.def_id,
                         );
                     }
                 },

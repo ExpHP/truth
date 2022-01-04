@@ -14,6 +14,7 @@ use crate::value::{ScalarType, ScalarValue, ReadType, VarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
 use crate::resolve::{RegId, DefId, IdMap};
 use crate::context::CompilerContext;
+use crate::context::defs::BuiltinEnum;
 
 // =============================================================================
 
@@ -60,9 +61,17 @@ fn decompile(
     let timeline_hooks = &*format.timeline_hooks;
     let sub_format = &*game_sub_format(format.game);
 
+    for i in 0..ecl.subs.len() {
+        let name = ecl.subs.get_index(i).unwrap().0.clone();
+        ctx.define_builtin_enum_const_fresh(BuiltinEnum::EclSub, name, i as _);
+    }
+
+    // Eval enum consts. Must be done before constructing Raisers.
+    crate::passes::evaluate_const_vars::run(ctx)?;
+
     // Generate timelines
     let mut items = vec![];
-    let mut timeline_raiser = llir::Raiser::new(timeline_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
+    let mut timeline_raiser = llir::Raiser::new(timeline_hooks, ctx.emitter, ctx, decompile_options)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Timeline {
             keyword: sp!(()),
@@ -73,8 +82,7 @@ fn decompile(
         }));
     }
 
-    let mut sub_raiser = llir::Raiser::new(ecl_hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
-    sub_raiser.add_ecl_sub_names((0..ecl.subs.len()).map(|i| (i as i32, ecl.subs.get_index(i).unwrap().0.clone())));
+    let mut sub_raiser = llir::Raiser::new(ecl_hooks, ctx.emitter, ctx, decompile_options)?;
     sub_raiser.set_olde_sub_format(sub_format);
 
     // Decompile ECL subs only halfway
@@ -144,7 +152,7 @@ fn compile(
     let sub_ids = gather_sub_ids(&ast, ctx)?;
     for (index, sub_name) in sub_ids.values().enumerate() {
         let const_value: Sp<ast::Expr> = sp!(sub_name.span => (index as i32).into());
-        ctx.define_auto_const_var(sub_name.clone(), ScalarType::Int, const_value);
+        ctx.define_builtin_enum_const(BuiltinEnum::EclSub, sub_name.clone(), const_value);
     }
 
     // preprocess

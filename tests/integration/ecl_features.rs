@@ -383,11 +383,11 @@ void mixed(int a, int b, float x, int c, float y) {}
     mixed(2, I0, 2.0, 7, F0);
     "#,
     check_decompiled: |decompiled| {
-        decompiled.contains("();");
-        decompiled.contains("(7);");
-        decompiled.contains("(2, 4);");
-        decompiled.contains("(4.0);");
-        decompiled.contains(" 2.0, "); // check for a big argument list
+        assert!(decompiled.contains("();"));
+        assert!(decompiled.contains("(7);"));
+        assert!(decompiled.contains("(2, 4);"));
+        assert!(decompiled.contains("(4.0);"));
+        assert!(decompiled.contains(" 2.0, ")); // check for a big argument list
     },
 );
 
@@ -408,7 +408,7 @@ void foo(int a, int b, float x, int c, float y) {
     foo(2, I0, 2.0, 7, F0);
     "#,
     check_decompiled: |decompiled| {
-        decompiled.contains(" 2.0, "); // check for a big argument list
+        assert!(decompiled.contains(" 2.0, ")); // check for a big argument list
     },
 );
 

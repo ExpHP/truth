@@ -57,6 +57,13 @@ impl ScalarValue {
             &ScalarValue::String(_) => None,
         }
     }
+
+    pub fn expect_int(&self) -> i32 {
+        match self {
+            &ScalarValue::Int(x) => x,
+            _ => panic!("expected integer, got {:?}", self),
+        }
+    }
 }
 
 /// `Display` impl, for ease of use in error messages.

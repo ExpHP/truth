@@ -141,13 +141,13 @@ pub struct Raiser<'a> {
     emitter_for_abi_warnings: &'a context::RootEmitter,
     options: &'a DecompileOptions,
     intrinsic_instrs: IntrinsicInstrs,
-    enum_names: EnumNames,
+    enum_names: IdMap<EnumKey, IdMap<i32, Sp<Ident>>>,
     /// Caches information about PCB-style argument registers
     call_reg_info: Option<crate::ecl::CallRegInfo>,
 }
 
 /// Note: guaranteed to have entries for non-ident keys
-type EnumNames = IdMap<EnumKey, IdMap<i32, Ident>>;
+type EnumNames = IdMap<EnumKey, IdMap<i32, Sp<Ident>>>;
 
 impl Drop for Raiser<'_> {
     fn drop(&mut self) {
@@ -159,49 +159,22 @@ impl<'a> Raiser<'a> {
     pub fn new(
         hooks: &'a dyn LanguageHooks,
         emitter: &'a context::RootEmitter,
-        defs: &context::Defs,
+        ctx: &CompilerContext<'_>,
         options: &'a DecompileOptions,
     ) -> Result<Self, ErrorReported> {
-        let mut raiser = Raiser {
+        Ok(Raiser {
             hooks,
             opcodes_without_abis: Default::default(),
             emitter_for_abi_warnings: emitter,
             // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
             intrinsic_instrs: match options.intrinsics {
-                true => IntrinsicInstrs::from_format_and_mapfiles(hooks, defs, emitter)?,
+                true => IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
                 false => Default::default(),
             },
             options,
-            enum_names: vec![
-                (EnumKey::AnmSprite, Default::default()),
-                (EnumKey::AnmScript, Default::default()),
-                (EnumKey::EclSub, Default::default()),
-                (EnumKey::MsgSub, Default::default()),
-            ].into_iter().collect(),
+            enum_names: ctx.get_enum_const_names(),
             call_reg_info: None,
-        };
-
-        raiser.add_enum_consts_from_ctx(defs);
-        Ok(raiser)
-    }
-
-    fn add_enum_consts_from_ctx(&mut self, defs: &context::Defs) {
-        // TODO
-    }
-
-    /// Supply names for raising ANM sprite arguments.
-    pub fn add_anm_sprite_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
-        self.enum_names.get_mut(&EnumKey::AnmSprite).unwrap().extend(names)
-    }
-
-    /// Supply names for raising ANM script arguments.
-    pub fn add_anm_script_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
-        self.enum_names.get_mut(&EnumKey::AnmScript).unwrap().extend(names)
-    }
-
-    /// Supply names for raising ECL sub calls.
-    pub fn add_ecl_sub_names(&mut self, names: impl IntoIterator<Item=(raw::LangInt, Ident)>) {
-        self.enum_names.get_mut(&EnumKey::EclSub).unwrap().extend(names)
+        })
     }
 
     /// Supply data for raising subs in this particular format.

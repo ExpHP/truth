@@ -7,13 +7,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::{Raiser, RaiseInstr, RaiseIntrinsicKind};
 use crate::raw;
 use crate::ast::{self};
+use crate::pos::Sp;
 use crate::ident::{Ident, ResIdent};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, IdMap};
-use crate::context::{self, Defs, CompilerContext, defs::EnumKey};
+use crate::context::{self, Defs, CompilerContext};
+use crate::context::defs::{EnumKey, BuiltinEnum};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
@@ -576,9 +578,13 @@ impl AtomRaiser<'_, '_> {
 
         let mut sub_id = None;
         if let &Some(index) = sub_id_info {
-            // FIXME: What if the sub id is invalid?  It'd be nice to fall back to raw instruction syntax...
             let sub_index = args[index].expect_immediate_int() as _;
-            sub_id = Some(self.enum_names[&EnumKey::EclSub][&sub_index].clone());
+            // FIXME: This is a bit questionable. We're looking up an enum name (conceptually in the
+            //        value namespace) to get an ident for a callable function (conceptually in the
+            //        function namespace).  It feels like there is potential for future bugs here...
+            let enum_key = EnumKey::Builtin(BuiltinEnum::EclSub);
+            let name = self.enum_names[&enum_key].get(&sub_index).ok_or(CannotRaiseIntrinsic)?;
+            sub_id = Some(name.value.clone());
         }
 
         let mut outputs = vec![];
@@ -638,7 +644,7 @@ impl AtomRaiser<'_, '_> {
 
             | ArgEncoding::Integer { enum_key: Some(enum_key), .. }
             | ArgEncoding::TimelineArg(TimelineArgKind::Enum(enum_key))
-            => Ok(raise_to_possibly_named_constant(&self.enum_names[enum_key], raw.expect_int())),
+            => Ok(raise_to_possibly_named_constant(&self.enum_names.get(&enum_key).unwrap_or_else(|| panic!("{:?}", enum_key)), raw.expect_int())),
 
             | ArgEncoding::Color
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
@@ -712,10 +718,10 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Ident>, id: i32) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32) -> ast::Expr {
     match names.get(&id) {
         Some(ident) => {
-            let const_ident = ResIdent::new_null(ident.clone());
+            let const_ident = ResIdent::new_null(ident.value.clone());
             let name = ast::VarName::new_non_reg(const_ident);
             let var = ast::Var { ty_sigil: None, name };
             ast::Expr::Var(sp!(var))

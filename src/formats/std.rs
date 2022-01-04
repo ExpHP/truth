@@ -244,8 +244,11 @@ fn decompile_std(
     let hooks = format.language_hooks();
     let script = &std.script;
 
+    // Eval enum consts. Must be done before constructing Raisers.
+    crate::passes::evaluate_const_vars::run(ctx)?;
+
     let code = {
-        llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?
+        llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options)?
             .raise_instrs_to_sub_ast(emitter, script, ctx)?
     };
 

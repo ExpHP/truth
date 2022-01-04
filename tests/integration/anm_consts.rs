@@ -76,6 +76,28 @@ entry {
     "#,
 );
 
+source_test!(
+    ANM_12, decompile_sprite_id,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-multiple-match-source.anm"
+
+entry {
+    path: "subdir/file1.png",
+    has_data: false,
+    sprites: {
+        sprite23: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 23},
+    },
+}
+
+script script0 {
+    ins_3(sprite23);
+}
+    "#,
+    check_decompiled: |decompiled| {
+        assert!(decompiled.contains("(sprite23)"));
+    },
+);
+
 // It is okay for two sprites to have the same name (this occurs in decompiled output),
 // but they must also have the same ID.
 source_test!(

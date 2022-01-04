@@ -18,6 +18,7 @@ use crate::llir::{self, RawInstr, InstrFormat, LanguageHooks, IntrinsicInstrKind
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
+use crate::context::defs::BuiltinEnum;
 use crate::resolve::RegId;
 
 mod read_write;
@@ -458,11 +459,19 @@ fn decompile(
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let mut items = vec![];
-    let mut raiser = llir::Raiser::new(hooks, &ctx.emitter, &ctx.defs, decompile_options)?;
 
     let num_scripts: usize = anm_file.entries.iter().map(|entry| entry.scripts.len()).sum();
-    raiser.add_anm_script_names((0..num_scripts).map(|i| (i as _, auto_script_name(i as _))));
-    raiser.add_anm_sprite_names(all_sprite_ids(anm_file).into_iter().map(|i| (i as _, auto_sprite_name(i as _))));
+    for i in 0..num_scripts {
+        ctx.define_builtin_enum_const_fresh(BuiltinEnum::AnmScript, auto_script_name(i as _), i as _);
+    }
+    for i in all_sprite_ids(anm_file) {
+        ctx.define_builtin_enum_const_fresh(BuiltinEnum::AnmSprite, auto_sprite_name(i as _), i as _);
+    }
+
+    // Eval enum consts. Must be done before constructing Raisers.
+    crate::passes::evaluate_const_vars::run(ctx)?;
+
+    let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options)?;
 
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
@@ -623,11 +632,11 @@ fn compile(
     let script_ids = gather_script_ids(&ast, ctx)?;
     for (index, &(ref script_name, _)) in script_ids.values().enumerate() {
         let const_value: Sp<ast::Expr> = sp!(script_name.span => (index as i32).into());
-        ctx.define_auto_const_var(script_name.clone(), ScalarType::Int, const_value);
+        ctx.define_builtin_enum_const(BuiltinEnum::AnmScript, script_name.clone(), const_value);
     }
     let sprite_ids = gather_sprite_id_exprs(&ast, ctx, &mut extra_type_checks)?;
     for (sprite_name, id_expr) in sprite_ids {
-        ctx.define_auto_const_var(sprite_name, ScalarType::Int, id_expr);
+        ctx.define_builtin_enum_const(BuiltinEnum::AnmSprite, sprite_name, id_expr);
     }
 
     // preprocess
@@ -722,7 +731,8 @@ fn define_color_format_consts(
     for format in ColorFormat::get_all() {
         let ident = format.const_name().parse::<Ident>().unwrap();
         let ident = ctx.resolutions.attach_fresh_res(ident);
-        ctx.define_auto_const_var(sp!(ident), ScalarType::Int, sp!((format as u32 as i32).into()));
+        let expr = sp!((format as u32 as i32).into());
+        ctx.define_builtin_enum_const(BuiltinEnum::ColorFormat, sp!(ident), expr);
     }
 }
 

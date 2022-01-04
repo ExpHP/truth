@@ -267,7 +267,7 @@ fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<T
     // decompile back to primitive operations (this gives an "actual" output)
     let new_block = {
         let options = Default::default();
-        let mut raiser = llir::Raiser::new(&hooks, &ctx.emitter, &ctx.defs, &options)?;
+        let mut raiser = llir::Raiser::new(&hooks, ctx.emitter, ctx, &options)?;
         let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut stmts[..], ctx)?;
         ast::Block(stmts)
