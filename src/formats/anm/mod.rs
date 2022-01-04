@@ -468,10 +468,8 @@ fn decompile(
         ctx.define_builtin_enum_const_fresh(BuiltinEnum::AnmSprite, auto_sprite_name(i as _), i as _);
     }
 
-    // Eval enum consts. Must be done before constructing Raisers.
-    crate::passes::evaluate_const_vars::run(ctx)?;
-
-    let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options)?;
+    let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
+    let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
 
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {

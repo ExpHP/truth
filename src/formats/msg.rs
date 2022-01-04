@@ -191,12 +191,10 @@ fn decompile(
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let hooks = &*format.language_hooks();
 
-    // Eval enum consts. Must be done before constructing Raisers.
-    crate::passes::evaluate_const_vars::run(ctx)?;
-
     let sparse_script_table = sparsify_script_table(&msg.dense_table);
 
-    let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options)?;
+    let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
+    let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),

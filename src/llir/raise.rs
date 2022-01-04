@@ -161,6 +161,7 @@ impl<'a> Raiser<'a> {
         emitter: &'a context::RootEmitter,
         ctx: &CompilerContext<'_>,
         options: &'a DecompileOptions,
+        const_proof: crate::passes::evaluate_const_vars::Proof,
     ) -> Result<Self, ErrorReported> {
         Ok(Raiser {
             hooks,
@@ -172,7 +173,7 @@ impl<'a> Raiser<'a> {
                 false => Default::default(),
             },
             options,
-            enum_names: ctx.get_enum_const_names(),
+            enum_names: ctx.get_enum_const_names(const_proof),
             call_reg_info: None,
         })
     }

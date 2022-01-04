@@ -740,7 +740,7 @@ impl CompilerContext<'_> {
     /// Get `value -> name` mappings for all enums, for decompilation or pretty-printing purposes.
     ///
     /// Requires [`crate::passes::evaluate_const_vars`] to have been run.
-    pub fn get_enum_const_names(&self) -> IdMap<EnumKey, IdMap<i32, Sp<Ident>>> {
+    pub fn get_enum_const_names(&self, _const_proof: crate::passes::evaluate_const_vars::Proof) -> IdMap<EnumKey, IdMap<i32, Sp<Ident>>> {
         let CompilerContext { defs, consts, .. } = self;
         let mut out = IdMap::default();
         out.extend(defs.builtin_enums.iter().map(|(key, data)| (key.into(), data.generate_lookup(consts))));

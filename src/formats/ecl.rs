@@ -66,12 +66,11 @@ fn decompile(
         ctx.define_builtin_enum_const_fresh(BuiltinEnum::EclSub, name, i as _);
     }
 
-    // Eval enum consts. Must be done before constructing Raisers.
-    crate::passes::evaluate_const_vars::run(ctx)?;
+    let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
 
     // Generate timelines
     let mut items = vec![];
-    let mut timeline_raiser = llir::Raiser::new(timeline_hooks, ctx.emitter, ctx, decompile_options)?;
+    let mut timeline_raiser = llir::Raiser::new(timeline_hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Timeline {
             keyword: sp!(()),
@@ -82,7 +81,7 @@ fn decompile(
         }));
     }
 
-    let mut sub_raiser = llir::Raiser::new(ecl_hooks, ctx.emitter, ctx, decompile_options)?;
+    let mut sub_raiser = llir::Raiser::new(ecl_hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
     sub_raiser.set_olde_sub_format(sub_format);
 
     // Decompile ECL subs only halfway
