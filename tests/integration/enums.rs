@@ -11,13 +11,15 @@ source_test!(
 40 Green
     "#,
     main_body: r#"
-        ins_400(30, Red);
+        ins_400(30, TestEnum.Red);
+        ins_400(30, .Red);
         ins_400(30, 20);
     "#,
     check_compiled: |output, format| {
         let std = output.read_std(format);
         assert_eq!(std.script[0].args_blob, blobify![30, 20]);
         assert_eq!(std.script[1].args_blob, blobify![30, 20]);
+        assert_eq!(std.script[2].args_blob, blobify![30, 20]);
     },
 );
 
@@ -35,7 +37,7 @@ source_test!(
         ins_400(20, 20);
     "#,
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains("(20, Red)"));
+        assert!(decompiled.contains("(20, .Red)"));
     },
 );
 
@@ -87,12 +89,12 @@ source_test!(
 20 NewName
     "#,
     main_body: r#"
-        ins_400(30, OldName);
-        ins_400(30, NewName);
+        ins_400(30, .OldName);
+        ins_400(30, .NewName);
     "#,
     check_decompiled: |decompiled| {
         // the final name should take precedence
-        assert_eq!(decompiled.matches(", NewName)").count(), 2);
+        assert_eq!(decompiled.matches(", .NewName)").count(), 2);
     },
 );
 
@@ -129,12 +131,12 @@ source_test!(
 20 Red
     "#,
     main_body: r#"
-        ins_400(30, Red);
-        ins_400(30, Green);
+        ins_400(30, .Red);
+        ins_400(30, .Green);
     "#,
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains(", Red);"));
-        assert!(decompiled.contains(", Green);"));
+        assert!(decompiled.contains(", .Red);"));
+        assert!(decompiled.contains(", .Green);"));
     },
 );
 
@@ -147,8 +149,8 @@ source_test!(
 20 Name
     "#,
     main_body: r#"
-        ins_400(Name);
-        ins_400(2 + Name * 2);
+        ins_400(.Name);
+        ins_400(2 + FooEnum.Name * 2);
     "#,
     check_compiled: |output, format| {
         let std = output.read_std(format);
@@ -168,14 +170,14 @@ source_test!(
 40 Name
     "#,
     main_body: r#"
-        ins_400(Name, Name);
+        ins_400(.Name, .Name);
     "#,
     check_compiled: |output, format| {
         let std = output.read_std(format);
         assert_eq!(std.script[0].args_blob, blobify![20, 40]);
     },
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains("(Name, Name)"));
+        assert!(decompiled.contains("(.Name, .Name)"));
     },
 );
 
@@ -190,44 +192,19 @@ source_test!(
 40 Name
     "#,
     main_body: r#"
-        ins_400(Name);  //~ ERROR FooEnum::Name
+        ins_400(.Name);  //~ ERROR FooEnum.Name
     "#,
 );
 
 source_test!(
     ANM_12, legal_builtin_conflict,
     mapfile: r#"!anmmap
+!ins_names
+300 TakesScript
+400 TakesFoo
 !ins_signatures
 300 N
 400 S(enum="FooEnum")
-!enum(name="FooEnum")
-20 Name
-    "#,
-    items: r#"
-        script Name {
-            ins_400(Name);
-        }
-    "#,
-    main_body: r#"
-        ins_300(Name);
-    "#,
-    check_compiled: |output, format| {
-        let anm = output.read_anm(format);
-        // Name as enum const
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![20]);
-        // Name as script ID
-        assert_eq!(anm.entries[0].scripts[1].instrs[0].args_blob, blobify![0]);
-    },
-    check_decompiled: |decompiled| {
-        assert_eq!(decompiled.matches("(Name)").count(), 2);
-    },
-);
-
-source_test!(
-    ANM_12, legal_builtin_conflict_used_ambiguously,
-    mapfile: r#"!anmmap
-!ins_signatures
-400 S
 !enum(name="FooEnum")
 20 Name
     "#,
@@ -235,46 +212,36 @@ source_test!(
         script Name {}
     "#,
     main_body: r#"
-        ins_400(Name);  //~ ERROR: ambiguous
+        TakesScript(Name);
+        TakesFoo(Name);  //~ WARNING script
+        TakesFoo(.Name);
     "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[1].instrs[0].args_blob, blobify![0]);
+        assert_eq!(anm.entries[0].scripts[1].instrs[1].args_blob, blobify![0]);
+        assert_eq!(anm.entries[0].scripts[1].instrs[2].args_blob, blobify![20]);
+    },
+    check_decompiled: |decompiled| {
+        assert_eq!(decompiled.matches("(Name)").count(), 1);
+        assert_eq!(decompiled.matches("(0)").count(), 1);  // from TakesFoo(Name)
+        assert_eq!(decompiled.matches("(.Name)").count(), 1);
+    },
 );
 
 source_test!(
-    ANM_12, other_enum_warning,
+    ANM_12, other_enum,
     mapfile: r#"!anmmap
-!ins_names
-300 TakesScript
-400 TakesFoo
-500 TakesBar
 !ins_signatures
-300 N
 400 S(enum="FooEnum")
 500 S(enum="BarEnum")
 
 !enum(name="FooEnum")
 20 FooOnly
-40 ScriptAndFoo
 !enum(name="BarEnum")
 30 BarOnly
     "#,
-    items: r#"
-        script ScriptOnly {}
-        script ScriptAndFoo {}
-    "#,
     main_body: r#"
-        TakesFoo(BarOnly); //~ WARNING different enum
-        TakesFoo(ScriptOnly); //~ WARNING script
-
-        // prefer to mention the user enum over the builtin
-        TakesBar(ScriptAndFoo); //~ WARNING different enum
-
-        // These are valid
-        TakesScript(ScriptAndFoo);
-        TakesFoo(ScriptAndFoo);
-
-        TakesScript(FooOnly); //~ WARNING enum
+        ins_400(.BarOnly); //~ ERROR BarEnum.BarOnly
     "#,
-    // this test is mostly about the warnings,
-    // but also do a round-trip decompile test with this mapfile
-    check_decompiled: |_| {},
 );

@@ -453,6 +453,8 @@ impl AstVm {
 
             ast::Expr::LabelProperty { .. } => unimplemented!("offsetof/timeof in VM"),
 
+            ast::Expr::EnumConst { .. } => unimplemented!("enum const in VM"),
+
             ast::Expr::Var(var) => self.read_var_by_ast(var, resolutions),
         }
     }

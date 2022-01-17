@@ -469,6 +469,10 @@ pub enum Expr {
         label: Sp<Ident>,
         keyword: Sp<LabelPropertyKeyword>
     },
+    EnumConst {
+        enum_name: Option<Sp<Ident>>,
+        ident: Sp<Ident>,
+    },
     Var(Sp<Var>),
 }
 
@@ -502,6 +506,7 @@ impl Expr {
         Expr::LabelProperty { .. } => "label property",
         Expr::LitFloat { .. } => "literal float",
         Expr::LitString { .. } => "literal string",
+        Expr::EnumConst { .. } => "enum const",
         Expr::Var { .. } => "var expression",
     }}
     pub fn can_lower_to_immediate(&self) -> bool { match self {
@@ -515,7 +520,7 @@ impl Expr {
         Expr::DiffSwitch(cases) => {
             cases.iter().flat_map(|opt| opt.as_ref())
                 .all(|case| case.can_lower_to_immediate())
-        }
+        },
         _ => false,
     }}
 }
@@ -1191,6 +1196,7 @@ macro_rules! generate_visitor_stuff {
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
                 Expr::LabelProperty { .. } => {},
+                Expr::EnumConst { enum_name: _, ident: _ } => {},
                 Expr::Var(var) => v.visit_var(var),
             }
         }

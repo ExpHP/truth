@@ -327,6 +327,9 @@ impl ExprTypeChecker<'_, '_> {
             ast::Expr::Var(ref var)
             => ExprType::Value(self.check_var(var)?),
 
+            ast::Expr::EnumConst { .. }
+            => ExprType::Value(ScalarType::Int),
+
             ast::Expr::BinOp(ref a, op, ref b)
             => {
                 let a_ty = self.check_expr_as_value(a, op.span);
@@ -513,6 +516,10 @@ impl ExprTypeChecker<'_, '_> {
 }
 
 impl ast::Expr {
+    // NOTE: The difference between this and `check_expr` is that `check_expr` actually performs
+    // checks.  Think of it as: `check_expr` is the costly, thorough check (performed once) which
+    // ensures that the output of `compute_ty` (which can be called many times) is valid.
+    //
     /// Determine the type of this expression.  Returns `None` for `void`-typed expressions.
     ///
     /// Requires name resolution.
@@ -525,6 +532,9 @@ impl ast::Expr {
             ast::Expr::LitFloat { .. } => ExprType::Value(ScalarType::Float),
             ast::Expr::LitInt { .. } => ExprType::Value(ScalarType::Int),
             ast::Expr::LitString { .. } => ExprType::Value(ScalarType::String),
+
+            ast::Expr::EnumConst { .. }
+            => ExprType::Value(ScalarType::Int),
 
             ast::Expr::Var(ref var)
             => ExprType::Value(ctx.var_read_ty_from_ast(var).as_known_ty().expect("already type-checked")),

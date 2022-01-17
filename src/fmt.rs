@@ -898,6 +898,9 @@ impl Format for ast::Expr {
                 token![_S] | token![_f] | token![sin] | token![cos] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
+            ast::Expr::EnumConst { enum_name, ident } => {
+                out.fmt((OrBlank(enum_name.as_ref()), ".", ident))
+            },
             ast::Expr::LitInt { value: 0, radix: ast::IntRadix::Bool } => out.fmt("false"),
             ast::Expr::LitInt { value: 1, radix: ast::IntRadix::Bool } => out.fmt("true"),
             ast::Expr::LitInt { value, radix: ast::IntRadix::Bool } => out.fmt(value),

@@ -9,4 +9,4 @@ error: unexpected token `int`
   │         ^^^ unexpected token
   │
   = 
-    Expected one of "!", "$", "%", "(", "-", "REG", "_S", "_f", "anim", "case", "cos", "default", "ecli", "entry", "false", "mapfile", "offsetof", "script", "sin", "sqrt", "timeline", "timeof", "true", FLOAT, FLOAT_RAD, IDENT, INSTR, INT, INT_BIN, INT_HEX or STRING
+    Expected one of "!", "$", "%", "(", "-", ".", "REG", "_S", "_f", "anim", "case", "cos", "default", "ecli", "entry", "false", "mapfile", "offsetof", "script", "sin", "sqrt", "timeline", "timeof", "true", FLOAT, FLOAT_RAD, IDENT, INSTR, INT, INT_BIN, INT_HEX or STRING
