@@ -34,7 +34,7 @@ pub struct Defs {
 
     vars: IdMap<DefId, VarData>,
     funcs: IdMap<DefId, FuncData>,
-    builtin_enums: EnumMap<BuiltinEnum, EnumData>,
+    auto_consts: EnumMap<AutoConstKind, EnumData>,
     user_enums: IdMap<Ident, EnumData>,
 
     /// Preferred alias (i.e. the one we decompile to) for each register.
@@ -85,6 +85,14 @@ enum VarKind {
         expr: ast::Expr,
     },
     Const {
+        ident: Sp<ResIdent>,
+        expr: Sp<ast::Expr>,
+    },
+    // FIXME: Strictly speaking, enum consts are not vars, so this perhaps doesn't belong here.
+    //        However, assigning them DefIds and storing their expressions in here is very
+    //        convenient for the const evaluator.
+    EnumConst {
+        enum_name: Sp<Ident>,
         ident: Sp<ResIdent>,
         expr: Sp<ast::Expr>,
     },
@@ -139,32 +147,9 @@ pub enum FuncKind {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum EnumKey {
-    Builtin(BuiltinEnum),
-    User(Ident),
-}
-
-impl EnumKey {
-    pub fn heavy_descr(&self) -> String {
-        match self {
-            EnumKey::Builtin(kind) => format!("{}", kind.descr()),
-            EnumKey::User(name) => format!("enum {}", name),
-        }
-    }
-}
-
-impl From<BuiltinEnum> for EnumKey {
-    fn from(en: BuiltinEnum) -> EnumKey { EnumKey::Builtin(en) }
-}
-
-impl From<Ident> for EnumKey {
-    fn from(ident: Ident) -> EnumKey { EnumKey::User(ident) }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(enum_map::Enum)]
-pub enum BuiltinEnum {
+pub enum AutoConstKind {
     AnmSprite,
     AnmScript,
     EclSub,
@@ -172,14 +157,14 @@ pub enum BuiltinEnum {
     ColorFormat,
 }
 
-impl BuiltinEnum {
+impl AutoConstKind {
     pub fn descr(&self) -> &'static str {
         match self {
-            BuiltinEnum::AnmSprite => "ANM sprite",
-            BuiltinEnum::AnmScript => "ANM script",
-            BuiltinEnum::EclSub => "ECL sub id",
-            BuiltinEnum::MsgSub => "MSG sub id",
-            BuiltinEnum::ColorFormat => "color format",
+            AutoConstKind::AnmSprite => "ANM sprite",
+            AutoConstKind::AnmScript => "ANM script",
+            AutoConstKind::EclSub => "ECL sub id",
+            AutoConstKind::MsgSub => "MSG sub id",
+            AutoConstKind::ColorFormat => "color format",
         }
     }
 }
@@ -190,10 +175,9 @@ struct EnumData {
     /// during decompilation.
     ///
     /// (Under normal circumstances, Defs would prefer not to use IndexMap, and to instead
-    /// track the latest name for each value (e.g. a `i32 -> Ident` map).  But this is not
-    /// possible because sprite IDs can be arbitrary exprs which require a const evaluation
-    /// pass. (and in the future this may also be true for user enum consts from truth-syntax
-    /// definition files))
+    /// track the latest name for each value (e.g. a `i32 -> Ident` map).  But in the future
+    /// when we have standard enum syntax, the consts will be able to be arbitrary exprs which
+    /// require a const evaluation pass.
     consts: IndexMap<Sp<Ident>, ConstId>,
 }
 
@@ -209,7 +193,7 @@ impl Default for Defs {
             vars: Default::default(),
             funcs: Default::default(),
             user_enums: Default::default(),
-            builtin_enums: Default::default(),
+            auto_consts: Default::default(),
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
             reg_alias_ribs: enum_map![language => Rib::new(Namespace::Vars, RibKind::Mapfile { language })],
@@ -269,43 +253,41 @@ impl CompilerContext<'_> {
         def_id
     }
 
-    /// Declare an automatic const, receiving a [`ast::Var`] which resolves to it.
+    /// Declare an automatic const, resolving the ident to a brand new [`ConstId`].
     ///
     /// Automatic consts are language-specific consts generated from certain syntactic features
     /// that don't normally generate consts in other languages.  ANM sprites (which come from the
     /// `id:` fields in the `entry` meta) and ANM script IDs (which come from `script` items) are
     /// the most notable examples.
     ///
-    /// Automatic consts have the unusual property that name clashes are allowed, but only if they
-    /// equate to the same value.  This is useful for ANM sprites appearing in decompiled code, as
-    /// there may be e.g. multiple `sprite10`s all with an ID of `10`.
-    //
-    // FIXME: These will be removed in favor of enums eventually for the sake of better name resolution.
-    //        Currently they are used to implement compilation of enums (poorly).
-    fn define_auto_const_var(&mut self, ident: Sp<ResIdent>, ty: ScalarType, expr: Sp<ast::Expr>) -> ConstId {
+    /// Like enums, automatic consts have the property that name clashes are allowed, but only if
+    /// they equate to the same value.  This is useful for ANM sprites appearing in decompiled code,
+    /// as there may be e.g. multiple `sprite10`s all with an ID of `10`.
+    pub fn define_auto_const_var(&mut self, kind: AutoConstKind, ident: Sp<ResIdent>, ty: ScalarType, expr: Sp<ast::Expr>) -> ConstId {
         let const_id = self.define_const_var(ident.clone(), ty, expr);
 
+        // Info keyed by ident (and NOT kind).
+        // Name resolution is unable to know what `kind` is expected, so the equality check is
+        // done globally across all kinds.
         if let Err(old) = self.defs.auto_const_rib.insert(ident.clone(), const_id.def_id) {
             let old_const_id = old.def_id.into();
             self.consts.defer_equality_check(self.defs.auto_const_rib.noun(), old_const_id, const_id);
         }
+
+        // Info keyed by ident AND kind.
+        let raw_ident = sp!(ident.span => ident.as_raw().clone());
+        self.defs.auto_consts[kind].consts.insert(raw_ident, const_id);
+
         const_id
     }
 
-    /// Declare an enum const for a builtin enum, resolving the ident to a brand new [`ConstId`].
-    pub fn define_builtin_enum_const(&mut self, en: BuiltinEnum, ident: Sp<ResIdent>, expr: Sp<ast::Expr>) -> ConstId {
-        let const_id = self.define_auto_const_var(ident.clone(), ScalarType::Int, expr);
-        self.defs.builtin_enums[en].consts.insert(ident.sp_map(|r| r.as_raw().clone()), const_id);
-        const_id
-    }
-
-    /// Declare an enum const for a builtin enum, creating a brand new [`ConstId`].
+    /// Declare an integer auto const without a span, creating a brand new [`ConstId`].
     ///
-    /// This alternative to [`Self::define_builtin_enum_const`] takes simpler arguments and is designed
+    /// This alternative to [`Self::define_auto_const_var`] takes simpler arguments and is designed
     /// for use during decompilation.
-    pub fn define_builtin_enum_const_fresh(&mut self, en: BuiltinEnum, ident: Ident, value: i32) -> ConstId {
+    pub fn define_auto_const_var_fresh(&mut self, kind: AutoConstKind, ident: Ident, value: i32) -> ConstId {
         let res_ident = self.resolutions.attach_fresh_res(ident);
-        self.define_builtin_enum_const(en, sp!(res_ident), sp!(value.into()))
+        self.define_auto_const_var(kind, sp!(res_ident), ScalarType::Int, sp!(value.into()))
     }
 
     /// Declare an enum.  This may be done multiple times.
@@ -313,16 +295,31 @@ impl CompilerContext<'_> {
         self.defs.user_enums.entry(ident.value.clone()).or_insert_with(Default::default);
     }
 
-    /// Declare an enum const from a mapfile, resolving the ident to a brand new [`DefId`].
+    /// Declare an enum const from a mapfile, creating a brand new [`ConstId`].
     ///
     /// Panics if the enum has not been declared.
     pub fn define_user_enum_const(&mut self, ident: Sp<Ident>, value: Sp<i32>, enum_name: Sp<Ident>) -> ConstId {
+        // Enum consts don't participate in name resolution the normal way (they are a separate
+        // syntax and require type information to resolve), but they still receive a DefId
+        // for use in the const evaluation pass.
         let res_ident = ident.clone().sp_map(|id| self.resolutions.attach_fresh_res(id));
-        let expr = value.sp_map(ast::Expr::from);
-        let const_id = self.define_auto_const_var(res_ident, ScalarType::Int, expr);
+        let def_id = self.create_new_def_id(&res_ident);
+        let const_id = self.consts.defer_evaluation_of(def_id);
 
-        self.defs.user_enums.get_mut(&enum_name.value).expect("enum not defined")
-            .consts.insert(ident, const_id);
+        self.defs.vars.insert(def_id, VarData {
+            ty: Some(VarType::Typed(ScalarType::Int)),
+            kind: VarKind::EnumConst {
+                enum_name: enum_name.clone(),
+                ident: res_ident,
+                expr: value.sp_map(ast::Expr::from),
+            },
+        });
+
+        let this_enum_data = self.defs.user_enums.get_mut(&enum_name.value).expect("enum not defined");
+        if let Some(old_const_id) = this_enum_data.consts.insert(ident.clone(), const_id) {
+            self.consts.defer_equality_check("enum const", old_const_id, const_id);
+        }
+
         const_id
     }
 
@@ -490,6 +487,7 @@ impl Defs {
             VarData { kind: VarKind::Local { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::Const { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::BuiltinConst { ref ident, .. }, .. } => ident,
+            VarData { kind: VarKind::EnumConst { ref ident, .. }, .. } => ident,
         }
     }
 
@@ -563,6 +561,7 @@ impl Defs {
             VarData { kind: VarKind::Local { ident, .. }, .. } => Some(ident.span),
             VarData { kind: VarKind::Const { ident, .. }, .. } => Some(ident.span),
             VarData { kind: VarKind::BuiltinConst { .. }, .. } => None,
+            VarData { kind: VarKind::EnumConst { ident, .. }, .. } => Some(ident.span),
         }
     }
 
@@ -598,8 +597,9 @@ impl Defs {
     /// Panics if the ID does not correspond to a variable.
     pub fn var_const_expr(&self, def_id: DefId) -> Option<(ConstExprLoc, &ast::Expr)> {
         match &self.vars[&def_id] {
-            VarData { kind: VarKind::Const { expr, .. }, .. } => Some((ConstExprLoc::Span(expr.span), &expr.value)),
+            VarData { kind: VarKind::Const { expr, .. }, .. } => Some((ConstExprLoc::Span(expr.span), &expr)),
             VarData { kind: VarKind::BuiltinConst { expr, .. }, .. } => Some((ConstExprLoc::Builtin, expr)),
+            VarData { kind: VarKind::EnumConst { expr, .. }, .. } => Some((ConstExprLoc::Span(expr.span), &expr)),
             _ => None,
         }
     }
@@ -737,16 +737,23 @@ impl Defs {
 
 // =============================================================================
 
+#[derive(Debug, Clone)]
+pub struct ConstNames {
+    pub enums: IdMap<Ident, IdMap<i32, Sp<Ident>>>,
+    pub auto_consts: EnumMap<AutoConstKind, IdMap<i32, Sp<Ident>>>,
+}
+
 impl CompilerContext<'_> {
-    /// Get `value -> name` mappings for all enums, for decompilation or pretty-printing purposes.
+    /// Get `value -> name` mappings for all enums and automatic consts, for decompilation or
+    /// pretty-printing purposes.
     ///
     /// Requires [`crate::passes::evaluate_const_vars`] to have been run.
-    pub fn get_enum_const_names(&self, _const_proof: crate::passes::evaluate_const_vars::Proof) -> IdMap<EnumKey, IdMap<i32, Sp<Ident>>> {
+    pub fn get_const_names(&self, _const_proof: crate::passes::evaluate_const_vars::Proof) -> ConstNames {
         let CompilerContext { defs, consts, .. } = self;
-        let mut out = IdMap::default();
-        out.extend(defs.builtin_enums.iter().map(|(key, data)| (key.into(), data.generate_lookup(consts))));
-        out.extend(defs.user_enums.iter().map(|(key, data)| (key.clone().into(), data.generate_lookup(consts))));
-        out
+        ConstNames {
+            enums: defs.user_enums.iter().map(|(key, data)| (key.clone(), data.generate_lookup(consts))).collect(),
+            auto_consts: enum_map!(key => defs.auto_consts[key].generate_lookup(consts)),
+        }
     }
 }
 

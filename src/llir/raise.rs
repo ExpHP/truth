@@ -7,8 +7,7 @@ use crate::pos::{Sp};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrs, IntrinsicInstrKind};
-use crate::resolve::{IdMap};
-use crate::context::{self, CompilerContext, defs::EnumKey};
+use crate::context::{self, CompilerContext, defs::ConstNames};
 use crate::game::LanguageKey;
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK_BYTE};
 use crate::bitset::BitSet32;
@@ -141,13 +140,10 @@ pub struct Raiser<'a> {
     emitter_for_abi_warnings: &'a context::RootEmitter,
     options: &'a DecompileOptions,
     intrinsic_instrs: IntrinsicInstrs,
-    enum_names: IdMap<EnumKey, IdMap<i32, Sp<Ident>>>,
+    const_names: ConstNames,
     /// Caches information about PCB-style argument registers
     call_reg_info: Option<crate::ecl::CallRegInfo>,
 }
-
-/// Note: guaranteed to have entries for non-ident keys
-type EnumNames = IdMap<EnumKey, IdMap<i32, Sp<Ident>>>;
 
 impl Drop for Raiser<'_> {
     fn drop(&mut self) {
@@ -173,7 +169,7 @@ impl<'a> Raiser<'a> {
                 false => Default::default(),
             },
             options,
-            enum_names: ctx.get_enum_const_names(const_proof),
+            const_names: ctx.get_const_names(const_proof),
             call_reg_info: None,
         })
     }

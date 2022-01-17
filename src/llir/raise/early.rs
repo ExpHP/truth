@@ -11,16 +11,16 @@ use crate::pos::Sp;
 use crate::ident::{Ident, ResIdent};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
-use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
+use crate::llir::{RawInstr, LanguageHooks, SimpleArg, EnumKey};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, IdMap};
 use crate::context::{self, Defs, CompilerContext};
-use crate::context::defs::{EnumKey, BuiltinEnum};
+use crate::context::defs::{AutoConstKind, ConstNames};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
-use crate::llir::raise::{CannotRaiseIntrinsic, EnumNames, RaisedIntrinsicParts};
+use crate::llir::raise::{CannotRaiseIntrinsic, RaisedIntrinsicParts};
 use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE;
 
 /// Intermediate form of an instruction only used during decompilation.
@@ -93,7 +93,7 @@ fn early_raise_intrinsics(
 ) -> Result<Vec<RaiseInstr>, ErrorReported> {
     let atom_raiser = AtomRaiser {
         language: raiser.hooks.language(),
-        enum_names: &raiser.enum_names,
+        const_names: &raiser.const_names,
         hooks: raiser.hooks,
         offset_labels,
         ctx,
@@ -464,7 +464,7 @@ fn extract_jump_args_by_signature(
 
 struct AtomRaiser<'a, 'ctx> {
     language: LanguageKey,
-    enum_names: &'a EnumNames,
+    const_names: &'a ConstNames,
     offset_labels: &'a OffsetLabels,
     hooks: &'a dyn LanguageHooks,
     ctx: &'a CompilerContext<'ctx>,
@@ -582,8 +582,8 @@ impl AtomRaiser<'_, '_> {
             // FIXME: This is a bit questionable. We're looking up an enum name (conceptually in the
             //        value namespace) to get an ident for a callable function (conceptually in the
             //        function namespace).  It feels like there is potential for future bugs here...
-            let enum_key = EnumKey::Builtin(BuiltinEnum::EclSub);
-            let name = self.enum_names[&enum_key].get(&sub_index).ok_or(CannotRaiseIntrinsic)?;
+            let lookup_table = &self.const_names.auto_consts[AutoConstKind::EclSub];
+            let name = lookup_table.get(&sub_index).ok_or(CannotRaiseIntrinsic)?;
             sub_id = Some(name.value.clone());
         }
 
@@ -644,7 +644,17 @@ impl AtomRaiser<'_, '_> {
 
             | ArgEncoding::Integer { enum_key: Some(enum_key), .. }
             | ArgEncoding::TimelineArg(TimelineArgKind::Enum(enum_key))
-            => Ok(raise_to_possibly_named_constant(&self.enum_names.get(&enum_key).unwrap_or_else(|| panic!("{:?}", enum_key)), raw.expect_int())),
+            => {
+                let lookup_table = match enum_key {
+                    &EnumKey::Const(kind) => &self.const_names.auto_consts[kind],
+                    EnumKey::Enum(ident) => &self.const_names.enums[ident],
+                };
+                Ok(raise_to_possibly_named_constant(
+                    &lookup_table,
+                    raw.expect_int(),
+                    enum_key,
+                ))
+            },
 
             | ArgEncoding::Color
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
@@ -718,13 +728,21 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, enum_key: &EnumKey) -> ast::Expr {
     match names.get(&id) {
         Some(ident) => {
-            let const_ident = ResIdent::new_null(ident.value.clone());
-            let name = ast::VarName::new_non_reg(const_ident);
-            let var = ast::Var { ty_sigil: None, name };
-            ast::Expr::Var(sp!(var))
+            // consts versus enums raise to different syntax
+            match enum_key {
+                EnumKey::Const(_) => {
+                    let const_ident = ResIdent::new_null(ident.value.clone());
+                    let name = ast::VarName::new_non_reg(const_ident);
+                    let var = ast::Var { ty_sigil: None, name };
+                    ast::Expr::Var(sp!(var))
+                },
+                EnumKey::Enum(_) => {
+                    ast::Expr::EnumConst { enum_name: None, ident: ident.clone() }
+                },
+            }
         },
         None => id.into(),
     }

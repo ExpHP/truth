@@ -18,7 +18,7 @@ use crate::llir::{self, RawInstr, InstrFormat, LanguageHooks, IntrinsicInstrKind
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
-use crate::context::defs::BuiltinEnum;
+use crate::context::defs::AutoConstKind;
 use crate::resolve::RegId;
 
 mod read_write;
@@ -462,10 +462,10 @@ fn decompile(
 
     let num_scripts: usize = anm_file.entries.iter().map(|entry| entry.scripts.len()).sum();
     for i in 0..num_scripts {
-        ctx.define_builtin_enum_const_fresh(BuiltinEnum::AnmScript, auto_script_name(i as _), i as _);
+        ctx.define_auto_const_var_fresh(AutoConstKind::AnmScript, auto_script_name(i as _), i as _);
     }
     for i in all_sprite_ids(anm_file) {
-        ctx.define_builtin_enum_const_fresh(BuiltinEnum::AnmSprite, auto_sprite_name(i as _), i as _);
+        ctx.define_auto_const_var_fresh(AutoConstKind::AnmSprite, auto_sprite_name(i as _), i as _);
     }
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
@@ -630,11 +630,11 @@ fn compile(
     let script_ids = gather_script_ids(&ast, ctx)?;
     for (index, &(ref script_name, _)) in script_ids.values().enumerate() {
         let const_value: Sp<ast::Expr> = sp!(script_name.span => (index as i32).into());
-        ctx.define_builtin_enum_const(BuiltinEnum::AnmScript, script_name.clone(), const_value);
+        ctx.define_auto_const_var(AutoConstKind::AnmScript, script_name.clone(), ScalarType::Int, const_value);
     }
     let sprite_ids = gather_sprite_id_exprs(&ast, ctx, &mut extra_type_checks)?;
     for (sprite_name, id_expr) in sprite_ids {
-        ctx.define_builtin_enum_const(BuiltinEnum::AnmSprite, sprite_name, id_expr);
+        ctx.define_auto_const_var(AutoConstKind::AnmSprite, sprite_name, ScalarType::Int, id_expr);
     }
 
     // preprocess
@@ -730,7 +730,7 @@ fn define_color_format_consts(
         let ident = format.const_name().parse::<Ident>().unwrap();
         let ident = ctx.resolutions.attach_fresh_res(ident);
         let expr = sp!((format as u32 as i32).into());
-        ctx.define_builtin_enum_const(BuiltinEnum::ColorFormat, sp!(ident), expr);
+        ctx.define_auto_const_var(AutoConstKind::ColorFormat, sp!(ident), ScalarType::Int, expr);
     }
 }
 

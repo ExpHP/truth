@@ -1,8 +1,9 @@
 use crate::ast;
 use crate::pos::{Sp, Span};
+use crate::ident::Ident;
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::context::{CompilerContext, defs::{self, EnumKey}};
+use crate::context::{CompilerContext, defs::{self, AutoConstKind}};
 use crate::value::{self, ScalarType};
 use crate::game::{Game, LanguageKey};
 
@@ -31,6 +32,8 @@ pub struct InstrAbi {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArgEncoding {
     /// `S` or `s` in mapfile. 4-byte or 2-byte integer immediate or register.  Displayed as signed.
+    ///
+    /// May be decompiled as an enum or const based on its value.
     Integer { size: u8, enum_key: Option<EnumKey> },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
@@ -146,6 +149,31 @@ impl Iterator for AcceleratingByteMask {
         self.vel = u8::wrapping_add(self.vel, self.accel);
         Some(value)
     }
+}
+
+/// A tag to "colorize" a parameter in an ABI to cause it to prefer decompiling
+/// to consts of a specific kind or from a specific enum.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EnumKey {
+    Const(AutoConstKind),
+    Enum(Ident),
+}
+
+impl EnumKey {
+    pub fn heavy_descr(&self) -> String {
+        match self {
+            EnumKey::Const(kind) => kind.descr().to_string(),
+            EnumKey::Enum(name) => format!("enum {name}"),
+        }
+    }
+}
+
+impl From<AutoConstKind> for EnumKey {
+    fn from(en: AutoConstKind) -> EnumKey { EnumKey::Const(en) }
+}
+
+impl From<Ident> for EnumKey {
+    fn from(ident: Ident) -> EnumKey { EnumKey::Enum(ident) }
 }
 
 impl InstrAbi {

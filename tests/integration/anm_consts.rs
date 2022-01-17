@@ -553,3 +553,23 @@ script script0 {}
     expect_decompile_warning: "appeared twice",
     require_roundtrip: false,
 );
+
+source_test!(
+    ANM_12, sprite_as_script_id,
+    full_source: r#"
+#pragma mapfile "map/any.anmm"
+#pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "lmao.png",
+    has_data: false,
+    sprites: {
+        imASprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 42},
+    },
+}
+
+script script0 {
+    ins_3(imASprite);  //~ WARNING sprite ID
+}
+"#,
+);
