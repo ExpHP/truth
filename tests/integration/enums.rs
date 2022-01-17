@@ -117,6 +117,28 @@ source_test!(
 );
 
 source_test!(
+    STD_12, split_between_mapfiles,
+    mapfile: r#"!stdmap
+!ins_signatures
+400 SS(enum="TestEnum")
+!enum(name="TestEnum")
+40 Green
+    "#,
+    mapfile: r#"!stdmap
+!enum(name="TestEnum")
+20 Red
+    "#,
+    main_body: r#"
+        ins_400(30, Red);
+        ins_400(30, Green);
+    "#,
+    check_decompiled: |decompiled| {
+        assert!(decompiled.contains(", Red);"));
+        assert!(decompiled.contains(", Green);"));
+    },
+);
+
+source_test!(
     STD_12, used_as_integer,
     mapfile: r#"!stdmap
 !ins_signatures

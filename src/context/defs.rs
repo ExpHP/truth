@@ -310,7 +310,7 @@ impl CompilerContext<'_> {
 
     /// Declare an enum.  This may be done multiple times.
     pub fn declare_user_enum(&mut self, ident: Sp<Ident>) {
-        self.defs.user_enums.insert(ident.value.clone(), Default::default());
+        self.defs.user_enums.entry(ident.value.clone()).or_insert_with(Default::default);
     }
 
     /// Declare an enum const from a mapfile, resolving the ident to a brand new [`DefId`].
@@ -689,6 +689,7 @@ impl CompilerContext<'_> {
         }).collect_with_recovery::<()>()?;
 
         for (enum_name, enum_pairs) in &mapfile.enums {
+            self.declare_user_enum(enum_name.clone());
             for &(value, ref const_name) in enum_pairs {
                 let value = sp!(const_name.span => value); // FIXME remind me why the indices don't have spans again?
                 self.define_user_enum_const(const_name.clone(), value, enum_name.clone());
