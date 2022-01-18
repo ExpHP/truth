@@ -11,11 +11,11 @@ use crate::pos::Sp;
 use crate::ident::{Ident, ResIdent};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
-use crate::llir::{RawInstr, LanguageHooks, SimpleArg, EnumKey};
+use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, IdMap};
 use crate::context::{self, Defs, CompilerContext};
-use crate::context::defs::{AutoConstKind, ConstNames};
+use crate::context::defs::{AutoConstKind, ConstNames, TypeColor};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
@@ -227,7 +227,7 @@ fn decode_args_with_abi(
         param_mask /= 2;
 
         let value = match *enc {
-            | ArgEncoding::Integer { size: 4, enum_key: _ }
+            | ArgEncoding::Integer { size: 4, ty_color: _ }
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
@@ -237,7 +237,7 @@ fn decode_args_with_abi(
                 ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
             },
 
-            | ArgEncoding::Integer { size: 2, enum_key: _ }
+            | ArgEncoding::Integer { size: 2, ty_color: _ }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
                 ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
@@ -637,24 +637,24 @@ impl AtomRaiser<'_, '_> {
 
         match enc {
             | ArgEncoding::Padding
-            | ArgEncoding::Integer { enum_key: None, .. }
+            | ArgEncoding::Integer { ty_color: None, .. }
             | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
             | ArgEncoding::TimelineArg(TimelineArgKind::Word)
             => Ok(ast::Expr::from(raw.expect_int())),
 
-            | ArgEncoding::Integer { enum_key: Some(enum_key), .. }
-            | ArgEncoding::TimelineArg(TimelineArgKind::Enum(enum_key))
+            | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
+            | ArgEncoding::TimelineArg(TimelineArgKind::Enum(ty_color))
             => {
-                let lookup_table = match enum_key {
-                    &EnumKey::Const(kind) => &self.const_names.auto_consts[kind],
-                    EnumKey::Enum(ident) => &self.const_names.enums[ident],
+                let lookup_table = match ty_color {
+                    &TypeColor::Const(kind) => &self.const_names.auto_consts[kind],
+                    TypeColor::Enum(ident) => &self.const_names.enums[ident],
                 };
                 Ok(raise_to_possibly_named_constant(
                     &lookup_table,
                     raw.expect_int(),
-                    enum_key,
+                    ty_color,
                 ))
-            },
+            }
 
             | ArgEncoding::Color
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
@@ -728,18 +728,18 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, enum_key: &EnumKey) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor) -> ast::Expr {
     match names.get(&id) {
         Some(ident) => {
             // consts versus enums raise to different syntax
-            match enum_key {
-                EnumKey::Const(_) => {
+            match ty_color {
+                TypeColor::Const(_) => {
                     let const_ident = ResIdent::new_null(ident.value.clone());
                     let name = ast::VarName::new_non_reg(const_ident);
                     let var = ast::Var { ty_sigil: None, name };
                     ast::Expr::Var(sp!(var))
                 },
-                EnumKey::Enum(_) => {
+                TypeColor::Enum(_) => {
                     ast::Expr::EnumConst { enum_name: None, ident: ident.clone() }
                 },
             }

@@ -931,6 +931,7 @@ pub struct Signature {
 #[derive(Debug, Clone)]
 pub struct SignatureParam {
     pub ty: Sp<VarType>,
+    pub ty_color: Option<Sp<TypeColor>>,
     pub name: Sp<ResIdent>,
     pub default: Option<Sp<ast::Expr>>,
     pub qualifier: Option<Sp<ast::ParamQualifier>>,
@@ -941,6 +942,27 @@ pub struct SignatureParam {
     ///
     /// Args will be checked for const-ness during one of the early compile passes.
     pub const_arg_reason: Option<ConstArgReason>,
+}
+
+/// A tag to "colorize" a parameter in a function to cause it to prefer decompiling
+/// to consts of a specific kind/enum, and/or to warn on suspicious consts of unlike kind.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeColor {
+    Const(AutoConstKind),
+    Enum(Ident),
+}
+
+impl TypeColor {
+    pub fn heavy_descr(&self) -> String {
+        match self {
+            TypeColor::Const(kind) => kind.descr().to_string(),
+            TypeColor::Enum(name) => format!("enum {name}"),
+        }
+    }
+}
+
+impl From<AutoConstKind> for TypeColor {
+    fn from(en: AutoConstKind) -> TypeColor { TypeColor::Const(en) }
 }
 
 #[derive(Debug, Clone)]
@@ -1007,6 +1029,7 @@ fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[Sp
     Signature {
         params: params.iter().map(|sp_pat!(ast::FuncParam { ty_keyword, ident, qualifier })| SignatureParam {
             ty: ty_keyword.sp_map(ast::TypeKeyword::var_ty),
+            ty_color: None,
             name: ident.clone(),
             qualifier: qualifier.clone(),
             default: None,

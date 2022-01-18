@@ -3,7 +3,7 @@ use crate::pos::{Sp, Span};
 use crate::ident::Ident;
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::context::{CompilerContext, defs::{self, AutoConstKind}};
+use crate::context::{CompilerContext, defs::{self, AutoConstKind, TypeColor}};
 use crate::value::{self, ScalarType};
 use crate::game::{Game, LanguageKey};
 
@@ -34,7 +34,7 @@ pub enum ArgEncoding {
     /// `S` or `s` in mapfile. 4-byte or 2-byte integer immediate or register.  Displayed as signed.
     ///
     /// May be decompiled as an enum or const based on its value.
-    Integer { size: u8, enum_key: Option<EnumKey> },
+    Integer { size: u8, ty_color: Option<TypeColor> },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
@@ -96,11 +96,11 @@ pub enum TimelineArgKind {
     /// `T(e)`, `T(m)`.  Timeline argument that is an ECL or MSG sub index.
     ///
     /// This mostly impacts decompilation, as it will try to decompile this arg to a symbol name.
-    Enum(EnumKey),
+    Enum(TypeColor),
 }
 
 impl ArgEncoding {
-    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, enum_key: None } }
+    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None } }
 
     pub fn descr(&self) -> &'static str {
         match self {
@@ -119,11 +119,11 @@ impl ArgEncoding {
 
     pub fn heavy_descr(&self) -> String {
         match self {
-            Self::Integer { enum_key: Some(en), size: 4 } => format!("{}", en.heavy_descr()),
-            Self::Integer { enum_key: Some(en), size } => format!("{}-byte {}", size, en.heavy_descr()),
-            Self::Integer { enum_key: None, size: 2 } => format!("word-sized integer"),
-            Self::Integer { enum_key: None, size: 4 } => format!("dword integer"),
-            Self::Integer { enum_key: None, size } => format!("{}-byte integer", size),
+            Self::Integer { ty_color: Some(en), size: 4 } => format!("{}", en.heavy_descr()),
+            Self::Integer { ty_color: Some(en), size } => format!("{}-byte {}", size, en.heavy_descr()),
+            Self::Integer { ty_color: None, size: 2 } => format!("word-sized integer"),
+            Self::Integer { ty_color: None, size: 4 } => format!("dword integer"),
+            Self::Integer { ty_color: None, size } => format!("{}-byte integer", size),
             Self::TimelineArg(TimelineArgKind::Enum(en)) => format!("{} (in timeline arg0)", en.heavy_descr()),
             _ => self.descr().to_string(),
         }
@@ -149,31 +149,6 @@ impl Iterator for AcceleratingByteMask {
         self.vel = u8::wrapping_add(self.vel, self.accel);
         Some(value)
     }
-}
-
-/// A tag to "colorize" a parameter in an ABI to cause it to prefer decompiling
-/// to consts of a specific kind or from a specific enum.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum EnumKey {
-    Const(AutoConstKind),
-    Enum(Ident),
-}
-
-impl EnumKey {
-    pub fn heavy_descr(&self) -> String {
-        match self {
-            EnumKey::Const(kind) => kind.descr().to_string(),
-            EnumKey::Enum(name) => format!("enum {name}"),
-        }
-    }
-}
-
-impl From<AutoConstKind> for EnumKey {
-    fn from(en: AutoConstKind) -> EnumKey { EnumKey::Const(en) }
-}
-
-impl From<Ident> for EnumKey {
-    fn from(ident: Ident) -> EnumKey { EnumKey::Enum(ident) }
 }
 
 impl InstrAbi {
@@ -297,6 +272,7 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
 fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Signature {
     struct Info {
         ty: ScalarType,
+        ty_color: Option<TypeColor>,
         default: Option<Sp<ast::Expr>>,
         reg_ok: bool,
     }
@@ -304,28 +280,32 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
         params: abi.encodings.iter().enumerate().flat_map(|(index, enc)| {
-            let Info { ty, default, reg_ok } = match *enc {
-                | ArgEncoding::Integer { .. }
+            let Info { ty, default, reg_ok, ty_color } = match *enc {
                 | ArgEncoding::Color
-                => Info { ty: ScalarType::Int, default: None, reg_ok: true },
+                => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: None },
+
+                | ArgEncoding::Integer { ref ty_color, .. }
+                => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: ty_color.clone() },
 
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
                 | ArgEncoding::TimelineArg(TimelineArgKind::Word)
-                | ArgEncoding::TimelineArg(TimelineArgKind::Enum(_))
-                => Info { ty: ScalarType::Int, default: None, reg_ok: false },
+                => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: None },
+
+                | ArgEncoding::TimelineArg(TimelineArgKind::Enum(ref color))
+                => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: Some(color.clone()) },
 
                 | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
                 => return None,  // leave out of the signature
 
                 | ArgEncoding::Padding
-                => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true },
+                => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true, ty_color: None },
 
                 | ArgEncoding::Float
-                => Info { ty: ScalarType::Float, default: None, reg_ok: true },
+                => Info { ty: ScalarType::Float, default: None, reg_ok: true, ty_color: None },
 
                 | ArgEncoding::String { .. }
-                => Info { ty: ScalarType::String, default: None, reg_ok: true },
+                => Info { ty: ScalarType::String, default: None, reg_ok: true, ty_color: None },
             };
             let name = sp!(ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
             let var_ty = value::VarType::Typed(ty);
@@ -334,7 +314,9 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
             let const_arg_reason = (!reg_ok).then(|| crate::context::defs::ConstArgReason::Encoding(enc.clone()));
             let qualifier = None; // irrelevant, there's no function body for an instruction
 
-            Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier, const_arg_reason })
+            let ty_color = ty_color.map(|x| sp!(x));
+
+            Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier, const_arg_reason, ty_color })
         }).collect(),
     }
 }

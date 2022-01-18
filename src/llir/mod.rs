@@ -7,7 +7,7 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::value::{ScalarValue, ScalarType, ReadType};
 use crate::resolve::{RegId};
 
-pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize, EnumKey};
+pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
 mod abi;
 
 pub use lower::Lowerer;
@@ -17,6 +17,8 @@ pub use raise::{Raiser, DecompileOptions, CallRegSignatures};
 mod raise;
 
 pub use intrinsic::{IntrinsicInstrs, IntrinsicInstrKind};
+pub use crate::context::defs::TypeColor;
+
 mod intrinsic;
 
 /// The lowest level representation of an instruction that is common between all games.
