@@ -160,6 +160,37 @@ source_test!(
 );
 
 source_test!(
+    STD_12, used_in_const,
+    mapfile: r#"!stdmap
+!ins_signatures
+400 S
+!enum(name="FooEnum")
+20 Name
+    "#,
+    main_body: r#"
+        const int x = 2 + FooEnum.Name * 2;
+        ins_400(x);
+    "#,
+    check_compiled: |output, format| {
+        let std = output.read_std(format);
+        assert_eq!(std.script[0].args_blob, blobify![42]);
+    },
+);
+
+source_test!(
+    STD_12, invalid_infer_in_const,
+    mapfile: r#"!stdmap
+!ins_signatures
+400 S
+!enum(name="FooEnum")
+20 Name
+    "#,
+    main_body: r#"
+        const int x = 2 + .Name * 2;  //~ ERROR FooEnum.Name
+    "#,
+);
+
+source_test!(
     STD_12, legal_conflict,
     mapfile: r#"!stdmap
 !ins_signatures
@@ -243,5 +274,30 @@ source_test!(
     "#,
     main_body: r#"
         ins_400(.BarOnly); //~ ERROR BarEnum.BarOnly
+    "#,
+);
+
+source_test!(
+    ANM_12, deduction_in_const_fn,
+    mapfile: r#"!anmmap
+!ins_signatures
+400 S
+!enum(name="FooEnum")
+20 Red
+    "#,
+    // An enum parameter is not currently valid syntax, but if it were, then this
+    // is a concern that came up when implementing value substitution for enums.
+    //
+    // (Basically, the part of the const simplification pass that figures out the
+    //  appropriate enum for '.Red' would need some sort of equivalent in the
+    //  (separate) const evaluator)
+    items: r#"
+        const int ConstFn(enum FooEnum x) {
+            return x + 10;
+        }
+    "#,
+    main_body: r#"
+        const y = ConstFn(.Red);
+        ins_400(y);
     "#,
 );
