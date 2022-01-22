@@ -350,6 +350,19 @@ void baz(int a, float x) {
 );
 
 source_test!(
+    ECL_06, eosd_arg_must_be_immediate,
+    items: r#"
+void baz(int a, float x) {
+    float t1 = x;
+    int t2 = a;
+}
+"#,
+    main_body: r#"
+    baz(2, F1);  //~ ERROR constant
+    "#,
+);
+
+source_test!(
     // This one doesn't contain reads so the decompiler might have more trouble
     // inferring the params.  Make sure it still roundtrips.
     ECL_06, eosd_param_decompile_calls_without_reads,

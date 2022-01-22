@@ -153,19 +153,19 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, const_difficulty,
+    ECL_08, const_difficulty,
     main_body: r#"
-        string x = (2:3:4:5);  //~ ERROR non-const
+        int x = (2:3:4:5);  //~ ERROR non-const
     "#,
 );
 
 source_test!(
-    ANM_10, const_calling_non_const,
+    ECL_08, const_calling_non_const,
     items: r#"
         int foo(int x) { return x; }
     "#,
     main_body: r#"
-        const konst = foo(3);  //~ ERROR non-const
+        const int konst = foo(3);  //~ ERROR non-const
     "#,
 );
 
