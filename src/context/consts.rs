@@ -5,7 +5,7 @@ use crate::error::{ErrorReported};
 use crate::diagnostic::{Diagnostic, RootEmitter};
 use crate::pos::{Sp, Span};
 use crate::resolve::{DefId, ConstId, Resolutions};
-use crate::context::defs::{self, Defs};
+use crate::context::defs::{self, Defs, TypeColor};
 use crate::value::ScalarValue;
 
 /// Orchestrates the evaluation of all `const` variables, and caches their values.
@@ -18,7 +18,7 @@ use crate::value::ScalarValue;
 pub struct Consts {
     deferred_ids: Vec<ConstId>,
     deferred_equality_checks: Vec<EqualityCheck>,
-    values: HashMap<ConstId, ScalarValue>,
+    value_cache: HashMap<ConstId, ScalarValue>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +66,16 @@ impl Consts {
     /// Get the value of a const.  In order for this to return `Some`, calls must have been made at
     /// some point to both [`Self::defer_evaluation_of`] and [`Self::evaluate_all_deferred`].
     pub fn get_cached_value(&self, id: ConstId) -> Option<&ScalarValue> {
-        self.values.get(&id)
+        self.value_cache.get(&id)
+    }
+
+    /// Evaluate a const expression on demand.
+    /// Requires [`crate::passes::evaluate_const_vars`] to have been run.
+    pub fn const_eval(&self, expr: &Sp<ast::Expr>, defs: &Defs, resolutions: &Resolutions, emitter: &RootEmitter) -> Result<ScalarValue, NonConstError> {
+        let mut state = FrozenCache { consts: self };
+        let context = Context { defs, resolutions, emitter };
+        let x = _const_eval(&mut state, &context, expr);
+        x
     }
 
     fn do_deferred_evaluations(
@@ -77,7 +86,7 @@ impl Consts {
     ) -> Result<(), ErrorReported> {
         let deferred_ids = std::mem::replace(&mut self.deferred_ids, vec![]);
         for id in deferred_ids {
-            Evaluator::run_rooted(self, id, defs, resolutions, emitter)?;
+            BuildingCache::run_rooted(self, id, defs, resolutions, emitter)?;
         }
         Ok(())
     }
@@ -107,31 +116,69 @@ impl Consts {
     }
 }
 
-/// State object for fully evaluating (not just simplifying) a `const` expression.
-///
-/// Automatically computes and caches the value of `const` items as their values are needed.
-struct Evaluator<'a> {
-    consts: &'a mut Consts,
-    /// Stack of `const` items we're evaluating.  This is used to detect circular dependencies.
-    eval_stack: Vec<ConstId>,
+// =============================================================================
+
+struct Context<'a> {
     defs: &'a Defs,
     resolutions: &'a Resolutions,
     emitter: &'a RootEmitter,
 }
 
-impl<'a> Evaluator<'a> {
+/// A throwaway trait used to abstract over the modes in which the const evaluator is run.
+trait CacheState {
+    type Err;
+
+    /// Get the value of a defined `const`.  If we are currently building the cache, this may trigger
+    /// the evaluation of said `const`'s definition. (giving an error on dependency cycles)
+    ///
+    /// `use_span` is the span where the variable was used.  While we are building the cache, this
+    /// will be `None` for any starting nodes in our DFS traversals.
+    fn get_const_var_value(
+        &mut self,
+        context: &Context<'_>,
+        const_id: ConstId,
+        use_span: Option<Span>,
+    ) -> Result<ScalarValue, Self::Err>;
+
+    fn non_const_error(&self, context: &Context, non_const_span: Span) -> Self::Err;
+}
+
+/// State during the const evaluation pass, which computes all const vars.
+struct BuildingCache<'a> {
+    consts: &'a mut Consts,
+    /// Stack of `const` items we're evaluating.  This is used to detect circular dependencies.
+    eval_stack: Vec<ConstId>,
+}
+
+/// State during on-demand expr evaluation, after the const evaluation pass.
+struct FrozenCache<'a> {
+    consts: &'a Consts,
+}
+
+pub struct NonConstError {
+    pub non_const_span: Span,
+}
+
+impl BuildingCache<'_> {
     // Ensure that the given DefId (and anything else it depends on) is cached.
     fn run_rooted(consts: &mut Consts, id: ConstId, defs: &Defs, resolutions: &Resolutions, emitter: &RootEmitter) -> Result<(), ErrorReported> {
-        Evaluator {
-            consts, defs, resolutions, emitter,
-            eval_stack: vec![]
-        }._get_or_compute(None, id).map(|_| ())
+        let mut cache_state = BuildingCache { consts, eval_stack: vec![] };
+        let context = Context { defs, resolutions, emitter };
+        cache_state.get_const_var_value(&context, id, None).map(|_| ())
     }
+}
 
-    // Get the cached value for a DefId, or compute one and store it.
-    fn _get_or_compute(&mut self, use_span: Option<Span>, const_id: ConstId) -> Result<ScalarValue, ErrorReported> {
+impl CacheState for BuildingCache<'_> {
+    type Err = ErrorReported;
+
+    fn get_const_var_value(
+        &mut self,
+        context: &Context<'_>,
+        const_id: ConstId,
+        use_span: Option<Span>,
+    ) -> Result<ScalarValue, ErrorReported> {
         let def_id = const_id.def_id;
-        if let Some(value) = (*(&*self.consts)).values.get(&const_id) {
+        if let Some(value) = self.consts.value_cache.get(&const_id) {
             return Ok(value.clone());
         }
 
@@ -139,8 +186,8 @@ impl<'a> Evaluator<'a> {
         // of the variable where it appeared inside another const's definition)
         assert_eq!(self.eval_stack.len() > 0, use_span.is_some());
         if self.eval_stack.contains(&const_id) {
-            let root_def_span = self.defs.var_decl_span(def_id).expect("consts always have name spans");
-            return Err(self.emitter.emit(error!(
+            let root_def_span = context.defs.var_decl_span(def_id).expect("consts always have name spans");
+            return Err(context.emitter.emit(error!(
                 message("cycle in const definition"),
                 primary(root_def_span, "cyclic const"),
                 secondary(use_span.expect("len > 0"), "depends on its own value here"),
@@ -148,10 +195,10 @@ impl<'a> Evaluator<'a> {
         }
 
         let (expr_loc, expr) = {
-            self.defs.var_const_expr(def_id)
+            context.defs.var_const_expr(def_id)
                 .ok_or_else(|| {
                     // if we get here, we must have encountered a non-const variable inside a const's definition
-                    self.non_const_error(use_span.expect("must be in another const's definition"))
+                    self.non_const_error(context, use_span.expect("must be in another const's definition"))
                 })?
         };
         let expr_span = match expr_loc {
@@ -164,78 +211,88 @@ impl<'a> Evaluator<'a> {
 
         self.eval_stack.push(const_id);
         // FIXME: avoiding recursion here would be nice
-        let value = self._const_eval(&expr)?;
+        let value = _const_eval(self, context, &expr)?;
         self.eval_stack.pop();
 
         // NOTE: We can't avoid this second lookup because because computing the value can mutate the map.
-        self.consts.values.insert(const_id, value.clone());
+        self.consts.value_cache.insert(const_id, value.clone());
         Ok(value)
     }
 
-    // !!! IMPORTANT !!!
-    // This function must be updated in sync with the const simplification pass.
-    // (it did not seem possible to factor the shared logic out...)
-    fn _const_eval(&mut self, expr: &Sp<ast::Expr>) -> Result<ScalarValue, ErrorReported> {
-        match &expr.value {
-            &ast::Expr::LitInt { value, .. } => return Ok(ScalarValue::Int(value)),
-            &ast::Expr::LitFloat { value, .. } => return Ok(ScalarValue::Float(value)),
-            ast::Expr::LitString(ast::LitString { string, .. }) => return Ok(ScalarValue::String(string.clone())),
-
-            ast::Expr::Var(var) => match var.name {
-                ast::VarName::Normal { ref ident, .. } => {
-                    let def_id = self.resolutions.expect_def(ident);
-                    let const_id = def_id.into();
-                    let inherent_value = self._get_or_compute(Some(expr.span), const_id)?;
-                    let cast_value = inherent_value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked");
-                    return Ok(cast_value)
-                },
-                ast::VarName::Reg { .. } => {}, // fall to error path
-            },
-
-            ast::Expr::UnOp(op, b) => {
-                let b_value = self._const_eval(b)?;
-                return Ok(op.const_eval(b_value));
-            },
-
-            ast::Expr::BinOp(a, op, b) => {
-                let a_value = self._const_eval(a)?;
-                let b_value = self._const_eval(b)?;
-                return Ok(op.const_eval(a_value, b_value));
-            },
-
-            ast::Expr::Ternary { cond, left, right, .. } => {
-                // NOTE: currently we evaluate both branches so that that we always error on non-const
-                //       subexpressions.  Perhaps in the future we'd like to permit "circular" definitions
-                //       where the cyclic branches are not actually followed, but then we'd need another way
-                //       to continue generating errors on things like REG[1000] wherever they appear.
-                let cond_value = self._const_eval(cond)?;
-                let left_value = self._const_eval(left)?;
-                let right_value = self._const_eval(right)?;
-                match cond_value {
-                    ScalarValue::Int(0) => return Ok(right_value),
-                    ScalarValue::Int(_) => return Ok(left_value),
-                    _ => panic!("uncaught type error"),
-                }
-            },
-            _ => {}, // fall to error path
-        }
-
-        Err(self.non_const_error(expr.span))
-    }
-
-    fn non_const_error(&self, non_const_span: Span) -> ErrorReported {
-        let mut diag = non_const_error(non_const_span);
-        if let Some(&ConstId { def_id }) = self.eval_stack.last() {
-            let cur_def_span = self.defs.var_decl_span(def_id).expect("consts always have name spans");
-            diag.secondary(cur_def_span, format!("while evaluating this const"));
-        }
-        self.emitter.emit(diag)
+    fn non_const_error(&self, context: &Context<'_>, non_const_span: Span) -> ErrorReported {
+        context.emitter.emit(error!(
+            message("const evaluation error"),
+            primary(non_const_span, "non-const expression")
+        ))
     }
 }
 
-pub fn non_const_error(non_const_span: Span) -> Diagnostic {
-    error!(
-        message("const evaluation error"),
-        primary(non_const_span, "non-const expression")
-    )
+impl CacheState for FrozenCache<'_> {
+    type Err = NonConstError;
+
+    fn get_const_var_value(
+        &mut self,
+        context: &Context<'_>,
+        const_id: ConstId,
+        use_span: Option<Span>,
+    ) -> Result<ScalarValue, Self::Err> {
+        if let Some(value) = self.consts.value_cache.get(&const_id) {
+            return Ok(value.clone());
+        }
+
+        // all const vars should be in the cache, so this DefId must be for a runtime local
+        Err(self.non_const_error(context, use_span.expect("must've been used")))
+    }
+
+    fn non_const_error(&self, _: &Context<'_>, non_const_span: Span) -> Self::Err {
+        NonConstError { non_const_span }
+    }
+}
+
+fn _const_eval<S: CacheState>(state: &mut S, context: &Context<'_>, expr: &Sp<ast::Expr>) -> Result<ScalarValue, S::Err> {
+    match &expr.value {
+        &ast::Expr::LitInt { value, .. } => return Ok(ScalarValue::Int(value)),
+        &ast::Expr::LitFloat { value, .. } => return Ok(ScalarValue::Float(value)),
+        ast::Expr::LitString(ast::LitString { string, .. }) => return Ok(ScalarValue::String(string.clone())),
+
+        ast::Expr::Var(var) => match var.name {
+            ast::VarName::Normal { ref ident, .. } => {
+                let def_id = context.resolutions.expect_def(ident);
+                let const_id = def_id.into();
+                let inherent_value = state.get_const_var_value(context, const_id, Some(expr.span))?;
+                let cast_value = inherent_value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked");
+                return Ok(cast_value)
+            },
+            ast::VarName::Reg { .. } => {}, // fall to error path
+        },
+
+        ast::Expr::UnOp(op, b) => {
+            let b_value = _const_eval(state, context, b)?;
+            return Ok(op.const_eval(b_value));
+        },
+
+        ast::Expr::BinOp(a, op, b) => {
+            let a_value = _const_eval(state, context, a)?;
+            let b_value = _const_eval(state, context, b)?;
+            return Ok(op.const_eval(a_value, b_value));
+        },
+
+        ast::Expr::Ternary { cond, left, right, .. } => {
+            // NOTE: currently we evaluate both branches so that that we always error on non-const
+            //       subexpressions.  Perhaps in the future we'd like to permit "circular" definitions
+            //       where the cyclic branches are not actually followed, but then we'd need another way
+            //       to continue generating errors on things like REG[1000] wherever they appear.
+            let cond_value = _const_eval(state, context, cond)?;
+            let left_value = _const_eval(state, context, left)?;
+            let right_value = _const_eval(state, context, right)?;
+            match cond_value {
+                ScalarValue::Int(0) => return Ok(right_value),
+                ScalarValue::Int(_) => return Ok(left_value),
+                _ => panic!("uncaught type error"),
+            }
+        },
+        _ => {}, // fall to error path
+    }
+
+    Err(state.non_const_error(context, expr.span))
 }
