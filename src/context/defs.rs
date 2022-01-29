@@ -46,7 +46,6 @@ pub struct Defs {
     reg_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
     /// Some of the initial ribs for name resolution, containing instruction aliases from mapfiles.
     ins_alias_ribs: EnumMap<LanguageKey, rib::Rib>,
-    // FIXME replace with enum rib
     /// One of the initial ribs for name resolution, containing consts from meta.
     auto_const_rib: rib::Rib,
     /// One of the initial ribs for name resolution, containing consts like INF.
@@ -899,6 +898,11 @@ impl CompilerContext<'_> {
             }
         }
     }
+
+    /// Look up an enum const, if it exists.
+    pub fn enum_const_def_id(&self, enum_name: &Ident, ident: &Ident) -> Option<DefId> {
+        self.defs.user_enums[enum_name].consts.get(ident).map(|&const_id| const_id.def_id)
+    }
 }
 
 // =============================================================================
@@ -957,6 +961,13 @@ impl TypeColor {
         match self {
             TypeColor::Const(kind) => kind.descr().to_string(),
             TypeColor::Enum(name) => format!("enum {name}"),
+        }
+    }
+
+    pub fn enum_name(&self) -> Option<&Ident> {
+        match self {
+            TypeColor::Enum(name) => Some(name),
+            TypeColor::Const { .. } => None,
         }
     }
 }

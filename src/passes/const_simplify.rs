@@ -202,6 +202,13 @@ impl ast::VisitMut for Visitor<'_, '_> {
                 ast::VarName::Reg { .. } => {}, // can't simplify register
             },
 
+            ast::Expr::EnumConst { ident, .. } => {
+                let def_id = self.ctx.resolutions.expect_def(ident);
+                if let Some(value) = self.ctx.consts.get_cached_value(def_id.into()) {
+                    e.value = value.clone().into();
+                }
+            },
+
             ast::Expr::UnOp(op, b) => {
                 if let Some(b_value) = b.to_const() {
                     e.value = op.const_eval(b_value).into();
@@ -224,7 +231,7 @@ impl ast::VisitMut for Visitor<'_, '_> {
 
             ast::Expr::Call(call) => {
                 // FIXME is this the right place to do this?
-                validate_call_const_args(call, self.ctx).unwrap_or_else(|e| self.errors.set(e))
+                validate_call_const_args(call, self.ctx).unwrap_or_else(|e| self.errors.set(e));
             },
 
             _ => return, // can't simplify other expressions

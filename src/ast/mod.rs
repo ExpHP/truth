@@ -471,7 +471,7 @@ pub enum Expr {
     },
     EnumConst {
         enum_name: Option<Sp<Ident>>,
-        ident: Sp<Ident>,
+        ident: Sp<ResIdent>,
     },
     Var(Sp<Var>),
 }
@@ -1196,7 +1196,9 @@ macro_rules! generate_visitor_stuff {
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
                 Expr::LabelProperty { .. } => {},
-                Expr::EnumConst { enum_name: _, ident: _ } => {},
+                Expr::EnumConst { enum_name: _, ident } => {
+                    v.visit_res_ident(ident);
+                },
                 Expr::Var(var) => v.visit_var(var),
             }
         }

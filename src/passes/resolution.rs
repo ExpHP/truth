@@ -5,11 +5,11 @@
 //! another (e.g. raw instrs <-> aliases) based on user definitions. (like mapfiles)
 
 use crate::ast;
-use crate::pos::Sp;
+use crate::pos::{Sp, Span};
 use crate::context::CompilerContext;
-use crate::error::{ErrorReported, ErrorFlag};
+use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::LanguageKey;
-use crate::ident::ResIdent;
+use crate::ident::{Ident, ResIdent};
 use crate::value::VarType;
 use crate::resolve::{NodeId, LoopId, UnusedIds, RegId};
 
@@ -79,7 +79,18 @@ pub fn assign_languages<A: ast::Visitable + ?Sized>(ast: &mut A, primary_languag
 pub fn resolve_names<A: ast::Visitable + ?Sized>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
     let mut v = crate::resolve::ResolveVarsVisitor::new(ctx);
     ast.visit_with(&mut v);
-    v.finish()
+    v.finish()?;
+
+    resolve_enum_consts(ast, ctx)
+}
+
+// A pass which runs after the bulk of name resolution to handle enum consts.
+//
+// (which couldn't be done earlier as they require resolved function names)
+fn resolve_enum_consts<A: ast::Visitable + ?Sized>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = ResolveEnumConstsVisitor { ctx, errors: ErrorFlag::new() };
+    ast.visit_with(&mut v);
+    v.errors.into_result(())
 }
 
 /// Convert any register aliases and instruction aliases to `REG[10000]` and `ins_32` syntax.
@@ -327,6 +338,98 @@ impl ast::VisitMut for FillDiffLabelsVisitor<'_, '_> {
 
 // =============================================================================
 
+struct ResolveEnumConstsVisitor<'a, 'ctx> {
+    ctx: &'a mut CompilerContext<'ctx>,
+    errors: ErrorFlag,
+}
+
+impl ast::Visit for ResolveEnumConstsVisitor<'_, '_> {
+    fn visit_expr(&mut self, e: &Sp<ast::Expr>) {
+        // Try to use information from this expression to supplement information known about the
+        // enum name for enum consts contained within.  (to support unqualified consts like `.Red`)
+        match &e.value {
+            ast::Expr::Call(call) => self.visit_call_(e, call),
+
+            ast::Expr::EnumConst { ref enum_name, ref ident } => {
+                // This const may have already been handled at an outer recursion level.
+                if self.ctx.resolutions.try_get_def(ident).is_none() {
+                    let enum_name = enum_name.as_ref().map(|x| &x.value);
+                    match resolve_and_record_enum_const(e.span, enum_name, ident, self.ctx) {
+                        Ok(()) => { },
+                        Err(e) => self.errors.set(e),
+                    }
+                }
+                ast::walk_expr(self, e);
+            },
+
+            _ => ast::walk_expr(self, e),
+        }
+    }
+}
+
+impl ResolveEnumConstsVisitor<'_, '_> {
+    // TODO: make this override VisitMut::visit_call if that ever gets added to the trait
+    fn visit_call_(&mut self, expr: &Sp<ast::Expr>, call: &ast::ExprCall) {
+        use crate::context::defs::{MatchedArgs, InsMissingSigError};
+
+        if !call.actually_has_args() {
+            ast::walk_expr(self, expr);
+            return;
+        }
+
+        let siggy = match self.ctx.func_signature_from_ast(&call.name) {
+            Ok(siggy) => siggy,
+            // let type checking error on the missing signature later.
+            Err(InsMissingSigError { .. }) => return,
+        };
+        // FIXME: this clone is to stop borrowing ctx, we need a better borrowing story here
+        let siggy = siggy.clone();
+        let MatchedArgs { positional_pairs } = siggy.match_params_to_args(&call.args);
+
+        let result = positional_pairs.map(|(param, arg)| {
+            if let ast::Expr::EnumConst { enum_name: arg_enum_name, ident } = &arg.value {
+                let param_enum_name = param.ty_color.as_ref().and_then(|x| x.enum_name());
+                let enum_name = arg_enum_name.as_ref().map(|x| &x.value).or(param_enum_name);
+
+                resolve_and_record_enum_const(arg.span, enum_name, ident, self.ctx)?;
+            }
+            Ok(())
+        }).collect_with_recovery();
+
+        // Only recurse if there were no errors.  This is to prevent an extraneous error
+        // in the case where an unqualified enum was inferred but the const doesn't exist
+        match result {
+            Ok(()) => ast::walk_expr(self, expr),
+            Err(e) => self.errors.set(e),
+        }
+    }
+}
+
+fn resolve_and_record_enum_const(
+    expr_span: Span,
+    enum_name: Option<&Ident>,
+    ident: &ResIdent,
+    ctx: &mut CompilerContext<'_>,
+) -> Result<(), ErrorReported> {
+    if let Some(enum_name) = enum_name {
+        let def_id = ctx.enum_const_def_id(&enum_name, &ident).ok_or_else(|| {
+            ctx.emitter.emit(error!(
+                message("no enum const {enum_name}.{ident}"),
+                primary(expr_span, "no such enum const"),
+            ))
+        })?;
+        ctx.resolutions.record_resolution(ident, def_id);
+        Ok(())
+    } else {
+        Err(ctx.emitter.emit(error!(
+            message("cannot determine enum for .{ident}"),
+            primary(expr_span, "unqualified enum const"),
+        )))
+    }
+}
+
+// =============================================================================
+
 /// Utility for tracking the current containing loop.
 pub struct LexicalLoopTracker {
     stack: Vec<Vec<LoopId>>,  // stack by function, then loop
@@ -387,7 +490,6 @@ impl ast::VisitMut for AssignLoopIdsVisitor<'_, '_> {
         }
     }
 }
-
 
 struct CheckLoopIntegrityVisitor {
     loop_tracker: LexicalLoopTracker,

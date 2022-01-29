@@ -711,10 +711,17 @@ impl Resolutions {
         *dest = Some(def);
     }
 
+    /// Fallible [`DefId`] lookup.
+    ///
+    /// This is only useful during the name resolution passes themselves; the majority of code
+    /// probably wants [`Self::expect_def`] instead, as all idents should be resolved.
+    pub fn try_get_def(&self, ident: &ResIdent) -> Option<DefId> {
+        self.map[ident.expect_res().0.get() as usize]
+    }
+
     pub fn expect_def(&self, ident: &ResIdent) -> DefId {
-        let res = ident.expect_res();
-        self.map[res.0.get() as usize]
-            .unwrap_or_else(|| panic!("(bug!) name '{}' has not yet been resolved!", ident))
+        self.try_get_def(ident)
+            .unwrap_or_else(|| panic!("(bug!) name '{ident}' has not yet been resolved!"))
     }
 
     fn synthesize_def_id_from_res_id(res: ResId) -> DefId {

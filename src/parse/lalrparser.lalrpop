@@ -595,7 +595,7 @@ ExprTerm: ast::Expr = {
     <name:Sp<CallableName>> <args:ExprCallParenArgsWithPseudos>
         => ast::Expr::Call(ast::ExprCall { name, pseudos: args.0, args: args.1 }),
 
-    <enum_name:(<Sp<Ident>>)?> "." <ident:Sp<Ident>>
+    <enum_name:(<Sp<Ident>>)?> "." <ident:Sp<ResIdent>>
         => ast::Expr::EnumConst { enum_name, ident },
 
     <v:Sp<Var>> => ast::Expr::Var(v),

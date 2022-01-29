@@ -187,9 +187,15 @@ impl<'a> Evaluator<'a> {
                     let const_id = def_id.into();
                     let inherent_value = self._get_or_compute(Some(expr.span), const_id)?;
                     let cast_value = inherent_value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked");
-                    return Ok(cast_value)
+                    return Ok(cast_value);
                 },
                 ast::VarName::Reg { .. } => {}, // fall to error path
+            },
+
+            ast::Expr::EnumConst { ident, .. } => {
+                let def_id = self.resolutions.expect_def(ident);
+                let const_id = def_id.into();
+                return self._get_or_compute(Some(expr.span), const_id);
             },
 
             ast::Expr::UnOp(op, b) => {

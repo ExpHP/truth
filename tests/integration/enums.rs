@@ -102,8 +102,8 @@ source_test!(
     STD_12, compile_bad_conflict,
     mapfile: r#"!stdmap
 !enum(name="TestEnum")
-20 Name
-40 Name  //~ ERROR conflicting
+20 Name  //~ ERROR ambiguous
+40 Name
     "#,
     main_body: "",
 );
@@ -112,8 +112,8 @@ source_test!(
     STD_12, decompile_bad_conflict,
     decompile_mapfile: r#"!stdmap
 !enum(name="TestEnum")
-20 Name
-40 Name  //~ ERROR conflicting
+20 Name  //~ ERROR ambiguous
+40 Name
     "#,
     main_body: "",
 );
@@ -149,13 +149,15 @@ source_test!(
 20 Name
     "#,
     main_body: r#"
-        ins_400(.Name);
+        ins_400(FooEnum.Name);
         ins_400(2 + FooEnum.Name * 2);
+        ins_999(@mask=FooEnum.Name, @blob="01000000");  //~ ERROR unqualified
     "#,
     check_compiled: |output, format| {
         let std = output.read_std(format);
         assert_eq!(std.script[0].args_blob, blobify![20]);
         assert_eq!(std.script[1].args_blob, blobify![42]);
+        assert_eq!(std.script[2].param_mask, 20);
     },
 );
 
@@ -186,7 +188,7 @@ source_test!(
 20 Name
     "#,
     main_body: r#"
-        const int x = 2 + .Name * 2;  //~ ERROR FooEnum.Name
+        const int x = 2 + .Name * 2;  //~ ERROR unqualified
     "#,
 );
 
@@ -223,7 +225,8 @@ source_test!(
 40 Name
     "#,
     main_body: r#"
-        ins_400(.Name);  //~ ERROR FooEnum.Name
+        ins_400(.Name);  //~ ERROR unqualified
+        ins_999(@mask=.Name, @blob="01000000");  //~ ERROR unqualified
     "#,
 );
 
@@ -265,7 +268,6 @@ source_test!(
     mapfile: r#"!anmmap
 !ins_signatures
 400 S(enum="FooEnum")
-500 S(enum="BarEnum")
 
 !enum(name="FooEnum")
 20 FooOnly
@@ -273,7 +275,7 @@ source_test!(
 30 BarOnly
     "#,
     main_body: r#"
-        ins_400(.BarOnly); //~ ERROR BarEnum.BarOnly
+        ins_400(.BarOnly); //~ ERROR no such enum const
     "#,
 );
 

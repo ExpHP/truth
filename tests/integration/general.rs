@@ -155,7 +155,7 @@ source_test!(
 source_test!(
     ECL_08, const_difficulty,
     main_body: r#"
-        int x = (2:3:4:5);  //~ ERROR non-const
+        const int x = (2:3:4:5);  //~ ERROR non-const
     "#,
 );
 

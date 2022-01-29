@@ -740,7 +740,8 @@ fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_c
                     ast::Expr::Var(sp!(var))
                 },
                 TypeColor::Enum(_) => {
-                    ast::Expr::EnumConst { enum_name: None, ident: ident.clone() }
+                    let res_ident = sp!(ident.span => ResIdent::new_null(ident.value.clone()));
+                    ast::Expr::EnumConst { enum_name: None, ident: res_ident }
                 },
             }
         },
