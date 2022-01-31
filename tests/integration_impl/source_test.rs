@@ -248,7 +248,6 @@ impl ProgramResult {
         expected_result: &ExpectedResult,
         mut do_snapshot: impl FnMut(&str),
     ) {
-        assert_eq!(self.output.is_some(), expected_result.should_succeed(), "exit code mismatch");
         let stderr_str = String::from_utf8_lossy(&self.stderr);
         let normalized_stderr = super::make_output_deterministic(&stderr_str);
         let actual_diagnostics = parse_errors::parse_diagnostics(normalized_stderr.as_bytes());
@@ -259,6 +258,7 @@ impl ProgramResult {
             expected_result.expected_diagnostics(),
             allow_extra,
         );
+        assert_eq!(self.output.is_some(), expected_result.should_succeed(), "exit code mismatch");
         if !self.stderr.is_empty() {
             do_snapshot(&normalized_stderr)
         }

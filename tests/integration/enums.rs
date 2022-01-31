@@ -141,8 +141,8 @@ source_test!(
 );
 
 source_test!(
-    STD_12, used_as_integer,
-    mapfile: r#"!stdmap
+    ANM_12, used_as_integer,
+    mapfile: r#"!anmmap
 !ins_signatures
 400 S
 !enum(name="FooEnum")
@@ -151,13 +151,13 @@ source_test!(
     main_body: r#"
         ins_400(FooEnum.Name);
         ins_400(2 + FooEnum.Name * 2);
-        ins_999(@mask=FooEnum.Name, @blob="01000000");  //~ ERROR unqualified
+        ins_999(@mask=FooEnum.Name, @blob="01000000");
     "#,
     check_compiled: |output, format| {
-        let std = output.read_std(format);
-        assert_eq!(std.script[0].args_blob, blobify![20]);
-        assert_eq!(std.script[1].args_blob, blobify![42]);
-        assert_eq!(std.script[2].param_mask, 20);
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![20]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[1].args_blob, blobify![42]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[2].param_mask, 20);
     },
 );
 
@@ -263,7 +263,6 @@ source_test!(
         assert_eq!(anm.entries[0].scripts[1].instrs[2].args_blob, blobify![20]);
     },
     check_decompiled: |decompiled| {
-        assert_eq!(decompiled.matches("(Name)").count(), 1);
         assert_eq!(decompiled.matches("(0)").count(), 1);  // from TakesFoo(Name)
         assert_eq!(decompiled.matches("(.Name)").count(), 1);
     },
@@ -300,7 +299,7 @@ source_test!(
     //  appropriate enum for '.Red' would need some sort of equivalent in the
     //  (separate) const evaluator)
     items: r#"
-        const int ConstFn(enum FooEnum x) {
+        const int ConstFn(enum FooEnum x) {  //~ ERROR token
             return x + 10;
         }
     "#,
