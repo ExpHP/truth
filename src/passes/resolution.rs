@@ -6,7 +6,7 @@
 
 use crate::ast;
 use crate::pos::{Sp, Span};
-use crate::context::CompilerContext;
+use crate::context::{CompilerContext, defs::TypeColor};
 use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::LanguageKey;
 use crate::ident::{Ident, ResIdent};
@@ -81,14 +81,15 @@ pub fn resolve_names<A: ast::Visitable + ?Sized>(ast: &A, ctx: &mut CompilerCont
     ast.visit_with(&mut v);
     v.finish()?;
 
-    resolve_enum_consts(ast, ctx)
+    resolve_stuff_with_ty_color(ast, ctx)
 }
 
 // A pass which runs after the bulk of name resolution to handle enum consts.
+// It also lints on suspicious looking consts.
 //
 // (which couldn't be done earlier as they require resolved function names)
-fn resolve_enum_consts<A: ast::Visitable + ?Sized>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
-    let mut v = ResolveEnumConstsVisitor { ctx, errors: ErrorFlag::new() };
+fn resolve_stuff_with_ty_color<A: ast::Visitable + ?Sized>(ast: &A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+    let mut v = ResolveWithTypeColorVisitor { ctx, errors: ErrorFlag::new() };
     ast.visit_with(&mut v);
     v.errors.into_result(())
 }
@@ -338,44 +339,65 @@ impl ast::VisitMut for FillDiffLabelsVisitor<'_, '_> {
 
 // =============================================================================
 
-struct ResolveEnumConstsVisitor<'a, 'ctx> {
+struct ResolveWithTypeColorVisitor<'a, 'ctx> {
     ctx: &'a mut CompilerContext<'ctx>,
     errors: ErrorFlag,
 }
 
-impl ast::Visit for ResolveEnumConstsVisitor<'_, '_> {
+impl ast::Visit for ResolveWithTypeColorVisitor<'_, '_> {
     fn visit_expr(&mut self, e: &Sp<ast::Expr>) {
-        // Try to use information from this expression to supplement information known about the
-        // enum name for enum consts contained within.  (to support unqualified consts like `.Red`)
-        match &e.value {
-            ast::Expr::Call(call) => self.visit_call_(e, call),
-
-            ast::Expr::EnumConst { ref enum_name, ref ident } => {
-                // This const may have already been handled at an outer recursion level.
-                if self.ctx.resolutions.try_get_def(ident).is_none() {
-                    let enum_name = enum_name.as_ref().map(|x| &x.value);
-                    match resolve_and_record_enum_const(e.span, enum_name, ident, self.ctx) {
-                        Ok(()) => { },
-                        Err(e) => self.errors.set(e),
-                    }
-                }
-                ast::walk_expr(self, e);
-            },
-
-            _ => ast::walk_expr(self, e),
+        if let Err(e) = self.visit_expr_with_ty_color(e, None) {
+            self.errors.set(e);
         }
     }
 }
 
-impl ResolveEnumConstsVisitor<'_, '_> {
-    // TODO: make this override VisitMut::visit_call if that ever gets added to the trait
-    fn visit_call_(&mut self, expr: &Sp<ast::Expr>, call: &ast::ExprCall) {
-        use crate::context::defs::{MatchedArgs, InsMissingSigError};
+impl ResolveWithTypeColorVisitor<'_, '_> {
+    /// Form of `visit_expr` that can be given a bit more context about the expected enum type.
+    fn visit_expr_with_ty_color(&mut self, expr: &Sp<ast::Expr>, ty_color: Option<&TypeColor>) -> Result<(), ErrorReported> {
+        match (&expr.value, ty_color) {
+            // special handlers for constructs that may provide enum types to inner exprs
+            | (ast::Expr::Call(call), _)
+            => self.visit_call_(call),
 
-        if !call.actually_has_args() {
-            ast::walk_expr(self, expr);
-            return;
+            // an explicit `Name.Const`
+            | (ast::Expr::EnumConst { enum_name: Some(sp_pat!(enum_name)), ident }, _)
+            // or `.Const` in a place of known enum type
+            | (ast::Expr::EnumConst { enum_name: None, ident }, Some(TypeColor::Enum(enum_name)))
+            => resolve_and_record_enum_const(expr.span, enum_name, ident, self.ctx)?,
+
+            // `Const` in a place of known type color
+            | (ast::Expr::Var(sp_pat!(ast::Var { name: ast::VarName::Normal { ident, .. }, .. })), Some(ty_color))
+            => lint_on_suspicious_consts(expr.span, ident, ty_color, self.ctx),
+
+            // `.Const` in a place that isn't an enum
+            | (ast::Expr::EnumConst { enum_name: None, ident }, _)
+            => return Err(self.ctx.emitter.emit(error!(
+                message("cannot determine enum for .{ident}"),
+                primary(expr, "unqualified enum const"),
+            ))),
+
+            _ => ast::walk_expr(self, expr),
         }
+        Ok(())
+    }
+}
+
+impl ResolveWithTypeColorVisitor<'_, '_> {
+    // TODO: make this override VisitMut::visit_call if that ever gets added to the trait
+    fn visit_call_(&mut self, call: &ast::ExprCall) {
+        use crate::context::defs::{MatchedArgs, InsMissingSigError};
+        use crate::ast::Visit;
+
+        // full destructure here because we have to reimplement walking.
+        // (if we call `ast::walk_expr` it is too easy to emit extraneous diagnostics on an arg)
+        let ast::ExprCall { name: func_name, args, pseudos } = call;
+        for pseudo in pseudos {
+            self.visit_expr(&pseudo.value.value);
+        }
+        // (this should be a nop but it's here to help remind us to update this function if
+        //  more general rvalues ever become callable)
+        self.visit_callable_name(func_name);
 
         let siggy = match self.ctx.func_signature_from_ast(&call.name) {
             Ok(siggy) => siggy,
@@ -384,47 +406,64 @@ impl ResolveEnumConstsVisitor<'_, '_> {
         };
         // FIXME: this clone is to stop borrowing ctx, we need a better borrowing story here
         let siggy = siggy.clone();
-        let MatchedArgs { positional_pairs } = siggy.match_params_to_args(&call.args);
+        let MatchedArgs { positional_pairs } = siggy.match_params_to_args(args);
 
-        let result = positional_pairs.map(|(param, arg)| {
-            if let ast::Expr::EnumConst { enum_name: arg_enum_name, ident } = &arg.value {
-                let param_enum_name = param.ty_color.as_ref().and_then(|x| x.enum_name());
-                let enum_name = arg_enum_name.as_ref().map(|x| &x.value).or(param_enum_name);
-
-                resolve_and_record_enum_const(arg.span, enum_name, ident, self.ctx)?;
-            }
-            Ok(())
-        }).collect_with_recovery();
-
-        // Only recurse if there were no errors.  This is to prevent an extraneous error
-        // in the case where an unqualified enum was inferred but the const doesn't exist
-        match result {
-            Ok(()) => ast::walk_expr(self, expr),
-            Err(e) => self.errors.set(e),
+        if let Err(e) = positional_pairs.map(|(param, arg)| {
+            self.visit_expr_with_ty_color(arg, param.ty_color.as_ref().map(|x| &x.value))
+        }).collect_with_recovery::<()>() {
+            self.errors.set(e);
         }
     }
 }
 
 fn resolve_and_record_enum_const(
     expr_span: Span,
-    enum_name: Option<&Ident>,
+    enum_name: &Ident,
     ident: &ResIdent,
     ctx: &mut CompilerContext<'_>,
 ) -> Result<(), ErrorReported> {
-    if let Some(enum_name) = enum_name {
-        let def_id = ctx.enum_const_def_id(&enum_name, &ident).ok_or_else(|| {
-            ctx.emitter.emit(error!(
-                message("no enum const {enum_name}.{ident}"),
-                primary(expr_span, "no such enum const"),
-            ))
-        })?;
-        ctx.resolutions.record_resolution(ident, def_id);
-        Ok(())
-    } else {
-        Err(ctx.emitter.emit(error!(
-            message("cannot determine enum for .{ident}"),
-            primary(expr_span, "unqualified enum const"),
-        )))
+    let def_id = ctx.enum_const_def_id(&enum_name, &ident).ok_or_else(|| {
+        ctx.emitter.emit(error!(
+            message("no enum const {enum_name}.{ident}"),
+            primary(expr_span, "no such enum const"),
+        ))
+    })?;
+    ctx.resolutions.record_resolution(ident, def_id);
+    Ok(())
+}
+
+fn lint_on_suspicious_consts(
+    expr_span: Span,
+    ident: &ResIdent,
+    ty_color: &TypeColor,
+    ctx: &CompilerContext<'_>,
+) {
+    let var_def_id = ctx.resolutions.expect_def(ident);
+    if let Some(var_const_kind) = ctx.defs.var_auto_const_kind(var_def_id) {
+        match ty_color {
+            TypeColor::Enum(enum_name) => {
+                if let Some(_) = ctx.enum_const_def_id(enum_name, ident) {
+                    let var_descr = var_const_kind.descr();
+                    ctx.emitter.emit(warning!(
+                        message("suspicious use of {var_descr} '{ident}' as enum {enum_name}"),
+                        primary(expr_span, "{var_descr}"),
+                        secondary(expr_span, "did you mean `.{ident}`? (for `{enum_name}.{ident}`)")
+                        // FIXME: what should user do if it's intentional?
+                    )).ignore();
+                }
+            },
+            &TypeColor::Const(expected_const_kind) => {
+                if expected_const_kind != var_const_kind {
+                    let var_descr = var_const_kind.descr();
+                    let expected_descr = expected_const_kind.descr();
+                    ctx.emitter.emit(warning!(
+                        message("suspicious use of {var_descr} '{ident}' as a {expected_descr}"),
+                        primary(expr_span, "{var_descr}"),
+                        // FIXME: what should user do if it's intentional?
+                    )).ignore();
+                }
+            },
+        }
     }
 }
 

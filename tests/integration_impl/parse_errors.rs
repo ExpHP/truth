@@ -200,7 +200,7 @@ pub fn compare_actual_and_expected_diagnostics(
     if has_missing || (has_extra && !allow_extra) {
         for (actual, seen) in actual_diagnostics.iter().zip(actual_seen) {
             if !seen {
-                let color = termcolor::Color::Red;
+                let color = termcolor::Color::Green;
                 eprintln_as_color(color, format_args!("=== EXTRA diagnostic"));
                 eprintln_as_color(color, format_args!("{:?}", actual));
             }
@@ -208,7 +208,7 @@ pub fn compare_actual_and_expected_diagnostics(
         if !allow_extra {
             for (pattern, seen) in expected_diagnostics.iter().zip(expected_seen) {
                 if !seen {
-                    let color = termcolor::Color::Green;
+                    let color = termcolor::Color::Red;
                     eprintln_as_color(color, format_args!("== MISSING diagnostic =="));
                     eprintln_as_color(color, format_args!("{:?}", pattern));
                 }

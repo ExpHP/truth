@@ -86,6 +86,7 @@ enum VarKind {
     Const {
         ident: Sp<ResIdent>,
         expr: Sp<ast::Expr>,
+        auto_const_kind: Option<AutoConstKind>,
     },
     // FIXME: Strictly speaking, enum consts are not vars, so this perhaps doesn't belong here.
     //        However, assigning them DefIds and storing their expressions in here is very
@@ -263,7 +264,13 @@ impl CompilerContext<'_> {
     /// they equate to the same value.  This is useful for ANM sprites appearing in decompiled code,
     /// as there may be e.g. multiple `sprite10`s all with an ID of `10`.
     pub fn define_auto_const_var(&mut self, kind: AutoConstKind, ident: Sp<ResIdent>, ty: ScalarType, expr: Sp<ast::Expr>) -> ConstId {
-        let const_id = self.define_const_var(ident.clone(), ty, expr);
+        let def_id = self.create_new_def_id(&ident);
+
+        self.defs.vars.insert(def_id, VarData {
+            ty: Some(VarType::Typed(ty)),
+            kind: VarKind::Const { ident: ident.clone(), expr, auto_const_kind: Some(kind) },
+        });
+        let const_id = self.consts.defer_evaluation_of(def_id);
 
         // Info keyed by ident (and NOT kind).
         // Name resolution is unable to know what `kind` is expected, so the equality check is
@@ -341,7 +348,7 @@ impl CompilerContext<'_> {
 
         self.defs.vars.insert(def_id, VarData {
             ty: Some(VarType::Typed(ty)),
-            kind: VarKind::Const { ident: ident.clone(), expr },
+            kind: VarKind::Const { ident: ident.clone(), expr, auto_const_kind: None },
         });
         self.consts.defer_evaluation_of(def_id)
     }
@@ -599,6 +606,18 @@ impl Defs {
             VarData { kind: VarKind::Const { expr, .. }, .. } => Some((ConstExprLoc::Span(expr.span), &expr)),
             VarData { kind: VarKind::BuiltinConst { expr, .. }, .. } => Some((ConstExprLoc::Builtin, expr)),
             VarData { kind: VarKind::EnumConst { expr, .. }, .. } => Some((ConstExprLoc::Span(expr.span), &expr)),
+            _ => None,
+        }
+    }
+
+    /// If the var is an auto const, get its kind.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID does not correspond to a variable.
+    pub fn var_auto_const_kind(&self, def_id: DefId) -> Option<AutoConstKind> {
+        match self.vars[&def_id] {
+            VarData { kind: VarKind::Const { auto_const_kind, .. }, .. } => auto_const_kind,
             _ => None,
         }
     }

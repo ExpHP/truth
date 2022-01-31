@@ -569,7 +569,13 @@ entry {
 }
 
 script script0 {
-    ins_3(imASprite);  //~ WARNING sprite ID
+    scriptNew(imASprite);  //~ WARNING sprite
+}
+
+script script1 {
+    // shadowing by an explicit const is ok
+    const int imASprite = 3;
+    scriptNew(imASprite);  // no warning
 }
 "#,
 );

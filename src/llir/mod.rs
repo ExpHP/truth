@@ -17,7 +17,6 @@ pub use raise::{Raiser, DecompileOptions, CallRegSignatures};
 mod raise;
 
 pub use intrinsic::{IntrinsicInstrs, IntrinsicInstrKind};
-pub use crate::context::defs::TypeColor;
 
 mod intrinsic;
 

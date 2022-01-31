@@ -241,6 +241,7 @@ source_test!(
 400 S(enum="FooEnum")
 !enum(name="FooEnum")
 20 Name
+21 Name2
     "#,
     items: r#"
         script Name {}
@@ -249,6 +250,11 @@ source_test!(
         TakesScript(Name);
         TakesFoo(Name);  //~ WARNING script
         TakesFoo(.Name);
+
+        // a regular const sharing the same name is okay
+        const int Name2 = 10;
+        TakesFoo(Name2);  // no warning
+        TakesFoo(.Name2);
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
