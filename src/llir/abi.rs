@@ -161,8 +161,8 @@ impl InstrAbi {
         self.encodings.iter()
     }
 
-    pub fn create_signature(&self, ctx: &mut CompilerContext) -> defs::Signature {
-        abi_to_signature(self, ctx)
+    pub fn create_signature(&self, abi_span: Span, ctx: &mut CompilerContext) -> defs::Signature {
+        abi_to_signature(self, abi_span, ctx)
     }
 
     pub fn validate_against_language(&self, abi_span: Span, game: Game, language: LanguageKey, emitter: &dyn Emitter) -> Result<(), ErrorReported> {
@@ -269,7 +269,7 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
     Ok(())
 }
 
-fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Signature {
+fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_>) -> defs::Signature {
     struct Info {
         ty: ScalarType,
         ty_color: Option<TypeColor>,
@@ -307,16 +307,17 @@ fn abi_to_signature(abi: &InstrAbi, ctx: &mut CompilerContext<'_>) -> defs::Sign
                 | ArgEncoding::String { .. }
                 => Info { ty: ScalarType::String, default: None, reg_ok: true, ty_color: None },
             };
-            let name = sp!(ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
+            let name = sp!(abi_span => ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
             let var_ty = value::VarType::Typed(ty);
             ctx.define_local(name.clone(), var_ty);
 
             let const_arg_reason = (!reg_ok).then(|| crate::context::defs::ConstArgReason::Encoding(enc.clone()));
             let qualifier = None; // irrelevant, there's no function body for an instruction
 
-            let ty_color = ty_color.map(|x| sp!(x));
+            let ty = sp!(abi_span => var_ty);
+            let ty_color = ty_color.map(|x| sp!(abi_span => x));
 
-            Some(defs::SignatureParam { default, name, ty: sp!(var_ty), qualifier, const_arg_reason, ty_color })
+            Some(defs::SignatureParam { default, name, ty, qualifier, const_arg_reason, ty_color })
         }).collect(),
     }
 }

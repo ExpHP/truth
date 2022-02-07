@@ -28,6 +28,7 @@ atty = "0.2"
 walkdir = "2"
 arrayvec = "0.7"
 strum = {version = "0.22", features = ["derive"]}
+strsim = "0.10"
 
 [dependencies.image]
 version = "0.23.14"

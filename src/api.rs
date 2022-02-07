@@ -145,7 +145,44 @@ impl Truth<'_> {
 }
 
 /// # Compilation and decompilation
-impl Truth<'_> {
+impl<'ctx> Truth<'ctx> {
+    /// Perform the "mapfile validation" pass.
+    ///
+    /// This does additional validation on mapfile stuff that didn't seem to fit anywhere else.
+    ///
+    /// This must be called before any compilation/decompilation can be done.  Ideally, it should be
+    /// called **after** all mapfiles have been read, including those listed inside any source files we
+    /// are compiling.
+    ///
+    /// FIXME: This should *eventually* be superceded by however we implement truth-syntax-style
+    ///        definition files, and will likely occur at the same time we do name resolution
+    ///        and const eval and other language-independent things.
+    pub fn validate_defs(&mut self) -> Result<TruthWithValidatedDefs<'_, 'ctx>, ErrorReported> {
+        self.ctx.validate_defs()?;
+        Ok(TruthWithValidatedDefs { truth: self })
+    }
+}
+
+/// Typestate-helper wrapper to ensure we don't forget to call [`Truth::validate_defs`],
+/// which is otherwise easy to forget and could go unnoticed.
+///
+/// This is where all of big compilation/decompilation/reading/writing functions are defined.
+pub struct TruthWithValidatedDefs<'a, 'ctx> {
+    truth: &'a mut Truth<'ctx>,
+}
+
+impl<'a, 'ctx> core::ops::Deref for TruthWithValidatedDefs<'a, 'ctx> {
+    type Target = &'a mut Truth<'ctx>;
+
+    fn deref(&self) -> &Self::Target { &self.truth }
+}
+
+impl<'a, 'ctx> core::ops::DerefMut for TruthWithValidatedDefs<'a, 'ctx> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.truth }
+}
+
+/// # Compilation and decompilation
+impl TruthWithValidatedDefs<'_, '_> {
     pub fn compile_anm(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::AnmFile, ErrorReported> {
         crate::AnmFile::compile_from_ast(game, ast, &mut self.ctx)
     }
@@ -180,7 +217,7 @@ impl Truth<'_> {
 }
 
 /// # Binary file IO
-impl<'ctx> Truth<'ctx> {
+impl TruthWithValidatedDefs<'_, '_> {
     pub fn read_anm(&mut self, game: Game, path: &Path, with_images: bool) -> Result<crate::AnmFile, ErrorReported> {
         match with_images {
             true => {
@@ -238,7 +275,12 @@ impl<'ctx> Truth<'ctx> {
     pub fn write_ecl(&mut self, game: Game, outpath: &Path, middle: &crate::EclFile) -> Result<(), ErrorReported> {
         crate::EclFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
+}
 
+// =============================================================================
+// Helpers
+
+impl<'ctx> Truth<'ctx> {
     /// Returns an object with filesystem-related helper methods.
     pub fn fs(&self) -> crate::Fs<'ctx> { crate::Fs::new(self.ctx.emitter) }
 }

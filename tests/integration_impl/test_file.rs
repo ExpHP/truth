@@ -61,24 +61,28 @@ impl TestFile {
     pub fn read_anm(&self, format: &Format) -> truth::AnmFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
+        let mut truth = truth.validate_defs().unwrap();
         truth.read_anm(format.game, self.as_path(), true).unwrap()
     }
 
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
+        let mut truth = truth.validate_defs().unwrap();
         truth.read_msg(format.game, truth::LanguageKey::Msg, self.as_path()).unwrap()
     }
 
     pub fn read_std(&self, format: &Format) -> truth::StdFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
+        let mut truth = truth.validate_defs().unwrap();
         truth.read_std(format.game, self.as_path()).unwrap()
     }
 
     pub fn read_ecl(&self, format: &Format) -> truth::EclFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
+        let mut truth = truth.validate_defs().unwrap();
         truth.read_ecl(format.game, self.as_path()).unwrap()
     }
 }

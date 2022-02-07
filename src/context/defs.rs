@@ -356,12 +356,12 @@ impl CompilerContext<'_> {
     /// Set the low-level ABI of an instruction.
     ///
     /// A high-level [`Signature`] will also be generated from the ABI.
-    pub fn set_ins_abi(&mut self, language: LanguageKey, opcode: raw::Opcode, abi: InstrAbi, abi_loc: InstrAbiLoc) {
+    pub fn set_ins_abi(&mut self, language: LanguageKey, opcode: raw::Opcode, abi: Sp<InstrAbi>, abi_loc: InstrAbiLoc) {
         // also update the high-level signature
-        let sig = abi.create_signature(self);
+        let sig = abi.create_signature(abi.span, self);
         sig.validate(self).expect("invalid signature from InstrAbi");
 
-        self.defs.instrs.insert((language, opcode), InsData { abi, abi_loc, sig });
+        self.defs.instrs.insert((language, opcode), InsData { abi: abi.value, abi_loc, sig });
     }
 
     /// Add an alias for an instruction from a mapfile.
@@ -655,7 +655,7 @@ impl CompilerContext<'_> {
             }
 
             signatures.iter().map(|&(opcode, ref abi_str)| {
-                let abi = InstrAbi::parse(abi_str.span, abi_str, emitter)?;
+                let abi = sp!(abi_str.span => InstrAbi::parse(abi_str.span, abi_str, emitter)?);
                 abi.validate_against_language(abi_str.span, game, language, emitter)?;
 
                 let abi_loc = match mapfile.is_core_mapfile {
@@ -921,6 +921,65 @@ impl CompilerContext<'_> {
     /// Look up an enum const, if it exists.
     pub fn enum_const_def_id(&self, enum_name: &Ident, ident: &Ident) -> Option<DefId> {
         self.defs.user_enums[enum_name].consts.get(ident).map(|&const_id| const_id.def_id)
+    }
+}
+
+// =============================================================================
+
+impl CompilerContext<'_> {
+    /// Implementation of [`crate::Truth::validate_defs`]. Call that instead.
+    ///
+    /// Responsible for additional validation after all mapfiles have been seen,
+    /// which should occur during both compilation and decompilation (but which does not
+    /// have any other obvious time to be performed).
+    pub fn validate_defs(&self) -> Result<(), ErrorReported> {
+        self.validate_mapfile_signatures()
+    }
+
+    fn all_signatures(&self) -> impl Iterator<Item=&'_ Signature> {
+        let ins_sigs = self.defs.instrs.values().map(|data| &data.sig);
+        let non_ins_sigs = self.defs.funcs.values().filter_map(|func| func.sig.as_ref());
+        ins_sigs.chain(non_ins_sigs)
+    }
+
+    fn validate_mapfile_signatures(&self) -> Result<(), ErrorReported> {
+        self.all_signatures().map(|siggy| {
+            siggy.params.iter().map(|param| {
+                if let Some(ty_color) = &param.ty_color {
+                    self.validate_param_ty_color(ty_color)?;
+                }
+                Ok(())
+            }).collect_with_recovery()
+        }).collect_with_recovery()
+    }
+
+    fn validate_param_ty_color(&self, ty_color: &Sp<TypeColor>) -> Result<(), ErrorReported> {
+        if let TypeColor::Enum(used_name) = &ty_color.value {
+            if self.defs.user_enums.get(used_name).is_none() {
+                // Enum doesn't exist.
+                let mut diag = error!(
+                    message("no such enum '{used_name}'"),
+                    primary(ty_color, "no such enum"),
+                );
+                if let Some(suggestion) = self.defs.find_similar_enum_name(used_name) {
+                    diag.secondary(ty_color, format!("did you mean `{suggestion}`?"));
+                }
+                return Err(self.emitter.emit(diag));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Defs {
+    fn find_similar_enum_name(&self, input: &Ident) -> Option<Ident> {
+        let max_distance = input.as_str().len() / 3;
+
+        self.user_enums.keys()
+            .map(|candidate| (candidate, strsim::osa_distance(input.as_str(), candidate.as_str())))
+            .min_by_key(|&(_, distance)| distance)
+            .filter(|&(_, distance)| distance <= max_distance)
+            .map(|(candidate, _)| candidate.clone())
     }
 }
 

@@ -24,7 +24,6 @@ source_test!(
 );
 
 source_test!(
-    #[ignore]
     STD_12, decompile_simple,
     mapfile: r#"!stdmap
 !ins_signatures
@@ -42,22 +41,94 @@ source_test!(
 );
 
 source_test!(
-    STD_12, compile_undefined,
-    mapfile: r#"!stdmap
+    ANM_10, enum_arg_not_ident,
+    mapfile: r#"!anmmap
 !ins_signatures
-400 SS(enum="TestEnum")  //~ ERROR undefined
-    "#,
+999 S(enum="ax@3")  //~ ERROR ident
+"#,
     main_body: "",
 );
 
 source_test!(
-    STD_12, decompile_undefined,
-    decompile_mapfile: r#"!stdmap
-!ins_signatures
-400 SS(enum="TestEnum")  //~ ERROR undefined
-    "#,
+    ANM_10, enum_def_not_ident,
+    mapfile: r#"!anmmap
+!enum(name="ax@3")  //~ ERROR ident
+"#,
     main_body: "",
 );
+
+mod undefined_enum {
+    use super::*;
+
+    // we should error if an enum is never defined
+    const USAGE_MAPFILE_WITH_ERROR: &'static str = r#"!stdmap
+!ins_signatures
+400 S(enum="TestEnum")  //~ ERROR no such enum
+    "#;
+
+    source_test!(
+        STD_12, compile_undefined,
+        mapfile: USAGE_MAPFILE_WITH_ERROR,
+        main_body: "",
+    );
+
+    source_test!(
+        STD_12, decompile_undefined,
+        decompile_mapfile: USAGE_MAPFILE_WITH_ERROR,
+        main_body: "",
+    );
+
+    source_test!(
+        STD_12, compile_undefined_in_ast,
+        // An enum parameter is not currently valid syntax, but if it were, then we
+        // need to check that the enum name is valid, just like we do for mapfile sigs.
+        items: r#"
+            const int ConstFn(enum NotAnEnum x) {  //~ ERROR token
+                return x + 10;
+            }
+        "#,
+    );
+
+    // if there's a similar name we should suggest it
+    source_test!(
+        STD_12, suggestion,
+        mapfile: r#"!stdmap
+!ins_signatures
+400 S(enum="TesEnum")  //~ ERROR TestEnum
+
+!enum(name="BarEnum")
+!enum(name="TestEnum")
+!enum(name="Roxanne")
+    "#,
+        main_body: "",
+    );
+
+    // It's okay if the enum is declared in a separate mapfile, regardless of inclusion order
+    const USAGE_MAPFILE_OKAY: &'static str = r#"!stdmap
+!ins_signatures
+400 S(enum="TestEnum")
+    "#;
+
+    const DECLARATION_MAPFILE: &'static str = r#"!stdmap
+!enum(name="TestEnum")
+    "#;
+
+    source_test!(
+        STD_12, separated_order_1,
+        mapfile: USAGE_MAPFILE_OKAY,
+        mapfile: DECLARATION_MAPFILE,
+        main_body: "",
+        check_compiled: |_, _| {},
+    );
+
+    source_test!(
+        STD_12, separated_order_2,
+        mapfile: DECLARATION_MAPFILE,
+        mapfile: USAGE_MAPFILE_OKAY,
+        main_body: "",
+        check_compiled: |_, _| {},
+    );
+}
 
 source_test!(
     STD_12, decompile_no_consts,

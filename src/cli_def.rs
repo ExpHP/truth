@@ -135,6 +135,7 @@ pub mod anm_decompile {
         let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".anmm");
         load_mapfiles(truth, game, &[LanguageKey::Anm], mapfile_args)?;
 
+        let mut truth = truth.validate_defs()?;
         let anm = truth.read_anm(game, path, false)?;
         truth.decompile_anm(game, &anm, decompile_options)
     }
@@ -161,6 +162,7 @@ pub mod anm_extract {
         path: &Path,
         outdir: &Path,
     ) -> Result<(), ErrorReported> {
+        let mut truth = truth.validate_defs()?;
         let anm = truth.read_anm(game, path, true)?;
         anm.extract_images(outdir, &truth.fs())
     }
@@ -196,6 +198,7 @@ pub mod anm_compile {
 
         let ast = truth.read_script(&script_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
+        let mut truth = truth.validate_defs()?;
         let mut compiled = truth.compile_anm(game, &ast)?;
 
         // image sources referenced in file take precedence
@@ -239,6 +242,7 @@ pub mod anm_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), ErrorReported> {
+        let mut truth = truth.validate_defs()?;
         let anm = truth.read_anm(game, path, true)?;
         truth.write_anm(game, outpath, &anm)
     }
@@ -270,6 +274,7 @@ pub mod ecl_compile {
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
+        let mut truth = truth.validate_defs()?;
         let ecl = truth.compile_ecl(game, &ast)?;
         truth.write_ecl(game, outpath, &ecl)?;
         Ok(())
@@ -301,6 +306,7 @@ pub mod ecl_decompile {
         let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".eclm");
         load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], mapfile_args)?;
 
+        let mut truth = truth.validate_defs()?;
         let anm = truth.read_ecl(game, path)?;
         truth.decompile_ecl(game, &anm, decompile_options)
     }
@@ -325,6 +331,7 @@ pub mod ecl_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), ErrorReported> {
+        let mut truth = truth.validate_defs()?;
         let ecl = truth.read_ecl(game, path)?;
         truth.write_ecl(game, outpath, &ecl)
     }
@@ -439,6 +446,7 @@ pub mod std_compile {
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
+        let mut truth = truth.validate_defs()?;
         let std = truth.compile_std(game, &ast)?;
         truth.write_std(game, outpath, &std)?;
         Ok(())
@@ -467,6 +475,7 @@ pub mod std_decompile {
         let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".stdm");
         load_mapfiles(truth, game, &[LanguageKey::Std], mapfile_args)?;
 
+        let mut truth = truth.validate_defs()?;
         let std = truth.read_std(game, path)?;
         truth.decompile_std(game, &std, decompile_options)
     }
@@ -491,6 +500,7 @@ pub mod msg_redump {
         path: &Path,
         outpath: &Path,
     ) -> Result<(), ErrorReported> {
+        let mut truth = truth.validate_defs()?;
         let msg = truth.read_msg(game, LanguageKey::Msg, path)?;
         truth.write_msg(game, LanguageKey::Msg, outpath, &msg)?;
         Ok(())
@@ -526,10 +536,12 @@ pub mod msg_compile {
                 load_mapfiles(truth, game, &[LanguageKey::Msg], mapfile_args)?;
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
 
+                let mut truth = truth.validate_defs()?;
                 let msg = truth.compile_msg(game, LanguageKey::Msg, &ast)?;
                 truth.write_msg(game, LanguageKey::Msg, outpath, &msg)?;
             },
             MsgMode::Mission => {
+                let mut truth = truth.validate_defs()?;
                 let msg = truth.compile_mission(game, &ast)?;
                 truth.write_mission(game, outpath, &msg)?;
             },
@@ -564,10 +576,12 @@ pub mod msg_decompile {
                 let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".msgm");
                 load_mapfiles(truth, game, &[LanguageKey::Msg], mapfile_args)?;
 
+                let mut truth = truth.validate_defs()?;
                 let msg = truth.read_msg(game, LanguageKey::Msg, path)?;
                 truth.decompile_msg(game, LanguageKey::Msg, &msg, decompile_options)
             },
             MsgMode::Mission => {
+                let mut truth = truth.validate_defs()?;
                 let msg = truth.read_mission(game, path)?;
                 truth.decompile_mission(game, &msg)
             },
