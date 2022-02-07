@@ -352,7 +352,7 @@ impl Entry {
 fn format_to_meta(format_num: u32) -> Meta {
     for known_format in ColorFormat::get_all() {
         if format_num == known_format as u32 {
-            let ident = ResIdent::new_null(known_format.const_name().parse::<Ident>().unwrap());
+            let ident = ResIdent::new_null(Ident::new_system(known_format.const_name()).unwrap());
             return Meta::Scalar(sp!(ast::Expr::Var(sp!(ast::Var {
                 name: ast::VarName::new_non_reg(ident),
                 ty_sigil: None,
@@ -505,12 +505,8 @@ fn decompile(
     Ok(out)
 }
 
-fn auto_sprite_name(i: u32) -> Ident {
-    format!("sprite{}", i).parse::<Ident>().unwrap()
-}
-fn auto_script_name(i: u32) -> Ident {
-    format!("script{}", i).parse::<Ident>().unwrap()
-}
+fn auto_sprite_name(i: u32) -> Ident { ident!("sprite{i}") }
+fn auto_script_name(i: u32) -> Ident { ident!("script{i}") }
 
 // =============================================================================
 
@@ -727,7 +723,7 @@ fn define_color_format_consts(
     ctx: &mut CompilerContext,
 ) {
     for format in ColorFormat::get_all() {
-        let ident = format.const_name().parse::<Ident>().unwrap();
+        let ident = Ident::new_system(format.const_name()).unwrap();
         let ident = ctx.resolutions.attach_fresh_res(ident);
         let expr = sp!((format as u32 as i32).into());
         ctx.define_auto_const_var(AutoConstKind::ColorFormat, sp!(ident), ScalarType::Int, expr);

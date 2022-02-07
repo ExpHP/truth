@@ -117,7 +117,7 @@ mod tests {
     }
 
     fn count_occurrences_of_label<A: ast::Visitable + crate::fmt::Format>(ast: &A, ident: &str) -> u32 {
-        let mut v = CountIdentVisitor { search_ident: ident.parse().unwrap(), count: 0 };
+        let mut v = CountIdentVisitor { search_ident: ident!("{ident}"), count: 0 };
         ast.visit_with(&mut v);
         v.count
     }

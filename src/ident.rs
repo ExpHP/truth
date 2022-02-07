@@ -78,10 +78,9 @@ impl ResIdent {
 /// a raw instruction identifier).
 ///
 // FIXME:  The `ins_` restriction no longer makes sense (how is it different from a keyword?).
-//         Remove this, and add a better function for parsing user-provided idents which accepts
-//         contextual keywords, but not other keywords.
+//         Remove this.
 //
-/// These restrictions are checked when you construct an identifier using [`str::parse`].
+/// These restrictions are checked when you construct an identifier using [`Ident::new_system`].
 ///
 /// There are no other restrictions.  Notably, identifiers constructed for internal use are
 /// permitted to clash with keywords and/or use characters that would not normally be valid
@@ -101,21 +100,70 @@ pub enum ParseIdentError {
     UnexpectedIns,
     #[error("non-ascii byte '\\x{:02x}'", .0)]
     NonAsciiByte(u8),
+    /// Returned by [`Ident::new_user`] on any other ident which is a valid system identifier,
+    /// but not a valid identifier token. (in terms of lexical class)
+    #[error("invalid identifier: {}", .0)]
+    NonUserIdent(Ident),
 }
 
-// FIXME need separate ways to parse system idents and user idents
-impl std::str::FromStr for Ident {
-    type Err = ParseIdentError;
+/// Wrapper around [`Ident::new_system`] and `format!` for use in cases that will obviously never fail.
+/// (i.e. **no untrusted input**, no funny business with funky characters)
+macro_rules! ident {
+    ($($fmt_args:tt)+) => {
+        $crate::ident::Ident::new_system(&format!($($fmt_args)+)).unwrap()
+    };
+}
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl Ident {
+    /// Construct from any string which an [`Ident`] is allowed to hold (even strings that
+    /// contain non-identifier characters like `@`, `*`, etc.).
+    ///
+    /// The precise set of restrictions is documented on the [`Ident`] type.
+    pub fn new_system(s: &str) -> Result<Self, ParseIdentError> {
         if let Some(byte) = s.bytes().find(|&c| c & 0x80 != 0) {
             return Err(ParseIdentError::NonAsciiByte(byte));
         }
-        // Reject stuff like `ins_a`, `ins
         if s.starts_with("ins_") {
             return Err(ParseIdentError::UnexpectedIns);
         }
         Ok(Ident { ident: s.into() })
+    }
+
+    /// Construct from a string which would be a valid identifier in source code.
+    ///
+    /// This means that in addition to the limitations documented in [`Ident`], it must conform to
+    /// the regex `[a-zA-Z_][a-zA-Z0-9_]*` and must not be a keyword. (contextual keywords are
+    /// allowed).
+    ///
+    /// This might be a fair bit costlier than [`Ident::new_system`]!
+    ///
+    /// This function is rarely needed, as parsing a source file naturally only generates valid user
+    /// [`Ident`]s by construction.  The primary use case is for places where an identifier must
+    /// be embedded within e.g. a string literal.
+    pub fn new_user(str: &str) -> Result<Self, ParseIdentError> {
+        // get more specific error variants by delegating to the checks in `new_system` first
+        let ident = Ident::new_system(str)?;
+
+        // the restriction against keywords is tricky; the reliable solution is to ask our parser.
+        //
+        // we won't be using the diagnostics from the parser so `None` is okay.
+        //
+        // FIXME: this is bug prone.  If at some point in the future we introduce an immediately-
+        //        emitted diagnostic (e.g. a warning) on some idents in the LALRPOP parser, that
+        //        diagnostic will cause an internal compiler panic in this function.
+        //        Not sure how to prevent this...
+        let file_id = None;
+        let mut state = crate::parse::State::new();
+        let mut lexer = crate::parse::lexer::Lexer::new(file_id, str);
+
+        <Ident as crate::parse::Parse>::parse_stream(&mut state, &mut lexer)
+            .map_err(|_| ParseIdentError::NonUserIdent(ident.clone()))?;
+
+        if lexer.had_comment_or_ws() {
+            return Err(ParseIdentError::NonUserIdent(ident));
+        }
+
+        Ok(ident)
     }
 }
 
@@ -237,12 +285,40 @@ impl GensymContext {
     /// contain a non-identifier character.
     pub fn gensym(&mut self, prefix: &str) -> Ident {
         let id = self.next_id();
-        format!("{}{}", prefix, id).parse().expect("invalid prefix")
+        Ident::new_system(&format!("{prefix}{id}")).expect("invalid prefix")
     }
 
     fn next_id(&mut self) -> u64 {
         let x = self.next_id;
         self.next_id += 1;
         x
+    }
+}
+
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_user_ident() {
+        use ParseIdentError::*;
+
+        // specific errors
+        assert!(matches!(Ident::new_user("ins_43"), Err(UnexpectedIns { .. })));
+        assert!(matches!(Ident::new_user("🐇"), Err(NonAsciiByte { .. })));
+        // keyword
+        assert!(matches!(Ident::new_user("while"), Err(NonUserIdent { .. })));
+        // whitespace/comment
+        assert!(matches!(Ident::new_user("  x"), Err(NonUserIdent { .. })));
+        assert!(matches!(Ident::new_user("x  "), Err(NonUserIdent { .. })));
+        assert!(matches!(Ident::new_user("x/* blah */"), Err(NonUserIdent { .. })));
+        // followed by another token with no ws
+        assert!(matches!(Ident::new_user("x*"), Err(NonUserIdent { .. })));
+        // contextual keyword; check a few in case they get renamed
+        assert!(matches!(Ident::new_user("entry"), Ok(_)));
+        assert!(matches!(Ident::new_user("timeline"), Ok(_)));
+        assert!(matches!(Ident::new_user("default"), Ok(_)));
     }
 }

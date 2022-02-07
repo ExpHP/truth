@@ -56,6 +56,7 @@ macro_rules! define_token_enum {
 
 define_token_enum! {
     #[derive(logos::Logos, Clone, Copy, Debug, PartialEq)]
+    #[logos(extras = LexerExtras)]
     pub enum Token<'a> {
         #[token(",")] Comma,
         #[token("?")] Question,
@@ -161,9 +162,9 @@ define_token_enum! {
         #[regex(r##"[a-zA-Z_][a-zA-Z0-9_]*"##)] Ident(&'a str),
 
         #[error]
-        #[regex(r##"\s+"##, logos::skip)] // whitespace
-        #[regex(r##"//[^\n\r]*[\n\r]*"##, logos::skip)] // line comment
-        #[regex(r##"/\*([^*]|\**[^*/])*\*+/"##, logos::skip)] // block comment
+        #[regex(r##"\s+"##, skip_comment_or_ws)] // whitespace
+        #[regex(r##"//[^\n\r]*[\n\r]*"##, skip_comment_or_ws)] // line comment
+        #[regex(r##"/\*([^*]|\**[^*/])*\*+/"##, skip_comment_or_ws)] // block comment
         #[regex(r##"/\*([^*]|\*+[^*/])*\*?"##)] // unclosed block comment
         #[doc(hidden)]
         /// Implementation detail. Basically, [`logos`] requires an error variant.
@@ -183,6 +184,17 @@ impl fmt::Display for Token<'_> {
     }
 }
 
+#[derive(Default)]
+pub struct LexerExtras {
+    /// Records whether a comment or whitespace was ever encountered.
+    had_comment_or_ws: bool,
+}
+
+fn skip_comment_or_ws<'a>(lexer: &mut logos::Lexer<'a, Token<'a>>) -> logos::Skip {
+    lexer.extras.had_comment_or_ws = true;
+    logos::Skip
+}
+
 /// truth's lexer.
 ///
 /// You should not need to use this type; the primary API for parsing code in truth
@@ -190,7 +202,7 @@ impl fmt::Display for Token<'_> {
 pub struct Lexer<'input> {
     file_id: FileId,
     offset: usize,
-    imp: logos::SpannedIter<'input, Token<'input>>,
+    imp: logos::Lexer<'input, Token<'input>>,
 }
 
 impl<'input> Lexer<'input> {
@@ -198,11 +210,16 @@ impl<'input> Lexer<'input> {
         Lexer {
             file_id,
             offset: 0,
-            imp: logos::Lexer::new(input).spanned(),
+            imp: logos::Lexer::new(input),
         }
     }
 
     pub fn location(&self) -> Location { (self.file_id, BytePos(self.offset as u32)) }
+
+    /// Returns `true` if the lexer has ever encountered (and skipped over) a comment or whitespace.
+    pub fn had_comment_or_ws(&self) -> bool {
+        self.imp.extras.had_comment_or_ws
+    }
 }
 
 /// The location type reported to LALRPOP.
@@ -216,7 +233,8 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Result<(Location, Token<'a>, Location), Diagnostic>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.imp.next().map(|(token, range)| {
+        self.imp.next().map(|token| {
+            let range = self.imp.span();
             let start = (self.file_id, BytePos(range.start as _));
             let end = (self.file_id, BytePos(range.end as _));
             match token {

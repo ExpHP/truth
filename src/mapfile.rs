@@ -163,7 +163,7 @@ impl Mapfile {
         let parse_idents = |section: &str, m: Vec<(i32, Sp<String>)>| -> Result<Vec<(i32, Sp<Ident>)>, ErrorReported> {
             emitter.chain_with(|f| write!(f, "section !{}", section), |emitter| {
                 m.into_iter().map(|(key, value)| {
-                    let ident = value.parse::<Ident>().map_err(|e| emitter.emit(error!(
+                    let ident = Ident::new_user(&value).map_err(|e| emitter.emit(error!(
                         message("at key {}: {}", key, e),
                         primary(value, "bad identifier"),
                     )))?;
@@ -176,7 +176,7 @@ impl Mapfile {
         }
 
         let enums = enum_maps.into_iter().map(|(enum_name, data)| {
-            let enum_ident = enum_name.parse::<Ident>().map_err(|e| {
+            let enum_ident = Ident::new_user(&enum_name).map_err(|e| {
                 emitter.emit(error!(
                     message("at enum {:?}: {}", enum_name, e),
                     primary(enum_name, "bad identifier"),

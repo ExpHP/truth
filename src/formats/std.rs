@@ -260,7 +260,7 @@ fn decompile_std(
             }),
             sp!(ast::Item::AnmScript {
                 number: None,
-                ident: sp!("main".parse().unwrap()),
+                ident: sp!(ident!("main")),
                 code: ast::Block(code),
                 keyword: sp!(()),
             }),
@@ -374,7 +374,7 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
     let object_offsets = reader.read_u32s(num_objects)?;
     let objects = (0..num_objects)
         .map(|i| {
-            let key = sp!(format!("object{}", i).parse::<Ident>().unwrap());
+            let key = sp!(ident!("object{i}"));
 
             reader.seek_to(start_pos + object_offsets[i] as u64)?;
 

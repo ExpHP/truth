@@ -1,3 +1,4 @@
+use crate::ident::Ident;
 use crate::diagnostic::Diagnostic;
 use crate::context::defs::{AutoConstKind, TypeColor};
 use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
@@ -34,7 +35,7 @@ ArgEncoding: ArgEncoding = {
 
 OptionalEnum: Option<TypeColor> = {
     "(" "enum" "=" <name:StringLiteral> ")" =>? {
-        name.parse().map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() })
+        Ident::new_user(&name).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() })
             .map(|ident| Some(TypeColor::Enum(ident)))
     },
     => None,

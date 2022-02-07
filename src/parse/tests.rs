@@ -6,7 +6,7 @@ use crate::error::ErrorReported;
 // as it is not connected to any Files object.
 fn parse<A: Parse>(s: &str) -> super::Result<'_, A> {
     let mut state = super::State::new();
-    super::Parse::parse_stream(&mut state, super::Lexer::new(None, s.as_ref()))
+    super::Parse::parse_stream(&mut state, &mut super::Lexer::new(None, s.as_ref()))
         .map(|x| x.value)
 }
 

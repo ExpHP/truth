@@ -406,16 +406,16 @@ fn generate_label_at_offset(
     // If the only time used with this label is the time of the previous instruction
     // (which is less than this instruction), put the label before the relative time increase.
     if prev_time < next_time && time_args.len() == 1 && time_args.iter().next().unwrap() == &prev_time {
-        return Label { label: format!("label_{}r", prev_offset).parse().unwrap(), time_label: prev_time };
+        return Label { label: ident!("label_{prev_offset}r"), time_label: prev_time };
     }
-    Label { label: format!("label_{}", next_offset).parse().unwrap(), time_label: next_time }
+    Label { label: ident!("label_{next_offset}"), time_label: next_time }
 }
 
 #[test]
 fn test_generate_label_at_offset() {
     let check = generate_label_at_offset;
     let set = |times: &[Option<i32>]| times.iter().copied().collect();
-    let label = |str: &str, time_label: i32| Label { label: str.parse().unwrap(), time_label };
+    let label = |str: &str, time_label: i32| Label { label: Ident::new_user(str).unwrap(), time_label };
 
     assert_eq!(check((0, 0), (0, 10), &set(&[Some(10)])), (label("label_0", 10)));
     assert_eq!(check((100, 10), (116, 20), &set(&[Some(20)])), (label("label_116", 20)));

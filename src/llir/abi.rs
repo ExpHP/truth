@@ -1,9 +1,8 @@
 use crate::ast;
 use crate::pos::{Sp, Span};
-use crate::ident::Ident;
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::context::{CompilerContext, defs::{self, AutoConstKind, TypeColor}};
+use crate::context::{CompilerContext, defs::{self, TypeColor}};
 use crate::value::{self, ScalarType};
 use crate::game::{Game, LanguageKey};
 
@@ -307,7 +306,7 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
                 | ArgEncoding::String { .. }
                 => Info { ty: ScalarType::String, default: None, reg_ok: true, ty_color: None },
             };
-            let name = sp!(abi_span => ctx.resolutions.attach_fresh_res(format!("arg_{}", index + 1).parse().unwrap()));
+            let name = sp!(abi_span => ctx.resolutions.attach_fresh_res(ident!("arg_{}", index + 1)));
             let var_ty = value::VarType::Typed(ty);
             ctx.define_local(name.clone(), var_ty);
 

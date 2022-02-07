@@ -50,7 +50,8 @@ impl ast::VisitMut for Visitor<'_> {
             number
         });
 
-        let new_ident = format!("{}_{}", ident, number).parse().expect("adding suffix to ident made it invalid?!");
+        // FIXME: won't this make the valid ident 'ins' invalid?
+        let new_ident = Ident::new_system(&format!("{ident}_{number}")).expect("adding suffix to ident made it invalid?!");
         *ident.as_raw_mut() = new_ident;
     }
 }

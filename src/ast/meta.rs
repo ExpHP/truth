@@ -48,7 +48,7 @@ impl Meta {
 
     /// Begin builder-pattern construction of a [`Meta::Variant`].
     pub fn make_variant(variant: impl AsRef<str>) -> BuildObject {
-        let variant = variant.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
+        let variant = Ident::new_system(variant.as_ref()).unwrap_or_else(|e| panic!("Bug: {}", e));
         BuildObject {
             variant: Some(sp!(variant)),
             map: Some(Map::new()),
@@ -380,7 +380,7 @@ impl BuildObject {
 
     /// Add a field to a meta.
     pub fn field(&mut self, key: impl AsRef<str>, value: &(impl ?Sized + ToMeta)) -> &mut Self {
-        let ident = key.as_ref().parse::<Ident>().unwrap_or_else(|e| panic!("Bug: {}", e));
+        let ident = Ident::new_system(key.as_ref()).unwrap_or_else(|e| panic!("Bug: {}", e));
         self.get_map().insert(sp!(ident), sp!(value.to_meta()));
         self
     }
@@ -534,7 +534,7 @@ impl<'m, T: FromMeta<'m>> FromMeta<'m> for Vec<T> {
 impl FromMeta<'_> for Ident {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         let string = String::from_meta(meta)?;
-        match string.parse() {
+        match Ident::new_user(&string) {
             Ok(x) => Ok(x),
             Err(_) => Err(FromMetaError::expected("a string holding a valid identifier", meta)),
         }

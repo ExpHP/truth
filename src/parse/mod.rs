@@ -2,6 +2,7 @@ use lalrpop_util::lalrpop_mod;
 
 use crate::diagnostic::Diagnostic;
 use crate::ast;
+use crate::ident::Ident;
 use crate::pos::{Sp, Span};
 
 pub(crate) mod lalrparser_util;
@@ -36,12 +37,12 @@ pub trait Parse: Sized {
     /// [`crate::api::Truth::parse`] instead.
     fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
         let mut state = State::new();
-        Self::parse_stream(&mut state, Lexer::new(None, s.as_ref()))
+        let mut lexer = Lexer::new(None, s.as_ref());
+        Self::parse_stream(&mut state, &mut lexer)
             .map(|x| x.value)
     }
 
-    /// Parse from lexed tokens, producing an AST node with correct span info.
-    fn parse_stream<'input>(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>>;
+    fn parse_stream<'input>(state: &mut State, lexer: &mut Lexer<'input>) -> Result<'input, Sp<Self>>;
 }
 
 
@@ -121,6 +122,7 @@ pub enum AnythingValue {
     Var(ast::Var),
     Meta(ast::Meta),
     LitString(ast::LitString),
+    Ident(Ident),
 }
 
 /// Implementation detail of the [`Parse`] trait.  Use that instead.
@@ -135,13 +137,14 @@ pub enum AnythingTag {
     Var,
     LitString,
     Meta,
+    Ident,
 }
 
 // Inserts the virtual token and calls the Anything parser
 fn call_anything_parser<'input>(
     tag: AnythingTag,
     state: &mut State,
-    lexer: Lexer<'input>,
+    lexer: &mut Lexer<'input>,
 ) -> Result<'input, Sp<AnythingValue>> {
     let start = lexer.location();
     let lexer = std::iter::once(Ok((start, Token::VirtualDispatch(tag), start))).chain(lexer);
@@ -152,7 +155,7 @@ fn call_anything_parser<'input>(
 macro_rules! impl_parse {
     ($AstType:ty, $TagName:ident) => {
         impl Parse for $AstType {
-            fn parse_stream<'input>(state: &mut State, lexer: Lexer<'input>) -> Result<'input, Sp<Self>> {
+            fn parse_stream<'input>(state: &mut State, lexer: &mut Lexer<'input>) -> Result<'input, Sp<Self>> {
                 let sp = call_anything_parser(AnythingTag::$TagName, state, lexer)?;
                 Ok(sp!(sp.span => match sp.value {
                     AnythingValue::$TagName(x) => x,
@@ -171,3 +174,4 @@ impl_parse!(ast::Expr, Expr);
 impl_parse!(ast::Var, Var);
 impl_parse!(ast::LitString, LitString);
 impl_parse!(ast::Meta, Meta);
+impl_parse!(Ident, Ident);

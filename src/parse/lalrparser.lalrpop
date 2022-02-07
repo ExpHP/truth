@@ -123,6 +123,7 @@ extern {
         Dispatch_Var => Token::VirtualDispatch(crate::parse::AnythingTag::Var),
         Dispatch_LitString => Token::VirtualDispatch(crate::parse::AnythingTag::LitString),
         Dispatch_Meta => Token::VirtualDispatch(crate::parse::AnythingTag::Meta),
+        Dispatch_Ident => Token::VirtualDispatch(crate::parse::AnythingTag::Ident),
     }
 }
 
@@ -150,6 +151,7 @@ AnythingInner: crate::parse::AnythingValue = {
     Dispatch_Var <x:Var> => crate::parse::AnythingValue::Var(x),
     Dispatch_LitString <x:LitString> => crate::parse::AnythingValue::LitString(x),
     Dispatch_Meta <x:Meta> => crate::parse::AnythingValue::Meta(x),
+    Dispatch_Ident <x:Ident> => crate::parse::AnythingValue::Ident(x),
 };
 
 // =================================================
@@ -275,7 +277,7 @@ MetaBracedFields: meta::Fields = {
 
 #[inline]
 PossiblyNumericIdent: Ident = {
-    <x:LitIntUnsigned> => x.to_string().parse().expect("cannot fail"),
+    <x:LitIntUnsigned> => Ident::new_system(&x.to_string()).expect("cannot fail"),
     <x:Ident> => x,
 };
 
@@ -785,7 +787,7 @@ OptionalMinus: i32 = {
 ResIdent: ResIdent = <ident:Ident> => ResIdent::new_null(ident);
 
 Ident: Ident = <tok:IdentStr> => {
-    tok.parse().expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
+    Ident::new_system(tok).expect("cannot fail; ASCII, and ins_ is parsed elsewhere")
 };
 
 IdentStr: &'input str = {

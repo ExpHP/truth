@@ -371,7 +371,7 @@ fn read_olde_ecl(
 }
 
 fn auto_sub_name(i: u32) -> Ident {
-    format!("sub{}", i).parse::<Ident>().unwrap()
+    ident!("sub{i}")
 }
 
 fn write_olde_ecl(
@@ -526,7 +526,7 @@ impl OldeSubFormat for EosdSubFormat {
         let tys = [(ReadType::Int, "I"), (ReadType::Float, "F")];
         OldeRaiseSub {
             params: tys.into_iter().map(|(ty, tychar)| {
-                (self.param_reg_id(ty, 0), ty.into(), format!("{}PAR", tychar).parse().unwrap())
+                (self.param_reg_id(ty, 0), ty.into(), ident!("{tychar}PAR"))
             }).collect(),
         }
     }
@@ -592,7 +592,8 @@ impl OldeSubFormat for PcbSubFormat {
         OldeRaiseSub {
             params: param_tys.iter().map(|&ty| {
                 let i = next_indices[ty].next().unwrap();
-                let name = format!("{}PAR_{}", ty_chars[ty], i).parse().unwrap();
+                let ty_char = ty_chars[ty];
+                let name = ident!("{ty_char}PAR_{i}");
                 (self.param_reg_id(ty, i), ty.into(), name)
             }).collect(),
         }

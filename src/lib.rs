@@ -9,6 +9,10 @@ pub use pos::{Files, Span, Sp};
 #[macro_use]
 pub mod pos;
 
+pub use ident::{Ident, ParseIdentError};
+#[macro_use]
+pub mod ident;
+
 #[macro_use]
 pub mod quote;
 
@@ -29,8 +33,6 @@ pub mod context;
 
 pub mod passes;
 
-pub use ident::{Ident, ParseIdentError};
-pub mod ident;
 
 pub mod raw;
 

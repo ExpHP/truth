@@ -107,7 +107,7 @@ struct BreakContinueToGotoVisitor<'a> {
 impl BreakContinueToGotoVisitor<'_> {
     // this process is simple: since all loops already have unique IDs, we just use those to generate label names
     fn loop_end_label_name(&self, loop_id: LoopId) -> Ident {
-        format!("@loop_end#{}", loop_id).parse::<Ident>().unwrap()
+        Ident::new_system(&format!("@loop_end#{loop_id}")).unwrap()
     }
 }
 
@@ -418,7 +418,7 @@ mod tests {
 
             let mut ctx = truth.ctx();
             for &(name, reg, ty) in &self.globals {
-                ctx.define_global_reg_alias(Dummy, reg, sp!(name.parse().unwrap()));
+                ctx.define_global_reg_alias(Dummy, reg, sp!(ident!("{name}")));
                 ctx.set_reg_ty(Dummy, reg, ty.into());
             }
             crate::passes::resolution::assign_languages(&mut ast.value, Dummy, &mut ctx).unwrap();

@@ -625,9 +625,9 @@ impl Defs {
 
 impl CompilerContext<'_> {
     pub fn add_builtin_consts(&mut self) {
-        self.define_builtin_const_var("NAN".parse().unwrap(), f32::from_bits(CANONICAL_NAN_BITS).into());
-        self.define_builtin_const_var("INF".parse().unwrap(), f32::INFINITY.into());
-        self.define_builtin_const_var("PI".parse().unwrap(), core::f32::consts::PI.into());
+        self.define_builtin_const_var(ident!("NAN"), f32::from_bits(CANONICAL_NAN_BITS).into());
+        self.define_builtin_const_var(ident!("INF"), f32::INFINITY.into());
+        self.define_builtin_const_var(ident!("PI"), core::f32::consts::PI.into());
     }
 
     /// Add info from a mapfile.

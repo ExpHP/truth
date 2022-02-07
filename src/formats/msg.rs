@@ -474,7 +474,7 @@ fn generate_script_names(raw_entries: &[RawScriptTableEntry]) -> BTreeMap<u64, I
             .filter(|&offset| offset != 0)  // but don't assign a name to offset 0!
     });
     offset_first_indices.iter().map(|&(offset, index)| {
-        let ident = format!("script{}", index).parse::<Ident>().unwrap();
+        let ident = ident!("script{index}");
         (offset, ident)
     }).collect::<BTreeMap<_, _>>()
 }

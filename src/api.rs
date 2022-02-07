@@ -111,8 +111,8 @@ impl Truth<'_> {
     {
         let (file_id, source_str) = self.ctx.emitter.files.add(display_name, text).map_err(|e| self.emit(e))?;
         let mut state = crate::parse::State::new();
-
-        A::parse_stream(&mut state, crate::parse::lexer::Lexer::new(file_id, &source_str[..]))
+        let mut lexer = crate::parse::lexer::Lexer::new(file_id, &source_str[..]);
+        A::parse_stream(&mut state, &mut lexer)
             .map_err(|e| self.emit(e))
             .and_then(|mut ast| {
                 crate::passes::resolution::fill_missing_node_ids(&mut ast, &self.ctx.unused_node_ids)?;

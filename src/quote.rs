@@ -347,7 +347,7 @@ mod tests {
     fn stmt() {
         let span_1 = Span::new(FILE_ID, 1, 1);
 
-        let label: Ident = "label".parse().unwrap();
+        let label: Ident = ident!("label");
         let _ = rec_sp!(span_1 => stmt_label!(#label));
     }
 }
