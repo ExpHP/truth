@@ -92,6 +92,7 @@ enum VarKind {
     //        However, assigning them DefIds and storing their expressions in here is very
     //        convenient for the const evaluator.
     EnumConst {
+        #[allow(unused)]
         enum_name: Sp<Ident>,
         ident: Sp<ResIdent>,
         expr: Sp<ast::Expr>,

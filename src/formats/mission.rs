@@ -45,10 +45,16 @@ pub struct Entry125 {
 }
 
 impl MissionMsgFile {
-    pub fn decompile_to_ast(&self, _: Game, _: &mut CompilerContext) -> Result<ast::ScriptFile, ErrorReported> {
+    pub fn decompile_to_ast(&self, _: Game, ctx: &mut CompilerContext) -> Result<ast::ScriptFile, ErrorReported> {
         match self {
-            MissionMsgFile::Th095(msg) => decompile(msg),
-            MissionMsgFile::Th125(msg) => decompile(msg),
+            MissionMsgFile::Th095(msg) => {
+                let emitter = ctx.emitter.while_decompiling(msg.binary_filename.as_deref());
+                decompile(msg, &emitter)
+            },
+            MissionMsgFile::Th125(msg) => {
+                let emitter = ctx.emitter.while_decompiling(msg.binary_filename.as_deref());
+                decompile(msg, &emitter)
+            },
         }
     }
 
@@ -223,6 +229,7 @@ impl Entry for Entry125 {
 
 fn decompile<E: Entry>(
     msg: &MissionMsg<E>,
+    _: &impl Emitter,
 ) -> Result<ast::ScriptFile, ErrorReported> {
     Ok(ast::ScriptFile {
         items: msg.entries.iter().map(|entry| {
