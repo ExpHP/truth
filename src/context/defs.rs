@@ -1058,8 +1058,9 @@ impl From<AutoConstKind> for TypeColor {
 pub enum ConstArgReason {
     /// The encoding of this parameter does not permit registers.
     Encoding(crate::llir::ArgEncoding),
-    /// Exported functions in EoSD ECL can only take `const` values due to limitations of the `call` instruction.
-    EosdEcl,
+
+    // /// Exported functions in EoSD ECL can only take `const` values due to limitations of the `call` instruction.
+    // EosdEcl,
 }
 
 impl Signature {
