@@ -17,6 +17,7 @@
 * **`break` keyword.**  This exits the nearest surrounding loop.
 * **`offsetof(label)` and `timeof(label)` expressions.**  You can use these if you want to write a jump using `ins_` syntax or the instruction alias.  They'll also show up in contrived cases when decompiling an EoSD ECL file that uses conditional jumps in a funny way.
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
+* **Enum consts.** A mapfile can define enums (see below section on mapfiles), which can then be used like `EnumName.ConstName` in source code, or `.ConstName` in places where a specific enum type is expected.
 
 ### Improvements to decompilation
 
@@ -39,6 +40,19 @@ Mapfiles can now define the following additional sections:
   100 ot
   ```
   and then you would be able to write `loop { }`s in MSG!
+* **Enums.**
+  A mapfile can define an enum:
+  ```
+  !enum(name="TestEnum")
+  20 Red
+  40 Blue
+  ```
+  which defines constants `TestEnum.Red` and `TestEnum.Blue`.  An instruction can then specify that it takes an argument of this type, via a modified `S` argument:
+  ```
+  !ins_signatures
+  100 S(enum="TestEnum")
+  ```
+  In this example, when calling `ins_100` you will be able to use `ins_100(.Red)` as a shorthand for `ins_100(TestEnum.Red)`, and during decompilation it will try to decompile the values from this enum. Enums are *open,* in that the same enum can be defined multiple times or even across multiple mapfiles, and the list of consts will be merged.
 
 ### Internal changes
 
