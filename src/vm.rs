@@ -37,7 +37,7 @@ pub struct AstVm {
     pub instr_log: Vec<LoggedCall>,
     iterations: u32,
     max_iterations: Option<u32>,
-    var_values: HashMap<VarId, ScalarValue>,
+    var_values: HashMap<VarId, VarValue>,
 }
 
 /// Hashable type representing a register or a named variable.
@@ -45,6 +45,20 @@ pub struct AstVm {
 pub enum VarId {
     Reg(RegId),
     Other(DefId),
+}
+
+#[derive(Debug, Clone)]
+pub enum VarValue {
+    Value(ScalarValue),
+    Special(SpecialVarKind),
+}
+
+impl From<ScalarValue> for VarValue {
+    fn from(x: ScalarValue) -> Self { VarValue::Value(x) }
+}
+
+impl From<SpecialVarKind> for VarValue {
+    fn from(x: SpecialVarKind) -> Self { VarValue::Special(x) }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,13 +95,17 @@ impl fmt::Display for AstVm {
         if !regs.is_empty() {
             writeln!(f, "  REGISTERS")?;
             for (reg, value) in regs {
-                writeln!(f, "  {:>5}  {}", reg, value)?;
+                if let VarValue::Value(value) = value {
+                    writeln!(f, "  {:>5}  {}", reg, value)?;
+                }
             }
         }
         if !others.is_empty() {
             writeln!(f, "  OTHER VARS")?;
             for (local_id, value) in others {
-                writeln!(f, "  {:>5}  {}", local_id, value)?;
+                if let VarValue::Value(value) = value {
+                    writeln!(f, "  {:>5}  {}", local_id, value)?;
+                }
             }
         }
         Ok(())
@@ -338,7 +356,7 @@ impl AstVm {
                 // as the loop counter now has an observable presence
                 ast::StmtKind::Times { clobber: Some(clobber), count, block, .. } => {
                     let count = self.eval_int(count, resolutions);
-                    self.set_var_by_ast(clobber, ScalarValue::Int(count), resolutions);
+                    self.write_var_by_ast(clobber, ScalarValue::Int(count), resolutions);
 
                     self.time = end_time(block);
                     if count != 0 {
@@ -351,7 +369,7 @@ impl AstVm {
                                 ScalarValue::String(x) => panic!("string count {}", x),
                                 ScalarValue::Int(x) => {
                                     let predecremented = x - 1;
-                                    self.set_var_by_ast(clobber, ScalarValue::Int(predecremented), resolutions);
+                                    self.write_var_by_ast(clobber, ScalarValue::Int(predecremented), resolutions);
                                     if predecremented == 0 { break; }
                                 },
                             }
@@ -380,7 +398,7 @@ impl AstVm {
                     match op.value {
                         ast::AssignOpKind::Assign => {
                             let value = self.eval(value, resolutions);
-                            self.set_var_by_ast(var, value, resolutions);
+                            self.write_var_by_ast(var, value, resolutions);
                         },
                         _ => {
                             let binop = op.corresponding_binop().expect("only Assign has no binop");
@@ -388,7 +406,7 @@ impl AstVm {
                                 self.read_var_by_ast(var, resolutions),
                                 self.eval(value, resolutions),
                             );
-                            self.set_var_by_ast(var, value, resolutions);
+                            self.write_var_by_ast(var, value, resolutions);
                         },
                     }
                 },
@@ -398,7 +416,7 @@ impl AstVm {
                         let (var, expr) = &pair.value;
                         if let Some(expr) = expr {
                             let value = self.eval(expr, resolutions);
-                            self.set_var_by_ast(var, value, resolutions);
+                            self.write_var_by_ast(var, value, resolutions);
                         }
                     }
                 },
@@ -474,7 +492,7 @@ impl AstVm {
                 ScalarValue::Float(x) => panic!("type error: {:?}", x),
                 ScalarValue::String(x) => panic!("type error: {:?}", x),
                 ScalarValue::Int(value) => {
-                    self.set_var_by_ast(var, ScalarValue::Int(value - 1), resolutions);
+                    self.write_var_by_ast(var, ScalarValue::Int(value - 1), resolutions);
                     value - 1 != 0
                 },
             },
@@ -502,25 +520,40 @@ impl AstVm {
         }
     }
 
-    pub fn set_var(&mut self, var_id: VarId, value: ScalarValue) { self.var_values.insert(var_id, value); }
-    pub fn get_var(&self, var_id: VarId) -> Option<ScalarValue> { self.var_values.get(&var_id).cloned() }
+    pub fn set_var(&mut self, var_id: VarId, value: impl Into<VarValue>) { self.var_values.insert(var_id, value.into()); }
+
+    /// Get the value of a variable, if it is defined.
+    pub fn get_var(&self, var_id: VarId) -> Option<ScalarValue> {
+        match self.var_values.get(&var_id) {
+            Some(VarValue::Value(value)) => Some(value.clone()),
+            // unclear whether to simulate a read or return None
+            Some(VarValue::Special(v)) => panic!("get_var called on special var.  Var {var_id:?}, data {v:?}"),
+            _ => None,
+        }
+    }
 
     /// Convenience wrapper of [`Self::set_var`] for test code.
-    pub fn set_reg(&mut self, reg: RegId, value: ScalarValue) { self.set_var(VarId::Reg(reg), value); }
-    /// Convenience wrapper of [`Self::get_var`] for test code.
+    pub fn set_reg(&mut self, reg: RegId, value: impl Into<VarValue>) { self.set_var(VarId::Reg(reg), value.into()); }
+    /// Convenience wrapper of [`Self::get_var`] for simple variables in test code.
     pub fn get_reg(&self, reg: RegId) -> Option<ScalarValue> { self.get_var(VarId::Reg(reg)) }
 
-    fn set_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue, resolutions: &Resolutions) {
+    fn write_var_by_ast(&mut self, var: &ast::Var, value: ScalarValue, resolutions: &Resolutions) {
         let key = self.var_id_from_name(&var.name, resolutions);
-        self.var_values.insert(key, value);
+        self.var_values.insert(key, value.into());
     }
 
-    fn read_var_by_ast(&self, var: &ast::Var, resolutions: &Resolutions) -> ScalarValue {
+    fn read_var_by_ast(&mut self, var: &ast::Var, resolutions: &Resolutions) -> ScalarValue {
         let var_id = self.var_id_from_name(&var.name, resolutions);
-        self.get_var(var_id).unwrap_or_else(|| panic!("read of uninitialized var: {:?}", var.name))
-            .apply_sigil(var.ty_sigil).unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var.name, var.ty_sigil))
+        match self.var_values.get_mut(&var_id) {
+            None => panic!("read of uninitialized var: {:?}", var.name),
+            Some(VarValue::Value(value)) => {
+                value.clone()
+                    .apply_sigil(var.ty_sigil)
+                    .unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var.name, var.ty_sigil))
+            },
+            Some(VarValue::Special(data)) => data.read_as_type(var.ty_sigil),
+        }
     }
-
     pub fn try_goto(&mut self, stmts: &[Sp<ast::Stmt>], goto: &ast::StmtGoto, stmt_data: &IdMap<NodeId, TimeAndDifficulty>) -> Option<usize> {
         for (index, stmt) in stmts.iter().enumerate() {
             match &stmt.kind {
@@ -534,6 +567,31 @@ impl AstVm {
             }
         }
         return None;
+    }
+}
+
+/// Funky variables for funky test cases.
+#[derive(Debug, Clone)]
+pub enum SpecialVarKind {
+    /// A counter that increments each time it is read.
+    Counter { next: i32 },
+    /// A var whose "read type" is volatile.  It has different values for int and float reads.
+    TypeVolatile { int: i32, float: f32 },
+}
+
+impl SpecialVarKind {
+    fn read_as_type(&mut self, ty_sigil: Option<ast::VarSigil>) -> ScalarValue {
+        match self {
+            SpecialVarKind::Counter { next } => {
+                *next += 1;
+                ScalarValue::Int(*next - 1).apply_sigil(ty_sigil).unwrap()
+            },
+            &mut SpecialVarKind::TypeVolatile { int, float } => match ty_sigil {
+                None => panic!("no default type for TypeVolatile"),
+                Some(ast::VarSigil::Int) => ScalarValue::Int(int),
+                Some(ast::VarSigil::Float) => ScalarValue::Float(float),
+            },
+        }
     }
 }
 
@@ -961,6 +1019,48 @@ mod tests {
 
             assert_eq!(vm.instr_log.len(), 1);
             assert_eq!(vm.instr_log[0].real_time, 7);
+        });
+    }
+
+    #[test]
+    fn counter() {
+        TestSpec {
+            globals: vec![],
+            source: r#"{
+                ins_10($REG[1]);
+                ins_10($REG[1]);
+                ins_10($REG[1]);
+            }"#,
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.set_reg(RegId(1), SpecialVarKind::Counter { next: 10 });
+            vm.run(&ast.0, &ctx);
+
+            assert_eq!(vm.instr_log.len(), 3);
+            assert_eq!(vm.instr_log[0].args[0], ScalarValue::Int(10));
+            assert_eq!(vm.instr_log[1].args[0], ScalarValue::Int(11));
+            assert_eq!(vm.instr_log[2].args[0], ScalarValue::Int(12));
+        });
+    }
+
+    #[test]
+    fn type_volatile() {
+        TestSpec {
+            globals: vec![],
+            source: r#"{
+                ins_10($REG[1]);
+                ins_10(%REG[1]);
+                ins_10($(%REG[1]));
+            }"#,
+        }.check(|ast, ctx| {
+            let mut vm = new_test_vm();
+            vm.set_reg(RegId(1), SpecialVarKind::TypeVolatile { int: 10, float: 20.0 });
+            vm.run(&ast.0, &ctx);
+
+            assert_eq!(vm.instr_log.len(), 3);
+            assert_eq!(vm.instr_log[0].args[0], ScalarValue::Int(10));
+            assert_eq!(vm.instr_log[1].args[0], ScalarValue::Float(20.0));
+            assert_eq!(vm.instr_log[2].args[0], ScalarValue::Int(20));
         });
     }
 }

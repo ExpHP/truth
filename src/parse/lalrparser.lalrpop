@@ -580,8 +580,13 @@ FuncUnOpKeyword: ast::UnOpKind = {
     "sin" => token![sin],
     "cos" => token![cos],
     "sqrt" => token![sqrt],
+    // FIXME: differentiate read sigils from type casts
     "_S" => token![_S],
     "_f" => token![_f],
+    "$" => token![_S],
+    "%" => token![_f],
+    "int" => token![_S],
+    "float" => token![_f],
 };
 
 // Expressions that don't contain a toplevel operator

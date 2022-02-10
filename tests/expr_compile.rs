@@ -15,6 +15,7 @@ struct Var {
     name: Option<&'static str>,
     scratch: bool,
     in_mapfile: bool,
+    special: Option<truth::vm::SpecialVarKind>,
 }
 
 const JUMP_OPCODE: u16 = 1;
@@ -141,23 +142,30 @@ fn make_language(vars: &[Var]) -> impl llir::LanguageHooks {
 }
 
 fn make_randomized_vm(vars: &[Var]) -> AstVm {
-    let mut rng = rand::thread_rng();
-
     let mut vm = AstVm::new().with_max_iterations(10000);
     for var in vars {
-        match var.ty {
-            Some(Ty::Int) => vm.set_reg(var.reg, ScalarValue::Int(rng.gen_range(-7, 7+1))),
-            Some(Ty::Float) => vm.set_reg(var.reg, ScalarValue::Float({
-                let sign = rng.gen_range(0, 2) - 1;
-                sign as f32 * rng.gen_range(0.3, 1.7)
-            })),
-            Some(Ty::String) => panic!("nonsense string register!"),
-            None => vm.set_reg(var.reg, ScalarValue::Int(0)),
+        if let Some(special) = &var.special {
+            vm.set_reg(var.reg, special.clone());
+        } else {
+            set_random_value(&mut vm, var.reg, var.ty);
         }
     }
 
-    let difficulty = rng.gen_range(0, 4);
+    let difficulty = rand::thread_rng().gen_range(0, 4);
     vm.with_difficulty(difficulty)
+}
+
+fn set_random_value(vm: &mut AstVm, reg: RegId, ty: Option<Ty>) {
+    let mut rng = rand::thread_rng();
+    match ty {
+        Some(Ty::Int) => vm.set_reg(reg, ScalarValue::Int(rng.gen_range(-7, 7+1))),
+        Some(Ty::Float) => vm.set_reg(reg, ScalarValue::Float({
+            let sign = rng.gen_range(0, 2) - 1;
+            sign as f32 * rng.gen_range(0.3, 1.7)
+        })),
+        Some(Ty::String) => panic!("nonsense string register!"),
+        None => vm.set_reg(reg, ScalarValue::Int(0)),
+    }
 }
 
 const REG_A: RegId = RegId(1000);
@@ -169,42 +177,54 @@ const REG_Y: RegId = RegId(1005);
 const REG_Z: RegId = RegId(1006);
 const REG_W: RegId = RegId(1007);
 const REG_COUNT: RegId = RegId(1020);
+const REG_TY_VOLATILE: RegId = RegId(2001);
+const REG_COUNTER: RegId = RegId(2002);
 
 const SIMPLE_FOUR_VAR_SPEC: &'static [Var] = &[
-    Var { reg: REG_A, ty: Some(Ty::Int), name: Some("A"), scratch: true, in_mapfile: true },
-    Var { reg: REG_B, ty: Some(Ty::Int), name: Some("B"), scratch: true, in_mapfile: true },
-    Var { reg: REG_C, ty: Some(Ty::Int), name: Some("C"), scratch: true, in_mapfile: true },
-    Var { reg: REG_D, ty: Some(Ty::Int), name: Some("D"), scratch: true, in_mapfile: true },
-    Var { reg: REG_X, ty: Some(Ty::Float), name: Some("X"), scratch: true, in_mapfile: true },
-    Var { reg: REG_Y, ty: Some(Ty::Float), name: Some("Y"), scratch: true, in_mapfile: true },
-    Var { reg: REG_Z, ty: Some(Ty::Float), name: Some("Z"), scratch: true, in_mapfile: true },
-    Var { reg: REG_W, ty: Some(Ty::Float), name: Some("W"), scratch: true, in_mapfile: true },
-    Var { reg: REG_COUNT, ty: Some(Ty::Int), name: Some("COUNT"), scratch: false, in_mapfile: true },
+    Var { reg: REG_A, ty: Some(Ty::Int), name: Some("A"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_B, ty: Some(Ty::Int), name: Some("B"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_C, ty: Some(Ty::Int), name: Some("C"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_D, ty: Some(Ty::Int), name: Some("D"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_X, ty: Some(Ty::Float), name: Some("X"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_Y, ty: Some(Ty::Float), name: Some("Y"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_Z, ty: Some(Ty::Float), name: Some("Z"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_W, ty: Some(Ty::Float), name: Some("W"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_COUNT, ty: Some(Ty::Int), name: Some("COUNT"), scratch: false, in_mapfile: true, special: None },
 ];
 
 const NOMAP_FOUR_VAR_SPEC: &'static [Var] = &[
-    Var { reg: REG_A, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_B, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_C, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_D, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_X, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_Y, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_Z, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_W, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false },
-    Var { reg: REG_COUNT, ty: Some(Ty::Int), name: None, scratch: false, in_mapfile: false },
+    Var { reg: REG_A, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_B, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_C, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_D, ty: Some(Ty::Int), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_X, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_Y, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_Z, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_W, ty: Some(Ty::Float), name: None, scratch: true, in_mapfile: false, special: None },
+    Var { reg: REG_COUNT, ty: Some(Ty::Int), name: None, scratch: false, in_mapfile: false, special: None },
 ];
 
 // A slightly more constrained spec with only three scratch vars.
 const SIMPLE_THREE_VAR_SPEC: &'static [Var] = &[
-    Var { reg: REG_A, ty: Some(Ty::Int), name: Some("A"), scratch: true, in_mapfile: true },
-    Var { reg: REG_B, ty: Some(Ty::Int), name: Some("B"), scratch: true, in_mapfile: true },
-    Var { reg: REG_C, ty: Some(Ty::Int), name: Some("C"), scratch: true, in_mapfile: true },
-    Var { reg: REG_X, ty: Some(Ty::Float), name: Some("W"), scratch: true, in_mapfile: true },
-    Var { reg: REG_Y, ty: Some(Ty::Float), name: Some("X"), scratch: true, in_mapfile: true },
-    Var { reg: REG_Z, ty: Some(Ty::Float), name: Some("Y"), scratch: true, in_mapfile: true },
-    Var { reg: REG_COUNT, ty: Some(Ty::Int), name: Some("COUNT"), scratch: false, in_mapfile: true },
+    Var { reg: REG_A, ty: Some(Ty::Int), name: Some("A"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_B, ty: Some(Ty::Int), name: Some("B"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_C, ty: Some(Ty::Int), name: Some("C"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_X, ty: Some(Ty::Float), name: Some("W"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_Y, ty: Some(Ty::Float), name: Some("X"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_Z, ty: Some(Ty::Float), name: Some("Y"), scratch: true, in_mapfile: true, special: None },
+    Var { reg: REG_COUNT, ty: Some(Ty::Int), name: Some("COUNT"), scratch: false, in_mapfile: true, special: None },
 ];
 
+const SPECIAL_VARS: &'static [Var] = &[
+    Var {
+        reg: REG_TY_VOLATILE, ty: None, name: Some("TY_VOLATILE"), scratch: false, in_mapfile: true,
+        special: Some(truth::vm::SpecialVarKind::TypeVolatile { int: 10, float: 20.0 }),
+    },
+    Var {
+        reg: REG_COUNTER, ty: Some(Ty::Int), name: Some("COUNTER"), scratch: false, in_mapfile: true,
+        special: Some(truth::vm::SpecialVarKind::Counter { next: 0 }),
+    },
+];
 
 /// Construct two `AstVm`s with the same randomly initialized state, then:
 ///
@@ -234,7 +254,10 @@ fn run_randomized_test(vars: &[Var], text: &str) -> Result<TestResult, String> {
 }
 
 #[track_caller]
-fn _run_randomized_test(truth: &mut Truth, vars: &[Var], text: &str) -> Result<TestResult, truth::ErrorReported> {
+fn _run_randomized_test(truth: &mut Truth, plain_vars: &[Var], text: &str) -> Result<TestResult, truth::ErrorReported> {
+    // all tests have the special vars since they're relatively harmless when not used
+    let ref vars = plain_vars.iter().chain(SPECIAL_VARS).cloned().collect::<Vec<_>>();
+
     load_mapfile(truth, vars);
 
     let hooks = make_language(vars);
@@ -329,7 +352,7 @@ impl TestResult {
     #[track_caller]
     fn check_no_scratch_of_ty(&self, ty: Ty) {
         for var in &self.vars {
-            if var.ty == Some(ty) {
+            if var.ty == Some(ty) && var.special.is_none() {
                 self.check_reg_not_scratch(var.reg);
             }
         }
@@ -964,4 +987,19 @@ fn difficulty_label_and_diff_switch() {
         }"#).unwrap();
         vms.check_regs(&[REG_A, REG_B]);
     }
+}
+
+#[test]
+fn read_type_volatile() {
+    // these should generate a temporary float to ensure that TY_VOLATILE is
+    // read as a float and not as an integer.  This is to ensure correct behavior
+    // of e.g. `float($RAND)` in PCB ECL. (which is different from `%RAND`!)
+    let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+        A = int(%TY_VOLATILE);
+        B = $(%TY_VOLATILE);
+    }"#).unwrap();
+
+    // if one of these evaluates to 10, it read as an int instead  D:
+    assert_eq!(vms.new.get_reg(REG_A), Some(ScalarValue::Int(20)));
+    assert_eq!(vms.new.get_reg(REG_B), Some(ScalarValue::Int(20)));
 }
