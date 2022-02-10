@@ -1,0 +1,11 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+error: at enum sp!(9..26 => "ax@3"): invalid identifier: ax@3
+  ┌─ <mapfile-1>:2:2
+  │
+2 │ !enum(name="ax@3")
+  │  ^^^^^^^^^^^^^^^^^ bad identifier
+
+

@@ -1,0 +1,14 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+warning: suspicious use of ANM script 'Name' as enum FooEnum
+   ┌─ <input>:31:18
+   │
+31 │         TakesFoo(Name);
+   │                  ^^^^
+   │                  │
+   │                  ANM script
+   │                  did you mean `.Name`? (for `FooEnum.Name`)
+
+

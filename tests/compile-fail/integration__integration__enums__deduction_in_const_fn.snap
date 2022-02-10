@@ -1,0 +1,14 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+error: unexpected token `enum`
+   ┌─ <input>:25:27
+   │
+25 │         const int ConstFn(enum FooEnum x) {
+   │                           ^^^^ unexpected token
+   │
+   = 
+     Expected one of ")", "float", "int", "string", "var" or "void"
+
+

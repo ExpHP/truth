@@ -1,0 +1,11 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+error: no enum const FooEnum.BarOnly
+   ┌─ <input>:28:17
+   │
+28 │         ins_400(.BarOnly);
+   │                 ^^^^^^^^ no such enum const
+
+

@@ -1,0 +1,14 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+error: no such enum 'TesEnum'
+  ┌─ <mapfile-1>:3:5
+  │
+3 │ 400 S(enum="TesEnum")
+  │     ^^^^^^^^^^^^^^^^^
+  │     │
+  │     no such enum
+  │     did you mean `TestEnum`?
+
+

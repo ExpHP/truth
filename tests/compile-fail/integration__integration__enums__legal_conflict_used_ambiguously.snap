@@ -1,0 +1,17 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+error: cannot determine enum for .Name
+   ┌─ <input>:22:17
+   │
+22 │         ins_400(.Name);
+   │                 ^^^^^ unqualified enum const
+
+error: cannot determine enum for .Name
+   ┌─ <input>:23:23
+   │
+23 │         ins_999(@mask=.Name, @blob="01000000");
+   │                       ^^^^^ unqualified enum const
+
+

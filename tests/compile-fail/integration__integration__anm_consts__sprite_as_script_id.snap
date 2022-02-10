@@ -1,0 +1,11 @@
+---
+source: tests/integration/anm_consts.rs
+expression: stderr
+---
+warning: suspicious use of ANM sprite 'imASprite' as a ANM script
+   ┌─ <input>:14:15
+   │
+14 │     scriptNew(imASprite);
+   │               ^^^^^^^^^ ANM sprite
+
+

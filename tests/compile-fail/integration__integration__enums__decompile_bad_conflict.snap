@@ -1,0 +1,13 @@
+---
+source: tests/integration/enums.rs
+expression: stderr
+---
+error: ambiguous value for enum const 'Name'
+  ┌─ <mapfile-1>:3:4
+  │
+3 │ 20 Name
+  │    ^^^^ definition with value 20
+4 │ 40 Name
+  │    ^^^^ definition with value 40
+
+
