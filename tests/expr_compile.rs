@@ -994,12 +994,26 @@ fn read_type_volatile() {
     // these should generate a temporary float to ensure that TY_VOLATILE is
     // read as a float and not as an integer.  This is to ensure correct behavior
     // of e.g. `float($RAND)` in PCB ECL. (which is different from `%RAND`!)
-    let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
-        A = int(%TY_VOLATILE);
-        B = $(%TY_VOLATILE);
-    }"#).unwrap();
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = int(%TY_VOLATILE);
+            B = $(%TY_VOLATILE);
+        }"#).unwrap();
 
-    // if one of these evaluates to 10, it read as an int instead  D:
-    assert_eq!(vms.new.get_reg(REG_A), Some(ScalarValue::Int(20)));
-    assert_eq!(vms.new.get_reg(REG_B), Some(ScalarValue::Int(20)));
+        // if one of these evaluates to 10, it read as an int instead  D:
+        assert_eq!(vms.new.get_reg(REG_A), Some(ScalarValue::Int(20)));
+        assert_eq!(vms.new.get_reg(REG_B), Some(ScalarValue::Int(20)));
+        vms.check_no_scratch_of_ty(Ty::Int);
+    }
+}
+
+#[test]
+fn trivial_cast() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            B = $(A + 2);
+        }"#).unwrap();
+
+        vms.check_no_scratch_of_ty(Ty::Float);
+    }
 }

@@ -43,26 +43,30 @@ fn uncaught_type_error() -> ! {
 }
 
 impl ast::UnOpKind {
-    pub fn const_eval(&self, b: ScalarValue) -> ScalarValue {
+    pub fn const_eval(&self, b: ScalarValue) -> Option<ScalarValue> {
         match b {
             ScalarValue::Int(x) => match self {
-                token![unop -] => ScalarValue::Int(i32::wrapping_neg(x)),
-                token![unop !] => ScalarValue::Int((x == 0) as i32),
+                token![unop -] => Some(ScalarValue::Int(i32::wrapping_neg(x))),
+                token![unop !] => Some(ScalarValue::Int((x == 0) as i32)),
                 token![unop sin] |
                 token![unop cos] |
                 token![unop sqrt] => uncaught_type_error(),
-                token![unop _S] => uncaught_type_error(),
-                token![unop _f] => ScalarValue::Float(x as f32),
+                token![unop int] => Some(ScalarValue::Int(x)),
+                token![unop float] => Some(ScalarValue::Float(x as f32)),
+                token![unop $] |
+                token![unop %] => None,
             },
 
             ScalarValue::Float(x) => match self {
-                token![unop -] => ScalarValue::Float(-x),
+                token![unop -] => Some(ScalarValue::Float(-x)),
                 token![unop !] => uncaught_type_error(),
-                token![unop sin] => ScalarValue::Float(x.sin()),
-                token![unop cos] => ScalarValue::Float(x.cos()),
-                token![unop sqrt] => ScalarValue::Float(x.sqrt()),
-                token![unop _S] => ScalarValue::Int(x as i32),
-                token![unop _f] => uncaught_type_error(),
+                token![unop sin] => Some(ScalarValue::Float(x.sin())),
+                token![unop cos] => Some(ScalarValue::Float(x.cos())),
+                token![unop sqrt] => Some(ScalarValue::Float(x.sqrt())),
+                token![unop int] => Some(ScalarValue::Int(x as i32)),
+                token![unop float] => Some(ScalarValue::Float(x)),
+                token![unop $] |
+                token![unop %] => None,
             },
 
             ScalarValue::String(_) => uncaught_type_error(),
@@ -196,7 +200,7 @@ impl ast::VisitMut for Visitor<'_, '_> {
                 ast::VarName::Normal { ref ident, .. } => {
                     let def_id = self.ctx.resolutions.expect_def(ident);
                     if let Some(value) = self.ctx.consts.get_cached_value(def_id.into()) {
-                        e.value = value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
+                        e.value = value.clone().cast_by_ty_sigil(var.ty_sigil).expect("shoulda been type-checked").into();
                     }
                 },
                 ast::VarName::Reg { .. } => {}, // can't simplify register
@@ -211,7 +215,9 @@ impl ast::VisitMut for Visitor<'_, '_> {
 
             ast::Expr::UnOp(op, b) => {
                 if let Some(b_value) = b.to_const() {
-                    e.value = op.const_eval(b_value).into();
+                    if let Some(out_value) = op.const_eval(b_value) {
+                        e.value = out_value.into();
+                    }
                 }
             },
 

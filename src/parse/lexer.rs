@@ -147,8 +147,8 @@ define_token_enum! {
         #[token("sin")] Sin,
         #[token("cos")] Cos,
         #[token("sqrt")] Sqrt,
-        #[token("_S")] CastI,
-        #[token("_f")] CastF,
+        #[token("_S")] LegacyEncodeI,
+        #[token("_f")] LegacyEncodeF,
         #[token("REG")] Reg,
 
         #[regex(r##""([^\\"]|\\.)*""##)] LitString(&'a str),

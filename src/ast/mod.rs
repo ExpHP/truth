@@ -689,8 +689,10 @@ string_enum! {
         #[strum(serialize = "sin")] Sin,
         #[strum(serialize = "cos")] Cos,
         #[strum(serialize = "sqrt")] Sqrt,
-        #[strum(serialize = "_S")] CastI,
-        #[strum(serialize = "_f")] CastF,
+        #[strum(serialize = "$")] EncodeI,
+        #[strum(serialize = "%")] EncodeF,
+        #[strum(serialize = "int")] CastI,
+        #[strum(serialize = "float")] CastF,
     }
 }
 
@@ -704,11 +706,17 @@ impl UnOpKind {
             UnOpKind::Sqrt => OpClass::FloatMath,
             UnOpKind::CastI => OpClass::Cast,
             UnOpKind::CastF => OpClass::Cast,
+            UnOpKind::EncodeI => OpClass::TySigil,
+            UnOpKind::EncodeF => OpClass::TySigil,
         }
     }
 
-    pub fn is_cast(&self) -> bool {
-        self.class() == OpClass::Cast
+    pub fn as_ty_sigil(&self) -> Option<VarSigil> {
+        match self {
+            token![unop $] => Some(token![$]),
+            token![unop %] => Some(token![%]),
+            _ => None,
+        }
     }
 }
 
@@ -720,6 +728,7 @@ pub enum OpClass {
     Shift,
     Logical,
     FloatMath,
+    TySigil,
     Cast,
     DirectAssignment,
 }
@@ -734,6 +743,7 @@ impl OpClass {
             Self::Logical => "logical",
             Self::FloatMath => "mathematical",
             Self::Cast => "cast",
+            Self::TySigil => "sigil",
             Self::DirectAssignment => "direct",
         }
     }

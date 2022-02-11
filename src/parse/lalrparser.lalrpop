@@ -111,8 +111,8 @@ extern {
         "sin" => Token::Sin,
         "cos" => Token::Cos,
         "sqrt" => Token::Sqrt,
-        "_S" => Token::CastI,
-        "_f" => Token::CastF,
+        "_S" => Token::LegacyEncodeI,
+        "_f" => Token::LegacyEncodeF,
         "REG" => Token::Reg,
         // Virtual tokens for parsable nonterminals
         Dispatch_ScriptFile => Token::VirtualDispatch(crate::parse::AnythingTag::ScriptFile),
@@ -581,12 +581,12 @@ FuncUnOpKeyword: ast::UnOpKind = {
     "cos" => token![cos],
     "sqrt" => token![sqrt],
     // FIXME: differentiate read sigils from type casts
-    "_S" => token![_S],
-    "_f" => token![_f],
-    "$" => token![_S],
-    "%" => token![_f],
-    "int" => token![_S],
-    "float" => token![_f],
+    "_S" => token![$],
+    "_f" => token![%],
+    "$" => token![$],
+    "%" => token![%],
+    "int" => token![int],
+    "float" => token![float],
 };
 
 // Expressions that don't contain a toplevel operator

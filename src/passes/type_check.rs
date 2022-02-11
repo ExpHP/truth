@@ -627,15 +627,20 @@ impl ast::Expr {
 impl ExprTypeChecker<'_, '_> {
     fn unop_check(&self, op: Sp<ast::UnOpKind>, arg_ty: ScalarType, arg_span: Span) -> ImplResult {
         match op.value {
-            token![unop -] => self.require_numeric(arg_ty, op.span, arg_span),
+            | token![unop -]
+            | token![unop $]
+            | token![unop %]
+            | token![unop int]
+            | token![unop float]
+            => self.require_numeric(arg_ty, op.span, arg_span),
 
-            token![unop _f] |
-            token![unop !] => self.require_int(arg_ty, op.span, arg_span),
+            | token![unop !]
+            => self.require_int(arg_ty, op.span, arg_span),
 
-            token![unop _S] |
-            token![unop sin] |
-            token![unop cos] |
-            token![unop sqrt] => self.require_float(arg_ty, op.span, arg_span),
+            | token![unop sin]
+            | token![unop cos]
+            | token![unop sqrt]
+            => self.require_float(arg_ty, op.span, arg_span),
         }
     }
 }
@@ -664,8 +669,11 @@ impl ast::Expr {
             token![unop cos] |
             token![unop sqrt] => ScalarType::Float,
 
-            token![unop _S] => ScalarType::Int,
-            token![unop _f] => ScalarType::Float,
+            token![unop $] => ScalarType::Int,
+            token![unop %] => ScalarType::Float,
+
+            token![unop int] => ScalarType::Int,
+            token![unop float] => ScalarType::Float,
         }
     }
 }

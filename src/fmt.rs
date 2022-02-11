@@ -895,7 +895,9 @@ impl Format for ast::Expr {
                 token![unop -] | token![!]
                     => out.fmt_optional_parens(|out| out.fmt((op, x))),
 
-                token![_S] | token![_f] | token![sin] | token![cos] | token![sqrt]
+                token![unop $] | token![unop %] |
+                token![unop int] | token![unop float] |
+                token![sin] | token![cos] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
             ast::Expr::EnumConst { enum_name, ident } => {

@@ -26,9 +26,10 @@ impl ScalarValue {
         ScalarValue::String(_) => ScalarType::String,
     }}
 
-    /// Allows simulating the effect of e.g. `%INT_VAR` or `$FLOAT_VAR`.
-    /// (basically, the game performs typecasts when variables are read as the other type)
-    pub fn apply_sigil(self, ty_sigil: Option<ast::VarSigil>) -> Option<ScalarValue> {
+    /// Allows simulating the effect of e.g. `%INT_VAR` or `$FLOAT_VAR` in most games.
+    ///
+    /// (basically, most games perform typecasts when variables are read as the other type)
+    pub fn cast_by_ty_sigil(self, ty_sigil: Option<ast::VarSigil>) -> Option<ScalarValue> {
         match ty_sigil {
             None => Some(self),
             Some(ast::VarSigil::Int) => self.read_as_int().map(ScalarValue::Int),

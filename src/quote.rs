@@ -33,8 +33,10 @@ macro_rules! token {
     ($(unop)? sin) => { $crate::ast::UnOpKind::Sin };
     ($(unop)? cos) => { $crate::ast::UnOpKind::Cos };
     ($(unop)? sqrt) => { $crate::ast::UnOpKind::Sqrt };
-    ($(unop)? _S) => { $crate::ast::UnOpKind::CastI };
-    ($(unop)? _f) => { $crate::ast::UnOpKind::CastF };
+    (  unop   $) => { $crate::ast::UnOpKind::EncodeI };
+    (  unop   %) => { $crate::ast::UnOpKind::EncodeF };
+    (  unop   int) => { $crate::ast::UnOpKind::CastI };
+    (  unop   float) => { $crate::ast::UnOpKind::CastF };
 
     ($(assignop)? =) => { $crate::ast::AssignOpKind::Assign };
     ($(assignop)? +=) => { $crate::ast::AssignOpKind::Add };
@@ -49,8 +51,8 @@ macro_rules! token {
     ($(assignop)? >>=) => { $crate::ast::AssignOpKind::ShiftRightSigned };
     ($(assignop)? >>>=) => { $crate::ast::AssignOpKind::ShiftRightUnsigned };
 
-    ($(ty)? int) => { $crate::ast::TypeKeyword::Int };
-    ($(ty)? float) => { $crate::ast::TypeKeyword::Float };
+    (  ty   int) => { $crate::ast::TypeKeyword::Int };
+    (  ty   float) => { $crate::ast::TypeKeyword::Float };
     ($(ty)? string) => { $crate::ast::TypeKeyword::String };
     ($(ty)? var) => { $crate::ast::TypeKeyword::Var };
     ($(ty)? void) => { $crate::ast::TypeKeyword::Void };
@@ -75,19 +77,25 @@ macro_rules! token {
     ($(loopjump)? continue) => { $crate::ast::BreakContinueKeyword::Continue };
     ($(loopjump)? break) => { $crate::ast::BreakContinueKeyword::Break };
 
-    ($(sigil)? $) => { $crate::ast::VarSigil::Int };
+    (  sigil   $) => { $crate::ast::VarSigil::Int };
     (  sigil   %) => { $crate::ast::VarSigil::Float };
 
     // ambiguous ones; these will use Into, which may work in exprs, though you're SOL in patterns
     // and will have to provide a disambiguating prefix there.  e.g. `token![unop -]`
     (-) => { ::core::convert::Into::into($crate::quote::MinusSign) };
     (%) => { ::core::convert::Into::into($crate::quote::PercentSign) };
+    ($) => { ::core::convert::Into::into($crate::quote::CashSign) };
+    (int) => { ::core::convert::Into::into($crate::quote::KeywordInt) };
+    (float) => { ::core::convert::Into::into($crate::quote::KeywordFloat) };
 }
 
 // These briefly appear in the expansion of `token!()` for tokens that can be parsed as
 // more than one output type.
 #[doc(hidden)] pub struct MinusSign;
+#[doc(hidden)] pub struct CashSign;
 #[doc(hidden)] pub struct PercentSign;
+#[doc(hidden)] pub struct KeywordInt;
+#[doc(hidden)] pub struct KeywordFloat;
 
 macro_rules! impl_ambiguous_token_into {
     ($( $UnitTy:ident => ast::$OutTy:ident::$Variant:ident, )*) => {$(
@@ -100,8 +108,15 @@ macro_rules! impl_ambiguous_token_into {
 impl_ambiguous_token_into!{
     MinusSign => ast::BinOpKind::Sub,
     MinusSign => ast::UnOpKind::Neg,
+    CashSign => ast::VarSigil::Int,
+    CashSign => ast::UnOpKind::EncodeI,
     PercentSign => ast::VarSigil::Float,
+    PercentSign => ast::UnOpKind::EncodeF,
     PercentSign => ast::BinOpKind::Rem,
+    KeywordInt => ast::UnOpKind::CastI,
+    KeywordInt => ast::TypeKeyword::Int,
+    KeywordFloat => ast::UnOpKind::CastF,
+    KeywordFloat => ast::TypeKeyword::Float,
 }
 
 // -----------------------------------

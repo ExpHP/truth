@@ -137,6 +137,31 @@ source_test!(
 //     },
 // );
 
+source_test!(
+    ECL_06, eosd_cant_cast,
+    main_body: r#"
+        int x = float(F0 + 2.0);  //~ ERROR unsupported
+        float x = int(I0 + 2);  //~ ERROR unsupported
+    "#,
+);
+
+source_test!(
+    ECL_06, eosd_user_provided_cast,
+    mapfile: r#"!eclmap
+!ins_intrinsics
+1000 UnOp(int,float)
+1001 UnOp(float,int)
+"#,
+    main_body: r#"
+        int x = float(F0 + 2.0);
+        float x = int(I0 + 2);
+    "#,
+    check_decompiled: |decompiled| {
+        assert!(decompiled.contains(" = float("));
+        assert!(decompiled.contains(" = int("));
+    }
+);
+
 // =============================================================================
 
 // ---------------

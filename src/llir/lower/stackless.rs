@@ -513,6 +513,8 @@ impl SingleSubLowerer<'_, '_> {
         b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
         // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
+        //
+        // TODO: document that this is not IEEE-754 conformant
         if unop.value == token![-] {
             let ty = b.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
             let zero = sp!(unop.span => ast::Expr::zero(ty));
@@ -547,13 +549,17 @@ impl SingleSubLowerer<'_, '_> {
 
                 match unop.value {
                     // These are all handled other ways
-                    token![_S] |
-                    token![_f] |
+                    token![unop $] |
+                    token![unop %] |
                     token![unop -] => unreachable!(),
 
                     // TODO: we *could* polyfill this with some conditional jumps but bleccccch
                     token![!] => return Err(self.unsupported(&span, "logical not operator")),
 
+                    // note: in most languages, 'int' and 'float' are replaced with '$' and '%' long before
+                    //       we get here, but they can make it here in EoSD ECL.
+                    token![unop int] |
+                    token![unop float] |
                     token![sin] |
                     token![cos] |
                     token![sqrt] => {
@@ -949,19 +955,16 @@ fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<Ex
         // Here we treat casts.  A cast of any expression is understood to require a temporary of
         // the *input* type of the cast, but not the output type.  For example:
         //
-        //             foo(_f($I + 3));
+        //             foo(%($I + 3));
         //
         // Ideally, this should compile into using only a single integer scratch register:
         //
         //             int tmp = $I + 3;
         //             foo(%tmp);
         //
-        ast::Expr::UnOp(unop, b) if unop.is_cast() => {
-            let (tmp_ty, read_ty) = match unop.value {
-                token![_S] => (ScalarType::Float, ScalarType::Int),
-                token![_f] => (ScalarType::Int, ScalarType::Float),
-                _ => unreachable!("filtered out by is_cast()"),
-            };
+        ast::Expr::UnOp(unop, b) if unop.as_ty_sigil().is_some() => {
+            let tmp_ty = b.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
+            let read_ty = unop.as_ty_sigil().unwrap().into();
             Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
         },
 

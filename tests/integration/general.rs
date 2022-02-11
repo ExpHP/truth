@@ -351,7 +351,9 @@ source_test!(
 
 source_test!(
     MSG_06, reg_in_unsupported_lang,
-    main_body: r#"  textSet(0, $REG[0], "cheese");  //~ ERROR constant "#,
+    main_body: r#"
+        textSet(0, $REG[0], "cheese");  //~ ERROR constant
+    "#,
 );
 
 source_test!(
@@ -422,8 +424,8 @@ source_test!(
 10003  BAR
     "#,
     main_body: r#"
-    FOO = BAR + (I2 * 2);
-    FOO = I1;  // make sure I0 is the only scratch var for easier testing
+        FOO = BAR + (I2 * 2);
+        FOO = I1;  // make sure I0 is the only scratch var for easier testing
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
@@ -436,7 +438,7 @@ source_test!(
 source_test!(
     ANM_10, jump_to_end_of_script_at_different_time,
     main_body: r#"
-      goto label @ 100;
+        goto label @ 100;
     label:
     "#,
     check_decompiled: |_| { /* just roundtrip */ },

@@ -41,8 +41,7 @@ script functionUnops {
 
 script unaries {
     int x = -"abc";  //~ ERROR type error
-    // ...hang on, should casting int to int really be an error?
-    int y = _S(I2);  //~ ERROR type error
+    int z = $("abc");  //~ ERROR type error
 }
     "#,
 );

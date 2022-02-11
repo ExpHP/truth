@@ -455,7 +455,18 @@ impl AstVm {
 
             ast::Expr::Call(ast::ExprCall { .. }) => unimplemented!("func calls in VM exprs"),
 
-            ast::Expr::UnOp(op, x) => op.const_eval(self.eval(x, resolutions)),
+            ast::Expr::UnOp(op, x) => match op.as_ty_sigil() {
+                // sigils are invalid in const eval, but we'll let the VM share the behavior held by
+                // the majority of languages, where a sigil means type-cast
+                Some(ty_sigil) => {
+                    self.eval(x, resolutions).cast_by_ty_sigil(Some(ty_sigil))
+                        .unwrap_or_else(|| panic!("vm cannot evaluate unop {op:?}"))
+                },
+                None => {
+                    op.const_eval(self.eval(x, resolutions))
+                        .unwrap_or_else(|| panic!("vm cannot evaluate unop {op:?}"))
+                },
+            },
 
             ast::Expr::DiffSwitch(cases) => {
                 let difficulty = self.difficulty.expect("difficulty not set for VM!");
@@ -548,7 +559,7 @@ impl AstVm {
             None => panic!("read of uninitialized var: {:?}", var.name),
             Some(VarValue::Value(value)) => {
                 value.clone()
-                    .apply_sigil(var.ty_sigil)
+                    .cast_by_ty_sigil(var.ty_sigil)
                     .unwrap_or_else(|| panic!("cannot cast {:?} to {:?}", var.name, var.ty_sigil))
             },
             Some(VarValue::Special(data)) => data.read_as_type(var.ty_sigil),
@@ -584,7 +595,7 @@ impl SpecialVarKind {
         match self {
             SpecialVarKind::Counter { next } => {
                 *next += 1;
-                ScalarValue::Int(*next - 1).apply_sigil(ty_sigil).unwrap()
+                ScalarValue::Int(*next - 1).cast_by_ty_sigil(ty_sigil).unwrap()
             },
             &mut SpecialVarKind::TypeVolatile { int, float } => match ty_sigil {
                 None => panic!("no default type for TypeVolatile"),
@@ -908,7 +919,7 @@ mod tests {
     }
 
     #[test]
-    fn type_cast() {
+    fn read_as_type() {
         TestSpec {
             globals: vec![("X", RegId(30), Ty::Int), ("Y", RegId(31), Ty::Int)],
             source: r#"{
@@ -970,8 +981,8 @@ mod tests {
                 ("F_TO_I", RegId(32), Ty::Int), ("I_TO_F", RegId(33), Ty::Float),
             ],
             source: r#"{
-                F_TO_I = _S(F * 7.0) - 2;
-                I_TO_F = _f(I + 3) + 0.5;
+                F_TO_I = $(F * 7.0) - 2;
+                I_TO_F = %(I + 3) + 0.5;
             }"#,
         }.check(|ast, ctx| {
             let f = 5.2405;

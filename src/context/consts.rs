@@ -186,7 +186,7 @@ impl<'a> Evaluator<'a> {
                     let def_id = self.resolutions.expect_def(ident);
                     let const_id = def_id.into();
                     let inherent_value = self._get_or_compute(Some(expr.span), const_id)?;
-                    let cast_value = inherent_value.clone().apply_sigil(var.ty_sigil).expect("shoulda been type-checked");
+                    let cast_value = inherent_value.clone().cast_by_ty_sigil(var.ty_sigil).expect("shoulda been type-checked");
                     return Ok(cast_value);
                 },
                 ast::VarName::Reg { .. } => {}, // fall to error path
@@ -200,7 +200,7 @@ impl<'a> Evaluator<'a> {
 
             ast::Expr::UnOp(op, b) => {
                 let b_value = self._const_eval(b)?;
-                return Ok(op.const_eval(b_value));
+                return op.const_eval(b_value).ok_or_else(|| self.non_const_error(expr.span));
             },
 
             ast::Expr::BinOp(a, op, b) => {
