@@ -455,8 +455,8 @@ impl SingleSubLowerer<'_, '_> {
         // Evaluate the first subexpression if necessary.
         let simple_a = match self.classify_expr(a)? {
             ExprClass::NeedsElaboration(data_a) => {
-                // FIXME: I'm not sure that the tmp_ty == read_ty condition is necessary and it even prevents some
-                //        legitimate cases of reuse like reusing `A` in `A = %(I0 + 1) < 1.5`;
+                // FIXME: I'm not sure that the tmp_ty == read_ty condition (which forbids casts) is necessary and it
+                //        even prevents some legitimate cases of reuse like reusing `A` in `A = %(I0 + 1) < 1.5`;
                 //        But I'm not 100% sure and I'd rather just wait until we can replace of all of this
                 //        "variable reuse" logic with SSA-based analysis.
                 if data_a.tmp_ty == ty_rhs && data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
@@ -499,7 +499,7 @@ impl SingleSubLowerer<'_, '_> {
         let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
         assert_eq!(ty_var, ty_rhs, "already type-checked");
 
-        self.lower_intrinsic(span, stmt_data, IKind::BinOp(binop.value, simple_a.ty), "this binary operation", |bld| {
+        self.lower_intrinsic(rhs_span, stmt_data, IKind::BinOp(binop.value, simple_a.ty), "this binary operation", |bld| {
             bld.outputs.push(lowered_var);
             bld.plain_args.push(simple_a.lowered);
             bld.plain_args.push(simple_b.lowered);
@@ -554,7 +554,7 @@ impl SingleSubLowerer<'_, '_> {
             ExprClass::Simple(data_b) => {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ty_rhs, "already type-checked");
-                let ty = ty_var;
+                let ty = data_b.ty;
 
                 match unop.value {
                     // These are all handled other ways
@@ -565,14 +565,14 @@ impl SingleSubLowerer<'_, '_> {
                     // TODO: we *could* polyfill this with some conditional jumps but bleccccch
                     token![!] => return Err(self.unsupported(&span, "logical not operator")),
 
-                    // note: in most languages, 'int' and 'float' are replaced with '$' and '%' long before
+                    // note: in most languages, 'int' and 'float' are replaced with '$' and '%' before
                     //       we get here, but they can make it here in EoSD ECL.
                     token![unop int] |
                     token![unop float] |
                     token![sin] |
                     token![cos] |
                     token![sqrt] => {
-                        self.lower_intrinsic(span, stmt_data, IKind::UnOp(unop.value, ty), "this unary operation", |bld| {
+                        self.lower_intrinsic(rhs_span, stmt_data, IKind::UnOp(unop.value, ty), "this unary operation", |bld| {
                             bld.outputs.push(lowered_var);
                             bld.plain_args.push(data_b.lowered);
                         })?;
@@ -973,13 +973,27 @@ impl SingleSubLowerer<'_, '_> {
             //             foo(%tmp);
             //
             ast::Expr::UnOp(unop, b) => {
+
                 // Check if this operation can lower to just a variable read
-                if let Some(ty_sigil) = unop.as_ty_sigil_with_auto_cast(self.hooks.has_auto_casts()) {
+                if let Some(ty_sigil) = unop.as_ty_sigil_with_auto_cast() {
+                    // This is a sigil or cast.
                     let tmp_ty = b.compute_ty(self.ctx).as_value_ty().expect("shouldn't be void");
-                    let read_ty = ty_sigil.into();
-                    Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
+
+                    // Most likely it needs no explicit instruction and can simply lower to a read.
+                    let mut easy = false;
+                    easy = easy || self.hooks.has_auto_casts();  // casts may lower to sigils...
+                    easy = easy || unop.as_ty_sigil().is_some();  // ...and sigils are always reads.
+                    easy = easy || unop.is_cast_of_type(tmp_ty);  // trivial casts (int -> int)
+                    if easy {
+                        let read_ty = ty_sigil.into();
+                        Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
+                    } else {
+                        // This path will get taken by `int(...)/float(...)` in EoSD, requiring
+                        // a `UnOp(int,float)` or `UnOp(float,int)` user-defined intrinsic.
+                        Ok(needs_elaboration())
+                    }
                 } else {
-                    // anything else needs to call a dedicated instruction
+                    // Not sigil or cast.  Needs to call a dedicated instruction
                     Ok(needs_elaboration())
                 }
             },

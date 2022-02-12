@@ -427,9 +427,10 @@ impl IntrinsicInstrAbiParts {
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
                 out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
             },
-            I::UnOp(_op, ty) => {
-                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
+            I::UnOp(op, arg_ty) => {
+                let out_ty = ast::Expr::unop_ty_from_arg_ty(op, arg_ty);
+                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, out_ty)?);
+                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
             },
             I::CountJmp => {
                 out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);

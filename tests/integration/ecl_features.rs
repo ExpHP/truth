@@ -140,11 +140,22 @@ source_test!(
 source_test!(
     ECL_06, eosd_cant_cast,
     main_body: r#"
-        int a = int(F0 + 2.0);  //~ ERROR unsupported
-        int b = int(I0 + 2);  // okay; trivial
-        float x = float(I0 + 2);  //~ ERROR unsupported
-        float y = float(F0 + 2.0);  // okay; trivial
+        int a = int(F0 + 2.0);  //~ ERROR not supported
+        float x = float(I0 + 2);  //~ ERROR not supported
     "#,
+);
+
+source_test!(
+    ECL_06, eosd_allowed_casts,
+    main_body: r#"
+        // these casts are trivial so they are okay!
+        int b = int(I0 + 2);
+        float y = float(F0 + 2.0);
+    "#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0].len(), 2);
+    },
 );
 
 source_test!(

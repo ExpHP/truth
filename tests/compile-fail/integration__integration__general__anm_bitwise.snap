@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: feature not supported by format
-   ┌─ <input>:28:9
+   ┌─ <input>:28:14
    │
 28 │         I0 = I0 | I1;
-   │         ^^^^^^^^^^^^^ this binary operation not supported in this game
+   │              ^^^^^^^ this binary operation not supported in this game
 
 
