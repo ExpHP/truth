@@ -711,11 +711,22 @@ impl UnOpKind {
         }
     }
 
+    /// Convert the `%` and `$` operators into var sigils.
     pub fn as_ty_sigil(&self) -> Option<VarSigil> {
         match self {
             token![unop $] => Some(token![$]),
             token![unop %] => Some(token![%]),
             _ => None,
+        }
+    }
+
+    /// Convert the `%` and `$` operators, and potentially also the `int` and `float` operators into
+    /// var sigils, with the latter depending on whether the language has auto-casts.
+    pub fn as_ty_sigil_with_auto_cast(&self, auto_cast: bool) -> Option<VarSigil> {
+        match (auto_cast, self) {
+            (true, token![unop int]) => Some(token![$]),
+            (true, token![unop float]) => Some(token![%]),
+            _ => self.as_ty_sigil(),
         }
     }
 }

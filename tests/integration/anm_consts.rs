@@ -25,7 +25,7 @@ entry {
     has_data: false,
     sprites: {
         valueE: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: 401},
-        valueF: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: _S(%valueE + 2.4) + 1},
+        valueF: {x: 0.0, y: 0.0, w: 0.0, h: 0.0, id: int(%valueE + 2.4) + 1},
     },
 }
 

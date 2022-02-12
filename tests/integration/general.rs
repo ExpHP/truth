@@ -170,6 +170,25 @@ source_test!(
 );
 
 source_test!(
+    ECL_08, const_sigil,
+    main_body: r#"
+        const int x = $(2.0 + 3.0);  //~ ERROR non-const
+    "#,
+);
+
+source_test!(
+    ECL_06, const_cast_even_in_eosd,
+    main_body: r#"
+        const int x = int(2.0 + 3.0);
+        ins_1(x);
+    "#,
+    check_compiled: |output, format| {
+        let ecl = output.read_ecl(format);
+        assert_eq!(ecl.subs[0][0].args_blob, blobify![5]);
+    },
+);
+
+source_test!(
     ANM_10, func_untyped,
     items: r#"
         var foo() { return 1; }  //~ ERROR var-typed

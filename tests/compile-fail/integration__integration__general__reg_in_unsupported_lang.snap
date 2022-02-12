@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: non-constant expression in language without registers
-   ┌─ <input>:13:18
+   ┌─ <input>:14:20
    │
-13 │       textSet(0, $REG[0], "cheese");
-   │                  ^^^^^^^ non-const expression
+14 │         textSet(0, $REG[0], "cheese");
+   │                    ^^^^^^^ non-const expression
 
 

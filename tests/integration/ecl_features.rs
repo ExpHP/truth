@@ -140,27 +140,52 @@ source_test!(
 source_test!(
     ECL_06, eosd_cant_cast,
     main_body: r#"
-        int x = float(F0 + 2.0);  //~ ERROR unsupported
-        float x = int(I0 + 2);  //~ ERROR unsupported
+        int a = int(F0 + 2.0);  //~ ERROR unsupported
+        int b = int(I0 + 2);  // okay; trivial
+        float x = float(I0 + 2);  //~ ERROR unsupported
+        float y = float(F0 + 2.0);  // okay; trivial
     "#,
 );
 
 source_test!(
     ECL_06, eosd_user_provided_cast,
     mapfile: r#"!eclmap
+!ins_signatures
+1000 Sf
+1001 SS
 !ins_intrinsics
 1000 UnOp(int,float)
 1001 UnOp(float,int)
 "#,
     main_body: r#"
-        int x = float(F0 + 2.0);
-        float x = int(I0 + 2);
+        int x = int(F0 + 2.0);
+        float y = float(I0 + 2);
     "#,
     check_decompiled: |decompiled| {
         assert!(decompiled.contains(" = float("));
         assert!(decompiled.contains(" = int("));
-    }
+    },
 );
+
+// source_test!(
+//     ECL_06, eosd_user_provided_cast_doesnt_reuse_bad_type,
+//     mapfile: r#"!eclmap
+// !ins_signatures
+// 1000 Sf
+// 1001 SS
+// !ins_intrinsics
+// 1000 UnOp(int,float)
+// 1001 UnOp(float,int)
+// "#,
+//     main_body: r#"
+//         int x = int(F0 + 2.0);
+//         float y = float(I0 + 2);
+//     "#,
+//     check_decompiled: |decompiled| {
+//         assert!(decompiled.contains(" = float("));
+//         assert!(decompiled.contains(" = int("));
+//     },
+// );
 
 // =============================================================================
 

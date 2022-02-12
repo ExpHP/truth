@@ -80,11 +80,29 @@ error: type error
    │             requires a numeric type
 
 error: type error
-   ┌─ <input>:45:16
+   ┌─ <input>:44:15
    │
-45 │     int y = _S(I2);
-   │             -- ^^ an integer
-   │             │   
-   │             expects a float
+44 │     int z = $("abc");
+   │             - ^^^^^ a string
+   │             │  
+   │             requires a numeric type
+
+error: type error
+   ┌─ <input>:48:11
+   │
+48 │     F0 += I0;
+   │     -- -- ^^ an integer
+   │     │  │   
+   │     │  same types required by this
+   │     a float
+
+error: type error
+   ┌─ <input>:49:11
+   │
+49 │     F0 += F1 < 2.0;
+   │     -- -- ^^^^^^^^ an integer
+   │     │  │   
+   │     │  same types required by this
+   │     a float
 
 

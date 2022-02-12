@@ -43,6 +43,11 @@ script unaries {
     int x = -"abc";  //~ ERROR type error
     int z = $("abc");  //~ ERROR type error
 }
+
+script assign_op {
+    F0 += I0;  //~ ERROR type error
+    F0 += F1 < 2.0;  //~ ERROR type error
+}
     "#,
 );
 

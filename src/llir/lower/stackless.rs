@@ -164,8 +164,8 @@ impl SingleSubLowerer<'_, '_> {
         };
 
         // EoSD args must be const
-        let lowered_int = classify_expr(&int, self.ctx)?.expect_simple().lowered.clone();
-        let lowered_float = classify_expr(&float, self.ctx)?.expect_simple().lowered.clone();
+        let lowered_int = self.classify_expr(&int)?.expect_simple().lowered.clone();
+        let lowered_float = self.classify_expr(&float)?.expect_simple().lowered.clone();
         let lowered_sub_id = sp!(call.name.span => LowerArg::Raw(sub.index.into()));
 
         self.lower_intrinsic(
@@ -239,7 +239,7 @@ impl SingleSubLowerer<'_, '_> {
             None => {
                 // determine whether each argument can be directly used as is, or if it needs a temporary
                 LowerArgs::Known(args.iter().map(|expr| {
-                    let lowered = match classify_expr(expr, self.ctx)? {
+                    let lowered = match self.classify_expr(expr)? {
                         ExprClass::Simple(data) => data.lowered,
                         ExprClass::NeedsElaboration(data) => {
                             // Save this expression to a temporary
@@ -305,7 +305,7 @@ impl SingleSubLowerer<'_, '_> {
         assign_op: &Sp<ast::AssignOpKind>,
         rhs: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
-        let data_rhs = match classify_expr(rhs, self.ctx)? {
+        let data_rhs = match self.classify_expr(rhs)? {
             // a = <atom>;
             // a += <atom>;
             ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
@@ -400,7 +400,7 @@ impl SingleSubLowerer<'_, '_> {
     ) -> Result<(), ErrorReported>{
         // It should be impossible to get here for a simple expression, I think?
         // Those would've hit an ExprClass::Simple case in another method first...
-        match classify_expr(whole_expr, self.ctx)? {
+        match self.classify_expr(whole_expr)? {
             ExprClass::Simple(SimpleExpr { .. }) => {
                 self.ctx.emitter.emit(bug!(
                     message("unhandled simple diff switch"),
@@ -450,10 +450,16 @@ impl SingleSubLowerer<'_, '_> {
         //     v = <A>;        // recursive call
         //     v = tmp * <B>;  // recursive call
 
+        let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
+
         // Evaluate the first subexpression if necessary.
-        let simple_a = match classify_expr(a, self.ctx)? {
+        let simple_a = match self.classify_expr(a)? {
             ExprClass::NeedsElaboration(data_a) => {
-                if data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
+                // FIXME: I'm not sure that the tmp_ty == read_ty condition is necessary and it even prevents some
+                //        legitimate cases of reuse like reusing `A` in `A = %(I0 + 1) < 1.5`;
+                //        But I'm not 100% sure and I'd rather just wait until we can replace of all of this
+                //        "variable reuse" logic with SSA-based analysis.
+                if data_a.tmp_ty == ty_rhs && data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
                     // we can reuse the output variable!
                     let var_as_expr = self.compute_temporary_expr(stmt_data, var, &data_a)?;
                     self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, &var_as_expr, binop, b)?;
@@ -470,11 +476,11 @@ impl SingleSubLowerer<'_, '_> {
 
         // FIXME: This is somewhat copy-pasta-y.  It's possible to write this and the above into a loop with two
         //        iterations, but the end result looked pretty awkward last time I tried.
-        // First guy is simple.  Evaluate the second subexpression if necessary.
-        let simple_b = match classify_expr(b, self.ctx)? {
+        // First was simple.  Evaluate the second subexpression if necessary.
+        let simple_b = match self.classify_expr(b)? {
             ExprClass::NeedsElaboration(data_b) => {
                 // similar conditions apply...
-                if data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var) {
+                if data_b.tmp_ty == ty_rhs && data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var) {
                     // we can reuse the output variable!
                     let var_as_expr = self.compute_temporary_expr(stmt_data, var, &data_b)?;
                     self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, a, binop, &var_as_expr)?;
@@ -491,10 +497,9 @@ impl SingleSubLowerer<'_, '_> {
 
         // They're both simple.  Emit a primitive instruction.
         let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
-        let ty_rhs = ast::Expr::binop_ty(binop.value, &a.value, self.ctx);
         assert_eq!(ty_var, ty_rhs, "already type-checked");
 
-        self.lower_intrinsic(span, stmt_data, IKind::BinOp(binop.value, ty_var), "this binary operation", |bld| {
+        self.lower_intrinsic(span, stmt_data, IKind::BinOp(binop.value, simple_a.ty), "this binary operation", |bld| {
             bld.outputs.push(lowered_var);
             bld.plain_args.push(simple_a.lowered);
             bld.plain_args.push(simple_b.lowered);
@@ -523,10 +528,15 @@ impl SingleSubLowerer<'_, '_> {
             return Ok(());
         }
 
-        match classify_expr(b, self.ctx)? {
+        let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ctx);
+        match self.classify_expr(b)? {
             ExprClass::NeedsElaboration(data_b) => {
                 // Unary operations can reuse their destination register as long as it's the same type.
-                if data_b.tmp_ty == data_b.read_ty {
+
+                // FIXME: I'm not sure that the tmp_ty == read_ty condition is necessary.
+                //        But I'd rather just wait until we can replace of all of this
+                //        "variable reuse" logic with SSA-based analysis.
+                if data_b.tmp_ty == ty_rhs && data_b.tmp_ty == data_b.read_ty {
                     // compile to:   a = <B>;
                     //               a = sin(a);
                     let var_as_expr = self.compute_temporary_expr(stmt_data, var, &data_b)?;
@@ -543,7 +553,6 @@ impl SingleSubLowerer<'_, '_> {
 
             ExprClass::Simple(data_b) => {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
-                let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ctx);
                 assert_eq!(ty_var, ty_rhs, "already type-checked");
                 let ty = ty_var;
 
@@ -685,7 +694,7 @@ impl SingleSubLowerer<'_, '_> {
         b: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported>{
-        match (classify_expr(a, self.ctx)?, classify_expr(b, self.ctx)?) {
+        match (self.classify_expr(a)?, self.classify_expr(b)?) {
             // `if (<A> != <B>) ...` (or `unless (<A> != <B>) ...`)
             // split out to: `tmp = <A>;  if (tmp != <B>) ...`;
             (ExprClass::NeedsElaboration(data_a), _) => {
@@ -921,86 +930,94 @@ struct TemporaryExpr<'a> {
     read_ty: ScalarType,
 }
 
-fn classify_expr<'a>(arg: &'a Sp<ast::Expr>, ctx: &CompilerContext) -> Result<ExprClass<'a>, ErrorReported> {
-    let needs_elaboration = || ExprClass::NeedsElaboration({
-        let ty = arg.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
-        TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
-    });
+impl SingleSubLowerer<'_, '_> {
+    fn classify_expr<'a>(&self, arg: &'a Sp<ast::Expr>) -> Result<ExprClass<'a>, ErrorReported> {
+        let needs_elaboration = || ExprClass::NeedsElaboration({
+            let ty = arg.compute_ty(self.ctx).as_value_ty().expect("shouldn't be void");
+            TemporaryExpr { tmp_expr: arg, tmp_ty: ty, read_ty: ty }
+        });
 
-    match &arg.value {
-        &ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: sp!(arg.span => LowerArg::Raw(value.into())),
-            ty: ScalarType::Int,
-        })),
-        &ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: sp!(arg.span => LowerArg::Raw(value.into())),
-            ty: ScalarType::Float,
-        })),
-        ast::Expr::LitString(ast::LitString { string, .. }) => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: sp!(arg.span => LowerArg::Raw(string.clone().into())),
-            ty: ScalarType::String,
-        })),
-        ast::Expr::Var(var) => {
-            let (lowered, ty) = lower_var_to_arg(var, ctx)?;
-            Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))
-        },
-        ast::Expr::LabelProperty { keyword, label } => Ok(ExprClass::Simple(SimpleExpr {
-            lowered: sp!(arg.span => match keyword.value {
-                token![timeof] => LowerArg::TimeOf(label.value.clone()),
-                token![offsetof] => LowerArg::Label(label.value.clone()),
-            }),
-            ty: ScalarType::Int,
-        })),
+        match &arg.value {
+            &ast::Expr::LitInt { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
+                lowered: sp!(arg.span => LowerArg::Raw(value.into())),
+                ty: ScalarType::Int,
+            })),
+            &ast::Expr::LitFloat { value, .. } => Ok(ExprClass::Simple(SimpleExpr {
+                lowered: sp!(arg.span => LowerArg::Raw(value.into())),
+                ty: ScalarType::Float,
+            })),
+            ast::Expr::LitString(ast::LitString { string, .. }) => Ok(ExprClass::Simple(SimpleExpr {
+                lowered: sp!(arg.span => LowerArg::Raw(string.clone().into())),
+                ty: ScalarType::String,
+            })),
+            ast::Expr::Var(var) => {
+                let (lowered, ty) = lower_var_to_arg(var, self.ctx)?;
+                Ok(ExprClass::Simple(SimpleExpr { lowered, ty }))
+            },
+            ast::Expr::LabelProperty { keyword, label } => Ok(ExprClass::Simple(SimpleExpr {
+                lowered: sp!(arg.span => match keyword.value {
+                    token![timeof] => LowerArg::TimeOf(label.value.clone()),
+                    token![offsetof] => LowerArg::Label(label.value.clone()),
+                }),
+                ty: ScalarType::Int,
+            })),
 
-        // Here we treat casts.  A cast of any expression is understood to require a temporary of
-        // the *input* type of the cast, but not the output type.  For example:
-        //
-        //             foo(%($I + 3));
-        //
-        // Ideally, this should compile into using only a single integer scratch register:
-        //
-        //             int tmp = $I + 3;
-        //             foo(%tmp);
-        //
-        ast::Expr::UnOp(unop, b) if unop.as_ty_sigil().is_some() => {
-            let tmp_ty = b.compute_ty(ctx).as_value_ty().expect("shouldn't be void");
-            let read_ty = unop.as_ty_sigil().unwrap().into();
-            Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
-        },
-
-        // Difficulty switches.
-        //
-        // These are "simple" if all of their cases are simple.  In this case, we propagate them
-        // all the way down to the final stages of lowering so they can be used to replicate an
-        // arbitrary instruction.  This significantly reduces scratch variable usage and allows
-        // difficulty switches to roundtrip a lot more things.
-        ast::Expr::DiffSwitch(cases) => {
-            let mut lowered_cases = vec![];
-            let mut ty = None;
-            for case in cases {
-                match case {
-                    None => lowered_cases.push(None),
-                    Some(case) => match classify_expr(case, ctx)? {
-                        ExprClass::Simple(out_case) => {
-                            lowered_cases.push(Some(out_case.lowered));
-                            ty = Some(out_case.ty);
-                        },
-                        // if even one case need is not simple, the diff switch will need to be
-                        // compiled into a dedicated assignment first
-                        ExprClass::NeedsElaboration { .. } => return Ok(needs_elaboration()),
-                    },
+            // Here we treat casts.  A cast of any expression is understood to require a temporary of
+            // the *input* type of the cast, but not the output type.  For example:
+            //
+            //             foo(%($I + 3));
+            //
+            // Ideally, this should compile into using only a single integer scratch register:
+            //
+            //             int tmp = $I + 3;
+            //             foo(%tmp);
+            //
+            ast::Expr::UnOp(unop, b) => {
+                // Check if this operation can lower to just a variable read
+                if let Some(ty_sigil) = unop.as_ty_sigil_with_auto_cast(self.hooks.has_auto_casts()) {
+                    let tmp_ty = b.compute_ty(self.ctx).as_value_ty().expect("shouldn't be void");
+                    let read_ty = ty_sigil.into();
+                    Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
+                } else {
+                    // anything else needs to call a dedicated instruction
+                    Ok(needs_elaboration())
                 }
-            }
+            },
 
-            assert_eq!(cases.len(), lowered_cases.len());
-            Ok(ExprClass::Simple(SimpleExpr {
-                lowered: sp!(arg.span => LowerArg::DiffSwitch(lowered_cases)),
-                ty: ty.expect("always at least one case"),
-            }))
-        },
+            // Difficulty switches.
+            //
+            // These are "simple" if all of their cases are simple.  In this case, we propagate them
+            // all the way down to the final stages of lowering so they can be used to replicate an
+            // arbitrary instruction.  This significantly reduces scratch variable usage and allows
+            // difficulty switches to roundtrip a lot more things.
+            ast::Expr::DiffSwitch(cases) => {
+                let mut lowered_cases = vec![];
+                let mut ty = None;
+                for case in cases {
+                    match case {
+                        None => lowered_cases.push(None),
+                        Some(case) => match self.classify_expr(case)? {
+                            ExprClass::Simple(out_case) => {
+                                lowered_cases.push(Some(out_case.lowered));
+                                ty = Some(out_case.ty);
+                            },
+                            // if even one case is not simple, the diff switch will need to be
+                            // compiled into a dedicated assignment first
+                            ExprClass::NeedsElaboration { .. } => return Ok(needs_elaboration()),
+                        },
+                    }
+                }
 
-        // Anything else needs a temporary of the same type, consisting of the whole expression.
-        _ => Ok(needs_elaboration()),
+                assert_eq!(cases.len(), lowered_cases.len());
+                Ok(ExprClass::Simple(SimpleExpr {
+                    lowered: sp!(arg.span => LowerArg::DiffSwitch(lowered_cases)),
+                    ty: ty.expect("always at least one case"),
+                }))
+            },
+
+            // Anything else needs a temporary of the same type, consisting of the whole expression.
+            _ => Ok(needs_elaboration()),
+        }
     }
 }
 

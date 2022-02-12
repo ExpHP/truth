@@ -22,6 +22,7 @@ const JUMP_OPCODE: u16 = 1;
 const COUNT_JUMP_OPCODE: u16 = 2;
 const SINE_OPCODE: u16 = 3;
 const COSINE_OPCODE: u16 = 4;
+const LT_FLOAT_OPCODE: u16 = 5;
 const ASSIGN_OPS_OPCODE: u16 = 10;
 const BINARY_OPS_OPCODE: u16 = 30;
 const COND_JUMPS_OPCODE: u16 = 40;
@@ -56,6 +57,7 @@ fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
         format!("{} Sot", COUNT_JUMP_OPCODE),
         format!("{} ff", SINE_OPCODE),
         format!("{} ff", COSINE_OPCODE),
+        format!("{} Sff", LT_FLOAT_OPCODE),
         format!("{}", ANTI_SCRATCH_OPCODE),
         format!("{}", NOP_OPCODE),
         format!("{}", OTHER_OPCODE),
@@ -134,6 +136,7 @@ fn make_language(vars: &[Var]) -> impl llir::LanguageHooks {
     I::register_assign_ops(&mut format.intrinsic_opcode_pairs, ASSIGN_OPS_OPCODE);
     I::register_binary_ops(&mut format.intrinsic_opcode_pairs, BINARY_OPS_OPCODE);
     I::register_cond_jumps(&mut format.intrinsic_opcode_pairs, COND_JUMPS_OPCODE);
+    format.intrinsic_opcode_pairs.push((I::BinOp(ast::BinOpKind::Lt, Ty::Float), LT_FLOAT_OPCODE));
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();
@@ -269,6 +272,7 @@ fn _run_randomized_test(truth: &mut Truth, plain_vars: &[Var], text: &str) -> Re
         let ctx = truth.ctx();
         truth::passes::resolution::assign_languages(&mut block, truth::LanguageKey::Anm, ctx)?;
         truth::passes::resolution::resolve_names(&block, ctx)?;
+        truth::passes::type_check::run(&block, ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut block, ctx)?;
         truth::passes::resolution::compute_diff_label_masks(&mut block, ctx)?;
         truth::passes::desugar_blocks::run(&mut block, ctx)?;
@@ -1008,10 +1012,23 @@ fn read_type_volatile() {
 }
 
 #[test]
+fn binop_reuse_where_arg_type_isnt_out_type() {
+    for _ in 0..10 {
+        // float comparisons are an example of a binop whose result type != the input type
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A = %X + 0.25 < 0.5;
+        }"#).unwrap();
+
+        vms.check_no_scratch_of_ty(Ty::Int);
+    }
+}
+
+#[test]
 fn trivial_cast() {
     for _ in 0..10 {
         let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
             B = $(A + 2);
+            C = int(A + 2);
         }"#).unwrap();
 
         vms.check_no_scratch_of_ty(Ty::Float);

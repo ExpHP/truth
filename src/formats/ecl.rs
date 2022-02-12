@@ -963,6 +963,10 @@ impl LanguageHooks for OldeEclHooks {
         }
     }
 
+    fn has_auto_casts(&self) -> bool {
+        self.game != Game::Th06
+    }
+
     fn instr_format(&self) -> &dyn InstrFormat { self }
 }
 

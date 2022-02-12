@@ -322,6 +322,11 @@ pub trait LanguageHooks {
     /// Get the [`InstrFormat`].  One might've expected that the raising/lowering phases *shouldn't*
     /// need this, but they do need it in order to deal with jump offsets.
     fn instr_format(&self) -> &dyn InstrFormat;
+
+    /// Should return `true` if the language automatically casts variables when read as another type.
+    ///
+    /// Only EoSD ECL doesn't do this.
+    fn has_auto_casts(&self) -> bool { true }
 }
 
 /// How bad is the scratch-disabling-ness of this instruction?
