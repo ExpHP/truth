@@ -1024,6 +1024,17 @@ fn binop_reuse_where_arg_type_isnt_out_type() {
 }
 
 #[test]
+fn assign_op_cast() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            A += int(%X + 0.25);
+        }"#).unwrap();
+
+        vms.check_no_scratch_of_ty(Ty::Int);
+    }
+}
+
+#[test]
 fn trivial_cast() {
     for _ in 0..10 {
         let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{

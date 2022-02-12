@@ -173,8 +173,35 @@ source_test!(
         float y = float(I0 + 2);
     "#,
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains(" = float("));
-        assert!(decompiled.contains(" = int("));
+        assert_eq!(decompiled.matches(" = float(").count(), 1);
+        assert_eq!(decompiled.matches(" = int(").count(), 1);
+    },
+);
+
+source_test!(
+    ECL_06, eosd_user_provided_cast_assign_op,
+    mapfile: r#"!eclmap
+!ins_signatures
+1000 Sf
+1001 SS
+1002 SS
+1003 Sf
+!ins_intrinsics
+1000 UnOp(int,float)
+1001 UnOp(float,int)
+1002 AssignOp(+=,int)
+1003 AssignOp(+=,float)
+"#,
+    main_body: r#"
+        int x = 1;
+        float y = 1.0;
+        x += 1;
+        x += int(F0 + 2.0);
+        y += float(I0 + 2);
+    "#,
+    check_decompiled: |decompiled| {
+        assert_eq!(decompiled.matches(" = float(").count(), 1);
+        assert_eq!(decompiled.matches(" = int(").count(), 1);
     },
 );
 

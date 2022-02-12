@@ -327,6 +327,8 @@ impl SingleSubLowerer<'_, '_> {
 
         // a = %(<expr>);
         // a *= %(<expr>);
+        // TODO: should this be data_rhs.tmp_ty != var_ty or similar to catch EoSD ECL casts?
+        //       (I tried to trigger a bug with this but was unable)
         if data_rhs.read_ty != data_rhs.tmp_ty {
             // Regardless of what the expression contains, assign it to a temporary.
             // (i.e.:    `float tmp = <expr>;  a = $tmp;`
