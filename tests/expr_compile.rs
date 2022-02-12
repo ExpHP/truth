@@ -463,7 +463,7 @@ fn float_uses_detected() {
 
         // Likewise for float-typed reads of integer registers.
         let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
-            int x = _S(%A + %C);
+            int x = $(%A + %C);
             D = x;
         }"#).unwrap();
         vms.check_regs(&[REG_A, REG_C, REG_D]);
@@ -704,8 +704,8 @@ fn cond_jump_non_binop() {
     check_bool("", "1", true);
     check_bool("", "-0", false);
     check_bool("A=2;", "-A", true);
-    check_bool("", "_S(0.0)", false);
-    check_bool("", "_S(1.0)", true);
+    check_bool("", "int(0.0)", false);
+    check_bool("", "int(1.0)", true);
 }
 
 #[test]
@@ -720,7 +720,7 @@ fn cond_jump_logical_negations() {
     check_bool("A=1; B=4;", "!(A < B)", false);
     check_bool("A=4; B=4;", "!(A < B)", true);
     check_bool("", "!(0)", true);
-    check_bool("", "!(_S(1.0))", false);
+    check_bool("", "!(int(1.0))", false);
     check_bool("A=2;", "!(A * A)", false);
 }
 
@@ -780,7 +780,7 @@ fn cast_assignment() {
         // immediately assigned to a variable.
         let vars = SIMPLE_FOUR_VAR_SPEC;
         let vms = run_randomized_test(vars, r#"{
-            X = _f(A + 4);
+            X = float(A + 4);
         }"#).unwrap();
 
         vms.check_no_scratch_of_ty(Ty::Float);
@@ -795,8 +795,8 @@ fn careful_cast_temporaries() {
         let vars = SIMPLE_FOUR_VAR_SPEC;
         // None of these should create an integer temporary
         let vms = run_randomized_test(vars, r#"{
-            bar_S(_S(%X + 4.0));
-            A = A + _S(%X + 4.0);
+            bar_S(int(%X + 4.0));
+            A = A + int(%X + 4.0);
         }"#).unwrap();
 
         vms.check_no_scratch_of_ty(Ty::Int);
@@ -941,9 +941,9 @@ fn loop_diff_switch() {
 fn cast_diff_switch() {
     for _ in 0..10 {
         let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
-            A = _S(X::Y:);
-            A = _S(X::Y:) + 2;
-            B = _S(X*Y::Y*Y:);
+            A = int(X::Y:);
+            A = int(X::Y:) + 2;
+            B = int(X*Y::Y*Y:);
         }"#).unwrap();
         vms.check_regs(&[REG_A, REG_B]);
         vms.check_regs(&[REG_X, REG_Y]);

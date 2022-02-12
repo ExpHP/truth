@@ -92,9 +92,6 @@ pub enum IntrinsicInstrKind {
     BinOp(ast::BinOpKind, ScalarType),
 
     /// Like `a = sin(b);` (or `a = -a;`, but it seems no formats actually have this?)
-    ///
-    /// This is not used for casts like `a = _S(b);`.  Casts have no explicit representation in
-    /// a compiled script; they're just a fundamental part of how the engine reads variables.
     #[strum_discriminants(strum(serialize = "UnOp"))]
     UnOp(ast::UnOpKind, ScalarType),
 

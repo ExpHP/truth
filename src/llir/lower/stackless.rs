@@ -325,8 +325,8 @@ impl SingleSubLowerer<'_, '_> {
             ExprClass::NeedsElaboration(data) => data,
         };
 
-        // a = _f(<expr>);
-        // a *= _f(<expr>);
+        // a = %(<expr>);
+        // a *= %(<expr>);
         if data_rhs.read_ty != data_rhs.tmp_ty {
             // Regardless of what the expression contains, assign it to a temporary.
             // (i.e.:    `float tmp = <expr>;  a = $tmp;`

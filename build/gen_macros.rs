@@ -102,7 +102,8 @@ pub fn gen_ast_macros() -> String {
                 ("op", ArgKind::Token(&[
                     "-", "!",
                     "sin", "cos", "sqrt",
-                    "_S", "_f",
+                    "_S", "_f",  // $ has to be written as _S since it's a macro meta-char
+                    "%", "int", "float",
                 ])),
                 ("b", ArgKind::Node),
             ],
