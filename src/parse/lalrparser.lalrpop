@@ -603,7 +603,7 @@ ExprTerm: ast::Expr = {
         => ast::Expr::Call(ast::ExprCall { name, pseudos: args.0, args: args.1 }),
 
     <enum_name:Sp<Ident>> "." <ident:Sp<ResIdent>>
-        => ast::Expr::EnumConst { enum_name: Some(enum_name), ident },
+        => ast::Expr::EnumConst { enum_name, ident },
 
     <var:Sp<OldUnqualifiedEnumConst>>
         => ast::Expr::Var(var),

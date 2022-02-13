@@ -470,9 +470,7 @@ pub enum Expr {
         keyword: Sp<LabelPropertyKeyword>
     },
     EnumConst {
-        /// In an initial pass, vars for unqualified enum consts get transformed into
-        /// EnumConst with `enum_name = None`.
-        enum_name: Option<Sp<Ident>>,
+        enum_name: Sp<Ident>,
         ident: Sp<ResIdent>,
     },
     Var(Sp<Var>),

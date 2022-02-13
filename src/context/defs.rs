@@ -8,7 +8,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, ConstId, IdMap, rib};
+use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, ConstId, IdMap, id_map, rib};
 use crate::mapfile::Mapfile;
 use crate::value::{ScalarValue, ScalarType, VarType, ExprType};
 use crate::llir::{InstrAbi, IntrinsicInstrKind};
@@ -46,8 +46,12 @@ pub struct Defs {
     /// Intrinsics from mapfiles.
     user_defined_intrinsics: EnumMap<LanguageKey, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
 
-    /// This is populated early during initialization with a dummy definition for ambiguous enum consts.
-    ambiguous_enum_const_def_id: Option<DefId>,
+    /// Maps enum const names to their enum if they are unique, or to None if they are shared by
+    /// multiple enums.
+    unique_enums: IdMap<Ident, Option<Ident>>,
+
+    /// The first name resolution pass maps all enum consts to this.
+    enum_const_dummy_def_id: Option<DefId>,
 }
 
 /// Ribs for the global scope, which are built incrementally as things are defined.
@@ -116,7 +120,6 @@ enum VarKind {
     Const {
         ident: Sp<ResIdent>,
         expr: Sp<ast::Expr>,
-        auto_const_kind: Option<AutoConstKind>,
     },
     // FIXME: Strictly speaking, enum consts are not vars, so this perhaps doesn't belong here.
     //        However, assigning them DefIds and storing their expressions in here is very
@@ -127,9 +130,8 @@ enum VarKind {
         ident: Sp<ResIdent>,
         expr: Sp<ast::Expr>,
     },
-    /// A dummy definition that the enum const rib may resolve names to when they belong to
-    /// more than one enum.
-    AmbiguousEnum,
+    /// All unqualified enum consts map to this initially during name resolution.
+    EnumConstDummy,
 }
 
 #[derive(Debug, Clone)]
@@ -181,19 +183,6 @@ pub enum FuncKind {
     },
 }
 
-// FIXME REMOVE
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(enum_map::Enum)]
-pub enum AutoConstKind {
-}
-
-impl AutoConstKind {
-    pub fn descr(&self) -> &'static str {
-        match *self {
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 struct EnumData {
     /// Tracks all consts defined for this enum. Later entries in the IndexMap take priority
@@ -227,7 +216,8 @@ impl Default for Defs {
                 builtin_const_rib: Rib::new(Namespace::Vars, RibKind::BuiltinConsts),
             },
             user_defined_intrinsics: Default::default(),
-            ambiguous_enum_const_def_id: None,
+            unique_enums: Default::default(),
+            enum_const_dummy_def_id: None,
         }
     }
 }
@@ -280,7 +270,7 @@ impl CompilerContext<'_> {
         def_id
     }
 
-    /// Declare an integer auto const without a span, creating a brand new [`ConstId`].
+    /// Declare an enum const without a span, creating a brand new [`ConstId`].
     ///
     /// This alternative to [`Self::define_enum_const`] takes simpler arguments and is designed
     /// for use during decompilation.
@@ -320,13 +310,19 @@ impl CompilerContext<'_> {
             // redefinition of this name within this enum
             self.consts.defer_equality_check("enum const", old_const_id, const_id);
         } else {
-            // first definition of this name in this enum...
-            if let Err(_) = self.defs.global_ribs.enum_const_rib.insert(ident.clone(), const_id.def_id) {
-                // ...but the same name already exists in another enum
-                self.defs.global_ribs.enum_const_rib.insert(ident.clone(), self.defs.ambiguous_enum_const_def_id())
-                    .expect_err("");
+            // first definition within this enum
+            match self.defs.unique_enums.entry(ident.value.clone()) {
+                id_map::Entry::Occupied(mut entry) => {
+                    // mark as ambiguous, replacing whatever's already there
+                    entry.insert(None);
+                },
+                id_map::Entry::Vacant(entry) => {
+                    entry.insert(Some(enum_name.value.clone()));
+                },
             }
         }
+
+        let _ = self.defs.global_ribs.enum_const_rib.insert(ident.clone(), self.defs.enum_const_dummy_def_id());
 
         const_id
     }
@@ -350,7 +346,7 @@ impl CompilerContext<'_> {
 
         self.defs.vars.insert(def_id, VarData {
             ty: Some(VarType::Typed(ty)),
-            kind: VarKind::Const { ident: ident.clone(), expr, auto_const_kind: None },
+            kind: VarKind::Const { ident: ident.clone(), expr },
         });
         self.consts.defer_evaluation_of(def_id)
     }
@@ -496,7 +492,7 @@ impl Defs {
             VarData { kind: VarKind::Const { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::BuiltinConst { ref ident, .. }, .. } => ident,
             VarData { kind: VarKind::EnumConst { ref ident, .. }, .. } => ident,
-            VarData { kind: VarKind::AmbiguousEnum { .. }, .. } => panic!("var_name called on enum dummy"),
+            VarData { kind: VarKind::EnumConstDummy { .. }, .. } => panic!("var_name called on enum dummy"),
         }
     }
 
@@ -571,7 +567,7 @@ impl Defs {
             VarData { kind: VarKind::Const { ident, .. }, .. } => Some(ident.span),
             VarData { kind: VarKind::BuiltinConst { .. }, .. } => None,
             VarData { kind: VarKind::EnumConst { ident, .. }, .. } => Some(ident.span),
-            VarData { kind: VarKind::AmbiguousEnum { .. }, .. } => None,
+            VarData { kind: VarKind::EnumConstDummy { .. }, .. } => None,
         }
     }
 
@@ -614,23 +610,12 @@ impl Defs {
         }
     }
 
-    /// If the var is an auto const, get its kind.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the ID does not correspond to a variable.
-    pub fn var_auto_const_kind(&self, def_id: DefId) -> Option<AutoConstKind> {
-        match self.vars[&def_id] {
-            VarData { kind: VarKind::Const { auto_const_kind, .. }, .. } => auto_const_kind,
-            _ => None,
-        }
-    }
 }
 
 impl CompilerContext<'_> {
     pub fn init_special_defs(&mut self) {
         self.add_builtin_consts();
-        self.define_ambiguous_enum_const_dummy();
+        self.define_enum_const_dummy();
     }
 
     fn add_builtin_consts(&mut self) {
@@ -639,15 +624,15 @@ impl CompilerContext<'_> {
         self.define_builtin_const_var(ident!("PI"), core::f32::consts::PI.into());
     }
 
-    fn define_ambiguous_enum_const_dummy(&mut self) {
+    fn define_enum_const_dummy(&mut self) {
         let ident = self.resolutions.attach_fresh_res(ident!("<ambiguous_enum>"));
         let def_id = self.resolutions.record_self_resolution(&ident);
         self.defs.vars.insert(def_id, VarData {
             ty: Some(ScalarType::Int.into()),
-            kind: VarKind::AmbiguousEnum,
+            kind: VarKind::EnumConstDummy,
         });
 
-        self.defs.ambiguous_enum_const_def_id = Some(def_id);
+        self.defs.enum_const_dummy_def_id = Some(def_id);
     }
 
     /// Add info from a mapfile.
@@ -757,8 +742,8 @@ impl Defs {
         vec
     }
 
-    pub fn ambiguous_enum_const_def_id(&self) -> DefId {
-        self.ambiguous_enum_const_def_id.expect("Defs not initialized properly!")
+    pub fn enum_const_dummy_def_id(&self) -> DefId {
+        self.enum_const_dummy_def_id.expect("Defs not initialized properly!")
     }
 }
 
@@ -940,10 +925,22 @@ impl CompilerContext<'_> {
             }
         }
     }
+}
 
+impl Defs {
     /// Look up an enum const, if it exists.
     pub fn enum_const_def_id(&self, enum_name: &Ident, ident: &Ident) -> Option<DefId> {
-        self.defs.enums[enum_name].consts.get(ident).map(|&const_id| const_id.def_id)
+        self.enums[enum_name].consts.get(ident).map(|&const_id| const_id.def_id)
+    }
+
+    /// Look up the unique enum that defines a const with a given name, or return `None`
+    /// if there are multiple.
+    ///
+    /// # Panics
+    /// Panics if the ident does not belong to any enums at all.
+    pub fn enum_name_for_unqualified_enum_const(&self, ident: &Ident) -> Option<&Ident> {
+        self.unique_enums.get(ident).map(|opt| opt.as_ref())
+            .unwrap_or_else(|| panic!("not an enum const: {ident}"))
     }
 }
 
@@ -977,18 +974,18 @@ impl CompilerContext<'_> {
     }
 
     fn validate_param_ty_color(&self, ty_color: &Sp<TypeColor>) -> Result<(), ErrorReported> {
-        if let TypeColor::Enum(used_name) = &ty_color.value {
-            if self.defs.enums.get(used_name).is_none() {
-                // Enum doesn't exist.
-                let mut diag = error!(
-                    message("no such enum '{used_name}'"),
-                    primary(ty_color, "no such enum"),
-                );
-                if let Some(suggestion) = self.defs.find_similar_enum_name(used_name) {
-                    diag.secondary(ty_color, format!("did you mean `{suggestion}`?"));
-                }
-                return Err(self.emitter.emit(diag));
+        let TypeColor::Enum(used_name) = &ty_color.value;
+
+        if self.defs.enums.get(used_name).is_none() {
+            // Enum doesn't exist.
+            let mut diag = error!(
+                message("no such enum '{used_name}'"),
+                primary(ty_color, "no such enum"),
+            );
+            if let Some(suggestion) = self.defs.find_similar_enum_name(used_name) {
+                diag.secondary(ty_color, format!("did you mean `{suggestion}`?"));
             }
+            return Err(self.emitter.emit(diag));
         }
         Ok(())
     }
@@ -1049,19 +1046,19 @@ pub struct SignatureParam {
     pub const_arg_reason: Option<ConstArgReason>,
 }
 
-/// A tag to "colorize" a parameter in a function to cause it to prefer decompiling
-/// to consts of a specific kind/enum, and/or to warn on suspicious consts of unlike kind.
+/// A tag to "colorize" a parameter in a function.
+///
+/// This can cause it to prefer decompiling to consts of a specific enum, and/or help disambiguate
+/// ambiguous enum const names.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeColor {
-    // FIXME remove
-    Const(AutoConstKind),
     Enum(Ident),
+    // TODO: maybe bitflags, idk
 }
 
 impl TypeColor {
     pub fn heavy_descr(&self) -> String {
         match self {
-            TypeColor::Const(kind) => kind.descr().to_string(),
             TypeColor::Enum(name) => format!("enum {name}"),
         }
     }
@@ -1069,7 +1066,6 @@ impl TypeColor {
     pub fn enum_name(&self) -> Option<&Ident> {
         match self {
             TypeColor::Enum(name) => Some(name),
-            TypeColor::Const { .. } => None,
         }
     }
 }

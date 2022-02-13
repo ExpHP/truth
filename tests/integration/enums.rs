@@ -332,6 +332,8 @@ source_test!(
         assert_eq!(anm.entries[0].scripts[1].instrs[0].args_blob, blobify![0]);
         assert_eq!(anm.entries[0].scripts[1].instrs[1].args_blob, blobify![0]);
         assert_eq!(anm.entries[0].scripts[1].instrs[2].args_blob, blobify![20]);
+        // const shadows enum
+        assert_eq!(anm.entries[0].scripts[1].instrs[3].args_blob, blobify![10]);
     },
     check_decompiled: |decompiled| {
         assert_eq!(decompiled.matches("(0)").count(), 1);  // from TakesFoo(Name)

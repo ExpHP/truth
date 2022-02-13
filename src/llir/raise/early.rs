@@ -646,7 +646,6 @@ impl AtomRaiser<'_, '_> {
             | ArgEncoding::TimelineArg(TimelineArgKind::Enum(ty_color))
             => {
                 let lookup_table = match ty_color {
-                    &TypeColor::Const(_) => unimplemented!("REMOVE ME"),
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
                 };
                 Ok(raise_to_possibly_named_constant(
@@ -731,17 +730,12 @@ impl AtomRaiser<'_, '_> {
 fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor) -> ast::Expr {
     match names.get(&id) {
         Some(ident) => {
-            // consts versus enums raise to different syntax
             match ty_color {
-                TypeColor::Const(_) => {
+                TypeColor::Enum(_) => {
                     let const_ident = ResIdent::new_null(ident.value.clone());
                     let name = ast::VarName::new_non_reg(const_ident);
                     let var = ast::Var { ty_sigil: None, name };
                     ast::Expr::Var(sp!(var))
-                },
-                TypeColor::Enum(_) => {
-                    let res_ident = sp!(ident.span => ResIdent::new_null(ident.value.clone()));
-                    ast::Expr::EnumConst { enum_name: None, ident: res_ident }
                 },
             }
         },

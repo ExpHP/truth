@@ -183,12 +183,13 @@ pub mod node_id_helpers {
     }
 }
 
-pub use resolve_vars::Visitor as ResolveVarsVisitor;
-mod resolve_vars {
+pub use resolve_names::Visitor as ResolveNamesVisitor;
+mod resolve_names {
     use super::*;
     use crate::ast::{self, Visit};
-    use crate::pos::Sp;
+    use crate::pos::{Sp, Span};
     use crate::error::{ErrorReported, ErrorFlag};
+    use crate::context::defs::{TypeColor, Signature};
     use super::rib::{RibKind, RibStacks};
 
     /// Visitor that performs name resolution. Please don't use this directly,
@@ -200,6 +201,7 @@ mod resolve_vars {
         rib_stacks: RibStacks,
         errors: ErrorFlag,
         ctx: &'a mut CompilerContext<'ctx>,
+        ty_color_stack: Vec<Option<TypeColor>>,
     }
 
     impl<'a, 'ctx> Visitor<'a, 'ctx> {
@@ -207,6 +209,7 @@ mod resolve_vars {
             Visitor {
                 rib_stacks: ctx.defs.initial_ribs().into_iter().collect(),
                 errors: ErrorFlag::new(),
+                ty_color_stack: vec![None],
                 ctx,
             }
         }
@@ -325,21 +328,99 @@ mod resolve_vars {
             if let ast::VarName::Normal { ref ident, language_if_reg, .. } = var.name {
                 match self.rib_stacks.resolve(Namespace::Vars, var.span, language_if_reg, ident) {
                     Err(e) => self.errors.set(self.ctx.emitter.emit(e)),
-                    Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
+                    Ok(def_id) => {
+                        if def_id == self.ctx.defs.enum_const_dummy_def_id() {
+                            self.resolve_unqualified_enum_const(var.span, ident);
+                        } else {
+                            self.ctx.resolutions.record_resolution(ident, def_id);
+                        }
+                    },
                 }
             }
         }
 
+        fn visit_callable_name(&mut self, name: &Sp<ast::CallableName>) {
+            if let Err(e) = self.visit_callable_name_(name) {
+                self.errors.set(e);
+            }
+        }
+
         fn visit_expr(&mut self, expr: &Sp<ast::Expr>) {
-            if let ast::Expr::Call(ast::ExprCall { name, .. }) = &expr.value {
-                if let ast::CallableName::Normal { ref ident, language_if_ins, .. } = name.value {
-                    match self.rib_stacks.resolve(Namespace::Funcs, name.span, language_if_ins, ident) {
-                        Err(e) => self.errors.set(self.ctx.emitter.emit(e)),
-                        Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
-                    }
+            match &expr.value {
+                ast::Expr::Call(call)
+                => self.visit_call_(call),
+
+                // qualified enum consts bypass the rib stack so that `const`s can't shadow them
+                ast::Expr::EnumConst { enum_name, ident }
+                => self.resolve_qualified_enum_const(expr.span, enum_name, ident),
+
+                _ => ast::walk_expr(self, expr),
+            }
+        }
+    }
+
+    impl Visitor<'_, '_> {
+        fn visit_callable_name_(&mut self, name: &Sp<ast::CallableName>) -> Result<(), ErrorReported> {
+            if let ast::CallableName::Normal { ref ident, language_if_ins, .. } = name.value {
+                match self.rib_stacks.resolve(Namespace::Funcs, name.span, language_if_ins, ident) {
+                    Err(e) => return Err(self.ctx.emitter.emit(e)),
+                    Ok(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 }
             }
-            ast::walk_expr(self, expr)
+            Ok(())
+        }
+
+        // TODO: make this override Visit::visit_call if that ever gets added to the trait
+        fn visit_call_(&mut self, call: &ast::ExprCall) {
+            use crate::context::defs::{InsMissingSigError};
+
+            // full destructure here because we have to reimplement walking.
+            // (if we call `ast::walk_expr` it is too easy to emit extraneous diagnostics on an arg)
+            let ast::ExprCall { name: func_name, args: _, pseudos } = call;
+            for pseudo in pseudos {
+                self.visit_expr(&pseudo.value.value);
+            }
+
+            // resolve the function name now so we can get its signature
+            let resolve_func_result = self.visit_callable_name_(func_name);
+
+            // use the signature to get enhanced type information for function args.
+            // (but don't try to access the signature if resolving the function name failed!)
+            let siggy = match resolve_func_result {
+                Ok(()) => match self.ctx.func_signature_from_ast(&call.name) {
+                    Ok(siggy) => Some(siggy),
+                    Err(InsMissingSigError { .. }) => {
+                        // continue without type info, and let the type checker complain about the
+                        // missing signature later
+                        None
+                    },
+                },
+                Err(e) => {
+                    // function doesn't exist, but we should still continue to resolve the names inside
+                    // the call (just without any type info)
+                    self.errors.set(e);
+                    None
+                },
+            };
+            // FIXME: this clone is to stop borrowing ctx, we need a better borrowing story here
+            let siggy = siggy.cloned();
+            self.visit_call_args_with_signature_info(call, siggy.as_ref());
+        }
+
+        fn visit_call_args_with_signature_info(&mut self, call: &ast::ExprCall, siggy: Option<&Signature>) {
+            use crate::context::defs::MatchedArgs;
+
+            match siggy {
+                Some(siggy) => {
+                    let MatchedArgs { positional_pairs } = siggy.match_params_to_args(&call.args);
+                    for (param, arg) in positional_pairs {
+                        self.ty_color_stack.push(param.ty_color.clone().map(|x| x.value));
+                        self.visit_expr(arg);
+                        self.ty_color_stack.pop();
+                    }
+                },
+                None => call.args.iter().for_each(|arg| self.visit_expr(arg)),
+            }
         }
     }
 
@@ -409,7 +490,66 @@ mod resolve_vars {
                 ast::Item::Meta { .. } => {},
             } // match item.value
         }
+
+        fn resolve_qualified_enum_const(
+            &mut self,
+            expr_span: Span,
+            enum_name: &Ident,
+            ident: &ResIdent,
+        ) {
+            match self.ctx.defs.enum_const_def_id(&enum_name, &ident) {
+                Some(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
+                None => self.errors.set(self.ctx.emitter.emit(error!(
+                    message("no enum const {enum_name}.{ident}"),
+                    primary(expr_span, "no such enum const"),
+                ))),
+            }
+        }
+
+        // this gets called on vars that resolve to the dummy enum const ID.
+        // (basically, any unqualified enum const that isn't shadowed)
+        fn resolve_unqualified_enum_const(
+            &mut self,
+            expr_span: Span,
+            ident: &ResIdent,
+        ) {
+            let ty_color = self.ty_color_stack.last().unwrap();
+
+            // Does the name exist in the enum expected by type?
+            if let Some(TypeColor::Enum(enum_name)) = ty_color {
+                if let Some(def_id) = self.ctx.defs.enum_const_def_id(&enum_name, &ident) {
+                    // Use that directly. (no concern about ambiguity)
+                    self.ctx.resolutions.record_resolution(ident, def_id);
+                    return;
+                }
+            }
+
+            // We can still resolve this as long as it's unambiguous.
+            match self.ctx.defs.enum_name_for_unqualified_enum_const(&ident) {
+                Some(var_enum_name) => {
+                    let def_id = self.ctx.defs.enum_const_def_id(&var_enum_name, &ident).unwrap();
+                    self.ctx.resolutions.record_resolution(ident, def_id);
+
+                    match ty_color {
+                        Some(TypeColor::Enum(enum_name)) => {
+                            self.ctx.emitter.emit(warning!(
+                                message("suspicious use of enum {var_enum_name} '{ident}' as enum {enum_name}"),
+                                primary(expr_span, "const in enum {var_enum_name}"),
+                                // FIXME: what should user do if it's intentional?
+                            )).ignore();
+                        },
+                        None => {},
+                    }
+                },
+                None => self.errors.set(self.ctx.emitter.emit(error!(
+                    message("ambiguous enum const '{ident}'"),
+                    primary(expr_span, "belongs to multiple enums"),
+                    // TODO: list the enums it belongs to
+                ))),
+            }
+        }
     }
+
 }
 
 pub mod rib {

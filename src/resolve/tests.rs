@@ -544,6 +544,12 @@ test!(
     const int a() { return a; }  // should be a_1 then a_0
 "#);
 
+test!(
+    [expect_error("unknown")]
+    call_of_undefined_func = <ast::Block> r#"{
+    missingFunc(missingVar);
+}"#);
+
 // =========================================================================
 
 #[should_panic(expected = "resolved multiple times")]

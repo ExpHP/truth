@@ -164,8 +164,9 @@ impl<'a> Evaluator<'a> {
 
         self.eval_stack.push(const_id);
         // FIXME: avoiding recursion here would be nice
-        let value = self._const_eval(&expr)?;
-        self.eval_stack.pop();
+        let value_result = self._const_eval(&expr);
+        self.eval_stack.pop();  // cleanup before possibly diverging with '?'
+        let value = value_result?;
 
         // NOTE: We can't avoid this second lookup because because computing the value can mutate the map.
         self.consts.values.insert(const_id, value.clone());
