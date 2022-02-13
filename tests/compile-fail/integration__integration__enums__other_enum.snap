@@ -2,10 +2,10 @@
 source: tests/integration/enums.rs
 expression: stderr
 ---
-error: no enum const FooEnum.BarOnly
+warning: suspicious use of enum BarEnum 'BarOnly' as enum FooEnum
    ┌─ <input>:28:17
    │
-28 │         ins_400(.BarOnly);
-   │                 ^^^^^^^^ no such enum const
+28 │         ins_400(BarOnly);
+   │                 ^^^^^^^ const in enum BarEnum
 
 

@@ -18,7 +18,7 @@
 * **`offsetof(label)` and `timeof(label)` expressions.**  You can use these if you want to write a jump using `ins_` syntax or the instruction alias.  They'll also show up in contrived cases when decompiling an EoSD ECL file that uses conditional jumps in a funny way.
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **New type-cast syntax.**  The old `_S` and `_f` functions have been split into two types of operations: `int(expr)` and `float(expr)` for type-casts, and `$(expr)` and `%(expr)` to read a temporary as some type.  (the two are the same in most languages, except EoSD ECL which does not auto-cast)
-* **Enum consts.** A mapfile can define enums (see below section on mapfiles), which can then be used like `EnumName.ConstName` in source code, or `.ConstName` in places where a specific enum type is expected.
+* **Enum consts.** A mapfile can define enums (see below section on mapfiles), which can then be used like `EnumName.ConstName` or simply `ConstName` in source code.
 
 ### Improvements to decompilation
 

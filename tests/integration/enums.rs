@@ -12,7 +12,7 @@ source_test!(
     "#,
     main_body: r#"
         ins_400(30, TestEnum.Red);
-        ins_400(30, .Red);
+        ins_400(30, Red);
         ins_400(30, 20);
     "#,
     check_compiled: |output, format| {
@@ -36,7 +36,7 @@ source_test!(
         ins_400(20, 20);
     "#,
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains("(20, .Red)"));
+        assert!(decompiled.contains("(20, Red)"));
     },
 );
 
@@ -160,12 +160,12 @@ source_test!(
 20 NewName
     "#,
     main_body: r#"
-        ins_400(30, .OldName);
-        ins_400(30, .NewName);
+        ins_400(30, OldName);
+        ins_400(30, NewName);
     "#,
     check_decompiled: |decompiled| {
         // the final name should take precedence
-        assert_eq!(decompiled.matches(", .NewName)").count(), 2);
+        assert_eq!(decompiled.matches(", NewName)").count(), 2);
     },
 );
 
@@ -202,12 +202,12 @@ source_test!(
 20 Red
     "#,
     main_body: r#"
-        ins_400(30, .Red);
-        ins_400(30, .Green);
+        ins_400(30, Red);
+        ins_400(30, Green);
     "#,
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains(", .Red);"));
-        assert!(decompiled.contains(", .Green);"));
+        assert!(decompiled.contains(", Red);"));
+        assert!(decompiled.contains(", Green);"));
     },
 );
 
@@ -242,25 +242,15 @@ source_test!(
     "#,
     main_body: r#"
         const int x = 2 + FooEnum.Name * 2;
+        const int y = 2 + Name * 2;
         ins_400(x);
+        ins_400(y);
     "#,
     check_compiled: |output, format| {
         let std = output.read_std(format);
         assert_eq!(std.script[0].args_blob, blobify![42]);
+        assert_eq!(std.script[1].args_blob, blobify![42]);
     },
-);
-
-source_test!(
-    STD_12, invalid_infer_in_const,
-    mapfile: r#"!stdmap
-!ins_signatures
-400 S
-!enum(name="FooEnum")
-20 Name
-    "#,
-    main_body: r#"
-        const int x = 2 + .Name * 2;  //~ ERROR unqualified
-    "#,
 );
 
 source_test!(
@@ -274,14 +264,14 @@ source_test!(
 40 Name
     "#,
     main_body: r#"
-        ins_400(.Name, .Name);
+        ins_400(Name, Name);
     "#,
     check_compiled: |output, format| {
         let std = output.read_std(format);
         assert_eq!(std.script[0].args_blob, blobify![20, 40]);
     },
     check_decompiled: |decompiled| {
-        assert!(decompiled.contains("(.Name, .Name)"));
+        assert!(decompiled.contains("(Name, Name)"));
     },
 );
 
@@ -296,8 +286,8 @@ source_test!(
 40 Name
     "#,
     main_body: r#"
-        ins_400(.Name);  //~ ERROR unqualified
-        ins_999(@mask=.Name, @blob="01000000");  //~ ERROR unqualified
+        ins_400(Name);  //~ ERROR multiple enums
+        ins_999(@mask=Name, @blob="01000000");  //~ ERROR multiple enums
     "#,
 );
 
@@ -319,25 +309,27 @@ source_test!(
     "#,
     main_body: r#"
         TakesScript(Name);
-        TakesFoo(Name);  //~ WARNING script
-        TakesFoo(.Name);
+        TakesFoo(Name);
 
-        // a regular const sharing the same name is okay
-        const int Name2 = 10;
-        TakesFoo(Name2);  // no warning
-        TakesFoo(.Name2);
+        {
+            // a regular const sharing the same name is okay
+            const int Name = 10;
+            TakesFoo(Name);
+            const int Name2 = 11;
+            TakesFoo(Name2);
+        }
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         assert_eq!(anm.entries[0].scripts[1].instrs[0].args_blob, blobify![0]);
-        assert_eq!(anm.entries[0].scripts[1].instrs[1].args_blob, blobify![0]);
-        assert_eq!(anm.entries[0].scripts[1].instrs[2].args_blob, blobify![20]);
+        assert_eq!(anm.entries[0].scripts[1].instrs[1].args_blob, blobify![20]);
         // const shadows enum
-        assert_eq!(anm.entries[0].scripts[1].instrs[3].args_blob, blobify![10]);
+        assert_eq!(anm.entries[0].scripts[1].instrs[2].args_blob, blobify![10]);
+        assert_eq!(anm.entries[0].scripts[1].instrs[3].args_blob, blobify![11]);
     },
     check_decompiled: |decompiled| {
-        assert_eq!(decompiled.matches("(0)").count(), 1);  // from TakesFoo(Name)
-        assert_eq!(decompiled.matches("(.Name)").count(), 1);
+        assert_eq!(decompiled.matches("(10)").count(), 1);
+        assert_eq!(decompiled.matches("(Name)").count(), 1);
     },
 );
 
@@ -353,7 +345,7 @@ source_test!(
 30 BarOnly
     "#,
     main_body: r#"
-        ins_400(.BarOnly); //~ ERROR no such enum const
+        ins_400(BarOnly); //~ WARNING FooEnum
     "#,
 );
 
@@ -369,7 +361,7 @@ source_test!(
     // is a concern that came up when implementing value substitution for enums.
     //
     // (Basically, the part of the const simplification pass that figures out the
-    //  appropriate enum for '.Red' would need some sort of equivalent in the
+    //  appropriate enum for 'Red' would need some sort of equivalent in the
     //  (separate) const evaluator)
     items: r#"
         const int ConstFn(enum FooEnum x) {  //~ ERROR token
@@ -377,7 +369,7 @@ source_test!(
         }
     "#,
     main_body: r#"
-        const y = ConstFn(.Red);
+        const y = ConstFn(Red);
         ins_400(y);
     "#,
 );

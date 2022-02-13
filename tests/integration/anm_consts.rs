@@ -412,18 +412,23 @@ entry {
     has_data: false,
     sprites: {
         wild: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 22 * 2 - 2},
-        //~^ ERROR ambiguous
     },
 }
 
 script 23 script23 {
-    ins_3(-1);
+    sprite(wild);
+    scriptNew(wild);
 }
 
 script wild {  // should have ID 1
     ins_3(-1);
 }
     "#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob, blobify![42]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[1].args_blob, blobify![1]);
+    },
 );
 
 source_test!(
@@ -569,7 +574,7 @@ entry {
 }
 
 script script0 {
-    scriptNew(imASprite);  //~ WARNING sprite
+    scriptNew(imASprite);  //~ WARNING suspicious
 }
 
 script script1 {
