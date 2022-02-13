@@ -95,7 +95,7 @@ impl<'ctx> CompilerContext<'ctx> {
             unused_loop_ids: UnusedIds::new(),
             _make_invariant: Default::default(),
         };
-        ctx.add_builtin_consts();
+        ctx.init_special_defs();
         ctx
     }
 }

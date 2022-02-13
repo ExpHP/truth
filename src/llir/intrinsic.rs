@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use crate::raw;
 use crate::ast;
 use crate::context;
-use crate::context::defs::{InstrAbiLoc, AutoConstKind, TypeColor};
+use crate::context::defs::{InstrAbiLoc, auto_enum_names, TypeColor};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{LanguageHooks, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
@@ -343,7 +343,12 @@ fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span
 
 fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
     let data = remove_first_where(arg_encodings, |&(_, enc)| {
-        matches!(enc, ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Const(AutoConstKind::EclSub)) })
+        match enc {
+            ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Enum(enum_name)) } => {
+                enum_name == &auto_enum_names::ecl_sub()
+            },
+            _ => false,
+        }
     });
     let index = data.map(|(index, _)| index);
     let index = index.ok_or_else(|| {

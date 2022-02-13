@@ -1,6 +1,6 @@
 use crate::ident::Ident;
 use crate::diagnostic::Diagnostic;
-use crate::context::defs::{AutoConstKind, TypeColor};
+use crate::context::defs::{TypeColor, auto_enum_names};
 use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
 use crate::parse::lalrparser_util as util;
 
@@ -25,9 +25,9 @@ ArgEncoding: ArgEncoding = {
     "t" => ArgEncoding::JumpTime,
     "f" => ArgEncoding::Float,
     "_" => ArgEncoding::Padding,
-    "n" => ArgEncoding::Integer { size: 4, ty_color: Some(AutoConstKind::AnmSprite.into()) },
-    "N" => ArgEncoding::Integer { size: 4, ty_color: Some(AutoConstKind::AnmScript.into()) },
-    "E" => ArgEncoding::Integer { size: 4, ty_color: Some(AutoConstKind::EclSub.into()) },
+    "n" => ArgEncoding::Integer { size: 4, ty_color: Some(TypeColor::Enum(auto_enum_names::anm_sprite())) },
+    "N" => ArgEncoding::Integer { size: 4, ty_color: Some(TypeColor::Enum(auto_enum_names::anm_script())) },
+    "E" => ArgEncoding::Integer { size: 4, ty_color: Some(TypeColor::Enum(auto_enum_names::ecl_sub())) },
     ZString,
     MString,
     TArg,
@@ -89,8 +89,8 @@ MaskArg: AcceleratingByteMask = {
 };
 
 TArg: ArgEncoding = {
-    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(AutoConstKind::MsgSub.into())),
-    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(AutoConstKind::EclSub.into())),
+    "T" "(" "m" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(TypeColor::Enum(auto_enum_names::msg_script()))),
+    "T" "(" "e" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Enum(TypeColor::Enum(auto_enum_names::ecl_sub()))),
     "T" "(" "s" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "u" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Word),
     "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),

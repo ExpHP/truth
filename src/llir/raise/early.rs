@@ -15,7 +15,7 @@ use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId, IdMap};
 use crate::context::{self, Defs, CompilerContext};
-use crate::context::defs::{AutoConstKind, ConstNames, TypeColor};
+use crate::context::defs::{ConstNames, TypeColor, auto_enum_names};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
@@ -582,7 +582,7 @@ impl AtomRaiser<'_, '_> {
             // FIXME: This is a bit questionable. We're looking up an enum name (conceptually in the
             //        value namespace) to get an ident for a callable function (conceptually in the
             //        function namespace).  It feels like there is potential for future bugs here...
-            let lookup_table = &self.const_names.auto_consts[AutoConstKind::EclSub];
+            let lookup_table = &self.const_names.enums[&auto_enum_names::ecl_sub()];
             let name = lookup_table.get(&sub_index).ok_or(CannotRaiseIntrinsic)?;
             sub_id = Some(name.value.clone());
         }
@@ -646,7 +646,7 @@ impl AtomRaiser<'_, '_> {
             | ArgEncoding::TimelineArg(TimelineArgKind::Enum(ty_color))
             => {
                 let lookup_table = match ty_color {
-                    &TypeColor::Const(kind) => &self.const_names.auto_consts[kind],
+                    &TypeColor::Const(_) => unimplemented!("REMOVE ME"),
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
                 };
                 Ok(raise_to_possibly_named_constant(

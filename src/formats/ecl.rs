@@ -14,7 +14,7 @@ use crate::value::{ScalarType, ScalarValue, ReadType, VarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
 use crate::resolve::{RegId, DefId, IdMap};
 use crate::context::CompilerContext;
-use crate::context::defs::AutoConstKind;
+use crate::context::defs::auto_enum_names;
 
 // =============================================================================
 
@@ -63,7 +63,7 @@ fn decompile(
 
     for i in 0..ecl.subs.len() {
         let name = ecl.subs.get_index(i).unwrap().0.clone();
-        ctx.define_auto_const_var_fresh(AutoConstKind::EclSub, name, i as _);
+        ctx.define_enum_const_fresh(name, i as _, auto_enum_names::ecl_sub());
     }
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
@@ -151,7 +151,7 @@ fn compile(
     let sub_ids = gather_sub_ids(&ast, ctx)?;
     for (index, sub_name) in sub_ids.values().enumerate() {
         let const_value: Sp<ast::Expr> = sp!(sub_name.span => (index as i32).into());
-        ctx.define_auto_const_var(AutoConstKind::EclSub, sub_name.clone(), ScalarType::Int, const_value);
+        ctx.define_enum_const(sub_name.clone(), const_value, sp!(auto_enum_names::ecl_sub()));
     }
 
     // preprocess

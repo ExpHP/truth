@@ -602,8 +602,11 @@ ExprTerm: ast::Expr = {
     <name:Sp<CallableName>> <args:ExprCallParenArgsWithPseudos>
         => ast::Expr::Call(ast::ExprCall { name, pseudos: args.0, args: args.1 }),
 
-    <enum_name:(<Sp<Ident>>)?> "." <ident:Sp<ResIdent>>
-        => ast::Expr::EnumConst { enum_name, ident },
+    <enum_name:Sp<Ident>> "." <ident:Sp<ResIdent>>
+        => ast::Expr::EnumConst { enum_name: Some(enum_name), ident },
+
+    <var:Sp<OldUnqualifiedEnumConst>>
+        => ast::Expr::Var(var),
 
     <v:Sp<Var>> => ast::Expr::Var(v),
 
@@ -619,6 +622,12 @@ ExprTerm: ast::Expr = {
         message("invalid operation"),
         primary(Span::from_locs(l, r), "array indexing is not a thing, sorry"),
     ).into()),
+};
+
+// FIXME: REMOVE (adapter for old enum syntax)
+OldUnqualifiedEnumConst: ast::Var = {
+    "." <ident:ResIdent>
+        => ast::Var { ty_sigil: None, name: ast::VarName::from_parsed_ident(ident) },
 };
 
 LabelPropertyKeyword: ast::LabelPropertyKeyword = {

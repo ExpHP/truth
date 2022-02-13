@@ -469,8 +469,8 @@ pub mod rib {
         /// A rib created from entries in a mapfile.
         Mapfile { language: LanguageKey },
 
-        /// A set of names generated from e.g. meta.
-        Generated,
+        /// A set of names generated from enum consts.
+        EnumConsts,
 
         /// Implicitly-defined constants that are always available.
         BuiltinConsts,
@@ -507,8 +507,7 @@ pub mod rib {
                 (RibKind::Items, Namespace::Funcs) => "function",
                 (RibKind::Mapfile { .. }, Namespace::Vars) => "register alias",
                 (RibKind::Mapfile { .. }, Namespace::Funcs) => "instruction alias",
-                (RibKind::Generated, Namespace::Vars) => "automatic const",
-                (RibKind::Generated, Namespace::Funcs) => "automatic func",
+                (RibKind::EnumConsts, _) => "enum const",
                 (RibKind::BuiltinConsts, _) => "builtin const",
 
                 (RibKind::LocalBarrier { .. }, ns) |
