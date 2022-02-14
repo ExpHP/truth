@@ -86,6 +86,7 @@ pub mod auto_enum_names {
         msg_script => "MsgScript",
         anm_script => "AnmScript",
         color_format => "BitmapColorFormat",
+        bool => "bool",
     }
 }
 
@@ -614,14 +615,17 @@ impl Defs {
 
 impl CompilerContext<'_> {
     pub fn init_special_defs(&mut self) {
-        self.add_builtin_consts();
         self.define_enum_const_dummy();
+        self.add_builtin_consts();
     }
 
     fn add_builtin_consts(&mut self) {
         self.define_builtin_const_var(ident!("NAN"), f32::from_bits(CANONICAL_NAN_BITS).into());
         self.define_builtin_const_var(ident!("INF"), f32::INFINITY.into());
         self.define_builtin_const_var(ident!("PI"), core::f32::consts::PI.into());
+
+        self.define_enum_const_fresh(ident!("true"), 1, ident!("bool"));
+        self.define_enum_const_fresh(ident!("false"), 0, ident!("bool"));
     }
 
     fn define_enum_const_dummy(&mut self) {

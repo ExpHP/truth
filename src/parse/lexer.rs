@@ -137,8 +137,6 @@ define_token_enum! {
         #[token("interrupt")] Interrupt,
         #[token("async")] Async,
         #[token("global")] Global,
-        #[token("false")] False,
-        #[token("true")] True,
         #[token("pragma")] Pragma,
         #[token("mapfile")] Mapfile,
         #[token("image_source")] ImageSource,

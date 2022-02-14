@@ -373,3 +373,27 @@ source_test!(
         ins_400(y);
     "#,
 );
+
+source_test!(
+    STD_12, bool,
+    mapfile: r#"!stdmap
+!ins_signatures
+10 S(enum="bool")
+    "#,
+    main_body: r#"
+        ins_10(true);
+        ins_10(false);
+        ins_10(2);
+    "#,
+    check_compiled: |output, format| {
+        let std = output.read_std(format);
+        assert_eq!(std.script[0].args_blob, blobify![1]);
+        assert_eq!(std.script[1].args_blob, blobify![0]);
+        assert_eq!(std.script[2].args_blob, blobify![2]);
+    },
+    check_decompiled: |decompiled| {
+        assert!(decompiled.contains("(true)"));
+        assert!(decompiled.contains("(false)"));
+        assert!(decompiled.contains("(2)"));
+    },
+);

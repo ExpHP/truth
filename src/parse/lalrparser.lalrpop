@@ -101,8 +101,6 @@ extern {
         "interrupt" => Token::Interrupt,
         "async" => Token::Async,
         "global" => Token::Global,
-        "false" => Token::False,
-        "true" => Token::True,
         "pragma" => Token::Pragma,
         "mapfile" => Token::Mapfile,
         "image_source" => Token::ImageSource,
@@ -605,9 +603,6 @@ ExprTerm: ast::Expr = {
     <enum_name:Sp<Ident>> "." <ident:Sp<ResIdent>>
         => ast::Expr::EnumConst { enum_name, ident },
 
-    <var:Sp<OldUnqualifiedEnumConst>>
-        => ast::Expr::Var(var),
-
     <v:Sp<Var>> => ast::Expr::Var(v),
 
     <value:LitIntUnsigned> => ast::Expr::LitInt { value, radix: ast::IntRadix::Dec },
@@ -622,12 +617,6 @@ ExprTerm: ast::Expr = {
         message("invalid operation"),
         primary(Span::from_locs(l, r), "array indexing is not a thing, sorry"),
     ).into()),
-};
-
-// FIXME: REMOVE (adapter for old enum syntax)
-OldUnqualifiedEnumConst: ast::Var = {
-    "." <ident:ResIdent>
-        => ast::Var { ty_sigil: None, name: ast::VarName::from_parsed_ident(ident) },
 };
 
 LabelPropertyKeyword: ast::LabelPropertyKeyword = {
@@ -763,8 +752,6 @@ LitIntUnsigned_Result: Result<u32, std::num::ParseIntError> = {
     },
     <l: @L> <s:INT_HEX> <r: @R> => util::u32_from_ascii_radix(&s[2..], 16),
     <l: @L> <s:INT_BIN> <r: @R> => util::u32_from_ascii_radix(&s[2..], 2),
-    "true" => Ok(1),
-    "false" => Ok(0),
 };
 
 // ==================================================

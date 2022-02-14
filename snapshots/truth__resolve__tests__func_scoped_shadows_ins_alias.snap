@@ -4,7 +4,7 @@ expression: "resolve_reformat::<ast::Block>(r#\"{\n    alias(4, 3.0);\n    if (t
 ---
 {
     alias_0(4, 3.0);
-    if (1) {
+    if (true_0) {
         void alias_1() {
         }
 

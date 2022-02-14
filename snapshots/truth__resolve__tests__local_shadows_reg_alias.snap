@@ -4,7 +4,7 @@ expression: "resolve_reformat::<ast::Block>(r#\"{\n    ins_21(ALIAS, 3.0);\n    
 ---
 {
     ins_21(ALIAS_0, 3.0);
-    if (1) {
+    if (true_0) {
         float ALIAS_1 = 4.0;
         float b_0 = ALIAS_1;
     }
