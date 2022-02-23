@@ -232,15 +232,23 @@ impl<'ctx> Fs<'ctx> {
     pub fn create(&self, path: impl AsRef<Path>) -> WriteResult<BinWriter<'ctx, fs::File>> {
         let path = path.as_ref();
         let path_string = self.display_path(path);
-        let file = fs::File::create(path)
-            .map_err(|e| self.emitter.emit(error!("while creating file '{}': {}", path_string, e)))?;
-
+        let file = self.create_raw(path)?;
         Ok(BinWriter::from_writer(self.emitter, &path_string, file))
     }
 
     // (these have Err = Diagnostic instead of ErrorReported in case you don't want to fail on an error)
     pub fn metadata(&self, path: &Path) -> Result<std::fs::Metadata, Diagnostic> {
         path.metadata().map_err(|e| error!("while resolving '{}': {}", self.display_path(path), e))
+    }
+
+    /// Create an [`fs::File`].
+    ///
+    /// This provides the same error handling as [`Self::create`] but without wrapping in a [`BinWriter`].
+    pub fn create_raw(&self, path: impl AsRef<Path>) -> WriteResult<fs::File> {
+        let path = path.as_ref();
+        let path_string = self.display_path(path);
+        fs::File::create(path)
+            .map_err(|e| self.emitter.emit(error!("while creating file '{}': {}", path_string, e)))
     }
 
     pub fn symlink_metadata(&self, path: &Path) -> Result<std::fs::Metadata, Diagnostic> {
