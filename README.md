@@ -45,7 +45,7 @@ Usage of `trustd` is pretty straightforward, so we'll take this opportunity to d
 Here's how you primarily use it:
 
 ```shell
-trustd decompile -g13 -m map/any.stdm in.std > out.stdspec
+trustd decompile -g13 -m map/any.stdm in.std -o out.stdspec
 
 trustd compile -g13 in.stdspec -o out.std
 ```
@@ -65,7 +65,7 @@ If you frequently decompile files for experimental purposes, you can also set th
 You can decompile an ANM file into a script, similar to `thanm -l`.
 
 ```sh
-truanm decompile -g12 -m map/any.anmm in.anm > out.spec
+truanm decompile -g12 -m map/any.anmm in.anm -o out.spec
 ```
 
 ANM files also contain images.  You can extract these using `truanm extract`:
@@ -153,7 +153,7 @@ git clone https://github.com/ExpHP/truth
 cd truth
 
 # Debug builds  (for optimized builds, change it to `cargo run --release`)
-cargo run -- trustd d -g10 -m map/any.stdm in.std > out.stdspec
+cargo run -- trustd d -g10 -m map/any.stdm in.std -o out.stdspec
 cargo run -- trustd c -g10 out.stdspec -o out.std
 
 # If you want optimized binaries installed globally:

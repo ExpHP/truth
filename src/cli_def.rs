@@ -114,13 +114,13 @@ pub mod anm_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truanm decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
         });
 
-        wrap_decompile_to_stdout(fmt_config, |truth| {
+        wrap_decompile_to_stdout(fmt_config, output, |truth| {
             decompile(truth, game, input.as_ref(), mapfiles, &decompile_options)
         });
     }
@@ -285,13 +285,13 @@ pub mod ecl_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "truecl decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
         });
 
-        wrap_decompile_to_stdout(fmt_config, |truth| {
+        wrap_decompile_to_stdout(fmt_config, output, |truth| {
             decompile(truth, game, input.as_ref(), mapfiles, &decompile_options)
         });
     }
@@ -457,12 +457,14 @@ pub mod std_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trustd decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
+            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
         });
-        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfiles, &decompile_options))
+        wrap_decompile_to_stdout(fmt_config, output, |truth| {
+            decompile(truth, game, &input, mapfiles, &decompile_options)
+        })
     }
 
     fn decompile(
@@ -555,12 +557,14 @@ pub mod msg_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, fmt_config, mapfiles, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (input, output, fmt_config, mapfiles, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::msg_mode(), cli::decompile_options()),
+            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::msg_mode(), cli::decompile_options()),
         });
-        wrap_decompile_to_stdout(fmt_config, |truth| decompile(truth, game, &input, mapfiles, msg_mode, &decompile_options))
+        wrap_decompile_to_stdout(fmt_config, output, |truth| {
+            decompile(truth, game, &input, mapfiles, msg_mode, &decompile_options)
+        })
     }
 
     fn decompile(
@@ -639,14 +643,21 @@ fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) ->
 /// Wraps a function that decompiles into one that writes to STDOUT and uses exit codes.
 fn wrap_decompile_to_stdout(
     fmt_config: crate::fmt::Config,
+    output: Option<PathBuf>,
     func: impl FnOnce(&mut Truth) -> Result<ScriptFile, ErrorReported>,
 ) -> ! {
     let stdout = io::stdout();
-    let stdout = io::BufWriter::new(stdout.lock());
+
     wrap_exit_code(|truth| {
         let ast = func(truth)?;
 
-        crate::Formatter::with_config(stdout, fmt_config)
+        let writer: Box<dyn io::Write> = match output {
+            Some(path) => Box::new(truth.fs().create_raw(path)?),
+            None => Box::new(stdout.lock()),
+        };
+        let writer = io::BufWriter::new(writer);
+
+        crate::Formatter::with_config(writer, fmt_config)
             .fmt(&ast).map_err(|e| truth.emit(error!("{:#}", e)))
     })
 }
@@ -664,6 +675,13 @@ mod cli {
             short: "m", long: "map", metavar: "MAPFILE",
             help: "use a mapfile to translate instruction names and argument types",
         }).map(|opts| opts.into_iter().map(Into::into).collect())
+    }
+
+    pub fn output() -> impl CliArg<Value=Option<PathBuf>> {
+        opts::Opt {
+            short: "o", long: "output", metavar: "OUTPUT",
+            help: "output file",
+        }.map(|opt| opt.map(Into::into))
     }
 
     pub fn required_output() -> impl CliArg<Value=PathBuf> {

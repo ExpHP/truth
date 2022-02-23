@@ -6,6 +6,7 @@
 
 * **`truecl`** (!!!!) is available in **prototype status,** but the way to invoke it is ~~a well guarded secret~~ `truth-core truecl`.  TH06-TH095 are supported.
 * Multiple `-m` args can now be provided.
+* Decompile commands now support `-o`/`--output`, just like compilation.
 
 ### New language features in support of ECL
 
