@@ -1,0 +1,17 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: at key 99: invalid identifier: break
+  ┌─ <mapfile-1>:3:4
+  │
+3 │ 99 break
+  │    ^^^^^ bad identifier
+
+error: at key 100: invalid identifier: ins_200
+  ┌─ <mapfile-1>:4:5
+  │
+4 │ 100 ins_200
+  │     ^^^^^^^ bad identifier
+
+

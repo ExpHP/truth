@@ -74,6 +74,16 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, keywords_or_forbidden_idents,
+    mapfile: r#"!anmmap
+!ins_names
+99 break  //~ ERROR identifier
+100 ins_200  //~ ERROR identifier
+"#,
+    main_body: "",
+);
+
+source_test!(
     ANM_10, intrinsic_name_garbage,
     mapfile: r#"!anmmap
 !ins_intrinsics

@@ -74,17 +74,14 @@ impl ResIdent {
 ///
 /// # Identifier syntax
 ///
-/// Identifiers must contain ASCII text.  Furthermore, it may not begin with `ins_` (this is
-/// a raw instruction identifier).
+/// An [`Ident`] must contain ASCII text.  This restriction is checked on construction.
 ///
-// FIXME:  The `ins_` restriction no longer makes sense (how is it different from a keyword?).
-//         Remove this.
-//
-/// These restrictions are checked when you construct an identifier using [`Ident::new_system`].
-///
-/// There are no other restrictions.  Notably, identifiers constructed for internal use are
+/// There are no other restrictions.  Notably, [`Ident`] constructed for internal use are
 /// permitted to clash with keywords and/or use characters that would not normally be valid
 /// in a user-supplied identifier.
+///
+/// User idents (those parsed from files) follow the more conventional limitations of
+/// C-like identifiers.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ident {
     ident: Rc<str>,
@@ -96,8 +93,6 @@ impl Ident {
 
 #[derive(Debug, Error)]
 pub enum ParseIdentError {
-    #[error("unexpected instruction identifier")]
-    UnexpectedIns,
     #[error("non-ascii byte '\\x{:02x}'", .0)]
     NonAsciiByte(u8),
     /// Returned by [`Ident::new_user`] on any other ident which is a valid system identifier,
@@ -122,9 +117,6 @@ impl Ident {
     pub fn new_system(s: &str) -> Result<Self, ParseIdentError> {
         if let Some(byte) = s.bytes().find(|&c| c & 0x80 != 0) {
             return Err(ParseIdentError::NonAsciiByte(byte));
-        }
-        if s.starts_with("ins_") {
-            return Err(ParseIdentError::UnexpectedIns);
         }
         Ok(Ident { ident: s.into() })
     }
@@ -306,7 +298,7 @@ mod tests {
         use ParseIdentError::*;
 
         // specific errors
-        assert!(matches!(Ident::new_user("ins_43"), Err(UnexpectedIns { .. })));
+        assert!(matches!(Ident::new_user("ins_43"), Err(NonUserIdent { .. })));
         assert!(matches!(Ident::new_user("🐇"), Err(NonAsciiByte { .. })));
         // keyword
         assert!(matches!(Ident::new_user("while"), Err(NonUserIdent { .. })));
