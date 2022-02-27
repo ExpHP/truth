@@ -138,15 +138,16 @@ impl Ident {
 
         // the restriction against keywords is tricky; the reliable solution is to ask our parser.
         //
-        // we won't be using the diagnostics from the parser so `None` is okay.
+        // we won't be using the diagnostics from the parser so `file_id = None` is okay.
         //
         // FIXME: this is bug prone.  If at some point in the future we introduce an immediately-
         //        emitted diagnostic (e.g. a warning) on some idents in the LALRPOP parser, that
         //        diagnostic will cause an internal compiler panic in this function.
         //        Not sure how to prevent this...
         let file_id = None;
+        let spanned_str = crate::pos::SpannedStr::from_full_source(file_id, str);
         let mut state = crate::parse::State::new();
-        let mut lexer = crate::parse::lexer::Lexer::new(file_id, str);
+        let mut lexer = crate::parse::lexer::Lexer::new(spanned_str);
 
         <Ident as crate::parse::Parse>::parse_stream(&mut state, &mut lexer)
             .map_err(|_| ParseIdentError::NonUserIdent(ident.clone()))?;

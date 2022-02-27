@@ -8,7 +8,7 @@
 use std::fmt;
 
 use crate::diagnostic::Diagnostic;
-use crate::pos::{FileId, BytePos};
+use crate::pos::{FileId, BytePos, SpannedStr};
 
 macro_rules! define_token_enum {
     (
@@ -152,9 +152,7 @@ define_token_enum! {
         #[regex(r##""([^\\"]|\\.)*""##)] LitString(&'a str),
         #[regex(r##"[0-9]+(\.([0-9]*f|[0-9]+)|f)"##)] LitFloat(&'a str),
         #[regex(r##"rad\([-+]?[0-9]+(\.([0-9]*f|[0-9]+)|f)?\)"##)] LitRad(&'a str),
-        #[regex(r##"[0-9]+"##)] LitIntDec(&'a str),
-        #[regex(r##"0[xX][0-9a-fA-F]+"##)] LitIntHex(&'a str),
-        #[regex(r##"0[bB][0-1]+"##)] LitIntBin(&'a str),
+        #[regex(r##"[0-9]+|0[xX][0-9a-fA-F]+|0[bB][0-1]+"##)] LitInt(&'a str),
         #[regex(r##"![-*ENHLWXYZO4567]+"##)] DifficultyStr(&'a str),
         #[regex(r##"ins_[a-zA-Z0-9_]*"##)] Instr(&'a str),
         #[regex(r##"[a-zA-Z_][a-zA-Z0-9_]*"##)] Ident(&'a str),
@@ -204,11 +202,11 @@ pub struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(file_id: FileId, input: &'input str) -> Lexer<'input> {
+    pub fn new(input: SpannedStr<'input>) -> Lexer<'input> {
         Lexer {
-            file_id,
-            offset: 0,
-            imp: logos::Lexer::new(input),
+            file_id: input.span().file_id,
+            offset: input.span().start.into(),
+            imp: logos::Lexer::new(input.str),
         }
     }
 
@@ -251,7 +249,7 @@ mod tests {
     use super::*;
 
     fn tokenize(s: &str) -> Vec<(BytePos, Token<'_>, BytePos)> {
-        Lexer::new(None, s.as_ref())
+        Lexer::new(SpannedStr::new_null(s.as_ref()))
             .map(|res| res.unwrap())
             .map(|(start, tok, end)| (start.1, tok, end.1))
             .collect::<Vec<_>>()
@@ -282,7 +280,7 @@ mod tests {
         let p = BytePos;
         assert_eq!(
             tokenize("  \r\n  /* lol */ // \n\n\n 32"),
-            vec![(p(23), Token::LitIntDec("32".as_ref()), p(25))],
+            vec![(p(23), Token::LitInt("32".as_ref()), p(25))],
         );
     }
 
@@ -291,9 +289,9 @@ mod tests {
         let p = BytePos;
         assert_eq!(
             tokenize("1 /* lol **/ 2 /** //lol */ 3"), vec![
-                (p(0), Token::LitIntDec("1".as_ref()), p(1)),
-                (p(13), Token::LitIntDec("2".as_ref()), p(14)),
-                (p(28), Token::LitIntDec("3".as_ref()), p(29)),
+                (p(0), Token::LitInt("1".as_ref()), p(1)),
+                (p(13), Token::LitInt("2".as_ref()), p(14)),
+                (p(28), Token::LitInt("3".as_ref()), p(29)),
             ],
         );
     }

@@ -34,7 +34,7 @@ ArgEncoding: ArgEncoding = {
 };
 
 OptionalEnum: Option<TypeColor> = {
-    "(" "enum" "=" <name:StringLiteral> ")" =>? {
+    "(" "enum" "=" <name:LitString> ")" =>? {
         Ident::new_user(&name).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() })
             .map(|ident| Some(TypeColor::Enum(ident)))
     },
@@ -76,15 +76,15 @@ MString: ArgEncoding = {
 
 #[inline]
 StringArgSize: StringArgSize = {
-    "len" "=" <len:UnsignedInt> <nulless:(";" "nulless")?> => StringArgSize::Fixed {
+    "len" "=" <len:LitIntUnsigned> <nulless:(";" "nulless")?> => StringArgSize::Fixed {
         len: len as _,
         nulless: nulless.is_some(),
     },
-    "bs" "=" <x:UnsignedInt> => StringArgSize::Block { block_size: x as _ },
+    "bs" "=" <x:LitIntUnsigned> => StringArgSize::Block { block_size: x as _ },
 };
 
 MaskArg: AcceleratingByteMask = {
-    "mask" "=" <mask:UnsignedInt> "," <vel:UnsignedInt> "," <accel:UnsignedInt>
+    "mask" "=" <mask:LitIntUnsigned> "," <vel:LitIntUnsigned> "," <accel:LitIntUnsigned>
     => AcceleratingByteMask { mask: mask as u8, vel: vel as u8, accel: accel as u8 }
 };
 
@@ -96,17 +96,16 @@ TArg: ArgEncoding = {
     "T" "(" "_" ")" => ArgEncoding::TimelineArg(TimelineArgKind::Unused),
 };
 
-UnsignedInt: u32 = {
-    <s:r"[0-9]+"> =>? {
-        #![allow(unused_braces)]  // without these braces, lalrpop can't parse this turbofish
-        util::parse_ascii::<_, u32>(s).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() })
+LitIntUnsigned: u32 = {
+    <l: @L> <text:r##"[0-9]+|0[xX][0-9a-fA-F]+|0[bB][0-1]+"##> <r: @R> =>? {
+        util::parse_u32_literal_nospan(text)
+            .map_err(|e| { diagnostics.push(e); util::PanicDisplay.into() })
     },
-    <s:r"0[xX][0-9a-fA-F]+"> =>? util::u32_from_ascii_radix(&s[2..], 16).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() }),
-    <s:r"0[bB][0-1]+"> =>? util::u32_from_ascii_radix(&s[2..], 2).map_err(|e| { diagnostics.push(error!("{}", e)); util::PanicDisplay.into() }),
 };
 
-StringLiteral: String = {
+LitString: String = {
     <l:@L> <s:r##""([^\\"]|\\.)*""##> <r:@R> =>? {
-        util::parse_string_literal(s).map_err(|e| { diagnostics.push(e); util::PanicDisplay.into() })
+        util::parse_string_literal_nospan(s)
+            .map_err(|e| { diagnostics.push(e); util::PanicDisplay.into() })
     },
 };

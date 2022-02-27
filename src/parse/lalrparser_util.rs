@@ -1,29 +1,10 @@
 //! Helper functions that ideally would have been defined inside the grammar file, but aren't
 //! because they can't (?) be defined there.
 
-use std::str::FromStr;
 use core::fmt;
 
-/// Uses `FromStr` to parse something from a byte string.
-///
-/// This is only intended for use where the input is known in advance
-/// to only contain ASCII, and may panic in other cases.
-pub fn parse_ascii<B: AsRef<[u8]> + ?Sized, T: FromStr>(b: &B) -> Result<T, T::Err> {
-    parse_utf8(b)
-}
-
-/// Uses `FromStr` to parse something from a byte string.
-///
-/// This is only intended for use where the input is known in advance
-/// to contain valid UTF-8, and may panic in other cases.
-pub fn parse_utf8<B: AsRef<[u8]> + ?Sized, T: FromStr>(b: &B) -> Result<T, T::Err> {
-    std::str::from_utf8(b.as_ref()).expect("invalid utf-8!").parse()
-}
-
-/// Parses a `u32` from a byte string.
-pub fn u32_from_ascii_radix<B: AsRef<[u8]> + ?Sized>(b: &B, radix: u32) -> Result<u32, std::num::ParseIntError> {
-    u32::from_str_radix(std::str::from_utf8(b.as_ref()).expect("invalid utf-8!"), radix)
-}
+use crate::pos::Span;
+use crate::parse::lexer::Location;
 
 pub fn push<T>(mut vec: Vec<T>, item: T) -> Vec<T> {
     vec.push(item);
@@ -32,8 +13,48 @@ pub fn push<T>(mut vec: Vec<T>, item: T) -> Vec<T> {
 
 pub enum Either<A, B> { This(A), That(B) }
 
+pub fn parse_u32_literal(
+    string: &str,
+    (l, r): (Location, Location),
+) -> Result<u32, crate::diagnostic::Diagnostic> {
+    parse_u32_literal_nospan(string)
+        .map_err(|mut diag| {
+            diag.primary(Span::from_locs(l, r), format!(""));
+            diag
+        })
+}
+
+pub fn parse_string_literal(
+    string: &str,
+    (l, r): (Location, Location),
+) -> Result<String, crate::diagnostic::Diagnostic> {
+    parse_string_literal_nospan(string)
+        .map_err(|mut diag| {
+            diag.primary(Span::from_locs(l, r), format!(""));
+            diag
+        })
+}
+
+#[deprecated = "mid-refactor, will be deleted"]
+pub fn parse_u32_literal_nospan(
+    string: &str,
+) -> Result<u32, crate::diagnostic::Diagnostic> {
+    let result = match &string[..usize::min(string.len(), 2)] {
+        "0x" | "0X" => u32::from_str_radix(&string[2..], 16),
+        "0b" | "0B" => u32::from_str_radix(&string[2..], 2),
+        _ => string.parse(),
+    };
+    result.map_err(|err| error!(
+        message("bad integer literal"),
+        // primary(Span::from_locs(l, r), "{}", err)
+    ))
+}
+
 /// Parse a string literal, including surrounding quotes
-pub fn parse_string_literal(string: &str) -> Result<String, crate::diagnostic::Diagnostic> {
+#[deprecated = "mid-refactor, will be deleted"]
+pub fn parse_string_literal_nospan(
+    string: &str,
+) -> Result<String, crate::diagnostic::Diagnostic> {
     let mut out = String::new();
     let mut escape = false;
 
@@ -53,7 +74,10 @@ pub fn parse_string_literal(string: &str) -> Result<String, crate::diagnostic::D
                         true => format!("'{}'", c),
                         false => format!("U+{:04x}", c as u32),
                     };
-                    return Err(error!(message("invalid escape character {}", escape)));
+                    return Err(error!(
+                        message("invalid escape character {}", escape),
+                        // primary(Span::from_locs(l, r), "contains invalid escape"),
+                    ));
                 },
             }
         } else if c == '\\' {

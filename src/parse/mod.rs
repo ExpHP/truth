@@ -3,7 +3,7 @@ use lalrpop_util::lalrpop_mod;
 use crate::diagnostic::Diagnostic;
 use crate::ast;
 use crate::ident::Ident;
-use crate::pos::{Sp, Span};
+use crate::pos::{Sp, Span, SpannedStr};
 
 pub(crate) mod lalrparser_util;
 
@@ -37,7 +37,7 @@ pub trait Parse: Sized {
     /// [`crate::api::Truth::parse`] instead.
     fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
         let mut state = State::new();
-        let mut lexer = Lexer::new(None, s.as_ref());
+        let mut lexer = Lexer::new(SpannedStr::new_null(s.as_ref()));
         Self::parse_stream(&mut state, &mut lexer)
             .map(|x| x.value)
     }

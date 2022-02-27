@@ -109,9 +109,11 @@ impl Truth<'_> {
         A: crate::parse::Parse,
         Sp<A>: crate::ast::Visitable,
     {
+
         let (file_id, source_str) = self.ctx.emitter.files.add(display_name, text).map_err(|e| self.emit(e))?;
+        let spanned_source = crate::pos::SpannedStr::from_full_source(file_id, &source_str[..]);
         let mut state = crate::parse::State::new();
-        let mut lexer = crate::parse::lexer::Lexer::new(file_id, &source_str[..]);
+        let mut lexer = crate::parse::lexer::Lexer::new(spanned_source);
         A::parse_stream(&mut state, &mut lexer)
             .map_err(|e| self.emit(e))
             .and_then(|mut ast| {
