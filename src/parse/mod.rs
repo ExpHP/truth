@@ -3,22 +3,18 @@ use lalrpop_util::lalrpop_mod;
 use crate::diagnostic::Diagnostic;
 use crate::ast;
 use crate::ident::Ident;
-use crate::pos::{Sp, Span, SpannedStr};
+use crate::pos::{Sp, Span, SourceStr};
+
+use core::fmt::Display;
+
+#[macro_use]
+mod token_macro;
 
 pub(crate) mod lalrparser_util;
 
 lalrpop_mod!(pub lalrparser, "/parse/lalrparser.rs");
 
-pub mod abi {
-    use super::*;
-    lalrpop_mod!(generated, "/parse/abi.rs");
-
-    // AbiParser uses lalrpop's default lexer, which apparently takes an ABSURD amount
-    // of time to construct.  Cache it.
-    lazy_static::lazy_static! {
-        pub(crate) static ref PARSER: generated::AbiParser = generated::AbiParser::new();
-    }
-}
+pub mod abi;
 
 use lexer::{Lexer, Token};
 pub mod lexer;
@@ -35,19 +31,19 @@ pub trait Parse: Sized {
     /// information and [`crate::Files`] will be unable to locate the corresponding
     /// strings of text. For proper diagnostics you should prefer the helper method
     /// [`crate::api::Truth::parse`] instead.
-    fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<'_, Self> {
+    fn parse<B: AsRef<str> + ?Sized>(s: &B) -> Result<Self, Error<'_>> {
         let mut state = State::new();
-        let mut lexer = Lexer::new(SpannedStr::new_null(s.as_ref()));
+        let mut lexer = Lexer::new(SourceStr::new_null(s.as_ref()));
         Self::parse_stream(&mut state, &mut lexer)
             .map(|x| x.value)
     }
 
-    fn parse_stream<'input>(state: &mut State, lexer: &mut Lexer<'input>) -> Result<'input, Sp<Self>>;
+    fn parse_stream<'input>(state: &mut State, lexer: &mut Lexer<'input>) -> Result<Sp<Self>, Error<'input>>;
 }
 
 
-pub type Error<'input> = lalrpop_util::ParseError<lexer::Location, Token<'input>, Diagnostic>;
-pub type Result<'input, T> = std::result::Result<T, Error<'input>>;
+pub type GenericError<'input, Tok> = lalrpop_util::ParseError<lexer::Location, Tok, Diagnostic>;
+pub type Error<'input> = GenericError<'input, Token<'input>>;
 
 
 /// Extra state during parsing.
@@ -63,7 +59,7 @@ impl State {
     }}
 }
 
-impl crate::diagnostic::IntoDiagnostics for Error<'_> {
+impl<Tok: Display> crate::diagnostic::IntoDiagnostics for GenericError<'_, Tok> {
     fn into_diagnostics(self) -> Vec<crate::diagnostic::Diagnostic> {
         use lalrpop_util::ParseError::*;
 
@@ -89,7 +85,7 @@ impl crate::diagnostic::IntoDiagnostics for Error<'_> {
 }
 
 struct DisplayExpected<'a>(&'a [String]);
-impl std::fmt::Display for DisplayExpected<'_> {
+impl Display for DisplayExpected<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // copied from lalrpop_util
         if !self.0.is_empty() {
@@ -145,7 +141,7 @@ fn call_anything_parser<'input>(
     tag: AnythingTag,
     state: &mut State,
     lexer: &mut Lexer<'input>,
-) -> Result<'input, Sp<AnythingValue>> {
+) -> Result<Sp<AnythingValue>, Error<'input>> {
     let start = lexer.location();
     let lexer = std::iter::once(Ok((start, Token::VirtualDispatch(tag), start))).chain(lexer);
     lalrparser::AnythingParser::new().parse(state, lexer)
@@ -155,7 +151,7 @@ fn call_anything_parser<'input>(
 macro_rules! impl_parse {
     ($AstType:ty, $TagName:ident) => {
         impl Parse for $AstType {
-            fn parse_stream<'input>(state: &mut State, lexer: &mut Lexer<'input>) -> Result<'input, Sp<Self>> {
+            fn parse_stream<'input>(state: &mut State, lexer: &mut Lexer<'input>) -> Result<Sp<Self>, Error<'input>> {
                 let sp = call_anything_parser(AnythingTag::$TagName, state, lexer)?;
                 Ok(sp!(sp.span => match sp.value {
                     AnythingValue::$TagName(x) => x,

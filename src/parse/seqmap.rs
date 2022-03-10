@@ -1,7 +1,7 @@
 use regex::Regex;
 use lazy_static::lazy_static;
 
-use crate::pos::{Sp, Span, FileId, SpannedStr};
+use crate::pos::{Sp, Span, FileId, SourceStr};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 
@@ -31,11 +31,11 @@ lazy_static! {
 
 impl<'a> SeqmapRaw<'a> {
     pub fn parse(file_id: FileId, text: &'a str, emitter: &impl Emitter) -> Result<Self, ErrorReported> {
-        parse_seqmap(SpannedStr::from_full_source(file_id, text), emitter)
+        parse_seqmap(SourceStr::from_full_source(file_id, text), emitter)
     }
 }
 
-fn parse_seqmap<'a>(mut text: SpannedStr<'a>, emitter: &impl Emitter) -> Result<SeqmapRaw<'a>, ErrorReported> {
+fn parse_seqmap<'a>(mut text: SourceStr<'a>, emitter: &impl Emitter) -> Result<SeqmapRaw<'a>, ErrorReported> {
     let mut sections = vec![];
     let mut cur_section = None;
 

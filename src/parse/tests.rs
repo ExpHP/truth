@@ -4,8 +4,8 @@ use crate::error::ErrorReported;
 
 // This is for quick-and-dirty use only; the spans in the output will have incomplete information
 // as it is not connected to any Files object.
-fn parse<A: Parse>(s: &str) -> super::Result<'_, A> {
-    let mut lexer = super::Lexer::new(crate::pos::SpannedStr::new_null(s));
+fn parse<A: Parse>(s: &str) -> Result<A, super::Error<'_>> {
+    let mut lexer = super::Lexer::new(crate::pos::SourceStr::new_null(s));
     let mut state = super::State::new();
     super::Parse::parse_stream(&mut state, &mut lexer)
         .map(|x| x.value)

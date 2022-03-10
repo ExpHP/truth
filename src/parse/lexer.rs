@@ -8,51 +8,7 @@
 use std::fmt;
 
 use crate::diagnostic::Diagnostic;
-use crate::pos::{FileId, BytePos, SpannedStr};
-
-macro_rules! define_token_enum {
-    (
-        $( #[$($meta:tt)+] )*
-        pub enum $Token:ident<$lt:lifetime> {
-            $( #[token($fixed_str:literal)] $fixed_variant:ident, )*
-
-            $(
-                #[regex($($regex_tt:tt)+)]
-                $regex_variant:ident($regex_ty:ty),
-            )*
-
-            #[error]
-            $( #[ $($error_meta:tt)+ ] )*
-            Error,
-
-            $($other_variants:tt)*
-        }
-    ) => {
-        $( #[$($meta)+] )*
-        pub enum $Token<$lt> {
-            $( #[token($fixed_str)] $fixed_variant, )*
-
-            $( #[regex($($regex_tt)+)] $regex_variant($regex_ty), )*
-
-            #[error]
-            $( #[ $($error_meta)+ ] )*
-            Error,
-
-            $($other_variants)*
-        }
-
-        impl<'input> $Token<'input> {
-            pub(super) fn as_str(&self) -> &'input str {
-                match self {
-                    $( Token::$fixed_variant => $fixed_str, )*
-                    $( Token::$regex_variant(str) => str, )*
-                    Token::Error => "<invalid>",
-                    _ => "<special>",
-                }
-            }
-        }
-    };
-}
+use crate::pos::{FileId, BytePos, SourceStr};
 
 define_token_enum! {
     #[derive(logos::Logos, Clone, Copy, Debug, PartialEq)]
@@ -174,11 +130,7 @@ define_token_enum! {
     }
 }
 
-impl fmt::Display for Token<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.as_str(), f)
-    }
-}
+pub type Lexer<'input> = GenericLexer<'input, Token<'input>>;
 
 #[derive(Default)]
 pub struct LexerExtras {
@@ -195,15 +147,21 @@ fn skip_comment_or_ws<'a>(lexer: &mut logos::Lexer<'a, Token<'a>>) -> logos::Ski
 ///
 /// You should not need to use this type; the primary API for parsing code in truth
 /// is provided by [`crate::pos::NonUtf8Files::parse`].
-pub struct Lexer<'input> {
+pub struct GenericLexer<'input, Tok>
+where
+    Tok: logos::Logos<'input>,
+{
     file_id: FileId,
     offset: usize,
-    imp: logos::Lexer<'input, Token<'input>>,
+    imp: logos::Lexer<'input, Tok>,
 }
 
-impl<'input> Lexer<'input> {
-    pub fn new(input: SpannedStr<'input>) -> Lexer<'input> {
-        Lexer {
+impl<'input, Tok: logos::Logos<'input, Source=str>> GenericLexer<'input, Tok> {
+    pub fn new(input: SourceStr<'input>) -> GenericLexer<'input, Tok>
+    where
+        <Tok as logos::Logos<'input>>::Extras: Default
+    {
+        GenericLexer {
             file_id: input.span().file_id,
             offset: input.span().start.into(),
             imp: logos::Lexer::new(input.str),
@@ -211,7 +169,9 @@ impl<'input> Lexer<'input> {
     }
 
     pub fn location(&self) -> Location { (self.file_id, BytePos(self.offset as u32)) }
+}
 
+impl<'input> Lexer<'input> {
     /// Returns `true` if the lexer has ever encountered (and skipped over) a comment or whitespace.
     pub fn had_comment_or_ws(&self) -> bool {
         self.imp.extras.had_comment_or_ws
@@ -225,20 +185,21 @@ impl<'input> Lexer<'input> {
 /// as reasonably possible.
 pub type Location = (FileId, BytePos);
 
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<(Location, Token<'a>, Location), Diagnostic>;
+impl<'a, Tok: logos::Logos<'a> + PartialEq> Iterator for GenericLexer<'a, Tok> {
+    type Item = Result<(Location, Tok, Location), Diagnostic>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.imp.next().map(|token| {
             let range = self.imp.span();
             let start = (self.file_id, BytePos(range.start as _));
             let end = (self.file_id, BytePos(range.end as _));
-            match token {
-                Token::Error => Err(error!(
+            if token == Tok::ERROR {
+                Err(error!(
                     message("invalid token"),
                     primary(crate::pos::Span::from_locs(start, end), "invalid token"),
-                )),
-                token => Ok((start, token, end)),
+                ))
+            } else {
+                Ok((start, token, end))
             }
         })
     }
@@ -249,7 +210,7 @@ mod tests {
     use super::*;
 
     fn tokenize(s: &str) -> Vec<(BytePos, Token<'_>, BytePos)> {
-        Lexer::new(SpannedStr::new_null(s.as_ref()))
+        GenericLexer::<Token<'_>>::new(SourceStr::new_null(s.as_ref()))
             .map(|res| res.unwrap())
             .map(|(start, tok, end)| (start.1, tok, end.1))
             .collect::<Vec<_>>()

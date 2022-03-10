@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::ast;
-use crate::pos::Sp;
+use crate::pos::{Sp, SourceStr};
 use crate::game::{Game, LanguageKey};
 use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
@@ -109,11 +109,10 @@ impl Truth<'_> {
         A: crate::parse::Parse,
         Sp<A>: crate::ast::Visitable,
     {
-
         let (file_id, source_str) = self.ctx.emitter.files.add(display_name, text).map_err(|e| self.emit(e))?;
-        let spanned_source = crate::pos::SpannedStr::from_full_source(file_id, &source_str[..]);
+        let source_str = crate::pos::SourceStr::from_full_source(file_id, &source_str[..]);
         let mut state = crate::parse::State::new();
-        let mut lexer = crate::parse::lexer::Lexer::new(spanned_source);
+        let mut lexer = crate::parse::lexer::GenericLexer::<>::new(source_str);
         A::parse_stream(&mut state, &mut lexer)
             .map_err(|e| self.emit(e))
             .and_then(|mut ast| {
@@ -122,6 +121,15 @@ impl Truth<'_> {
                 crate::passes::resolution::assign_loop_ids(&mut ast, &mut self.ctx)?;
                 Ok(ast)
             })
+    }
+
+    /// Register a source text for the purpose of display in diagnostics, without parsing it.
+    ///
+    /// This is primarily for unit tests for parsers of things besides the full AST. (otherwise you
+    /// would use [`Self::parse`]...)
+    pub(crate) fn register_source<'b>(&mut self, display_name: &str, text: &'b str) -> Result<SourceStr<'b>, ErrorReported> {
+        let (file_id, _) = self.ctx.emitter.files.add(display_name, text.as_ref()).map_err(|e| self.emit(e))?;
+        Ok(SourceStr::from_full_source(file_id, text))
     }
 }
 

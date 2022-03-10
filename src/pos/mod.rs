@@ -11,5 +11,5 @@ pub use span::{Sp, Span, HasSpan};
 pub use source_map::Files;
 mod source_map;
 
-pub use spanned_str::SpannedStr;
-mod spanned_str;
+pub use source_str::SourceStr;
+mod source_str;

@@ -1,0 +1,96 @@
+use crate::ast;
+use crate::ident::Ident;
+use crate::diagnostic::Diagnostic;
+use crate::pos::{Sp, Span};
+use crate::context::defs::{TypeColor, auto_enum_names};
+use crate::llir::{ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
+use crate::parse::lalrparser_util as util;
+use crate::parse::abi::Token;
+use crate::parse::abi::abi_ast::*;
+
+grammar<'input>();
+
+extern {
+    type Location = crate::parse::lexer::Location;
+    type Error = Diagnostic;
+
+    enum Token<'input> {
+        // Terminals
+        STRING => Token::LitString(<&'input str>),
+        INT => Token::LitInt(<&'input str>),
+        IDENT => Token::Ident(<&'input str>),
+        "," => Token::Comma,
+        ";" => Token::Semicolon,
+        "(" => Token::ParenOpen,
+        ")" => Token::ParenClose,
+        "=" => Token::Eq,
+        "-" => Token::Minus,
+    }
+}
+
+pub(crate) Attributes: Vec<(Sp<Ident>, AttributeRhs)> = {
+    "(" <AttributesInner> ")",
+};
+
+AttributesInner: Vec<(Sp<Ident>, AttributeRhs)> = {
+    => vec![],
+    <attr:Attribute> => vec![attr],
+    <attrs:(<Attribute> ";")+> <last:Attribute> => util::push(attrs, last),
+};
+
+Attribute: (Sp<Ident>, AttributeRhs) = {
+    <Sp<Ident>> <AttributeRhs>,
+};
+
+AttributeRhs: AttributeRhs = {
+    => AttributeRhs::Flag,
+
+    <values:(<Sp<Scalar>> ",")+> <last:Sp<Scalar>> => {
+        let values = util::push(values, last);
+        AttributeRhs::Values(values)
+    },
+};
+
+Scalar: Scalar = {
+    <x:LitIntSigned> => Scalar::Number(x),
+    <s:LitString> => Scalar::String(s),
+};
+
+Ident: Ident = <tok:IDENT> => {
+    Ident::new_system(tok).expect("cannot fail; known ASCII")
+};
+
+LitString: ast::LitString = {
+    <l: @L> <s:STRING> <r: @R> =>? {
+        let string = util::parse_string_literal(s, (l, r))?;
+        Ok(ast::LitString { string })
+    },
+};
+
+LitIntSigned: i32 = {
+    "-" <x:LitIntUnsigned> => i32::wrapping_neg(x),
+    <x:LitIntUnsigned> => x,
+};
+
+LitIntUnsigned: i32 = {
+    <l: @L> <text:INT> <r: @R> =>? {
+        util::parse_u32_literal(text, (l, r))
+            // Note: Parsing numbers in the range 2^31..2^32 without overflow errors is deliberately supported
+            .map(|x: u32| x as i32)
+            .map_err(Into::into)
+    },
+};
+
+// ==================================================
+// Utility
+
+/// Parse something while obtaining its span.
+#[inline]
+Sp<Rule>: Sp<Rule> = {
+    <l: @L> <rule: Rule> <r: @R> => Sp {
+        span: Span::from_locs(l, r),
+        value: rule,
+    },
+}
+/// Get a zero-length span at the current position.
+Span: Span = <sp:Sp<()>> => sp.span;

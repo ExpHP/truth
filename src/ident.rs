@@ -145,9 +145,9 @@ impl Ident {
         //        diagnostic will cause an internal compiler panic in this function.
         //        Not sure how to prevent this...
         let file_id = None;
-        let spanned_str = crate::pos::SpannedStr::from_full_source(file_id, str);
+        let spanned_str = crate::pos::SourceStr::from_full_source(file_id, str);
         let mut state = crate::parse::State::new();
-        let mut lexer = crate::parse::lexer::Lexer::new(spanned_str);
+        let mut lexer = crate::parse::lexer::GenericLexer::new(spanned_str);
 
         <Ident as crate::parse::Parse>::parse_stream(&mut state, &mut lexer)
             .map_err(|_| ParseIdentError::NonUserIdent(ident.clone()))?;

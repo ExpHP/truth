@@ -187,29 +187,30 @@ impl InstrAbi {
         use crate::parse::lalrparser_util::PanicDisplay;
 
         InstrAbi::from_encodings(span, {
-            // collector for diagnostics without any spans
-            let mut diagnostics = vec![];
-            let result = crate::parse::abi::PARSER.parse(&mut diagnostics, s);
-
-            // if there's an error payload from LALRPOP itself, add that too
-            let result = result.map_err(|e| {
-                match e {
-                    // one of our own errors; the payload is already in the vec
-                    lalrpop_util::ParseError::User { error: PanicDisplay } => {},
-
-                    e => diagnostics.push(error!("{}", e)),
-                }
-                ErrorReported
-            });
-
-            // now emit all of them, pointing to this span
-            for mut diagnostic in diagnostics {
-                diagnostic.primary(span, format!(""));
-                // they may be a mix of warnings and errors, ignore them all and trust `result`
-                emitter.as_sized().emit(diagnostic).ignore();
-            }
-
-            result?
+            panic!();
+            // // collector for diagnostics without any spans
+            // let mut diagnostics = vec![];
+            // let result = crate::parse::abi::PARSER.parse(&mut diagnostics, s);
+            //
+            // // if there's an error payload from LALRPOP itself, add that too
+            // let result = result.map_err(|e| {
+            //     match e {
+            //         // one of our own errors; the payload is already in the vec
+            //         lalrpop_util::ParseError::User { error: PanicDisplay } => {},
+            //
+            //         e => diagnostics.push(error!("{}", e)),
+            //     }
+            //     ErrorReported
+            // });
+            //
+            // // now emit all of them, pointing to this span
+            // for mut diagnostic in diagnostics {
+            //     diagnostic.primary(span, format!(""));
+            //     // they may be a mix of warnings and errors, ignore them all and trust `result`
+            //     emitter.as_sized().emit(diagnostic).ignore();
+            // }
+            //
+            // result?
         }).map_err(|validation_err| emitter.as_sized().emit(validation_err))
     }
 }
