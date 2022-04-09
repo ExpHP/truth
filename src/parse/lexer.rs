@@ -152,7 +152,9 @@ where
     Tok: logos::Logos<'input>,
 {
     file_id: FileId,
-    offset: usize,
+    /// Starting offset of the input source relative to the beginning of the file.
+    /// This should be added to byte positions derived from logos.
+    initial_offset: usize,
     imp: logos::Lexer<'input, Tok>,
 }
 
@@ -163,14 +165,23 @@ impl<'input, Tok: logos::Logos<'input, Source=str>> GenericLexer<'input, Tok> {
     {
         GenericLexer {
             file_id: input.span().file_id,
-            offset: input.span().start.into(),
+            initial_offset: input.span().start.into(),
             imp: logos::Lexer::new(input.str),
         }
     }
 
-    pub fn location(&self) -> Location { (self.file_id, BytePos(self.offset as u32)) }
+    pub fn location(&self) -> Location {
+        self.location_from_logos_offset(self.imp.span().end as u32)
+    }
 }
 
+impl<'input, Tok: logos::Logos<'input>> GenericLexer<'input, Tok> {
+    fn location_from_logos_offset(&self, logos_offset: u32) -> Location {
+        (self.file_id, BytePos(self.initial_offset as u32 + logos_offset))
+    }
+}
+
+/// Methods for the primary lexer.
 impl<'input> Lexer<'input> {
     /// Returns `true` if the lexer has ever encountered (and skipped over) a comment or whitespace.
     pub fn had_comment_or_ws(&self) -> bool {
@@ -191,8 +202,8 @@ impl<'a, Tok: logos::Logos<'a> + PartialEq> Iterator for GenericLexer<'a, Tok> {
     fn next(&mut self) -> Option<Self::Item> {
         self.imp.next().map(|token| {
             let range = self.imp.span();
-            let start = (self.file_id, BytePos(range.start as _));
-            let end = (self.file_id, BytePos(range.end as _));
+            let start = self.location_from_logos_offset(range.start as _);
+            let end = self.location_from_logos_offset(range.end as _);
             if token == Tok::ERROR {
                 Err(error!(
                     message("invalid token"),

@@ -33,9 +33,7 @@ pub(crate) Attributes: Vec<(Sp<Ident>, AttributeRhs)> = {
 };
 
 AttributesInner: Vec<(Sp<Ident>, AttributeRhs)> = {
-    => vec![],
-    <attr:Attribute> => vec![attr],
-    <attrs:(<Attribute> ";")+> <last:Attribute> => util::push(attrs, last),
+    SeparatedStrict<Attribute, ";">,
 };
 
 Attribute: (Sp<Ident>, AttributeRhs) = {
@@ -45,8 +43,7 @@ Attribute: (Sp<Ident>, AttributeRhs) = {
 AttributeRhs: AttributeRhs = {
     => AttributeRhs::Flag,
 
-    <values:(<Sp<Scalar>> ",")+> <last:Sp<Scalar>> => {
-        let values = util::push(values, last);
+    "=" <values: SeparatedStrictNonempty<Sp<Scalar>, ",">> => {
         AttributeRhs::Values(values)
     },
 };
@@ -91,6 +88,14 @@ Sp<Rule>: Sp<Rule> = {
         span: Span::from_locs(l, r),
         value: rule,
     },
-}
+};
+SeparatedStrict<T, Sep>: Vec<T> = {
+    => vec![],
+    <SeparatedStrictNonempty<T, Sep>>,
+};
+#[inline]
+SeparatedStrictNonempty<T, Sep>: Vec<T> = {
+    <xs:(<T> Sep)*> <last:T> => util::push(xs, last),
+};
 /// Get a zero-length span at the current position.
 Span: Span = <sp:Sp<()>> => sp.span;

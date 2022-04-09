@@ -903,7 +903,7 @@ SeparatedStrict<T, Sep>: Vec<T> = {
     => vec![],
     <SeparatedStrictNonempty<T, Sep>>,
 };
+#[inline]
 SeparatedStrictNonempty<T, Sep>: Vec<T> = {
-    <x:T> => vec![x],
-    <xs:SeparatedStrictNonempty<T, Sep>> Sep <x:T> => util::push(xs, x),
+    <xs:(<T> Sep)*> <last:T> => util::push(xs, last),
 };

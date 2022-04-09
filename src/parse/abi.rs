@@ -120,12 +120,7 @@ pub fn parse_abi(
         }
 
         match next_char {
-            paren @ sp_pat!('(') => return Err(ctx.emitter.emit(error!(
-                message("unexpected '('"),
-                primary(paren, ""),
-            ))),
-
-            format_char => {
+            format_char @ sp_pat!('a'..='z' | 'A'..='Z' | '_' | '0'..='9') => {
                 let next_non_ws = text.chars().filter(|&c| !is_ws(c)).next();
                 let attributes = match next_non_ws {
                     // Type with attributes.
@@ -141,6 +136,14 @@ pub fn parse_abi(
                     _ => Default::default(),
                 };
                 params.push(abi_ast::Param { format_char, attributes })
+            },
+
+            bad_char => {
+                let escaped: String = bad_char.escape_default().collect();
+                return Err(ctx.emitter.emit(error!(
+                    message("unexpected '{escaped}'"),
+                    primary(bad_char, ""),
+                )))
             },
         }
     }
@@ -176,9 +179,7 @@ fn extract_attr_tokens<'input>(
         }
     }
     let end = lexer.location().1;
-    eprintln!("{:?}", text);
     *text = text.slice_from((end - text.span().start).0 as _);
-    eprintln!("{:?}", text);
     Ok(tokens)
 }
 
@@ -444,24 +445,30 @@ mod tests {
     test_case!(no_arg, r##""##, success[]);
     test_case!(simple, r##"aab"##, success[a(), a(), b()]);
     test_case!(empty_attr, r##"a()"##, success[a()]);
-    test_case!(flag_attr, r##"a(bs)"##, success[a(bs)]);
-    test_case!(flag_number, r##"a(bs=4)"##, success[a(bs[4])]);
-    test_case!(flag_string, r##"a(bs="lol")"##, success[a(bs["lol"])]);
+    test_case!(bad_token, r##"a(&)"##, error["invalid token"]);
+    test_case!(flag, r##"a(bs)"##, success[a(bs)]);
+    test_case!(number, r##"a(bs=4)"##, success[a(bs[4])]);
+    test_case!(string, r##"a(bs="lol")"##, success[a(bs["lol"])]);
     test_case!(string_escape, r##"a(bs=" \n ")"##, success[a(bs[" \n "])]);
     test_case!(after_attr, r##"a()b"##, success[a(), b()]);
     test_case!(double_attr, r##"a()()"##, error["unexpected"]);
-    test_case!(ws_before, r##"  ab"##, success[a(), b()]);
-    test_case!(ws_after, r##"ab  \t "##, success[a(), b()]);
-    test_case!(ws_between, r##"a  b"##, success[a(), b()]);
-    test_case!(ws_only, r##"    \t"##, success[]);
-    test_case!(ws_before_attr, r##"ab (bs)"##, success[a(), b(bs)]);
-    test_case!(ws_after_attr, r##"a(bs) b"##, success[a(bs), b()]);
-    test_case!(ws_inside_attr, r##"a( bs = 4 ; x = 3 , 2 )"##, success[a(bs[4], x[3, 2])]);
+    test_case!(initial_paren, r##"()"##, error["unexpected"]);
+
+    test_case!(ws_before, "  ab", success[a(), b()]);
+    test_case!(ws_after, "ab  \t ", success[a(), b()]);
+    test_case!(ws_between, "a  b", success[a(), b()]);
+    test_case!(ws_only, "    \t", success[]);
+    test_case!(ws_before_attr, "ab (bs)", success[a(), b(bs)]);
+    test_case!(ws_after_attr, "a(bs) b", success[a(bs), b()]);
+    test_case!(ws_inside_attr, "a( bs = 4 ; x = 3 , 2 )", success[a(bs[4], x[3, 2])]);
+
     test_case!(errant_quote, r##""""##, error["unexpected"]);
     test_case!(errant_close_paren, r##")"##, error["unexpected"]);
+    test_case!(errant_eq, r##"="##, error["unexpected"]);
     test_case!(unclosed_paren, r##"a(bs=2"##, error["unclosed"]);
     test_case!(duplicate_attr, r##"a(bs=4; x=3; bs=2)"##, error["duplicate"]);
     test_case!(trick_close_paren_in_string, r##"S(enum=")""##, error["unclosed"]);
+    test_case!(trick_escaped_quote_in_string, r##"S(enum="\")""##, error["unclosed"]);
     test_case!(attr_only_comma, r##"a(bs=,)"##, error["unexpected"]);
     test_case!(attr_trailing_comma, r##"a(bs=3,)"##, error["unexpected"]);
 }
