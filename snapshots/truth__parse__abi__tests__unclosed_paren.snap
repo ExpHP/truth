@@ -1,0 +1,9 @@
+---
+source: src/parse/abi.rs
+expression: "expect_parse_error(\"unclosed\", r##\"a(bs=2\"##).trim()"
+---
+error: missing closing parenthesis for attribute list
+  ┌─ <input>:1:2
+  │
+1 │ a(bs=2
+  │  ^ unclosed parenthesis

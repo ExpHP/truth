@@ -1,0 +1,9 @@
+---
+source: src/parse/abi.rs
+expression: "expect_parse_error(\"unexpected\", r##\"\"\"\"##).trim()"
+---
+error: unexpected '\"'
+  ┌─ <input>:1:1
+  │
+1 │ ""
+  │ ^

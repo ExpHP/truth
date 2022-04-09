@@ -1,0 +1,9 @@
+---
+source: src/parse/abi.rs
+expression: "expect_parse_error(\"duplicate\", r##\"a(bs=4; x=3; bs=2)\"##).trim()"
+---
+error: duplicate attribute bs
+  ┌─ <input>:1:14
+  │
+1 │ a(bs=4; x=3; bs=2)
+  │   --         ^^

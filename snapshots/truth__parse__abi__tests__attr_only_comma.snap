@@ -1,0 +1,12 @@
+---
+source: src/parse/abi.rs
+expression: "expect_parse_error(\"unexpected\", r##\"a(bs=,)\"##).trim()"
+---
+error: unexpected token `,`
+  ┌─ <input>:1:6
+  │
+1 │ a(bs=,)
+  │      ^ unexpected token
+  │
+  = 
+    Expected one of "-", INT or STRING

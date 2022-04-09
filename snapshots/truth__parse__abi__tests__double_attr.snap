@@ -1,0 +1,9 @@
+---
+source: src/parse/abi.rs
+expression: "expect_parse_error(\"unexpected\", r##\"a()()\"##).trim()"
+---
+error: unexpected '('
+  ┌─ <input>:1:4
+  │
+1 │ a()()
+  │    ^
