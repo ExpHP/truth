@@ -332,6 +332,141 @@ entry {
     },
 );
 
+source_test!(
+    // has_data: "dummy" should be able to set image dimensions that conflict with an
+    //  existing entry in an image source
+    ANM_12, dummy_overriding_anm,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/hai-10x18.png",
+    has_data: "dummy",
+    img_width: 8,  // set different dimensions that conflict with the original
+    img_height: 16,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let data = &anm.entries[0].texture.as_ref().unwrap().data;
+        assert_eq!(data.len(), 1 * 8 * 16);  // use dimensions from script
+        assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
+    },
+);
+
+source_test!(
+    ANM_12, dummy_overrides_directory,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+
+entry {
+    path: "subdir/hi-32x16.png",
+    has_data: "dummy",
+    img_width: 8,  // set different dimensions that conflict with the original
+    img_height: 16,
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let data = &anm.entries[0].texture.as_ref().unwrap().data;
+        assert_eq!(data.len(), 1 * 8 * 16);  // use dimensions from script
+        assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
+    },
+);
+
+// Dimensions of 'subdir/modified-size.png' in the ANM file source versus the directory source.
+const MODIFIED_WIDTH_IN_ANM: u32 = 4;
+const MODIFIED_HEIGHT_IN_ANM: u32 = 8;
+const MODIFIED_WIDTH_IN_DIR: u32 = 12;
+const MODIFIED_HEIGHT_IN_DIR: u32 = 6;
+
+source_test!(
+    ANM_12, conflicting_directory_over_anm,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-images"  // <-- takes priority
+
+entry {
+    path: "subdir/modified-size.png",
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let entry = &anm.entries[0];
+        assert_eq!(entry.specs.img_width, Some(sp!(MODIFIED_WIDTH_IN_DIR)));
+        assert_eq!(entry.specs.img_height, Some(sp!(MODIFIED_HEIGHT_IN_DIR)));
+
+        let data = &anm.entries[0].texture.as_ref().unwrap().data;
+        assert_eq!(data.len(), (1 * MODIFIED_WIDTH_IN_DIR * MODIFIED_HEIGHT_IN_DIR) as usize);
+        assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
+    },
+);
+
+source_test!(
+    ANM_12, conflicting_anm_over_directory,
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/dir-with-images"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"  // <-- takes priority
+
+entry {
+    path: "subdir/modified-size.png",
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let entry = &anm.entries[0];
+        assert_eq!(entry.specs.img_width, Some(sp!(MODIFIED_WIDTH_IN_ANM)));
+        assert_eq!(entry.specs.img_height, Some(sp!(MODIFIED_HEIGHT_IN_ANM)));
+
+        let data = &anm.entries[0].texture.as_ref().unwrap().data;
+        assert_eq!(data.len(), (1 * MODIFIED_WIDTH_IN_ANM * MODIFIED_HEIGHT_IN_ANM) as usize);
+        assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
+    },
+);
+
+source_test!(
+    ANM_12, cli_overrides_pragmas,
+    compile_args: &["-i", "./tests/integration/resources/dir-with-images"],   // <-- takes priority
+    full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
+
+entry {
+    path: "subdir/modified-size.png",
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let entry = &anm.entries[0];
+        assert_eq!(entry.specs.img_width, Some(sp!(MODIFIED_WIDTH_IN_DIR)));
+        assert_eq!(entry.specs.img_height, Some(sp!(MODIFIED_HEIGHT_IN_DIR)));
+    },
+);
+
+source_test!(
+    ANM_12, cli_precedence,
+    compile_args: &[
+        "-i./tests/integration/resources/th12-embedded-image-source.anm",
+        "-i./tests/integration/resources/dir-with-images",  // <-- takes priority
+    ],
+    full_source: r#"
+entry {
+    path: "subdir/modified-size.png",
+    img_format: FORMAT_GRAY_8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+    check_compiled: |output, format| {
+        let anm = output.read_anm(format);
+        let entry = &anm.entries[0];
+        assert_eq!(entry.specs.img_width, Some(sp!(MODIFIED_WIDTH_IN_DIR)));
+        assert_eq!(entry.specs.img_height, Some(sp!(MODIFIED_HEIGHT_IN_DIR)));
+    },
+);
+
 mod color_formats {
     use super::*;
 

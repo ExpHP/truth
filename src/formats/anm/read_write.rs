@@ -236,7 +236,7 @@ fn write_entry(
 
     fn missing(emitter: &impl Emitter, problem: &str, note_2: Option<&str>) -> ErrorReported {
         let mut diag = error!("{}", problem);
-        diag.note(format!("if this data is available in an existing anm file, try using '-i ANM_FILE'"));
+        diag.note(format!("try using '-i ANM_FILE' or '-i path/to/patchdir' to supply a source for the image"));
         if let Some(note) = note_2 {
             diag.note(note.to_string());
         }
@@ -318,7 +318,7 @@ fn write_entry(
         HasData::True => match &entry.texture {
             None => {
                 let problem = "no bitmap data available!";
-                let note_2 = "alternatively, use 'has_data: false' to compile without an image";
+                let note_2 = "alternatively, use 'has_data: false' to compile with no image, or 'has_data: \"dummy\"' to generate a magenta placeholder";
                 return Err(missing(emitter, problem, Some(note_2)));
             },
             Some(texture) => {
