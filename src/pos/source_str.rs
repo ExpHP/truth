@@ -5,7 +5,12 @@ use crate::pos::{FileId, Sp, Span};
 /// Represents a piece of input source text with a known span.
 ///
 /// Provides operations for slicing this text in a manner that also slices the span.
-#[derive(Debug, Clone)]
+///
+/// The text stored in [`SourceStr`] should be exactly the input source text, so that the length of
+/// the [`Span`] is identical to the length of the string. Contrast this with [`Sp`]`<String>`, whose
+/// span length and string length may differ due to e.g. escape sequences and inclusion/exclusion of
+/// delimiters like `"`.
+#[derive(Debug, Clone, Copy)]
 pub struct SourceStr<'a> {
     pub str: &'a str,
     file_id: FileId,
@@ -32,7 +37,9 @@ impl<'a> SourceStr<'a> {
 
     /// Construct from a source string and its corresponding span.
     pub fn from_span(span: Span, str: &'a str) -> Self {
-        assert_eq!(span.len(), str.len());
+        println!("{:?}", span);
+        println!("{:?}", str);
+        assert_eq!(span.len(), str.len(), "input str is not original source text, or span is wrong!");
         SourceStr {
             str,
             file_id: span.file_id,

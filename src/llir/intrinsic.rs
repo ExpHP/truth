@@ -344,7 +344,7 @@ fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span
 fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
     let data = remove_first_where(arg_encodings, |&(_, enc)| {
         match enc {
-            ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Enum(enum_name)) } => {
+            ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Enum(enum_name)), arg0: false } => {
                 enum_name == &auto_enum_names::ecl_sub()
             },
             _ => false,

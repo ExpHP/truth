@@ -1,10 +1,13 @@
 use crate::ast;
-use crate::pos::{Sp, Span};
+use crate::pos::{Sp, Span, SourceStr};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::context::{CompilerContext, defs::{self, TypeColor}};
+use crate::context::{CompilerContext, defs::{self, TypeColor, auto_enum_names}};
 use crate::value::{self, ScalarType};
 use crate::game::{Game, LanguageKey};
+use crate::parse::abi::abi_ast;
+
+use indexmap::IndexMap;
 
 use ArgEncoding as Enc;
 
@@ -33,7 +36,11 @@ pub enum ArgEncoding {
     /// `S` or `s` in mapfile. 4-byte or 2-byte integer immediate or register.  Displayed as signed.
     ///
     /// May be decompiled as an enum or const based on its value.
-    Integer { size: u8, ty_color: Option<TypeColor> },
+    ///
+    /// The first argument may have `arg0` if it is two bytes large.  This indicates that the argument is
+    /// stored in the arg0 header field of the instruction in EoSD and PCB ECL. (which is mapped to the
+    /// `@arg0` pseudo-argument in raw instruction syntax)
+    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
@@ -59,6 +66,7 @@ pub enum ArgEncoding {
         mask: AcceleratingByteMask,
         furibug: bool,
     },
+    // FIXME: remove
     /// `T`. Extra argument for timeline.
     ///
     /// Such an argument may only appear as the first argument in the AST form.
@@ -99,7 +107,7 @@ pub enum TimelineArgKind {
 }
 
 impl ArgEncoding {
-    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None } }
+    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false } }
 
     pub fn descr(&self) -> &'static str {
         match self {
@@ -118,12 +126,15 @@ impl ArgEncoding {
 
     pub fn heavy_descr(&self) -> String {
         match self {
-            Self::Integer { ty_color: Some(en), size: 4 } => format!("{}", en.heavy_descr()),
-            Self::Integer { ty_color: Some(en), size } => format!("{}-byte {}", size, en.heavy_descr()),
-            Self::Integer { ty_color: None, size: 2 } => format!("word-sized integer"),
-            Self::Integer { ty_color: None, size: 4 } => format!("dword integer"),
-            Self::Integer { ty_color: None, size } => format!("{}-byte integer", size),
-            Self::TimelineArg(TimelineArgKind::Enum(en)) => format!("{} (in timeline arg0)", en.heavy_descr()),
+            Self::Integer { arg0: true, ty_color, size } => format!(
+                "{} (in timeline arg0)",
+                Self::Integer { arg0: false, ty_color: ty_color.clone(), size: *size }.heavy_descr(),
+            ),
+            Self::Integer { ty_color: Some(en), size: 4, .. } => format!("{}", en.heavy_descr()),
+            Self::Integer { ty_color: Some(en), size, .. } => format!("{}-byte {}", size, en.heavy_descr()),
+            Self::Integer { ty_color: None, size: 2, .. } => format!("word-sized integer"),
+            Self::Integer { ty_color: None, size: 4, .. } => format!("dword integer"),
+            Self::Integer { ty_color: None, size, .. } => format!("{}-byte integer", size),
             _ => self.descr().to_string(),
         }
     }
@@ -173,45 +184,21 @@ impl InstrAbi {
             message("{}", message),
             primary(abi_span, "{}", message),
         ));
-        let sig_has_arg0 = matches!(self.encodings.get(0), Some(ArgEncoding::TimelineArg { .. }));
+        let sig_has_arg0 = matches!(self.encodings.get(0), Some(ArgEncoding::Integer { arg0: true, .. }));
         let lang_has_arg0 = language == LanguageKey::Timeline && game < Game::Th08;
         if sig_has_arg0 && !lang_has_arg0 {
-            return Err(invalid_signature("T(...) is only valid in th06 and th07 timelines"));
-        } else if !sig_has_arg0 && lang_has_arg0 {
-            return Err(invalid_signature("timeline instruction is missing T(...) argument"));
+            return Err(invalid_signature("arg0 args are only valid in th06 and th07 timelines"));
         }
         Ok(())
     }
 
-    pub fn parse(span: Span, s: &str, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
-        use crate::parse::lalrparser_util::PanicDisplay;
-
-        InstrAbi::from_encodings(span, {
-            panic!();
-            // // collector for diagnostics without any spans
-            // let mut diagnostics = vec![];
-            // let result = crate::parse::abi::PARSER.parse(&mut diagnostics, s);
-            //
-            // // if there's an error payload from LALRPOP itself, add that too
-            // let result = result.map_err(|e| {
-            //     match e {
-            //         // one of our own errors; the payload is already in the vec
-            //         lalrpop_util::ParseError::User { error: PanicDisplay } => {},
-            //
-            //         e => diagnostics.push(error!("{}", e)),
-            //     }
-            //     ErrorReported
-            // });
-            //
-            // // now emit all of them, pointing to this span
-            // for mut diagnostic in diagnostics {
-            //     diagnostic.primary(span, format!(""));
-            //     // they may be a mix of warnings and errors, ignore them all and trust `result`
-            //     emitter.as_sized().emit(diagnostic).ignore();
-            // }
-            //
-            // result?
-        }).map_err(|validation_err| emitter.as_sized().emit(validation_err))
+    pub fn parse(s: SourceStr<'_>, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
+        let abi_ast = crate::parse::abi::parse_abi(s, &emitter)?;
+        InstrAbi::from_encodings(s.span(), {
+            abi_ast.params.iter()
+                .map(|param| arg_encoding_from_attrs(&param, emitter))
+                .collect::<Result<_, _>>()?
+        }).map_err(|e| emitter.as_sized().emit(e))
     }
 }
 
@@ -235,6 +222,118 @@ impl ArgEncoding {
     }
 }
 
+// =============================================================================
+
+fn arg_encoding_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<ArgEncoding, ErrorReported> {
+    if let Some(encoding) = int_from_attrs(param, emitter)? {
+        Ok(encoding)
+    } else if let Some(encoding) = string_from_attrs(param, emitter)? {
+        Ok(encoding)
+    } else if let Some(encoding) = other_from_attrs(param, emitter)? {
+        Ok(encoding)
+    } else {
+        Err(emitter.as_sized().emit(error!(
+            message("unknown arg format '{}'", param.format_char),
+            primary(param.format_char, ""),
+        )))
+    }
+}
+
+fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
+    let (size, mut default_ty_color) = match param.format_char.value {
+        // FIXME: Uu should be unsigned but I'm not sure yet if I want  `i(signed)`, `i(unsigned)`, or `i(sign=1)`
+        'S' => (4u8, None),
+        's' => (2, None),
+        'U' => (4, None),
+        'u' => (2, None),
+        'n' => (4, Some(TypeColor::Enum(auto_enum_names::anm_sprite()))),
+        'N' => (4, Some(TypeColor::Enum(auto_enum_names::anm_script()))),
+        'E' => (4, Some(TypeColor::Enum(auto_enum_names::ecl_sub()))),
+        _ => return Ok(None),  // not an integer
+    };
+
+    param.clone().deserialize_attributes(emitter, |de| {
+        let user_ty_color = de.accept_value("enum")?.map(|ident| TypeColor::Enum(ident.value));
+        let arg0 = de.accept_flag("arg0")?;
+
+        if let Some(arg0_flag) = arg0 {
+            if size != 2 {
+                return Err(emitter.as_sized().emit(error!(
+                    message("timeline arg0 must be word-sized ('s' or 'u')"),
+                    primary(arg0_flag, ""),
+                )));
+            }
+        }
+
+        Ok(Some(ArgEncoding::Integer {
+            size,
+            ty_color: user_ty_color.or(default_ty_color),
+            arg0: arg0.is_some(),
+        }))
+    })
+}
+
+fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
+    let default_mask = match param.format_char.value {
+        'z' => Some([0,0,0]),
+        'm' => None,
+        _ => return Ok(None),  // not a string
+    };
+
+    param.clone().deserialize_attributes(emitter, |de| {
+        let user_mask = de.accept_value::<[u8; 3]>("mask")?;
+        let furibug = de.accept_flag("furibug")?;
+        let size = {
+            let user_len = de.accept_value::<u32>("len")?;
+            let user_bs = de.accept_value::<u32>("bs")?;
+            match (user_len, user_bs) {
+                (None, Some(bs)) => StringArgSize::Block {
+                    block_size: bs.value as _,
+                },
+                (Some(len), None) => StringArgSize::Fixed {
+                    len: len.value as _,
+                    nulless: de.accept_flag("nulless")?.is_some(),
+                },
+                (None, None) => return Err(emitter.as_sized().emit(error!(
+                    message("missing length attribute ('len' or 'bs') for '{}'", param.format_char),
+                    primary(param.format_char, ""),
+                ))),
+                (Some(len), Some(bs)) => return Err(emitter.as_sized().emit(error!(
+                    message("mutually exclusive attributes 'len' and 'bs' in '{}' format", param.format_char),
+                    primary(len, ""),
+                    primary(bs, ""),
+                ))),
+            }
+        };
+
+        Ok(Some(ArgEncoding::String {
+            mask: {
+                user_mask.map(|sp| sp.value).or(default_mask)
+                    .ok_or_else(|| de.error_missing("mask"))
+                    .map(|[mask, vel, accel]| AcceleratingByteMask { mask, vel, accel })?
+            },
+            size,
+            furibug: furibug.is_some(),
+        }))
+    })
+}
+
+fn other_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
+    match param.format_char.value {
+        'C' => Ok(Some(ArgEncoding::Color)),
+        'o' => Ok(Some(ArgEncoding::JumpOffset)),
+        't' => Ok(Some(ArgEncoding::JumpTime)),
+        'f' => Ok(Some(ArgEncoding::Float)),
+        '_' => Ok(Some(ArgEncoding::Padding)),
+        _ => Ok(None),
+    }
+}
+
+
+fn override_option<A>(opt: &mut Option<A>, new_value: Option<A>) {
+    *opt = new_value.or(opt.take());
+}
+
 fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
     let err = |message: String| Err(error!(
         message("bad signature: {}", message),
@@ -252,7 +351,7 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
         return err(format!("signature has a 't' arg without an 'o' arg"));
     }
 
-    if encodings.iter().skip(1).any(|c| matches!(c, Enc::TimelineArg { .. })) {
+    if encodings.iter().skip(1).any(|c| matches!(c, Enc::Integer { arg0: true, .. })) {
         return err(format!("'T()' arguments may only appear at the beginning of a signature"));
     }
 
@@ -269,6 +368,8 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
     Ok(())
 }
 
+// =============================================================================
+
 fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_>) -> defs::Signature {
     struct Info {
         ty: ScalarType,
@@ -284,19 +385,18 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
                 | ArgEncoding::Color
                 => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: None },
 
-                | ArgEncoding::Integer { ref ty_color, .. }
+                | ArgEncoding::Integer { arg0: false, ref ty_color, .. }
                 => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: ty_color.clone() },
+
+                | ArgEncoding::Integer { arg0: true, ref ty_color, .. }
+                => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: ty_color.clone() },
+
+                | ArgEncoding::TimelineArg { .. }
+                => unreachable!(), // XXX
 
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime
-                | ArgEncoding::TimelineArg(TimelineArgKind::Word)
                 => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: None },
-
-                | ArgEncoding::TimelineArg(TimelineArgKind::Enum(ref color))
-                => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: Some(color.clone()) },
-
-                | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
-                => return None,  // leave out of the signature
 
                 | ArgEncoding::Padding
                 => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true, ty_color: None },
@@ -329,7 +429,7 @@ mod tests {
     fn parse(s: &str) -> Result<InstrAbi, ErrorReported> {
         let emitter = crate::diagnostic::RootEmitter::new_captured();
         let (file_id, s) = emitter.files.add("<input>", s.as_bytes()).unwrap();
-        InstrAbi::parse(Span::of_full_source(file_id, &s), &s, &emitter)
+        InstrAbi::parse(SourceStr::from_full_source(file_id, &s), &emitter)
     }
 
     #[test]
@@ -358,8 +458,8 @@ mod tests {
 
     #[test]
     fn timeline_must_be_at_beginning() {
-        assert!(parse("T(_)S").is_ok());
-        assert!(parse("T(e)").is_ok());
-        assert!(parse("ST(e)").is_err());
+        assert!(parse("s(arg0)S").is_ok());
+        assert!(parse("s(arg0)").is_ok());
+        assert!(parse("Ss(arg0)").is_err());
     }
 }

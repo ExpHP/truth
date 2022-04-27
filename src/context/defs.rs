@@ -5,7 +5,7 @@ use crate::raw;
 use crate::ast;
 use crate::context::{self, CompilerContext};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
-use crate::pos::{Sp, Span};
+use crate::pos::{Sp, Span, SourceStr};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, ConstId, IdMap, id_map, rib};
@@ -664,7 +664,11 @@ impl CompilerContext<'_> {
             }
 
             signatures.iter().map(|&(opcode, ref abi_str)| {
-                let abi = sp!(abi_str.span => InstrAbi::parse(abi_str.span, abi_str, emitter)?);
+                // since there's no escape syntax in mapfile values, abi_str exactly matches the source text,
+                // so we can construct a SourceStr
+                let abi_source = SourceStr::from_span(abi_str.span, &abi_str);
+
+                let abi = sp!(abi_str.span => InstrAbi::parse(abi_source, emitter)?);
                 abi.validate_against_language(abi_str.span, game, language, emitter)?;
 
                 let abi_loc = match mapfile.is_core_mapfile {

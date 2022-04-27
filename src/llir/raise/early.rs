@@ -227,7 +227,16 @@ fn decode_args_with_abi(
         param_mask /= 2;
 
         let value = match *enc {
-            | ArgEncoding::Integer { size: 4, ty_color: _ }
+            | ArgEncoding::TimelineArg { .. }
+            | ArgEncoding::Integer { arg0: true, .. }
+            => {
+                // a check that non-timeline languages don't have timeline args in their signature
+                // is done earlier so we can unwrap this
+                let extra_arg = instr.extra_arg.expect("timeline arg in sig for non-timeline language");
+                ScalarValue::Int(extra_arg as _)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 4, ty_color: _ }
             | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
@@ -237,7 +246,7 @@ fn decode_args_with_abi(
                 ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
             },
 
-            | ArgEncoding::Integer { size: 2, ty_color: _ }
+            | ArgEncoding::Integer { arg0: false, size: 2, ty_color: _ }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
                 ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
@@ -275,14 +284,6 @@ fn decode_args_with_abi(
 
                 let string = encoded.decode(DEFAULT_ENCODING).map_err(|e| emitter.emit(e))?;
                 ScalarValue::String(string)
-            },
-
-            | ArgEncoding::TimelineArg { .. }
-            => {
-                // a check that non-timeline languages don't have timeline args in their signature
-                // is done earlier so we can unwrap this
-                let extra_arg = instr.extra_arg.expect("timeline arg in sig for non-timeline language");
-                ScalarValue::Int(extra_arg as _)
             },
         };
 

@@ -1,9 +1,8 @@
 
 use crate::ast;
-use crate::context::CompilerContext;
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::ErrorReported;
-use crate::pos::{Sp, HasSpan, SourceStr};
+use crate::pos::{Sp, Span, SourceStr};
 use crate::parse::lexer::Location;
 use crate::ident::Ident;
 
@@ -71,15 +70,19 @@ pub mod abi_ast {
     impl Param {
         pub fn deserialize_attributes<B, F>(
             self,
+            emitter: &dyn Emitter,
             callback: F,
-            ctx: &CompilerContext<'_>,
         ) -> Result<B, ErrorReported>
         where
             F: FnOnce(&mut AttributeDeserializer) -> Result<B, ErrorReported>,
         {
+            let mut outer_name_buf = [0u8; 4];
+            let outer_name = self.format_char.encode_utf8(&mut outer_name_buf);
+
             let mut deserializer = AttributeDeserializer {
+                outer_name: sp!(self.format_char.span => &*outer_name),
                 remaining_attributes: self.attributes,
-                ctx,
+                emitter,
             };
             let value = callback(&mut deserializer)?;
             deserializer.finish()?;
@@ -104,9 +107,10 @@ pub mod abi_ast {
     }
 }
 
+/// Parse an ABI string into its AST.
 pub fn parse_abi(
     mut text: SourceStr<'_>,
-    ctx: &CompilerContext<'_>,
+    emitter: &impl Emitter,
 ) -> Result<Abi, ErrorReported> {
     let mut params = vec![];
 
@@ -125,12 +129,12 @@ pub fn parse_abi(
                 let attributes = match next_non_ws {
                     // Type with attributes.
                     Some('(') => {
-                        let attr_tokens = extract_attr_tokens(&mut text, ctx)?;
+                        let attr_tokens = extract_attr_tokens(&mut text, emitter)?;
                         let ident_rhs_pairs = {
                             attrs_parser::AttributesParser::new().parse(attr_tokens)
-                                .map_err(|e| ctx.emitter.emit(e))?
+                                .map_err(|e| emitter.emit(e))?
                         };
-                        mapify_attributes(ident_rhs_pairs, ctx)?
+                        mapify_attributes(ident_rhs_pairs, emitter)?
                     },
                     // Type without attributes.
                     _ => Default::default(),
@@ -140,7 +144,7 @@ pub fn parse_abi(
 
             bad_char => {
                 let escaped: String = bad_char.escape_default().collect();
-                return Err(ctx.emitter.emit(error!(
+                return Err(emitter.emit(error!(
                     message("unexpected '{escaped}'"),
                     primary(bad_char, ""),
                 )))
@@ -154,7 +158,7 @@ pub fn parse_abi(
 /// a ')' token for an attribute list.
 fn extract_attr_tokens<'input>(
     text: &mut SourceStr<'input>,
-    ctx: &CompilerContext<'_>,
+    emitter: &impl Emitter,
 ) -> Result<Vec<(Location, Token<'input>, Location)>, ErrorReported>  {
     let mut lexer = AttributeLexer::new(text.clone());
 
@@ -169,12 +173,12 @@ fn extract_attr_tokens<'input>(
             None => {
                 let (l, _, r) = tokens[0];
                 let open_paren_span = crate::pos::Span::from_locs(l, r);
-                return Err(ctx.emitter.emit(error!(
+                return Err(emitter.emit(error!(
                     message("missing closing parenthesis for attribute list"),
                     primary(open_paren_span, "unclosed parenthesis"),
                 )))
             },
-            Some(Err(e)) => return Err(ctx.emitter.emit(e)),
+            Some(Err(e)) => return Err(emitter.emit(e)),
             Some(Ok(token)) => tokens.push(token),
         }
     }
@@ -185,13 +189,13 @@ fn extract_attr_tokens<'input>(
 
 fn mapify_attributes(
     attrs: impl IntoIterator<Item=(Sp<Ident>, AttributeRhs)>,
-    ctx: &CompilerContext<'_>,
+    emitter: &impl Emitter,
 ) -> Result<IndexMap<Sp<Ident>, AttributeRhs>, ErrorReported> {
     let mut out = IndexMap::default();
     for (ident, rhs) in attrs {
         match out.entry(ident.clone()) {
             indexmap::map::Entry::Vacant(entry) => { entry.insert(rhs); },
-            indexmap::map::Entry::Occupied(entry) => return Err(ctx.emitter.emit(error!(
+            indexmap::map::Entry::Occupied(entry) => return Err(emitter.emit(error!(
                 message("duplicate attribute {ident}"),
                 primary(ident, ""),
                 secondary(entry.key(), ""),
@@ -204,33 +208,62 @@ fn mapify_attributes(
 // =============================================================================
 
 /// Helper for validating the attributes of a specific ABI type.
-pub struct AttributeDeserializer<'a, 'ctx> {
+pub struct AttributeDeserializer<'a> {
+    /// Format character, or intrinsic name.
+    outer_name: Sp<&'a str>,
     remaining_attributes: IndexMap<Sp<Ident>, AttributeRhs>,
-    ctx: &'a CompilerContext<'ctx>,
+    emitter: &'a dyn Emitter,
 }
 
-impl AttributeDeserializer<'_, '_> {
+impl AttributeDeserializer<'_> {
     /// Read a single attribute from the attribute list which takes no value.
-    pub fn accept_flag(&mut self, ident: &Sp<Ident>) -> Result<bool, ErrorReported> {
+    pub fn accept_flag(&mut self, attr_name: &str) -> Result<Option<Span>, ErrorReported> {
         // reuse the FromAttribute machinery in `accept_value` to validate having no value
-        let option: Option<()> = self.accept_value(ident)?;
-        Ok(option.is_some())
+        let option: Option<Sp<()>> = self.accept_value(attr_name)?;
+        Ok(option.map(|sp| sp.span))
     }
 
-    /// Read a single attribute from the attribute list, validating it as having the desired type.
-    pub fn accept_value<T: FromAttribute>(&mut self, ident: &Sp<Ident>) -> Result<Option<T>, ErrorReported> {
-        match self.remaining_attributes.remove(ident) {
+    /// Read a single attribute from the attribute list if present, validating it as having the desired type.
+    pub fn accept_value<T: FromAttribute>(&mut self, attr_name: &str) -> Result<Option<Sp<T>>, ErrorReported> {
+        match self.remaining_attributes.remove_entry(attr_name) {
             None => Ok(None),
-            Some(rhs) => Ok(Some(T::from_attribute(&rhs, ident).map_err(|e| self.ctx.emitter.emit(e))?)),
+            Some((key, rhs)) => {
+                T::from_attribute(&rhs, &key)
+                    .map_err(|e| self.emitter.as_sized().emit(e))
+                    .map(|value| Some(sp!(key.span => value)))
+            },
         }
+    }
+
+    // /// Require an attribute to be present in the attribute list, validating it as having the desired type.
+    // pub fn expect_value<T: FromAttribute>(&mut self, attr_name: &str) -> Result<T, ErrorReported> {
+    //     self.maybe_expect_value(attr_name, None)
+    // }
+
+    // /// Behaves either like [`Self::accept_value`] or [`Self::expect_value`] depending on whether a default exists.
+    // ///
+    // /// Useful for some cases where one format is an alias of another, but with a default set for something required.
+    // pub fn maybe_expect_value<T: FromAttribute>(&mut self, attr_name: &str, default: Option<T>) -> Result<T, ErrorReported> {
+    //     match (self.accept_value(attr_name)?, default) {
+    //         (Some(value), _) => Ok(value),
+    //         (None, Some(default)) => Ok(default),
+    //         (None, None) => Err(self.error_missing(attr_name)),
+    //     }
+    // }
+
+    pub fn error_missing(&mut self, attr_name: &str) -> ErrorReported {
+        self.emitter.as_sized().emit(error!(
+            message("missing attribute '{attr_name}' for '{}'", self.outer_name),
+            primary(self.outer_name, ""),
+        ))
     }
 
     /// Generate diagnostics on any attributes that were never accepted.
     #[inline(never)]
     pub fn finish(self) -> Result<(), ErrorReported> {
         for key in self.remaining_attributes.keys() {
-            self.ctx.emitter.emit(warning!(
-                message("unsupported or unknown attribute '{key}'"),
+            self.emitter.as_sized().emit(warning!(
+                message("unsupported or unknown attribute '{key}' for '{}'", self.outer_name),
                 primary(key, ""),
             )).ignore();
         }
@@ -251,12 +284,43 @@ impl FromScalar for i32 {
     }
 }
 
+macro_rules! impl_from_scalar_for_other_ints {
+    ($($int:ident),*) => {
+        $(
+            impl FromScalar for $int {
+                fn from_scalar(scalar: &Sp<Scalar>, attr_name: &Sp<Ident>) -> Result<Self, Diagnostic> {
+                    i32::from_scalar(scalar, attr_name)?
+                        .try_into()
+                        .map_err(|err| error!(
+                            message("value out of range for '{}'", attr_name),
+                            primary(scalar, ""),
+                        ))
+                }
+            }
+        )*
+    }
+}
+
+impl_from_scalar_for_other_ints!{ u32, u8 }
+
 impl FromScalar for String {
     fn from_scalar(scalar: &Sp<Scalar>, attr_name: &Sp<Ident>) -> Result<Self, Diagnostic> {
         match &scalar.value {
             Scalar::String(str) => Ok(crate::fmt::stringify(str)),
             _ => Err(wrong_scalar_type(attr_name, "string", scalar)),
         }
+    }
+}
+
+impl FromScalar for Ident {
+    fn from_scalar(scalar: &Sp<Scalar>, attr_name: &Sp<Ident>) -> Result<Self, Diagnostic> {
+        FromScalar::from_scalar(scalar, attr_name)
+            .and_then(|string: String| {
+                Ident::new_user(&string).map_err(|e| error!(
+                    message("{e}"),
+                    primary(scalar, ""),
+                ))
+            })
     }
 }
 
@@ -401,7 +465,7 @@ mod tests {
         let mut scope = crate::Builder::new().build();
         let mut truth = scope.truth();
         let source_str = truth.register_source("<input>", input).unwrap();
-        parse_abi(source_str, truth.ctx()).unwrap()
+        parse_abi(source_str, truth.ctx().emitter).unwrap()
     }
 
     fn expect_parse_error(
@@ -411,7 +475,7 @@ mod tests {
         let mut scope = crate::Builder::new().capture_diagnostics(true).build();
         let mut truth = scope.truth();
         let source_str = truth.register_source("<input>", input).unwrap();
-        let _ = parse_abi(source_str, truth.ctx());
+        let _ = parse_abi(source_str, truth.ctx().emitter);
 
         let err_str = truth.get_captured_diagnostics().unwrap();
         if !err_str.contains(expected) {
