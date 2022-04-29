@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::rc::Rc;
 
 use crate::io::{BinRead, BinWrite};
 
@@ -52,21 +53,21 @@ impl ColorFormat {
         }
     }
 
-    pub fn transcode_to_argb_8888(&self, bytes: &[u8]) -> Vec<u8> {
+    pub fn transcode_to_argb_8888(&self, bytes: &Rc<Vec<u8>>) -> Rc<Vec<u8>> {
         match self {
-            ColorFormat::Argb8888 => bytes.to_vec(),
-            ColorFormat::Rgb565 => Argb8888::encode(&Rgb565::decode(bytes)),
-            ColorFormat::Argb4444 => Argb8888::encode(&Argb4444::decode(bytes)),
-            ColorFormat::Gray8 => Argb8888::encode(&Gray8::decode(bytes)),
+            ColorFormat::Argb8888 => Rc::clone(bytes),
+            ColorFormat::Rgb565 => Rc::new(Argb8888::encode(&Rgb565::decode(bytes))),
+            ColorFormat::Argb4444 => Rc::new(Argb8888::encode(&Argb4444::decode(bytes))),
+            ColorFormat::Gray8 => Rc::new(Argb8888::encode(&Gray8::decode(bytes))),
         }
     }
 
-    pub fn transcode_from_argb_8888(&self, bytes: &[u8]) -> Vec<u8> {
+    pub fn transcode_from_argb_8888(&self, bytes: &Rc<Vec<u8>>) -> Rc<Vec<u8>> {
         match self {
-            ColorFormat::Argb8888 => bytes.to_vec(),
-            ColorFormat::Rgb565 => Rgb565::encode(&Argb8888::decode(bytes)),
-            ColorFormat::Argb4444 => Argb4444::encode(&Argb8888::decode(bytes)),
-            ColorFormat::Gray8 => Gray8::encode(&Argb8888::decode(bytes)),
+            ColorFormat::Argb8888 => Rc::clone(bytes),
+            ColorFormat::Rgb565 => Rc::new(Rgb565::encode(&Argb8888::decode(bytes))),
+            ColorFormat::Argb4444 => Rc::new(Argb4444::encode(&Argb8888::decode(bytes))),
+            ColorFormat::Gray8 => Rc::new(Gray8::encode(&Argb8888::decode(bytes))),
         }
     }
 

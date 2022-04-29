@@ -117,16 +117,18 @@ In this case, the example entry above (with the path `"subdir/image.png"`) would
 
 ##### Mix and match
 
-You can supply multiple image sources!  For instance, if you are recompiling an ANM file *and* adding additional images, you could supply:
+You can supply multiple image sources!  For instance, if you are recompiling an ANM file *and* adding additional images (or replacing some of the images), you could supply:
 
 ```
 truanm compile -g12 edited.spec -i original.anm -i my/extra/images -o out.anm
 ```
 
+The ordering of the image sources is important when replacing images; here, `-i my/extra/images` appears last, so it takes top priority when multiple image sources define the same image.
+
 Note that, similar to mapfiles, image sources can alternatively be defined inside the script using `#pragma image_source`:
 
 ```C
-// equivalent to '-i original.anm -i my/extra/images'
+// equivalent to prepending '-i original.anm -i my/extra/images' to argument list
 #pragma image_source "original.anm"
 #pragma image_source "my/extra/images"
 ```

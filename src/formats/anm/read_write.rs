@@ -1,26 +1,26 @@
 use std::num::NonZeroU64;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use indexmap::{IndexSet, IndexMap};
 
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
-use crate::diagnostic::{Diagnostic, Emitter};
+use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::game::{Game};
 use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
-use crate::pos::{Sp};
 
-use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, Version, Texture, HasData};
+use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, Version, Texture};
 
 #[derive(Debug, Clone)]
 struct EntryHeaderData {
     version: u32,
     num_sprites: u32,
     num_scripts: u32,
-    width: u32,
-    height: u32,
-    format: u32,
+    rt_width: u32,
+    rt_height: u32,
+    rt_format: u32,
     name_offset: u64,
     secondary_name_offset: Option<NonZeroU64>, // EoSD only?
     colorkey: u32, // Only in old format
@@ -55,7 +55,7 @@ pub fn read_anm(
 
     let binary_filename = Some(reader.display_filename().to_string());
     let mut anm = AnmFile { entries, binary_filename };
-    super::strip_unnecessary_sprite_ids(&mut anm);
+    super::strip_unnecessary_sprite_ids(anm.entries.iter_mut().map(|e| &mut e.sprites));
     Ok(anm)
 }
 
@@ -158,23 +158,20 @@ fn read_entry(
         },
     };
     let specs = EntrySpecs {
-        rt_width: Some(sp!(header_data.width)),
-        rt_height: Some(sp!(header_data.height)),
-        rt_format: Some(sp!(header_data.format)),
-        img_width: tex_info.as_ref().map(|x| sp!(x.width)),
-        img_height: tex_info.as_ref().map(|x| sp!(x.height)),
-        img_format: tex_info.as_ref().map(|x| sp!(x.format)),
-        colorkey: Some(header_data.colorkey),
-        offset_x: Some(header_data.offset_x), offset_y: Some(header_data.offset_y),
-        memory_priority: Some(header_data.memory_priority),
-        has_data: Some(HasData::from(header_data.has_data != 0)),
-        low_res_scale: Some(header_data.low_res_scale != 0),
+        rt_width: header_data.rt_width,
+        rt_height: header_data.rt_height,
+        rt_format: header_data.rt_format,
+        colorkey: header_data.colorkey,
+        offset_x: header_data.offset_x, offset_y: header_data.offset_y,
+        memory_priority: header_data.memory_priority,
+        low_res_scale: header_data.low_res_scale != 0,
     };
 
     let entry = Entry {
         path: sp!(path),
         path_2: path_2.map(|x| sp!(x)),
-        texture, specs, sprites, scripts
+        texture, tex_info,
+        specs, sprites, scripts
     };
 
     reader.seek_to(entry_pos + header_data.next_offset)?;
@@ -229,49 +226,16 @@ fn write_entry(
 
     let EntrySpecs {
         rt_width, rt_height, rt_format,
-        img_width, img_height, img_format,
         colorkey, offset_x, offset_y, memory_priority,
-        has_data, low_res_scale,
-    } = entry.specs.fill_defaults(file_format.game);
-
-    fn missing(emitter: &impl Emitter, problem: &str, note_2: Option<&str>) -> ErrorReported {
-        let mut diag = error!("{}", problem);
-        diag.note(format!("try using '-i ANM_FILE' or '-i path/to/patchdir' to supply a source for the image"));
-        if let Some(note) = note_2 {
-            diag.note(note.to_string());
-        }
-
-        emitter.emit(diag)
-    }
-
-    let colorkey = colorkey.expect("has default");
-    let offset_x = offset_x.expect("has default");
-    let offset_y = offset_y.expect("has default");
-    let memory_priority = memory_priority.expect("has default");
-    let has_data = has_data.expect("has default");
-    let low_res_scale = low_res_scale.expect("has default");
-    let img_format = img_format.expect("has default");
-    let rt_format = rt_format.expect("has default");
-
-    macro_rules! expect {
-        ($name:ident) => {
-            $name.ok_or_else(|| {
-                let problem = format!("missing required field '{}'!", stringify!($name));
-                missing(emitter, &problem, None)
-            })?
-        };
-    }
+        low_res_scale,
+    } = entry.specs;
 
     file_format.write_header(w, &EntryHeaderData {
-        width: expect!(rt_width).value,
-        height: expect!(rt_height).value,
-        format: rt_format.value,
-        colorkey,
-        offset_x,
-        offset_y,
+        rt_width, rt_height, rt_format, colorkey,
+        offset_x, offset_y,
         memory_priority,
         low_res_scale: low_res_scale as u32,
-        has_data: has_data as u32,
+        has_data: entry.texture.is_some() as u32,
         version: file_format.version as u32,
         num_sprites: entry.sprites.len() as u32,
         num_scripts: entry.scripts.len() as u32,
@@ -314,69 +278,24 @@ fn write_entry(
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    match has_data {
-        HasData::True => match &entry.texture {
-            None => {
-                let problem = "no bitmap data available!";
-                let note_2 = "alternatively, use 'has_data: false' to compile with no image, or 'has_data: \"dummy\"' to generate a magenta placeholder";
-                return Err(missing(emitter, problem, Some(note_2)));
-            },
-            Some(texture) => {
-                let info = ThtxHeader {
-                    width: img_width.expect("have texture but somehow missing img_width?!").value,
-                    height: img_height.expect("have texture but somehow missing img_height?!").value,
-                    format: img_format.value,
-                };
-                texture_offset = w.pos()? - entry_pos;
-                write_texture(w, &info, texture)?;
-            },
-        }, // HasData::True => ...
-
-        HasData::Dummy => {
-            texture_offset = w.pos()? - entry_pos;
-
-            macro_rules! expect {
-                ($name:ident) => {
-                    $name.ok_or_else(|| emitter.emit(error!(
-                        message("missing required field '{}'!", stringify!($name)),
-                        note("field is required due to 'has_data: \"dummy\"'"),
-                    )))?
-                };
-            }
-            let width = expect!(img_width).value;
-            let height = expect!(img_height).value;
-            let format = require_known_format(img_format).map_err(|mut diag| {
-                diag.note(format!(
-                    "has_data: \"dummy\" requires one of the following formats: {}",
-                    ColorFormat::get_all().into_iter().map(|format| format.const_name())
-                        .collect::<Vec<_>>().join(", "),
-                ));
-                emitter.emit(diag)
-            })?;
-            let info = ThtxHeader { width, height, format: img_format.value };
-            let data = format.dummy_fill_color_bytes().repeat((width * height) as usize);
-
-            write_texture(w, &info, &Texture { data })?;
-        },
-
-        HasData::False => {},
-    }; // match has_data
+    if let Some(texture) = &entry.texture {
+        texture_offset = w.pos()? - entry_pos;
+        write_texture(w, texture)?;
+    };
 
     let end_pos = w.pos()?;
 
-    for (noun, img_dim, rt_dim) in vec![
-        ("width", img_width, rt_width),
-        ("height", img_height, rt_height),
-    ] {
-        if img_dim.is_none() { continue; }
-        if rt_dim.is_none() { continue; }
-        let (img_dim, rt_dim) = (img_dim.unwrap(), rt_dim.unwrap());
-        if img_dim > rt_dim {
-            emitter.emit(warning!(
-                message("runtime {} of {} too small for image {} of {}", noun, rt_dim, noun, img_dim),
-                primary(rt_dim, "runtime buffer too small for image"),
-                // no img dimension span because it might not have one
-            )).ignore();
+    if let Some(texture) = &entry.texture {
+        for (noun, img_dim, rt_dim) in vec![
+            ("width", texture.width, rt_width),
+            ("height", texture.height, rt_height),
+        ] {
+            if img_dim > rt_dim as usize {
+                emitter.emit(warning!(
+                    message("runtime {} of {} too small for image {} of {}", noun, rt_dim, noun, img_dim),
+                    // no img dimension span because it might not have one
+                )).ignore();
+            }
         }
     }
 
@@ -406,14 +325,6 @@ fn write_entry(
     Ok(())
 }
 
-fn require_known_format(format: Sp<u32>) -> Result<crate::image::ColorFormat, Diagnostic> {
-    crate::image::ColorFormat::from_format_num(format.value)
-        .ok_or_else(|| error!(
-            message("unknown color format {}", format.value),
-            primary(format, "unknown color format"),
-        ))
-}
-
 fn read_sprite(f: &mut BinReader) -> ReadResult<Sprite> {
     Ok(Sprite {
         id: Some(f.read_u32()?),
@@ -433,10 +344,10 @@ fn write_sprite(
 }
 
 #[derive(Debug, Clone)]
-struct ThtxHeader {
-    format: u32,
-    width: u32,
-    height: u32,
+pub(in crate::formats::anm) struct ThtxHeader {
+    pub format: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[inline(never)]
@@ -463,20 +374,25 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
     if with_images {
         let mut data = vec![0; size as usize];
         f.read_exact(&mut data)?;
-        Ok((thtx, Some(Texture { data })))
+        Ok((thtx, Some(Texture {
+            data: Rc::new(data),
+            width: width as _,
+            height: height as _,
+            format,
+        })))
     } else {
         Ok((thtx, None))
     }
 }
 
 #[inline(never)]
-fn write_texture(f: &mut BinWriter, info: &ThtxHeader, texture: &Texture) -> WriteResult {
+fn write_texture(f: &mut BinWriter, texture: &Texture) -> WriteResult {
     f.write_all(b"THTX")?;
 
     f.write_u16(0)?;
-    f.write_u16(info.format as _)?;
-    f.write_u16(info.width as _)?;
-    f.write_u16(info.height as _)?;
+    f.write_u16(texture.format as _)?;
+    f.write_u16(texture.width as _)?;
+    f.write_u16(texture.height as _)?;
 
     f.write_u32(texture.data.len() as _)?;
     f.write_all(&texture.data)?;
@@ -486,7 +402,6 @@ fn write_texture(f: &mut BinWriter, info: &ThtxHeader, texture: &Texture) -> Wri
 /// Type responsible for dealing with version differences in the container format.
 struct FileFormat {
     version: Version,
-    game: Game,
     instr_format: Box<dyn InstrFormat>,
 }
 
@@ -497,7 +412,7 @@ impl FileFormat {
     fn from_game(game: Game) -> Self {
         let version = Version::from_game(game);
         let instr_format = get_instr_format(version);
-        FileFormat { game, version, instr_format }
+        FileFormat { version, instr_format }
     }
 
     fn read_header(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<EntryHeaderData> {
@@ -534,7 +449,9 @@ impl FileFormat {
 
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
-                width, height, format, name_offset,
+                rt_width: width,
+                rt_height: height,
+                rt_format: format, name_offset,
                 next_offset, secondary_name_offset, colorkey,
                 memory_priority, thtx_offset, has_data,
                 offset_x: 0, offset_y: 0, low_res_scale: 0,
@@ -563,7 +480,9 @@ impl FileFormat {
             }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
-                width, height, format, name_offset,
+                rt_width: width,
+                rt_height: height,
+                rt_format: format, name_offset,
                 offset_x, offset_y, low_res_scale, next_offset,
                 memory_priority, thtx_offset, has_data,
                 secondary_name_offset: None,
@@ -578,9 +497,9 @@ impl FileFormat {
             f.write_u32(header.num_sprites as _)?;
             f.write_u32(header.num_scripts as _)?;
             f.write_u32(0)?;
-            f.write_u32(header.width as _)?;
-            f.write_u32(header.height as _)?;
-            f.write_u32(header.format as _)?;
+            f.write_u32(header.rt_width as _)?;
+            f.write_u32(header.rt_height as _)?;
+            f.write_u32(header.rt_format as _)?;
             f.write_u32(header.colorkey as _)?;
             f.write_u32(header.name_offset as _)?;
             f.write_u32(0)?;
@@ -599,9 +518,9 @@ impl FileFormat {
             f.write_u16(header.num_sprites as _)?;
             f.write_u16(header.num_scripts as _)?;
             f.write_u16(0)?;
-            f.write_u16(header.width as _)?;
-            f.write_u16(header.height as _)?;
-            f.write_u16(header.format as _)?;
+            f.write_u16(header.rt_width as _)?;
+            f.write_u16(header.rt_height as _)?;
+            f.write_u16(header.rt_format as _)?;
             f.write_u32(header.name_offset as _)?;
             f.write_u16(header.offset_x as _)?;
             f.write_u16(header.offset_y as _)?;

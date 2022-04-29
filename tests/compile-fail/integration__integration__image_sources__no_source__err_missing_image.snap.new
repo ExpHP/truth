@@ -1,0 +1,9 @@
+---
+source: tests/integration/image_sources.rs
+expression: stderr
+---
+error: no bitmap data available!
+ = you can use '-i ANM_FILE' or '-i path/to/patchdir' to import images
+ = alternatively, use 'has_data: false' to compile with no image, or 'has_data: "dummy"' to generate a magenta placeholder
+
+

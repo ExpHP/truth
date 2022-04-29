@@ -37,11 +37,8 @@ entry {
 
 // an image that differs between two image sources.
 entry {
-    // This one is NOT the image from resources/dir-with-images.
-    // The one in the directory is a 4x8 image, while this anm file was compiled with a 12x6 image.
-    path: "subdir/modified-size.png",
+    path: "subdir/modified-size.png",  // the image from resources/dir-with-images
     has_data: true,
-    img_width: 12,
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite1: {id: 0, x: 0.0, y: 0.0, w: 2.0, h: 2.0}},
 }

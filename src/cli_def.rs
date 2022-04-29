@@ -213,6 +213,7 @@ pub mod anm_compile {
             compiled.apply_image_source(source_anm, &truth.fs())?;
         }
 
+        let compiled = truth.finalize_anm(game, compiled)?;
         truth.write_anm(game, &outpath, &compiled)?;
 
         if let Some(outpath) = output_thecl_defs {

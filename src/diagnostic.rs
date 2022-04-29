@@ -60,6 +60,11 @@ impl Diagnostic {
         self.imp.notes.push(message);
         self
     }
+
+    pub fn prepend_note(&mut self, message: String) -> &mut Self {
+        self.imp.notes.insert(0, message);
+        self
+    }
 }
 
 // =============================================================================
