@@ -95,7 +95,7 @@ pub(in crate::formats::anm) fn load_img_file_for_entry(
     // all dest dimensions are set now, but pre-existing ones might not match the image
     let dest_dimensions = (specs.img_width.into_option().unwrap(), specs.img_height.into_option().unwrap());
     let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
-    if src_dimensions != expected_src_dimensions {
+    if src_dimensions != expected_src_dimensions && specs.has_data.into_option() != Some(HasData::Dummy) {
         return Err(emitter.emit(error!(
             "{}: wrong image dimensions (expected {}x{}, got {}x{})",
             fs.display_path(img_path),

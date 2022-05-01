@@ -203,12 +203,10 @@ pub mod anm_compile {
 
         // image sources referenced in file take precedence
         let mut image_source_paths = vec![];
-        for path_literal in ast.image_sources.iter().rev() {
-            image_source_paths.push(PathBuf::from(path_literal.string.clone()));
-        }
-        image_source_paths.extend(cli_image_source_paths.iter().cloned().rev());
+        image_source_paths.extend(ast.image_sources.iter().map(|lit| PathBuf::from(&lit.string)));
+        image_source_paths.extend(cli_image_source_paths.iter().cloned());
 
-        for image_source_path in image_source_paths.iter() {
+        for image_source_path in &image_source_paths {
             let source_anm = truth.read_image_source(game, image_source_path)?;
             compiled.apply_image_source(source_anm, &truth.fs())?;
         }

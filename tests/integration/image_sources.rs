@@ -414,10 +414,10 @@ mod conflicts {
     use super::*;
 
     // Dimensions of 'subdir/modified-size.png' in the ANM file source versus the directory source.
-    const MODIFIED_WIDTH_IN_ANM: u32 = 4;
-    const MODIFIED_HEIGHT_IN_ANM: u32 = 8;
-    const MODIFIED_WIDTH_IN_DIR: u32 = 12;
-    const MODIFIED_HEIGHT_IN_DIR: u32 = 6;
+    const ORIGINAL_WIDTH: u32 = 12;
+    const ORIGINAL_HEIGHT: u32 = 6;
+    const MODIFIED_WIDTH: u32 = 4;
+    const MODIFIED_HEIGHT: u32 = 8;
 
     // Test the order in which CLI image sources take priority.
     source_test!(
@@ -434,8 +434,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT);
         },
     );
 
@@ -453,8 +453,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT);
         },
     );
 
@@ -472,8 +472,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT);
         },
     );
 
@@ -491,11 +491,11 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT);
 
             let data = anm.entries[0].img_data().unwrap();
-            assert_eq!(data.len(), (1 * MODIFIED_WIDTH_IN_DIR * MODIFIED_HEIGHT_IN_DIR) as usize);
+            assert_eq!(data.len(), (1 * MODIFIED_WIDTH * MODIFIED_HEIGHT) as usize);
         },
     );
 
@@ -513,11 +513,11 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_ANM);
-            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_ANM);
+            assert_eq!(anm.entries[0].img_width().unwrap(), ORIGINAL_WIDTH);
+            assert_eq!(anm.entries[0].img_height().unwrap(), ORIGINAL_HEIGHT);
 
             let data = anm.entries[0].img_data().unwrap();
-            assert_eq!(data.len(), (1 * MODIFIED_WIDTH_IN_ANM * MODIFIED_HEIGHT_IN_ANM) as usize);
+            assert_eq!(data.len(), (1 * ORIGINAL_WIDTH * ORIGINAL_HEIGHT) as usize);
         },
     );
 }
@@ -823,11 +823,11 @@ fn check_data_for_modified_hai_10_18_argb_8888(data: &[u8]) {
     assert_eq!(data.len(), row_size * 18);
     assert_eq!(
         &data[..2 * pixel_size],
-        &[0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF],
+        &[0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
     );
     assert_eq!(
         &data[row_size..row_size + 2 * pixel_size],
-        &[0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00],
+        &[0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF],
     );
 }
 
@@ -1052,9 +1052,9 @@ source_test!(
 
 entry {
     path: "subdir/hi-32x16.png",
-    has_data: false,
     rt_height: 16,
-    rt_width: 16,   //~ WARNING too small for
+    rt_width: 16,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
+    expect_warning: "too small for",
 );

@@ -405,46 +405,7 @@ fn validate_and_transcode_texture_for_entry(
     src_metadata: &TextureMetadata,
     loaded_source_path: &Path,  // .ANM or .PNG path
 ) -> Result<TextureData, ErrorReported> {
-    // If a user provided explicit img dimensions in the script AND loaded an image from a source, it is possible
-    // that these dimensions could disagree with the image that was imported.  Check for this.
-    let mut bad_spans = vec![];
-    for &(user_dim, texture_dim) in &[
-        (specs.img_width, src_metadata.width),
-        (specs.img_height, src_metadata.height),
-    ] {
-        // (we can safely unwrap these options because a texture was loaded, so any missing dimensions
-        //  in the script file will have been filled from the texture)
-        if let Some(user_dim_value) = user_dim.into_option() {
-            if user_dim_value != texture_dim {
-                let user_dim_span = match user_dim {
-                    SoftOption::Explicit(sp) => sp.span,
-                    _ => unreachable!("conflicts are only possible with explicit user dimensions..."),
-                };
-                bad_spans.push(user_dim_span);
-            }
-        }
-    }
-
-    if !bad_spans.is_empty() {
-        let mut diag = error!(
-            message(
-                "provided dimensions for '{}' do not match image source: {}x{} in script, {}x{} in image source",
-                entry_path,
-                specs.img_width.into_option().unwrap(),
-                specs.img_height.into_option().unwrap(),
-                src_metadata.width, src_metadata.height,
-            ),
-            note("image was loaded from '{}'", loaded_source_path.display()),
-            note("you can remove these explicit dimensions to infer them from the image source"),
-            note("you can add another image source to override this image"),
-            note("you can use `has_image: \"dummy\"` to ignore the image in the source and generate dummy data"),
-        );
-        for span in bad_spans {
-            diag.primary(span, format!(""));
-        }
-
-        return Err(emitter.emit(diag));
-    }
+    validate_explicit_img_dimensions(emitter, &specs, entry_path, &src_metadata, loaded_source_path)?;
 
     let src_format = src_metadata.format;
     let dest_format = specs.img_format.into_option().unwrap();
@@ -470,6 +431,62 @@ fn validate_and_transcode_texture_for_entry(
     };
 
     Ok(dest_data.into())
+}
+
+// If a user provided explicit img dimensions in the script AND loaded an image from a source, it is possible
+// that these dimensions could disagree with the image that was imported.  Here we check for this.
+fn validate_explicit_img_dimensions(
+    emitter: &impl Emitter,
+    specs: &WorkingEntrySpecs,
+    entry_path: &str,
+    src_metadata: &TextureMetadata,
+    loaded_source_path: &Path,
+) -> Result<(), ErrorReported> {
+    if specs.has_data.into_option() == Some(HasData::Dummy) {
+        // in this case we want to allow the user to arbitrarily override the dimensions from sources
+        // without generating any error, since we won't actually be using the loaded texture data
+        return Ok(());
+    }
+
+    let mut bad_spans = vec![];
+    for &(user_dim, texture_dim) in &[
+        (specs.img_width, src_metadata.width),
+        (specs.img_height, src_metadata.height),
+    ] {
+        // (we can safely unwrap these options because a texture was loaded, so any missing dimensions
+        //  in the script file will have been filled from the texture)
+        if let Some(user_dim_value) = user_dim.into_option() {
+            if user_dim_value != texture_dim {
+                let user_dim_span = match user_dim {
+                    SoftOption::Explicit(sp) => sp.span,
+                    _ => unreachable!("conflicts are only possible with explicit user dimensions..."),
+                };
+                bad_spans.push(user_dim_span);
+            }
+        }
+    }
+
+    if !bad_spans.is_empty() {
+        let mut diag = error!(
+                message(
+                    "provided dimensions for '{}' do not match image source: {}x{} in script, {}x{} in image source",
+                    entry_path,
+                    specs.img_width.into_option().unwrap(),
+                    specs.img_height.into_option().unwrap(),
+                    src_metadata.width, src_metadata.height,
+                ),
+                note("image was loaded from '{}'", loaded_source_path.display()),
+                note("you can remove these explicit dimensions to infer them from the image source"),
+                note("you can add another image source to override this image"),
+                note("you can use `has_image: \"dummy\"` to ignore the image in the source and generate dummy data"),
+            );
+        for span in bad_spans {
+            diag.primary(span, format!(""));
+        }
+        return Err(emitter.emit(diag));
+    }
+
+    Ok(())
 }
 
 fn generate_texture_dummy_data(
