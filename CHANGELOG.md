@@ -6,6 +6,7 @@
 
 * **`truecl`** (!!!!) is available in **prototype status,** but the way to invoke it is ~~a well guarded secret~~ `truth-core truecl`.  TH06-TH095 are supported.
 * Multiple `-m` args can now be provided.
+* truanm had some unhelpful behavior when using multiple image sources that provide the same image, or when using `has_data: "dummy"` together with an image source.  Image sources have been redesigned to better support common use cases.
 
 ### New language features in support of ECL
 
@@ -20,10 +21,6 @@
 * **New type-cast syntax.**  The old `_S` and `_f` functions have been split into two types of operations: `int(expr)` and `float(expr)` for type-casts, and `$(expr)` and `%(expr)` to read a temporary as some type.  (the two are the same in most languages, except EoSD ECL which does not auto-cast)
 * **Enum consts.** A mapfile can define enums (see below section on mapfiles), which can then be used like `EnumName.ConstName` or simply `ConstName` in source code.
 * **`enum bool`.** `true` and `false` are no longer keywords but rather members of a builtin `enum`.  Use it like any other enum.
-
-### Fixes to truanm
-
-* truanm had some unhelpful behavior when using multiple image sources that provide the same image, or when using `has_data: "dummy"` together with an image source.  Image sources have been redesigned to better support common use cases.
 
 ### Improvements to decompilation
 
