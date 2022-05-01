@@ -21,6 +21,10 @@
 * **Enum consts.** A mapfile can define enums (see below section on mapfiles), which can then be used like `EnumName.ConstName` or simply `ConstName` in source code.
 * **`enum bool`.** `true` and `false` are no longer keywords but rather members of a builtin `enum`.  Use it like any other enum.
 
+### Fixes to truanm
+
+* truanm had some unhelpful behavior when using multiple image sources that provide the same image, or when using `has_data: "dummy"` together with an image source.  Image sources have been redesigned to better support common use cases.
+
 ### Improvements to decompilation
 
 * Allow detection of `if/elseif` chains that have no `else` block.
