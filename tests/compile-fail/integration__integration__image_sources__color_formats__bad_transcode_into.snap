@@ -2,10 +2,6 @@
 source: tests/integration/image_sources.rs
 expression: stderr
 ---
-error: cannot transcode into unknown color format 8
-  ┌─ <input>:8:17
-  │
-8 │     img_format: 8,
-  │                 ^ unknown color format
+error: cannot transcode into unknown color format 8 (for image 'lmao.png')
 
 

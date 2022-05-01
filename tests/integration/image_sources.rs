@@ -51,9 +51,8 @@ script -45 script0 {
             assert_eq!(anm.entries[0].specs.rt_width, 256);
             assert_eq!(anm.entries[0].specs.rt_height, 128);
             // the image has unnatural dimensions; make sure they are copied correctly
-            let texture = anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, 105);
-            assert_eq!(texture.height, 100);
+            assert_eq!(anm.entries[0].img_width().unwrap(), 105);
+            assert_eq!(anm.entries[0].img_height().unwrap(), 100);
         },
     );
 
@@ -114,10 +113,9 @@ entry {
             let anm = output.read_anm(format);
             assert_eq!(anm.entries[0].specs.rt_width, 16);
             assert_eq!(anm.entries[0].specs.rt_height, 32);
-            let texture = anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, 10);
-            assert_eq!(texture.height, 18);
-            check_data_for_hai_10_18_argb_8888(&texture.data);
+            assert_eq!(anm.entries[0].img_width().unwrap(), 10);
+            assert_eq!(anm.entries[0].img_height().unwrap(), 18);
+            check_data_for_hai_10_18_argb_8888(anm.entries[0].img_data().unwrap());
         },
     );
 
@@ -135,7 +133,7 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            let data = &anm.entries[0].img_data().unwrap();
             assert_eq!(data.len(), 4 * 10 * 18);
             assert_eq!(&data[..4], &data[4..8]); // all pixels are the same (unlike the original "hai" image)
         },
@@ -155,7 +153,7 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            let data = &anm.entries[0].img_data().unwrap();
             assert_eq!(data.len(), 4 * 10 * 18);
             assert_eq!(&data[..4], &data[4..8]); // all pixels are the same (unlike the original "hai" image)
         },
@@ -186,7 +184,8 @@ entry {
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }"#,
         check_compiled: |output, format| {
-            assert!(output.read_anm(format).entries[0].texture.is_none());
+            let anm = output.read_anm(format);
+            assert!(!anm.entries[0].has_thtx_section());
         }
     );
 
@@ -206,13 +205,11 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let specs = &anm.entries[0].specs;
-
-            assert_eq!(specs.offset_x, 0);
-            assert_eq!(specs.offset_y, 0);
-            assert_eq!(specs.colorkey, 0);
-            assert_eq!(specs.memory_priority, 10);
-            assert_eq!(specs.low_res_scale, false);
+            assert_eq!(anm.entries[0].specs.offset_x, 0);
+            assert_eq!(anm.entries[0].specs.offset_y, 0);
+            assert_eq!(anm.entries[0].specs.colorkey, 0);
+            assert_eq!(anm.entries[0].specs.memory_priority, 10);
+            assert_eq!(anm.entries[0].specs.low_res_scale, false);
         }
     );
 
@@ -224,10 +221,9 @@ entry {
 
 entry {
     path: "subdir/file.png",
-    has_data: false,
+    has_data: false,  //~ ERROR required field
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }"#,
-        expect_error: "required field",
     );
 
     // This input is identical to 'okay' except with 'has_data: true', so it will fail.
@@ -346,9 +342,8 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        // assert_eq!(anm.entries[0].specs.img_width, 2000);  // not saved in anm file...
+        assert_eq!(anm.entries[0].img_width(), None);
         assert_eq!(anm.entries[0].specs.rt_width, 2048);
-        assert!(anm.entries[0].texture.is_none());
     },
 );
 
@@ -366,9 +361,8 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        // assert_eq!(anm.entries[0].img_width, 2000);  // not saved in anm file...
+        assert_eq!(anm.entries[0].img_width(), None);
         assert_eq!(anm.entries[0].specs.rt_width, 2048);
-        assert!(anm.entries[0].texture.is_none());
     },
 );
 
@@ -389,7 +383,7 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let data = &anm.entries[0].texture.as_ref().unwrap().data;
+        let data = &anm.entries[0].img_data().unwrap();
         assert_eq!(data.len(), 1 * 8 * 16);  // use dimensions from script
         assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
     },
@@ -410,7 +404,7 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let data = &anm.entries[0].texture.as_ref().unwrap().data;
+        let data = &anm.entries[0].img_data().unwrap();
         assert_eq!(data.len(), 1 * 8 * 16);  // use dimensions from script
         assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
     },
@@ -420,10 +414,10 @@ mod conflicts {
     use super::*;
 
     // Dimensions of 'subdir/modified-size.png' in the ANM file source versus the directory source.
-    const MODIFIED_WIDTH_IN_ANM: usize = 4;
-    const MODIFIED_HEIGHT_IN_ANM: usize = 8;
-    const MODIFIED_WIDTH_IN_DIR: usize = 12;
-    const MODIFIED_HEIGHT_IN_DIR: usize = 6;
+    const MODIFIED_WIDTH_IN_ANM: u32 = 4;
+    const MODIFIED_HEIGHT_IN_ANM: u32 = 8;
+    const MODIFIED_WIDTH_IN_DIR: u32 = 12;
+    const MODIFIED_HEIGHT_IN_DIR: u32 = 6;
 
     // Test the order in which CLI image sources take priority.
     source_test!(
@@ -440,9 +434,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(texture.height, MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
         },
     );
 
@@ -460,9 +453,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(texture.height, MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
         },
     );
 
@@ -480,9 +472,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(texture.height, MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
         },
     );
 
@@ -500,13 +491,11 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, MODIFIED_WIDTH_IN_DIR);
-            assert_eq!(texture.height, MODIFIED_HEIGHT_IN_DIR);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_DIR);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_DIR);
 
-            let data = &texture.data;
+            let data = anm.entries[0].img_data().unwrap();
             assert_eq!(data.len(), (1 * MODIFIED_WIDTH_IN_DIR * MODIFIED_HEIGHT_IN_DIR) as usize);
-            assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
         },
     );
 
@@ -524,13 +513,11 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.width, MODIFIED_WIDTH_IN_ANM);
-            assert_eq!(texture.height, MODIFIED_HEIGHT_IN_ANM);
+            assert_eq!(anm.entries[0].img_width().unwrap(), MODIFIED_WIDTH_IN_ANM);
+            assert_eq!(anm.entries[0].img_height().unwrap(), MODIFIED_HEIGHT_IN_ANM);
 
-            let data = &texture.data;
+            let data = anm.entries[0].img_data().unwrap();
             assert_eq!(data.len(), (1 * MODIFIED_WIDTH_IN_ANM * MODIFIED_HEIGHT_IN_ANM) as usize);
-            assert!(data.iter().all(|&byte| byte == data[0])); // all pixels are the same
         },
     );
 }
@@ -555,8 +542,7 @@ entry {
         "#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.format, 8);
+            assert_eq!(anm.entries[0].img_format().unwrap(), 8);
         },
     );
 
@@ -574,9 +560,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.format, 7);
-            check_data_for_hai_10_18_gray_8(&texture.data);
+            assert_eq!(anm.entries[0].img_format().unwrap(), 7);
+            check_data_for_hai_10_18_gray_8(anm.entries[0].img_data().unwrap());
         },
     );
 
@@ -604,9 +589,10 @@ entry {
 entry {
     path: "lmao.png",
     has_data: true,
-    img_format: 8,   //~ ERROR into unknown color format
+    img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
+        expect_error: "into unknown color format",
     );
 
     source_test!(
@@ -622,7 +608,7 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let data = &anm.entries[0].texture.as_ref().unwrap().data;
+            let data = anm.entries[0].img_data().unwrap();
             assert_eq!(data.len(), 1 * 27 * 25);
             assert_eq!(&data[..1], &data[1..2]); // all pixels are the same
         },
@@ -636,9 +622,10 @@ entry {
     has_data: "dummy",
     img_width: 27,
     img_height: 25,
-    img_format: 8,   //~ ERROR unknown color format
+    img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
+        expect_error: "unknown color format",
     );
 
     source_test!(
@@ -654,9 +641,8 @@ entry {
 }"#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
-            let texture = &anm.entries[0].texture.as_ref().unwrap();
-            assert_eq!(texture.format, 7);
-            check_data_for_hai_10_18_gray_8(&texture.data);
+            assert_eq!(anm.entries[0].img_format().unwrap(), 7);
+            check_data_for_hai_10_18_gray_8(anm.entries[0].img_data().unwrap());
         },
     );
 
@@ -668,9 +654,10 @@ entry {
 entry {
     path: "subdir/hi-7x20.png",
     has_data: true,
-    img_format: 8,  //~ ERROR into unknown color format
+    img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
+        expect_error: "into unknown color format",
     );
 }
 
@@ -713,14 +700,12 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 32);
-        assert_eq!(specs.rt_height, 16);
-        assert_eq!(specs.rt_format, 1);
-        let texture = &anm.entries[0].texture.as_ref().unwrap();
-        assert_eq!(texture.width, 32);
-        assert_eq!(texture.height, 16);
-        assert_eq!(texture.format, 1);
+        assert_eq!(anm.entries[0].specs.rt_width, 32);
+        assert_eq!(anm.entries[0].specs.rt_height, 16);
+        assert_eq!(anm.entries[0].specs.rt_format, 1);
+        assert_eq!(anm.entries[0].img_width().unwrap(), 32);
+        assert_eq!(anm.entries[0].img_height().unwrap(), 16);
+        assert_eq!(anm.entries[0].img_format().unwrap(), 1);
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -737,14 +722,12 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 8);
-        assert_eq!(specs.rt_height, 32);
-        assert_eq!(specs.rt_format, 1);
-        let texture = &anm.entries[0].texture.as_ref().unwrap();
-        assert_eq!(texture.width, 7);
-        assert_eq!(texture.height, 20);
-        assert_eq!(texture.format, 1);
+        assert_eq!(anm.entries[0].specs.rt_width, 8);
+        assert_eq!(anm.entries[0].specs.rt_height, 32);
+        assert_eq!(anm.entries[0].specs.rt_format, 1);
+        assert_eq!(anm.entries[0].img_width().unwrap(), 7);
+        assert_eq!(anm.entries[0].img_height().unwrap(), 20);
+        assert_eq!(anm.entries[0].img_format().unwrap(), 1);
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -764,13 +747,11 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 16);
-        assert_eq!(specs.rt_height, 32);
-        let texture = &anm.entries[0].texture.as_ref().unwrap();
-        assert_eq!(texture.width, 10);
-        assert_eq!(texture.height, 18);
-        check_data_for_hai_10_18_argb_8888(&texture.data);
+        assert_eq!(anm.entries[0].specs.rt_width, 16);
+        assert_eq!(anm.entries[0].specs.rt_height, 32);
+        assert_eq!(anm.entries[0].img_width().unwrap(), 10);
+        assert_eq!(anm.entries[0].img_height().unwrap(), 18);
+        check_data_for_hai_10_18_argb_8888(anm.entries[0].img_data().unwrap());
     },
 );
 
@@ -789,16 +770,14 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let entry = &anm.entries[0];
         // the offset should be read from the ANM file...
-        assert_eq!(entry.specs.offset_x, 105);
-        assert_eq!(entry.specs.offset_y, 9);
+        assert_eq!(anm.entries[0].specs.offset_x, 105);
+        assert_eq!(anm.entries[0].specs.offset_y, 9);
 
         // but the image should come from the directory
-        let texture = &entry.texture.as_ref().unwrap();
-        assert_eq!(texture.width, 10);
-        assert_eq!(texture.height, 18);
-        check_data_for_modified_hai_10_18_argb_8888(&texture.data);
+        assert_eq!(anm.entries[0].img_width().unwrap(), 10);
+        assert_eq!(anm.entries[0].img_height().unwrap(), 18);
+        check_data_for_modified_hai_10_18_argb_8888(anm.entries[0].img_data().unwrap());
     },
 );
 
@@ -878,11 +857,10 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 32);
-        assert_eq!(specs.rt_height, 16);
-        assert_eq!(specs.rt_format, 1);
-        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].specs.rt_width, 32);
+        assert_eq!(anm.entries[0].specs.rt_height, 16);
+        assert_eq!(anm.entries[0].specs.rt_format, 1);
+        assert!(!anm.entries[0].has_thtx_section());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -899,11 +877,10 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 8);
-        assert_eq!(specs.rt_height, 32);
-        assert_eq!(specs.rt_format, 1);
-        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].specs.rt_width, 8);
+        assert_eq!(anm.entries[0].specs.rt_height, 32);
+        assert_eq!(anm.entries[0].specs.rt_format, 1);
+        assert!(!anm.entries[0].has_thtx_section());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -923,13 +900,12 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
 
         // buffer should be appropriately sized for the region WITHOUT the offset padding
-        assert_eq!(specs.rt_width, 16);
-        assert_eq!(specs.rt_height, 32);
-        assert_eq!(specs.rt_format, 1);
-        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].specs.rt_width, 16);
+        assert_eq!(anm.entries[0].specs.rt_height, 32);
+        assert_eq!(anm.entries[0].specs.rt_format, 1);
+        assert!(!anm.entries[0].has_thtx_section());
     },
 );
 
@@ -948,16 +924,14 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 128);
-        assert_eq!(specs.rt_height, 256);
-        assert_eq!(specs.rt_format, 3);
-        let texture = &anm.entries[0].texture.as_ref().unwrap();
-        assert_eq!(texture.width, 32);
-        assert_eq!(texture.height, 16);
-        assert_eq!(texture.format, 1);
+        assert_eq!(anm.entries[0].specs.rt_width, 128);
+        assert_eq!(anm.entries[0].specs.rt_height, 256);
+        assert_eq!(anm.entries[0].specs.rt_format, 3);
+        assert_eq!(anm.entries[0].img_width().unwrap(), 32);
+        assert_eq!(anm.entries[0].img_height().unwrap(), 16);
+        assert_eq!(anm.entries[0].img_format().unwrap(), 1);
         let pixel_size = 4; // bytes per pixel for format 1, the default
-        assert_eq!(anm.entries[0].texture.as_ref().unwrap().data.len(), pixel_size * 32 * 16);
+        assert_eq!(anm.entries[0].img_data().unwrap().len(), pixel_size * 32 * 16);
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -975,16 +949,14 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 32);
-        assert_eq!(specs.rt_height, 16);
-        assert_eq!(specs.rt_format, 3);
-        let texture = &anm.entries[0].texture.as_ref().unwrap();
-        assert_eq!(texture.width, 32);
-        assert_eq!(texture.height, 16);
-        assert_eq!(texture.format, 3);
+        assert_eq!(anm.entries[0].specs.rt_width, 32);
+        assert_eq!(anm.entries[0].specs.rt_height, 16);
+        assert_eq!(anm.entries[0].specs.rt_format, 3);
+        assert_eq!(anm.entries[0].img_width().unwrap(), 32);
+        assert_eq!(anm.entries[0].img_height().unwrap(), 16);
+        assert_eq!(anm.entries[0].img_format().unwrap(), 3);
         let pixel_size = 2; // bytes per pixel for format 3
-        assert_eq!(texture.data.len(), pixel_size * 32 * 16);
+        assert_eq!(anm.entries[0].img_data().unwrap().len(), pixel_size * 32 * 16);
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -1006,10 +978,9 @@ entry {
 }"#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
-        let specs = &anm.entries[0].specs;
-        assert_eq!(specs.rt_width, 32);
-        assert_eq!(specs.rt_height, 16);
-        assert!(anm.entries[0].texture.is_none());
+        assert_eq!(anm.entries[0].specs.rt_width, 32);
+        assert_eq!(anm.entries[0].specs.rt_height, 16);
+        assert!(!anm.entries[0].has_thtx_section());
         assert_eq!(anm.entries[0].sprites.len(), 1);
     },
 );
@@ -1040,10 +1011,9 @@ entry {
     has_data: false,
     img_format: 3,
     img_width: 10,
-    img_height: 32,
+    img_height: 32,  //~ ERROR do not match
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_error: "wrong image dimensions",
 );
 
 source_test!(

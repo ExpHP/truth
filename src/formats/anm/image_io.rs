@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 use super::{
-    AnmFile, Entry, HasData, Texture, TextureFromSource,
+    AnmFile, Entry, HasData, TextureData, TextureMetadata, TextureFromSource,
     WorkingAnmFile, WorkingEntry, WorkingEntrySpecs,
 };
 
@@ -40,11 +39,11 @@ fn update_entry_from_directory_source(
     Ok(())
 }
 
-pub(in crate::formats::anm) fn load_png_for_entry(
+pub(in crate::formats::anm) fn load_img_file_for_entry(
     fs: &Fs,
-    specs: &WorkingEntrySpecs,
+    specs: &mut WorkingEntrySpecs,
     img_path: &PathBuf,
-) -> Result<Texture, ErrorReported> {
+) -> Result<(Option<TextureData>, TextureMetadata), ErrorReported> {
     use image::{GenericImage, GenericImageView};
 
     let emitter = fs.emitter;
@@ -75,13 +74,14 @@ pub(in crate::formats::anm) fn load_png_for_entry(
     );
 
     // use image dimensions to fill in any missing `img_*` fields
-    let (mut dest_width, mut dest_height) = (0xDEADBEEF, 0xDEADBEEF);
+    // FIXME: This mutation is a bit surprising, but I'm not sure how to work out all of the edge cases
+    //        without it.
     for (dest_dim, src_dim, offset) in vec![
-        (&mut dest_width, src_dimensions.0, offsets.0),
-        (&mut dest_height, src_dimensions.1, offsets.1),
+        (&mut specs.img_width, src_dimensions.0, offsets.0),
+        (&mut specs.img_height, src_dimensions.1, offsets.1),
     ] {
         if src_dim >= offset {
-            *dest_dim = src_dim - offset;
+            dest_dim.set_soft(src_dim - offset);
         } else {
             return Err(emitter.emit(error!(
                 "{}: image too small ({}x{}) for an offset of ({}, {})",
@@ -93,7 +93,7 @@ pub(in crate::formats::anm) fn load_png_for_entry(
     }
 
     // all dest dimensions are set now, but pre-existing ones might not match the image
-    let dest_dimensions = (dest_width, dest_height);
+    let dest_dimensions = (specs.img_width.into_option().unwrap(), specs.img_height.into_option().unwrap());
     let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
     if src_dimensions != expected_src_dimensions {
         return Err(emitter.emit(error!(
@@ -104,28 +104,37 @@ pub(in crate::formats::anm) fn load_png_for_entry(
         )))
     }
 
-    // obtain ARGB bytes
-    let src_data_argb = {
-        src_image.unwrap().into_bgra8()
-            .sub_image(offsets.0, offsets.1, dest_dimensions.0, dest_dimensions.1)
-            .to_image().into_raw()
-    };
-
-    Ok(Texture {
-        data: Rc::new(src_data_argb),
-        width: dest_dimensions.0 as usize,
-        height: dest_dimensions.1 as usize,
+    // if 'has_data: true`, read the texture
+    let texture_data: Option<TextureData> = src_image.map(|src_image| {
+        // obtain ARGB bytes
+        let src_data_argb = {
+            src_image.into_bgra8()
+                .sub_image(offsets.0, offsets.1, dest_dimensions.0, dest_dimensions.1)
+                .to_image().into_raw()
+        };
+        src_data_argb.into()
+    });
+    let texture_metadata = TextureMetadata {
+        width: dest_dimensions.0,
+        height: dest_dimensions.1,
         format: ColorFormat::Argb8888 as u32,
-    })
+    };
+    Ok((texture_data, texture_metadata))
 }
 
 #[test]
-fn needs_source() {
+fn needs_test_1() {
    panic!("test needed for loading two PNG sources with an offset, where the first one is too small. (should not error)")
+}
+
+#[test]
+fn needs_test_2() {
+    panic!("test needed for loading metadata from a PNG to determine the dimensions for 'has_data: \"generate\"'");
 }
 
 // =============================================================================
 
+/// Implementation of `truanm -x`.
 pub fn extract(
     fs: &Fs<'_>,
     anm: &AnmFile,
@@ -138,7 +147,7 @@ pub fn extract(
     let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
 
     anm.entries.iter().map(|entry| {
-        if entry.texture.is_none() {
+        if entry.texture_data.is_none() {
             return Ok(());
         }
 
@@ -206,15 +215,16 @@ pub(super) type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
 fn produce_image_from_entry(entry: &Entry) -> Result<image::RgbaImage, String> {
     use image::{GenericImage, buffer::ConvertBuffer};
 
-    let texture = entry.texture.as_ref().expect("produce_image_from_entry called without texture!");
-    let content_width = texture.width as u32;
-    let content_height = texture.height as u32;
-    let format = texture.format;
+    let texture_data = entry.texture_data.as_ref().expect("produce_image_from_entry called without texture!");
+    let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
+    let content_width = texture_metadata.width as u32;
+    let content_height = texture_metadata.height as u32;
+    let format = texture_metadata.format;
     let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
         format!("cannot transcode from unknown color format {}", format)
     })?;
 
-    let content_argb = cformat.transcode_to_argb_8888(&texture.data);
+    let content_argb = cformat.transcode_to_argb_8888(&texture_data.data);
     let content = BgraImage::from_raw(content_width, content_height, &content_argb[..]).expect("size error?!");
 
     let offset_x = entry.specs.offset_x;

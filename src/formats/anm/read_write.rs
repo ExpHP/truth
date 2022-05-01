@@ -1,6 +1,5 @@
 use std::num::NonZeroU64;
 use std::collections::HashSet;
-use std::rc::Rc;
 
 use indexmap::{IndexSet, IndexMap};
 
@@ -11,7 +10,7 @@ use crate::game::{Game};
 use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
 
-use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, Version, Texture};
+use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, Version, TextureData, TextureMetadata};
 
 #[derive(Debug, Clone)]
 struct EntryHeaderData {
@@ -149,12 +148,12 @@ fn read_entry(
         return Err(emitter.emit(error!("inconsistency between thtx_offset and has_data/name")));
     }
 
-    let (tex_info, texture) = match header_data.thtx_offset {
+    let (texture_metadata, texture_data) = match header_data.thtx_offset {
         None => (None, None),
         Some(n) => {
             reader.seek_to(entry_pos + n.get())?;
-            let (tex_info, maybe_texture) = read_texture(reader, emitter, with_images)?;
-            (Some(tex_info), maybe_texture)
+            let (texture_metadata, maybe_texture_data) = read_texture(reader, emitter, with_images)?;
+            (Some(texture_metadata), maybe_texture_data)
         },
     };
     let specs = EntrySpecs {
@@ -170,7 +169,7 @@ fn read_entry(
     let entry = Entry {
         path: sp!(path),
         path_2: path_2.map(|x| sp!(x)),
-        texture, tex_info,
+        texture_data, texture_metadata,
         specs, sprites, scripts
     };
 
@@ -235,7 +234,7 @@ fn write_entry(
         offset_x, offset_y,
         memory_priority,
         low_res_scale: low_res_scale as u32,
-        has_data: entry.texture.is_some() as u32,
+        has_data: entry.texture_data.is_some() as u32,
         version: file_format.version as u32,
         num_sprites: entry.sprites.len() as u32,
         num_scripts: entry.scripts.len() as u32,
@@ -278,19 +277,20 @@ fn write_entry(
     }).collect::<WriteResult<Vec<_>>>()?;
 
     let mut texture_offset = 0;
-    if let Some(texture) = &entry.texture {
+    if let Some(texture_data) = &entry.texture_data {
+        let texture_metadata = entry.texture_metadata.as_ref().expect("always Some if texture_data is");
         texture_offset = w.pos()? - entry_pos;
-        write_texture(w, texture)?;
+        write_texture(w, texture_data, texture_metadata)?;
     };
 
     let end_pos = w.pos()?;
 
-    if let Some(texture) = &entry.texture {
+    if let Some(texture_metadata) = &entry.texture_metadata {
         for (noun, img_dim, rt_dim) in vec![
-            ("width", texture.width, rt_width),
-            ("height", texture.height, rt_height),
+            ("width", texture_metadata.width, rt_width),
+            ("height", texture_metadata.height, rt_height),
         ] {
-            if img_dim > rt_dim as usize {
+            if img_dim > rt_dim {
                 emitter.emit(warning!(
                     message("runtime {} of {} too small for image {} of {}", noun, rt_dim, noun, img_dim),
                     // no img dimension span because it might not have one
@@ -343,15 +343,8 @@ fn write_sprite(
     f.write_f32s(&sprite.size)
 }
 
-#[derive(Debug, Clone)]
-pub(in crate::formats::anm) struct ThtxHeader {
-    pub format: u32,
-    pub width: u32,
-    pub height: u32,
-}
-
 #[inline(never)]
-fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<(ThtxHeader, Option<Texture>)> {
+fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) -> ReadResult<(TextureMetadata, Option<TextureData>)> {
     f.expect_magic(emitter, "THTX")?;
 
     let zero = f.read_u16()?;
@@ -362,7 +355,7 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
     if zero != 0 {
         emitter.emit(warning!("nonzero thtx_zero lost: {}", zero)).ignore();
     }
-    let thtx = ThtxHeader { format, width, height };
+    let thtx = TextureMetadata { format, width, height };
 
     if let Some(cformat) = ColorFormat::from_format_num(format) {
         let expected_size = cformat.bytes_per_pixel() as usize * width as usize * height as usize;
@@ -374,28 +367,23 @@ fn read_texture(f: &mut BinReader, emitter: &impl Emitter, with_images: bool) ->
     if with_images {
         let mut data = vec![0; size as usize];
         f.read_exact(&mut data)?;
-        Ok((thtx, Some(Texture {
-            data: Rc::new(data),
-            width: width as _,
-            height: height as _,
-            format,
-        })))
+        Ok((thtx, Some(data.into())))
     } else {
         Ok((thtx, None))
     }
 }
 
 #[inline(never)]
-fn write_texture(f: &mut BinWriter, texture: &Texture) -> WriteResult {
+fn write_texture(f: &mut BinWriter, data: &TextureData, metadata: &TextureMetadata) -> WriteResult {
     f.write_all(b"THTX")?;
 
     f.write_u16(0)?;
-    f.write_u16(texture.format as _)?;
-    f.write_u16(texture.width as _)?;
-    f.write_u16(texture.height as _)?;
+    f.write_u16(metadata.format as _)?;
+    f.write_u16(metadata.width as _)?;
+    f.write_u16(metadata.height as _)?;
 
-    f.write_u32(texture.data.len() as _)?;
-    f.write_all(&texture.data)?;
+    f.write_u32(data.data.len() as _)?;
+    f.write_all(&data.data)?;
     Ok(())
 }
 
