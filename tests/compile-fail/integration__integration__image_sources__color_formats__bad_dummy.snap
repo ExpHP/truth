@@ -2,12 +2,7 @@
 source: tests/integration/image_sources.rs
 expression: stderr
 ---
-error: unknown color format 8
-  ┌─ <input>:7:17
-  │
-7 │     img_format: 8,
-  │                 ^ unknown color format
-  │
-  = has_data: "dummy" requires one of the following formats: FORMAT_ARGB_8888, FORMAT_RGB_565, FORMAT_ARGB_4444, FORMAT_GRAY_8
+error: unknown color format 8 (for image 'i-dont-exist.png')
+ = has_data: "dummy" requires one of the following formats: FORMAT_ARGB_8888, FORMAT_RGB_565, FORMAT_ARGB_4444, FORMAT_GRAY_8
 
 

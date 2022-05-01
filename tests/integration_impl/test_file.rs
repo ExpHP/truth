@@ -62,7 +62,8 @@ impl TestFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
         let mut truth = truth.validate_defs().unwrap();
-        truth.read_anm(format.game, self.as_path(), true).unwrap()
+        let with_images = true;
+        truth.read_anm(format.game, self.as_path(), with_images).unwrap()
     }
 
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {

@@ -203,16 +203,15 @@ pub mod anm_compile {
 
         // image sources referenced in file take precedence
         let mut image_source_paths = vec![];
-        for path_literal in &ast.image_sources {
-            image_source_paths.push(PathBuf::from(path_literal.string.clone()));
-        }
+        image_source_paths.extend(ast.image_sources.iter().map(|lit| PathBuf::from(&lit.string)));
         image_source_paths.extend(cli_image_source_paths.iter().cloned());
 
-        for image_source_path in image_source_paths.iter() {
+        for image_source_path in &image_source_paths {
             let source_anm = truth.read_image_source(game, image_source_path)?;
             compiled.apply_image_source(source_anm, &truth.fs())?;
         }
 
+        let compiled = truth.finalize_anm(game, compiled)?;
         truth.write_anm(game, &outpath, &compiled)?;
 
         if let Some(outpath) = output_thecl_defs {
@@ -725,8 +724,8 @@ mod cli {
 
     pub fn image_sources() -> impl CliArg<Value=Vec<PathBuf>> {
         opts::MultiOpt(opts::Opt {
-            short: "i", long: "image-source", metavar: "ANMFILE",
-            help: "supply an existing ANM file to copy any missing embedded images and header data from",
+            short: "i", long: "image-source", metavar: "SOURCE",
+            help: "supply images from the provided ANM file or directory.  This can be supplied multiple times.  Later sources override earlier ones.",
         }).map(|strs| strs.into_iter().map(Into::into).collect())
     }
 

@@ -2,8 +2,8 @@
 source: tests/integration/image_sources.rs
 expression: stderr
 ---
-error: while writing '<output>':in entry 0 (for 'subdir/file.png'): no bitmap data available!
- = if this data is available in an existing anm file, try using '-i ANM_FILE'
- = alternatively, use 'has_data: false' to compile without an image
+error: no bitmap data available for 'subdir/file.png'
+ = you can use '-i ANM_FILE' or '-i path/to/patchdir' to import images
+ = alternatively, use 'has_data: false' to compile with no image, or 'has_data: "dummy"' to generate a magenta placeholder
 
 

@@ -183,8 +183,8 @@ impl<'a, 'ctx> core::ops::DerefMut for TruthWithValidatedDefs<'a, 'ctx> {
 
 /// # Compilation and decompilation
 impl TruthWithValidatedDefs<'_, '_> {
-    pub fn compile_anm(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::AnmFile, ErrorReported> {
-        crate::AnmFile::compile_from_ast(game, ast, &mut self.ctx)
+    pub fn compile_anm(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::WorkingAnmFile, ErrorReported> {
+        crate::WorkingAnmFile::compile_from_ast(game, ast, &mut self.ctx)
     }
     pub fn compile_msg(&mut self, game: Game, language: LanguageKey, ast: &ast::ScriptFile) -> Result<crate::MsgFile, ErrorReported> {
         crate::MsgFile::compile_from_ast(game, language, ast, &mut self.ctx)
@@ -258,6 +258,11 @@ impl TruthWithValidatedDefs<'_, '_> {
     }
     pub fn read_ecl(&mut self, game: Game, path: &Path) -> Result<crate::EclFile, ErrorReported> {
         crate::EclFile::read_from_stream(&mut self.fs().open_read(path)?, game)
+    }
+
+    /// This can be called after loading all image sources.
+    pub fn finalize_anm(&mut self, game: Game, middle: crate::WorkingAnmFile) -> Result<crate::AnmFile, ErrorReported> {
+        middle.finalize(&mut self.fs(), game, self.ctx.emitter)
     }
 
     pub fn write_anm(&mut self, game: Game, outpath: &Path, middle: &crate::AnmFile) -> Result<(), ErrorReported> {
