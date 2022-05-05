@@ -5,6 +5,35 @@ use crate::integration_impl::TestFile;
 // =============================================================================
 
 source_test!(
+    ANM_16, orphaned_script,
+    full_source: r#"
+#pragma mapfile "map/any.anmm"
+
+script batman {  //~ ERROR orphan
+    nop();
+}
+
+entry {
+    path: "subdir/file.png",
+    has_data: false,
+    img_width: 512,
+    img_height: 512,
+    img_format: 3,
+    offset_x: 0,
+    offset_y: 0,
+    colorkey: 0,
+    memory_priority: 0,
+    low_res_scale: false,
+    sprites: {
+        sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0},
+    },
+}
+"#,
+);
+
+// =============================================================================
+
+source_test!(
     ANM_16, anti_scratch_bad_in_func,
     items: r#"
     script grandparent {

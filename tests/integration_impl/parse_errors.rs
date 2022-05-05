@@ -169,6 +169,12 @@ pub fn parse_expected_diagnostics(filename: &str, source: &[u8]) -> (Vec<u8>, Ve
     (cleaned_source, out)
 }
 
+/// Strip all `//~ ERROR` tags and similar from a source string.
+pub fn strip_diagnostic_comments(source: &str) -> String {
+    let bytes = parse_expected_diagnostics("DUMMY", source.as_bytes()).0;
+    String::from_utf8(bytes).unwrap()
+}
+
 pub fn compare_actual_and_expected_diagnostics(
     actual_diagnostics: &[ParsedDiagnostic],
     expected_diagnostics: &[ExpectedDiagnostic],

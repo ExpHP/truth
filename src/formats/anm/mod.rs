@@ -1,6 +1,7 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use enum_map::EnumMap;
 use indexmap::{IndexMap};
@@ -24,6 +25,9 @@ use crate::resolve::RegId;
 mod read_write;
 mod image_io;
 
+use soft_option::SoftOption;
+mod soft_option;
+
 // =============================================================================
 
 /// Game-independent representation of an ANM file.
@@ -34,12 +38,25 @@ pub struct AnmFile {
     binary_filename: Option<String>,
 }
 
+/// Type used to represent ANM files while truanm is doing most of its work.
+///
+/// This has to contain Options and etc. for the sake of the "merging" of entries that
+/// occurs when `--image-source` is used.
+#[derive(Debug, Clone)]
+pub struct WorkingAnmFile {
+    entries: Vec<WorkingEntry>,
+    /// Filename of a read binary file, for display purposes only.
+    binary_filename: Option<String>,
+}
+
 impl AnmFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
         decompile(self, &emitter, game, &*game_hooks(game), ctx, decompile_options)
     }
+}
 
+impl WorkingAnmFile {
     pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
         compile(&*game_hooks(game), ast, ctx)
     }
@@ -60,7 +77,9 @@ impl AnmFile {
             ImageSource::Directory(path) => image_io::apply_directory_image_source(fs, self, &path),
         }
     }
+}
 
+impl AnmFile {
     pub fn extract_images(&self, dest: &Path, fs: &Fs<'_>) -> WriteResult {
         image_io::extract(fs, self, dest)
     }
@@ -82,15 +101,92 @@ impl AnmFile {
     }
 }
 
+impl WorkingAnmFile {
+    /// Finish working on the ANM file, filling in defaults and transcoding image buffer data
+    /// as necessary.
+    pub fn finalize(self, fs: &Fs, game: Game, emitter: &impl Emitter) -> Result<AnmFile, ErrorReported> {
+        Ok(AnmFile {
+            entries: {
+                self.entries.into_iter()
+                    .map(|entry| finalize_entry(fs, entry, game, emitter))
+                    .collect::<Result<_, _>>()?
+            },
+            binary_filename: self.binary_filename,
+        })
+    }
+}
+
+// impl AnmFile {
+//     /// Take a recently read [`AnmFile`] and turn it into anFinish working on the ANM file, filling in defaults and transcoding image buffer data
+//     /// as necessary.
+//     pub fn make_working(self, fs: &Fs, game: Game, emitter: &impl Emitter) -> Result<AnmFile, ErrorReported> {
+//         Ok(AnmFile {
+//             entries: {
+//                 self.entries.into_iter()
+//                     .map(|entry| finalize_entry(fs, entry, game, emitter))
+//                     .collect::<Result<_, _>>()?
+//             },
+//             binary_filename: self.binary_filename,
+//         })
+//     }
+// }
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub specs: EntrySpecs,
-    pub texture: Option<Texture>,
+    /// Data bytes for an embedded bitmap.  Its exact format is specified by [`Self::texture_metadata`].
+    texture_data: Option<TextureData>,
+    /// Represents a `THTX` section in the file, which holds an embedded bitmap.
+    ///
+    /// Sometimes this can be `Some` even if [`Self::texture_data`] is `None`. (e.g. during decompilation,
+    /// truth does not read the embedded data bytes from THTX sections, but still reads the header in order
+    /// to generate `img_width:` and friends)
+    texture_metadata: Option<TextureMetadata>,
     // FIXME: Should hold PathBuf especially since we do equality comparisons on it
     pub path: Sp<String>,
     pub path_2: Option<Sp<String>>,
     pub scripts: IndexMap<Sp<Ident>, Script>,
     pub sprites: IndexMap<Sp<Ident>, Sprite>,
+}
+
+// Some methods to abstract away internal details from integration tests.
+impl Entry {
+    /// For an ANM file read from disk, indicates the value of the raw `has_data` field.
+    pub fn has_thtx_section(&self) -> bool {
+        // uses texture_metadata instead of texture_data to be correct even when image data was skipped during load
+        self.texture_metadata.is_some()
+    }
+
+    /// Data bytes from the THTX section, if one was present and the data was not skipped during reading.
+    pub fn img_data(&self) -> Option<&[u8]> { self.texture_data.as_ref().map(|d| &d.data[..]) }
+
+    /// Width from the THTX section. (this is `Some` if and only if [`Self::has_thtx_section`] returns `true`)
+    pub fn img_width(&self) -> Option<u32> { self.texture_metadata.as_ref().map(|m| m.width) }
+    /// Height from the THTX section. (this is `Some` if and only if [`Self::has_thtx_section`] returns `true`)
+    pub fn img_height(&self) -> Option<u32> { self.texture_metadata.as_ref().map(|m| m.height) }
+    /// Format from the THTX section. (this is `Some` if and only if [`Self::has_thtx_section`] returns `true`)
+    pub fn img_format(&self) -> Option<u32> { self.texture_metadata.as_ref().map(|m| m.format) }
+}
+
+/// Type used to represent entries while truanm is doing most of its work.
+///
+/// This has to contain Options and etc. for the sake of the "merging" of entries that
+/// occurs when `--image-source` is used.
+#[derive(Debug, Clone)]
+struct WorkingEntry {
+    specs: WorkingEntrySpecs,
+
+    /// Holds the most recently loaded texture for this entry.
+    ///
+    /// For explicitly-provided image dimensions, `img_width` may differ from this texture's `width` and etc.,
+    /// and that should generate an error near the end of compilation.  (and a difference in `img_format`
+    /// should lead to transcoding).
+    loaded_texture: Option<TextureFromSource>,
+
+    path: Sp<String>,
+    path_2: Option<Sp<String>>,
+    scripts: IndexMap<Sp<Ident>, Script>,
+    sprites: IndexMap<Sp<Ident>, Sprite>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,37 +195,29 @@ pub struct Script {
     pub instrs: Vec<RawInstr>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
+enum TextureFromSource {
+    FromAnmFile {
+        texture: TextureData,
+        metadata: TextureMetadata,
+        anm_path: PathBuf,
+    },
+    FromImage {
+        image_path: PathBuf,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct EntrySpecs {
-    // NOTE: While most file type objects contain plain values (using things like 'field_default'
-    // to handle defaults in meta conversions), this has to contain Options for the sake of the
-    // "merging" of entries that occurs when --image-source is used.
-    //
-    // It makes this type really annoying to work with.  But that's life.
-
-    /// Dimensions of an embedded image.  These are the values that will be written to the THTX section.
-    ///
-    /// It is possible for these to be `Some(_)` even if there is no embedded image, in particular
-    /// after metadata is copied from an image source for a `has_data: false` entry.
-    pub img_width: Option<Sp<u32>>,
-    pub img_height: Option<Sp<u32>>,
-    /// Color format of an embedded image.  This is the value that will be written to the THTX section.
-    ///
-    /// The number MAY correspond to a recognized [`ColorFormat`], but does not have to.
-    pub img_format: Option<Sp<u32>>,
-
-    /// When `true`, a THTX section with an embedded image will be stored.
-    pub has_data: Option<HasData>,
-
     /// Dimensions of the buffer created at runtime for Direct3D.
     ///
     /// These should always be powers of 2.
-    pub rt_width: Option<Sp<u32>>,
-    pub rt_height: Option<Sp<u32>>,
+    pub rt_width: u32,
+    pub rt_height: u32,
     /// Color format of the buffer created by the game at runtime for Direct3D.
-    pub rt_format: Option<Sp<u32>>,
+    pub rt_format: u32,
     /// A transparent color for old games.
-    pub colorkey: Option<u32>, // Only in old format
+    pub colorkey: u32, // Only in old format
 
     /// A field of ANM entries that appears to represent the offset into the original image file
     /// on ZUN's PC from which the embedded image was extracted.
@@ -142,68 +230,302 @@ pub struct EntrySpecs {
     /// since it is designed to work with thanm.
     ///
     /// Since we want to be compatible with thcrap, we have to do this as well...
-    pub offset_x: Option<u32>,
-    pub offset_y: Option<u32>,
+    pub offset_x: u32,
+    pub offset_y: u32,
     /// :shrug:
-    pub memory_priority: Option<u32>,
+    pub memory_priority: u32,
 
     /// A field of an entry that tells the game to scale down certain hi-res textures on lower resolutions,
     /// e.g. the border around the game.  (not used for things like `ascii.anm` which have dedicated files
     /// for each resolution)
-    pub low_res_scale: Option<bool>,
+    pub low_res_scale: bool,
 }
 
-impl EntrySpecs {
-    fn default_memory_priority(&self, version: Version) -> u32 {
-        match version {
-            Version::V0 => 0,
-            _ => 10,
-        }
-    }
+#[derive(Debug, Clone, Default)]
+struct WorkingEntrySpecs {
+    /// Note it is possible for the width and height to have values even if there is no embedded image,
+    /// since they may come from the script, or be taken from an image source when the script (or
+    /// an ANM file image source) has `has_data: false`.
+    img_width: SoftOption<u32>,
+    img_height: SoftOption<u32>,
+    img_format: SoftOption<u32>,
+    has_data: SoftOption<HasData>,
+    rt_width: SoftOption<u32>,
+    rt_height: SoftOption<u32>,
+    rt_format: SoftOption<u32>,
+    colorkey: SoftOption<u32>,
+    offset_x: SoftOption<u32>,
+    offset_y: SoftOption<u32>,
+    memory_priority: SoftOption<u32>,
+    low_res_scale: SoftOption<bool>,
+}
 
-    pub fn fill_defaults(&self, game: Game) -> EntrySpecs {
-        let version = Version::from_game(game);
-
-        let img_format = Some(self.img_format.unwrap_or(sp!(DEFAULT_COLOR_FORMAT as u32)));
-        EntrySpecs {
-            img_width: self.img_width,
-            img_height: self.img_height,
-            rt_width: self.rt_width.or(self.img_width.map(|x| x.sp_map(u32::next_power_of_two))),
-            rt_height: self.rt_height.or(self.img_height.map(|x| x.sp_map(u32::next_power_of_two))),
-            img_format,
-            rt_format: self.rt_format.or(img_format),
-            offset_x: Some(self.offset_x.unwrap_or(0)),
-            offset_y: Some(self.offset_y.unwrap_or(0)),
-            colorkey: Some(self.colorkey.unwrap_or(0)),
-            memory_priority: Some(self.memory_priority.unwrap_or(self.default_memory_priority(version))),
-            low_res_scale: Some(self.low_res_scale.unwrap_or(DEFAULT_LOW_RES_SCALE)),
-            has_data: Some(self.has_data.unwrap_or(DEFAULT_HAS_DATA)),
-        }
-    }
-
-    pub fn suppress_defaults(&self, game: Game) -> EntrySpecs {
-        let version = Version::from_game(game);
-
-        EntrySpecs {
-            img_width: self.img_width,
-            img_height: self.img_height,
-            // don't suppress rt_width and rt_height.  By always showing them in decompiled files, we increase the
-            // likelihood of a user noticing that there's something important about powers of 2 in image dimensions,
-            // possibly helping them to figure out why their non-power-of-2 PNG file looks bad when scrolled.
-            rt_width: self.rt_width,
-            rt_height: self.rt_height,
-
-            img_format: self.img_format.filter(|&x| x != DEFAULT_COLOR_FORMAT as u32),
-            rt_format: self.rt_format.filter(|&x| x != self.img_format.unwrap_or(sp!(DEFAULT_COLOR_FORMAT as u32))),
-            offset_x: self.offset_x.filter(|&x| x != 0),
-            offset_y: self.offset_y.filter(|&x| x != 0),
-            colorkey: self.colorkey.filter(|&x| x != 0),
-            memory_priority: self.memory_priority.filter(|&x| x != self.default_memory_priority(version)),
-            low_res_scale: self.low_res_scale.filter(|&x| x != DEFAULT_LOW_RES_SCALE),
-            has_data: self.has_data.filter(|&x| x != DEFAULT_HAS_DATA),
-        }
+fn default_memory_priority(version: Version) -> u32 {
+    match version {
+        Version::V0 => 0,
+        _ => 10,
     }
 }
+
+/// Finishes work on an entry during compilation.
+fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitter) -> Result<Entry, ErrorReported> {
+    let version = Version::from_game(game);
+
+    // Fill in defaults to simplify reasoning.
+    let mut specs = entry.specs.clone();
+    specs.img_format.set_soft_if_missing(DEFAULT_COLOR_FORMAT as u32);
+    specs.rt_format.set_soft_if_missing(specs.img_format.into_option().expect("was just set"));
+    specs.offset_x.set_soft_if_missing(0);
+    specs.offset_y.set_soft_if_missing(0);
+    specs.colorkey.set_soft_if_missing(0);
+    specs.memory_priority.set_soft_if_missing(default_memory_priority(version));
+    specs.low_res_scale.set_soft_if_missing(DEFAULT_LOW_RES_SCALE);
+    specs.has_data.set_soft_if_missing(DEFAULT_HAS_DATA);
+
+    // Do this now.  For missing images that are also missing metadata,
+    // this tends to produce the nicest error message.
+    let texture_data = finalize_entry_texture(fs, &mut specs, &entry.path, entry.loaded_texture.as_ref())?;
+
+    // More defaults
+    if let Some(img_width) = specs.img_width.into_option() {
+        specs.rt_width.set_soft_if_missing(u32::next_power_of_two(img_width));
+    }
+    if let Some(img_height) = specs.img_height.into_option() {
+        specs.rt_height.set_soft_if_missing(u32::next_power_of_two(img_height));
+    }
+
+    // Now check that rt_width and rt_height were filled.
+    for (rt_field, rt_name, img_name) in vec![
+        (specs.rt_width, "rt_width", "img_width"),
+        (specs.rt_height, "rt_height", "img_height"),
+    ] {
+        if rt_field.is_missing() {
+            // It's only possible to get here if there's an explicit 'has_data: false'.
+            // Otherwise, we would've gotten earlier error for missing image or image dimensions.
+            //
+            // (even an ANM image source with 'has_data: false' can't bring us here; we would've copied
+            //  rt_width from the ANM file)
+            let has_data_span = match specs.has_data {
+                SoftOption::Explicit(sp) => sp.span,
+                _ => unreachable!(),
+            };
+
+            return Err(emitter.emit(error!(
+                message("missing required field '{rt_name}'!"),
+                primary(has_data_span, "requires setting '{rt_name}'"),
+                note("you can also set '{img_name}' to infer '{rt_name}' as the next power of 2"),
+            )));
+        }
+    }
+
+    Ok(Entry {
+        specs: EntrySpecs{
+            rt_format: specs.rt_format.into_option().expect("was filled by default"),
+            rt_width: specs.rt_width.into_option().expect("we just checked that this was set!"),
+            rt_height: specs.rt_height.into_option().expect("we just checked that this was set!"),
+            offset_x: specs.offset_x.into_option().expect("was filled by default"),
+            offset_y: specs.offset_y.into_option().expect("was filled by default"),
+            colorkey: specs.colorkey.into_option().expect("was filled by default"),
+            memory_priority: specs.memory_priority.into_option().expect("was filled by default"),
+            low_res_scale: specs.low_res_scale.into_option().expect("was filled by default"),
+        },
+        texture_metadata: texture_data.as_ref().map(|_| TextureMetadata {
+            width: specs.img_width.into_option().expect("was filled by default"),
+            height: specs.img_height.into_option().expect("was filled by default"),
+            format: specs.img_format.into_option().expect("was filled by default"),
+        }),
+        texture_data,
+        path: entry.path,
+        path_2: entry.path_2,
+        scripts: entry.scripts,
+        sprites: entry.sprites,
+    })
+}
+
+fn finalize_entry_texture(fs: &Fs, specs: &mut WorkingEntrySpecs, entry_path: &str, loaded_texture: Option<&TextureFromSource>) -> Result<Option<TextureData>, ErrorReported> {
+    let emitter = fs.emitter;
+
+    let mut texture_data = None;
+    if let Some(loaded_texture) = loaded_texture {
+        texture_data = finalize_texture_from_loaded(fs, specs, entry_path, loaded_texture)?;
+    }
+
+    match specs.has_data.into_option().expect("should be filled by default already") {
+        HasData::True => match texture_data {
+            Some(texture_data) => Ok(Some(texture_data)),
+            None => Err(emitter.emit(error!(
+                message("no bitmap data available for '{}'", entry_path),
+                note("you can use '-i ANM_FILE' or '-i path/to/patchdir' to import images"),
+                note("alternatively, use 'has_data: false' to compile with no image, or 'has_data: \"dummy\"' to generate a magenta placeholder"),
+            ))),
+        },
+        HasData::False => Ok(None),
+        HasData::Dummy => {
+            let has_data_span = match specs.has_data {
+                SoftOption::Explicit(sp) => sp.span,
+                _ => unreachable!("'dummy' can only be explicit"),
+            };
+            Ok(Some(generate_texture_dummy_data(fs.emitter, specs, entry_path, has_data_span)?))
+        },
+    }
+}
+
+fn finalize_texture_from_loaded(
+    fs: &Fs,
+    specs: &mut WorkingEntrySpecs,
+    entry_path: &str,
+    loaded_texture: &TextureFromSource,
+) -> Result<Option<TextureData>, ErrorReported> {
+    let (src_texture, src_metadata, loaded_source_path);
+    match loaded_texture {
+        TextureFromSource::FromAnmFile { texture, metadata, anm_path } => {
+            src_texture = Some(texture.clone());
+            src_metadata = metadata.clone();
+            loaded_source_path = anm_path;
+        },
+        TextureFromSource::FromImage { image_path } => {
+            (src_texture, src_metadata) = self::image_io::load_img_file_for_entry(fs, specs, image_path)?;
+            loaded_source_path = image_path;
+        },
+    }
+
+    if let Some(src_texture) = src_texture {
+        validate_and_transcode_texture_for_entry(fs.emitter, specs, entry_path, &src_texture, &src_metadata, loaded_source_path)
+            .map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+fn validate_and_transcode_texture_for_entry(
+    emitter: &impl Emitter,
+    specs: &WorkingEntrySpecs,
+    entry_path: &str,
+    src_data: &TextureData,
+    src_metadata: &TextureMetadata,
+    loaded_source_path: &Path,  // .ANM or .PNG path
+) -> Result<TextureData, ErrorReported> {
+    validate_explicit_img_dimensions(emitter, &specs, entry_path, &src_metadata, loaded_source_path)?;
+
+    let src_format = src_metadata.format;
+    let dest_format = specs.img_format.into_option().unwrap();
+    let dest_data = if dest_format == src_format {
+        // cheaply clone, and allow unrecognized format numbers
+        Rc::clone(&src_data.data)
+    } else {
+        // transcode.
+        let src_cformat = ColorFormat::from_format_num(src_format).ok_or_else(|| emitter.emit(error!(
+            message("cannot transcode from unknown color format {src_format} (for image '{entry_path}')"),
+            // FIXME: we can't have these labels, in case somebody gets a nonsense format from an ANM image source
+            //        and then loads an image file from another image source. (dest_format will have no span)
+            // primary(dest_format, "transcoding due to this explicit format"),
+            note("color format {src_format} appears in '{}'", loaded_source_path.display()),
+        )))?;
+        let dest_cformat = ColorFormat::from_format_num(dest_format).ok_or_else(|| emitter.emit(error!(
+            message("cannot transcode into unknown color format {dest_format} (for image '{entry_path}')"),
+            // primary(dest_format, "unknown color format"),
+        )))?;
+
+        let data_argb = src_cformat.transcode_to_argb_8888(&src_data.data);
+        dest_cformat.transcode_from_argb_8888(&data_argb)
+    };
+
+    Ok(dest_data.into())
+}
+
+// If a user provided explicit img dimensions in the script AND loaded an image from a source, it is possible
+// that these dimensions could disagree with the image that was imported.  Here we check for this.
+fn validate_explicit_img_dimensions(
+    emitter: &impl Emitter,
+    specs: &WorkingEntrySpecs,
+    entry_path: &str,
+    src_metadata: &TextureMetadata,
+    loaded_source_path: &Path,
+) -> Result<(), ErrorReported> {
+    if specs.has_data.into_option() == Some(HasData::Dummy) {
+        // in this case we want to allow the user to arbitrarily override the dimensions from sources
+        // without generating any error, since we won't actually be using the loaded texture data
+        return Ok(());
+    }
+
+    let mut bad_spans = vec![];
+    for &(user_dim, texture_dim) in &[
+        (specs.img_width, src_metadata.width),
+        (specs.img_height, src_metadata.height),
+    ] {
+        // (we can safely unwrap these options because a texture was loaded, so any missing dimensions
+        //  in the script file will have been filled from the texture)
+        if let Some(user_dim_value) = user_dim.into_option() {
+            if user_dim_value != texture_dim {
+                let user_dim_span = match user_dim {
+                    SoftOption::Explicit(sp) => sp.span,
+                    _ => unreachable!("conflicts are only possible with explicit user dimensions..."),
+                };
+                bad_spans.push(user_dim_span);
+            }
+        }
+    }
+
+    if !bad_spans.is_empty() {
+        let mut diag = error!(
+                message(
+                    "provided dimensions for '{}' do not match image source: {}x{} in script, {}x{} in image source",
+                    entry_path,
+                    specs.img_width.into_option().unwrap(),
+                    specs.img_height.into_option().unwrap(),
+                    src_metadata.width, src_metadata.height,
+                ),
+                note("image was loaded from '{}'", loaded_source_path.display()),
+                note("you can remove these explicit dimensions to infer them from the image source"),
+                note("you can add another image source to override this image"),
+                note("you can use `has_image: \"dummy\"` to ignore the image in the source and generate dummy data"),
+            );
+        for span in bad_spans {
+            diag.primary(span, format!(""));
+        }
+        return Err(emitter.emit(diag));
+    }
+
+    Ok(())
+}
+
+fn generate_texture_dummy_data(
+    emitter: &impl Emitter,
+    specs: &WorkingEntrySpecs,
+    entry_path: &str,
+    has_data_span: Span,
+) -> Result<TextureData, ErrorReported> {
+    for &(dim, name) in &[
+        (specs.img_width, "img_width"),
+        (specs.img_height, "img_height"),
+    ] {
+        if dim.into_option().is_none() {
+            return Err(emitter.emit(error!(
+                message("missing required field '{name}' (for image '{entry_path}')"),
+                primary(has_data_span, "requires setting '{name}''"),
+                note("you can use '-i ANM_FILE' or '-i path/to/patchdir' to copy the image dimensions from an image source"),
+            )));
+        }
+    }
+    let width = specs.img_width.into_option().expect("just checked above!");
+    let height = specs.img_height.into_option().expect("just checked above!");
+    let format_num = specs.img_format.into_option().expect("should be defaulted");
+    let format = ColorFormat::from_format_num(format_num).ok_or_else(|| emitter.emit(error!(
+        message("unknown color format {format_num} (for image '{entry_path}')"),
+        // FIXME: can't have this label because somebody could put 'has_data: "dummy"' and then import
+        //        an ANM file that uses a weird color format number.
+        // primary(format, "unknown color format"),
+        note(
+            "has_data: \"dummy\" requires one of the following formats: {}",
+            ColorFormat::get_all().into_iter().map(|format| format.const_name())
+                .collect::<Vec<_>>().join(", "),
+        ),
+    )))?;
+
+    let data = format.dummy_fill_color_bytes().repeat((width * height) as usize);
+    Ok(data.into())
+}
+
 
 const DEFAULT_COLOR_FORMAT: ColorFormat = ColorFormat::Argb8888;
 const DEFAULT_LOW_RES_SCALE: bool = false;
@@ -211,59 +533,70 @@ const DEFAULT_HAS_DATA: HasData = HasData::True;
 
 impl Entry {
     fn make_meta(&self, game: Game) -> meta::Fields {
-        let mut specs = self.specs.clone();
+        let version = Version::from_game(game);
 
-        // derive properties of the runtime buffer based on the image
-        if let (Some(rt_width), Some(img_width)) = (specs.rt_width, specs.img_width) {
-            if rt_width == img_width.next_power_of_two() {
-                specs.rt_width = None;
-            }
+        // img_* fields are only present if a texture was present
+        let (mut img_format, mut opt_img_width, mut opt_img_height) = (DEFAULT_COLOR_FORMAT as u32, None, None);
+        if let Some(texture_metadata) = &self.texture_metadata {
+            img_format = texture_metadata.format;
+            opt_img_width = Some(texture_metadata.width);
+            opt_img_height = Some(texture_metadata.height);
         }
+        let has_data = HasData::from(self.texture_metadata.is_some());
 
-        if let (Some(rt_height), Some(img_height)) = (specs.rt_height, specs.img_height) {
-            if rt_height == img_height.next_power_of_two() {
-                specs.rt_height = None;
-            }
-        }
-
-        if let (Some(rt_format), Some(img_format)) = (specs.rt_format, specs.img_format) {
-            if rt_format == img_format {
-                specs.rt_format = None;
-            }
-        }
-
+        // these are always here
         let EntrySpecs {
-            rt_width, rt_height, rt_format, colorkey, offset_x, offset_y,
-            img_width, img_height, img_format, memory_priority, has_data, low_res_scale,
-        } = &specs.suppress_defaults(game);
+            rt_width, rt_height, rt_format, colorkey,
+            offset_x, offset_y, memory_priority, low_res_scale,
+        } = self.specs;
+
+        // suppress defaults
+        let (mut opt_rt_width, mut opt_rt_height) = (Some(rt_width), Some(rt_height));
+        for (opt_rt_dim, opt_img_dim) in vec![
+            (&mut opt_rt_width, opt_img_width),
+            (&mut opt_rt_height, opt_img_height),
+        ] {
+            if let Some(img_dim) = opt_img_dim {
+                *opt_rt_dim = opt_rt_dim.filter(|&x| x != u32::next_power_of_two(img_dim));
+            }
+        }
 
         Meta::make_object()
             .field("path", &self.path.value)
             .field_opt("path_2", self.path_2.as_ref().map(|x| &x.value))
-            .field_opt("has_data", has_data.as_ref())
-            .field_opt("img_width", img_width.as_ref().map(|x| x.value))
-            .field_opt("img_height", img_height.as_ref().map(|x| x.value))
-            .field_opt("img_format", img_format.as_ref().map(|x| format_to_meta(x.value)))
-            .field_opt("offset_x", offset_x.as_ref())
-            .field_opt("offset_y", offset_y.as_ref())
-            .field_opt("colorkey", colorkey.as_ref().map(|&value| ast::Expr::LitInt { value: value as i32, radix: ast::IntRadix::Hex }))
-            .field_opt("rt_width", rt_width.as_ref().map(|x| x.value))
-            .field_opt("rt_height", rt_height.as_ref().map(|x| x.value))
-            .field_opt("rt_format", rt_format.as_ref().map(|x| format_to_meta(x.value)))
-            .field_opt("memory_priority", memory_priority.as_ref())
-            .field_opt("low_res_scale", low_res_scale.as_ref())
+            .field_opt("has_data", Some(has_data).filter(|&x| x != DEFAULT_HAS_DATA))
+            .field_opt("img_width", opt_img_width)
+            .field_opt("img_height", opt_img_height)
+            .field_opt("img_format", Some(img_format).filter(|&x| x != DEFAULT_COLOR_FORMAT as u32).map(format_to_meta))
+            .field_opt("offset_x", Some(offset_x).filter(|&x| x != 0))
+            .field_opt("offset_y", Some(offset_y).filter(|&x| x != 0))
+            .field_opt("colorkey", Some(colorkey).filter(|&x| x != 0).map(colorkey_to_meta))
+            .field_opt("rt_width", opt_rt_width)
+            .field_opt("rt_height", opt_rt_height)
+            .field_opt("rt_format", Some(rt_format).filter(|&x| x != img_format).map(format_to_meta))
+            .field_opt("memory_priority", Some(memory_priority).filter(|&x| x != default_memory_priority(version)))
+            .field_opt("low_res_scale", Some(low_res_scale).filter(|&x| x != DEFAULT_LOW_RES_SCALE))
             .field("sprites", &self.sprites)
             .build_fields()
     }
+}
 
+impl WorkingEntry {
     fn from_fields<'a>(fields: &'a Sp<meta::Fields>, emitter: &impl Emitter) -> Result<Self, FromMetaError<'a>> {
         meta::ParseObject::scope(fields, |m| {
-            let deprecated_format = m.get_field_and_key("format")?;
-            let deprecated_width = m.get_field_and_key("width")?;
-            let deprecated_height = m.get_field_and_key("height")?;
-            let mut rt_format = m.get_field::<Sp<u32>>("rt_format")?;
-            let mut rt_width = m.get_field::<Sp<u32>>("rt_width")?;
-            let mut rt_height = m.get_field::<Sp<u32>>("rt_height")?;
+            fn make_explicit<T>(opt: Option<Sp<T>>) -> SoftOption<T> {
+                match opt {
+                    None => SoftOption::Missing,
+                    Some(x) => SoftOption::Explicit(x),
+                }
+            }
+
+            let deprecated_format = m.get_field_and_key::<Sp<u32>>("format")?;
+            let deprecated_width = m.get_field_and_key::<Sp<u32>>("width")?;
+            let deprecated_height = m.get_field_and_key::<Sp<u32>>("height")?;
+            let mut rt_format = make_explicit(m.get_field::<Sp<u32>>("rt_format")?);
+            let mut rt_width = make_explicit(m.get_field::<Sp<u32>>("rt_width")?);
+            let mut rt_height = make_explicit(m.get_field::<Sp<u32>>("rt_height")?);
             for (deprecated_key_value, value) in vec![
                 (deprecated_format, &mut rt_format),
                 (deprecated_width, &mut rt_width),
@@ -281,16 +614,18 @@ impl Entry {
                         primary(deprecated_key, "deprecated key"),
                     )).ignore());
 
-                    value.get_or_insert(deprecated_value);
+                    if value.is_missing() {
+                        *value = SoftOption::Explicit(deprecated_value);
+                    }
                 }
             }
 
             let deprecated_img_format = m.get_field_and_key("thtx_format")?;
             let deprecated_img_width = m.get_field_and_key("thtx_width")?;
             let deprecated_img_height = m.get_field_and_key("thtx_height")?;
-            let mut img_format = m.get_field::<Sp<u32>>("img_format")?;
-            let mut img_width = m.get_field::<Sp<u32>>("img_width")?;
-            let mut img_height = m.get_field::<Sp<u32>>("img_height")?;
+            let mut img_format = make_explicit(m.get_field::<Sp<u32>>("img_format")?);
+            let mut img_width = make_explicit(m.get_field::<Sp<u32>>("img_width")?);
+            let mut img_height = make_explicit(m.get_field::<Sp<u32>>("img_height")?);
             for (deprecated_key_value, value) in vec![
                 (deprecated_img_format, &mut img_format),
                 (deprecated_img_width, &mut img_width),
@@ -308,43 +643,45 @@ impl Entry {
                         primary(deprecated_key, "deprecated key"),
                     )).ignore());
 
-                    value.get_or_insert(deprecated_value);
+                    if value.is_missing() {
+                        *value = SoftOption::Explicit(deprecated_value);
+                    }
                 }
             }
 
-            let colorkey = m.get_field("colorkey")?;
-            let offset_x = m.get_field("offset_x")?;
-            let offset_y = m.get_field("offset_y")?;
-            let memory_priority = m.get_field("memory_priority")?;
-            let low_res_scale = m.get_field("low_res_scale")?;
-            let has_data = m.get_field("has_data")?;
+            let colorkey = make_explicit(m.get_field("colorkey")?);
+            let offset_x = make_explicit(m.get_field("offset_x")?);
+            let offset_y = make_explicit(m.get_field("offset_y")?);
+            let memory_priority = make_explicit(m.get_field("memory_priority")?);
+            let low_res_scale = make_explicit(m.get_field("low_res_scale")?);
+            let has_data = make_explicit(m.get_field("has_data")?);
             let path: Sp<String> = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
-            let texture = None;
             let sprites = m.get_field("sprites")?.unwrap_or_default();
 
             for (field, rt_value) in vec![
                 ("height", rt_height),
                 ("width", rt_width),
             ] {
-                if let Some(rt_value) = rt_value {
+                if let SoftOption::Explicit(rt_value) = rt_value {
                     if !rt_value.value.is_power_of_two() && !path.starts_with("@") {
                         emitter.emit(warning!(
                             message("rt_{} = {} should be a power of two", field, rt_value),
-                            primary(rt_value, "not a power of two")
+                            primary(rt_value, "not a power of two"),
                         )).ignore();
                     }
                 }
             }
 
-            let specs = EntrySpecs {
+            let specs = WorkingEntrySpecs {
                 rt_width, rt_height, rt_format,
                 img_width, img_height, img_format,
                 colorkey, offset_x, offset_y,
                 memory_priority, has_data, low_res_scale,
             };
+            let loaded_texture = None;
             let scripts = Default::default();
-            Ok(Entry { specs, texture, path, path_2, scripts, sprites })
+            Ok(WorkingEntry { specs, path, path_2, scripts, sprites, loaded_texture })
         })
     }
 }
@@ -360,6 +697,10 @@ fn format_to_meta(format_num: u32) -> Meta {
         }
     }
     format_num.to_meta()
+}
+
+fn colorkey_to_meta(colorkey: u32) -> impl ToMeta {
+    ast::Expr::LitInt { value: colorkey as i32, radix: ast::IntRadix::Hex }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -400,21 +741,39 @@ impl ToMeta for HasData {
     }
 }
 
-/// An embedded image (or at least metadata about an image) in an ANM entry.
-#[derive(Clone)]
+/// An embedded image in an ANM entry.
+#[derive(Debug, Clone)]
 pub struct Texture {
-    /// Raw pixel data, to be interpreted according to [`EntrySpecs::img_width`], [`EntrySpecs::img_height`],
-    /// and [`EntrySpecs::img_format`].
-    ///
-    /// (they are stored separately because, when using `has_data: false`, we may copy those attributes from
-    ///  an image source without copying the pixel data, so that they can be used to generate defaults for
-    /// `buf_{width,height,format}`)
-    pub data: Vec<u8>,
+    pub data: TextureData,
+    pub meta: TextureMetadata,
 }
 
-impl fmt::Debug for Texture {
+/// Wrapper around raw texture data bytes to suppress their `Debug` impl.
+#[derive(Clone)]
+pub struct TextureData {
+    /// Raw pixel data, to be interpreted according to [`TextureMetadata`].
+    pub data: Rc<Vec<u8>>,
+}
+
+impl<T: Into<Rc<Vec<u8>>>> From<T> for TextureData {
+    fn from(x: T) -> Self { TextureData { data: x.into() } }
+}
+
+/// Metadata describing how to interpret [`TextureData`].
+///
+/// This is on a separate struct because, in some cases (especially with `has_data: false` or
+/// `has_data: "generate"`, or during decompilation), texture metadata may be read from an image
+/// source without its corresponding data.
+#[derive(Debug, Clone)]
+pub struct TextureMetadata {
+    pub width: u32,
+    pub height: u32,
+    pub format: u32,
+}
+
+impl fmt::Debug for TextureData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Texture(_)")
+        write!(f, "TextureData(_)")
     }
 }
 
@@ -464,7 +823,7 @@ fn decompile(
     for i in 0..num_scripts {
         ctx.define_enum_const_fresh(auto_script_name(i as _), i as _, auto_enum_names::anm_script());
     }
-    for i in all_sprite_ids(anm_file) {
+    for i in all_sprite_ids(anm_file.entries.iter().map(|entry| &entry.sprites)) {
         ctx.define_enum_const_fresh(auto_sprite_name(i as _), i as _, auto_enum_names::anm_sprite());
     }
 
@@ -516,7 +875,7 @@ pub enum ImageSource {
     Directory(PathBuf),
 }
 
-fn apply_anm_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<(), Diagnostic> {
+fn apply_anm_image_source(dest_file: &mut WorkingAnmFile, src_file: AnmFile) -> Result<(), Diagnostic> {
     let mut src_entries_by_path: IndexMap<_, Vec<_>> = IndexMap::new();
     for entry in src_file.entries {
         src_entries_by_path.entry(entry.path.clone()).or_default().push(entry);
@@ -527,86 +886,46 @@ fn apply_anm_image_source(dest_file: &mut AnmFile, src_file: AnmFile) -> Result<
 
     for dest_entry in &mut dest_file.entries {
         if let Some(src_entry) = src_entries_by_path.get_mut(&dest_entry.path).and_then(|vec| vec.pop()) {
-            update_entry_from_anm_image_source(dest_entry, src_entry)?;
+            update_entry_from_anm_image_source(dest_entry, src_entry, src_file.binary_filename.as_deref().unwrap_or("<ANM file>"))?;
         }
     }
     Ok(())
 }
 
-fn update_entry_from_anm_image_source(dest_file: &mut Entry, mut src_file: Entry) -> Result<(), Diagnostic> {
-    let dest_specs = &mut dest_file.specs;
-
-    // though it's tedious, we fully unpack this struct to that the compiler doesn't
+fn update_entry_from_anm_image_source(dest_file: &mut WorkingEntry, src_file: Entry, anm_file_path: &str) -> Result<(), Diagnostic> {
+    // though it's tedious, we fully unpack the Specs struct so that the compiler doesn't
     // let us forget to update this function when we add a new field.
+    let Entry { specs: src_specs, texture_data: src_texture_data, texture_metadata: src_texture_metadata, .. } = src_file;
     let EntrySpecs {
-        img_width: src_img_width, img_height: src_img_height, img_format: src_img_format,
         rt_width: src_rt_width, rt_height: src_rt_height, rt_format: src_rt_format,
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
-        memory_priority: src_memory_priority, has_data: src_has_data,
+        memory_priority: src_memory_priority,
         low_res_scale: src_low_res_scale,
-    } = src_file.specs;
+    } = src_specs;
 
-    or_inplace(&mut dest_specs.img_width, src_img_width);
-    or_inplace(&mut dest_specs.img_height, src_img_height);
-    or_inplace(&mut dest_specs.img_format, src_img_format);
-    or_inplace(&mut dest_specs.rt_width, src_rt_width);
-    or_inplace(&mut dest_specs.rt_height, src_rt_height);
-    or_inplace(&mut dest_specs.rt_format, src_rt_format);
-    or_inplace(&mut dest_specs.colorkey, src_colorkey);
-    or_inplace(&mut dest_specs.offset_x, src_offset_x);
-    or_inplace(&mut dest_specs.offset_y, src_offset_y);
-    or_inplace(&mut dest_specs.memory_priority, src_memory_priority);
-    or_inplace(&mut dest_specs.low_res_scale, src_low_res_scale);
-    or_inplace(&mut dest_specs.has_data, src_has_data);
-
-    for (dest_dim, src_dim) in vec![
-        (dest_specs.img_width, src_img_width),
-        (dest_specs.img_height, src_img_height),
-    ] {
-        if src_dim.is_some() && dest_dim != src_dim {
-            // (we can safely unwrap all of these options because at least one src_dim is Some,
-            //  which implies both of them are, which also implies that the dest_dims are Some)
-            return Err(error!(
-                "mismatch in embedded image size for '{}': expected {}x{}, got {}x{}",
-                dest_file.path,
-                dest_specs.img_width.unwrap(), dest_specs.img_height.unwrap(),
-                src_img_width.unwrap(), src_img_height.unwrap(),
-            ));
-        }
+    dest_file.specs.has_data.set_soft(HasData::from(src_texture_data.is_some()));
+    if let Some(src_texture_metadata) = &src_texture_metadata {
+        dest_file.specs.img_width.set_soft(src_texture_metadata.width as u32);
+        dest_file.specs.img_height.set_soft(src_texture_metadata.height as u32);
+        dest_file.specs.img_format.set_soft(src_texture_metadata.format);
     }
-
-    // Importing a pixel buffer from an ANM file.  (offset has no effect here)
-    if dest_specs.has_data.unwrap_or(DEFAULT_HAS_DATA) == HasData::True {
-        if let (None, Some(src_texture)) = (&dest_file.texture, src_file.texture.take()) {
-            dest_specs.has_data = Some(HasData::True);
-
-            let src_format_num = src_file.specs.img_format.expect("image source has pixel data but no format!?");
-            let dest_format_num = dest_file.specs.img_format.expect("option was or-ed with Some so can't be None");
-            if src_format_num == dest_format_num {
-                dest_file.texture = Some(src_texture.clone());
-            } else {
-                let dest_cformat = ColorFormat::from_format_num(dest_format_num.value).ok_or_else(|| error!(
-                    message("cannot transcode into unknown color format {}", dest_format_num),
-                    primary(dest_format_num, "unknown color format"),
-                ))?;
-                let src_cformat = ColorFormat::from_format_num(src_format_num.value).ok_or_else(|| error!(
-                    // this value has no span so produce a slightly different error
-                    "cannot transcode from unknown color format {} (for image '{}')",
-                    src_format_num, dest_file.path,
-                ))?;
-
-                let argb = src_cformat.transcode_to_argb_8888(&src_texture.data);
-                let dest_data = dest_cformat.transcode_from_argb_8888(&argb);
-                dest_file.texture = Some(Texture { data: dest_data });
-            } // if src_format_num == dest_format_num
-        } // if let ...
-    } // if dest_specs.has_data....
+    if let (Some(src_texture_data), Some(src_texture_metadata)) = (src_texture_data, src_texture_metadata) {
+        dest_file.loaded_texture = Some(TextureFromSource::FromAnmFile {
+            texture: src_texture_data,
+            metadata: src_texture_metadata,
+            anm_path: anm_file_path.into(),
+        });
+    }
+    dest_file.specs.rt_width.set_soft(src_rt_width);
+    dest_file.specs.rt_height.set_soft(src_rt_height);
+    dest_file.specs.rt_format.set_soft(src_rt_format);
+    dest_file.specs.colorkey.set_soft(src_colorkey);
+    dest_file.specs.offset_x.set_soft(src_offset_x);
+    dest_file.specs.offset_y.set_soft(src_offset_y);
+    dest_file.specs.memory_priority.set_soft(src_memory_priority);
+    dest_file.specs.low_res_scale.set_soft(src_low_res_scale);
 
     Ok(())
-}
-
-fn or_inplace<T>(dest: &mut Option<T>, src: Option<T>) {
-    *dest = dest.take().or(src);
 }
 
 // =============================================================================
@@ -615,7 +934,7 @@ fn compile(
     hooks: &dyn LanguageHooks,
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
-) -> Result<AnmFile, ErrorReported> {
+) -> Result<WorkingAnmFile, ErrorReported> {
     let mut ast = ast.clone();
     crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
 
@@ -648,7 +967,7 @@ fn compile(
 
     // group scripts by entry
     let mut groups = vec![];
-    let mut cur_entry = None::<Entry>;
+    let mut cur_entry = None::<WorkingEntry>;
     let mut cur_group = vec![];
     let mut script_names = vec![];
     for item in &ast.items {
@@ -657,7 +976,7 @@ fn compile(
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
-                cur_entry = Some(Entry::from_fields(fields, ctx.emitter).map_err(|e| ctx.emitter.emit(e))?);
+                cur_entry = Some(WorkingEntry::from_fields(fields, ctx.emitter).map_err(|e| ctx.emitter.emit(e))?);
                 cur_group = vec![];
             },
             &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
@@ -699,7 +1018,7 @@ fn compile(
     lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
     errors.into_result(())?;
 
-    Ok(AnmFile { entries, binary_filename: None })
+    Ok(WorkingAnmFile { entries, binary_filename: None })
 }
 
 fn write_thecl_defs(
@@ -827,10 +1146,10 @@ fn gather_script_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result
     Ok(script_ids)
 }
 
-fn strip_unnecessary_sprite_ids(anm: &mut AnmFile) {
+fn strip_unnecessary_sprite_ids<'a>(entry_sprites: impl IntoIterator<Item=&'a mut IndexMap<Sp<Ident>, Sprite>>) {
     let mut next_auto_sprite_id = 0;
-    for entry in &mut anm.entries {
-        for sprite in entry.sprites.values_mut() {
+    for sprites in entry_sprites {
+        for sprite in sprites.values_mut() {
             let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
             if actual_id == next_auto_sprite_id {
                 sprite.id = None;
@@ -840,11 +1159,11 @@ fn strip_unnecessary_sprite_ids(anm: &mut AnmFile) {
     }
 }
 
-fn all_sprite_ids(anm: &AnmFile) -> Vec<u32> {
+fn all_sprite_ids<'a>(entry_sprites: impl IntoIterator<Item=&'a IndexMap<Sp<Ident>, Sprite>>) -> Vec<u32> {
     let mut out = vec![];
     let mut next_auto_sprite_id = 0;
-    for entry in &anm.entries {
-        for sprite in entry.sprites.values() {
+    for sprites in entry_sprites {
+        for sprite in sprites.values() {
             let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
             next_auto_sprite_id = actual_id + 1;
             out.push(actual_id);

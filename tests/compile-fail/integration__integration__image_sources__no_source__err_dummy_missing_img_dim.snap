@@ -1,0 +1,13 @@
+---
+source: tests/integration/image_sources.rs
+expression: stderr
+---
+error: missing required field 'img_width' (for image 'subdir/file.png')
+  ┌─ <input>:6:15
+  │
+6 │     has_data: "dummy",
+  │               ^^^^^^^ requires setting 'img_width''
+  │
+  = you can use '-i ANM_FILE' or '-i path/to/patchdir' to copy the image dimensions from an image source
+
+

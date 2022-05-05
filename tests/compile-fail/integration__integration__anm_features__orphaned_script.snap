@@ -1,0 +1,15 @@
+---
+source: tests/integration/anm_features.rs
+expression: stderr
+---
+error: orphaned ANM script with no entry
+  ┌─ <input>:4:1
+  │  
+4 │ ╭ script batman {
+5 │ │     nop();
+6 │ │ }
+  │ ╰─^ orphaned script
+  │  
+  = at least one `entry` must come before scripts in an ANM file
+
+

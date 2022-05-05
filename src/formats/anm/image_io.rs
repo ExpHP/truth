@@ -1,15 +1,17 @@
 use std::path::{Path, PathBuf};
 
-use super::{AnmFile, Entry, HasData, DEFAULT_HAS_DATA, DEFAULT_COLOR_FORMAT, Texture};
+use super::{
+    AnmFile, Entry, HasData, TextureData, TextureMetadata, TextureFromSource,
+    WorkingAnmFile, WorkingEntry, WorkingEntrySpecs,
+};
 
 use crate::io::{Fs};
-use crate::diagnostic::{Emitter};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::image::ColorFormat;
 
 pub fn apply_directory_image_source(
     fs: &Fs,
-    dest: &mut AnmFile,
+    dest: &mut WorkingAnmFile,
     src_directory: &Path,
 ) -> Result<(), ErrorReported> {
     for entry in dest.entries.iter_mut() {
@@ -19,20 +21,35 @@ pub fn apply_directory_image_source(
 }
 
 fn update_entry_from_directory_source(
-    fs: &Fs,
-    dest_entry: &mut Entry,
+    _fs: &Fs,
+    dest_entry: &mut WorkingEntry,
     src_directory: &Path,
 ) -> Result<(), ErrorReported> {
-    use image::{GenericImage, GenericImageView};
-
-    let ref emitter = fs.emitter;
-    let ref img_path = src_directory.join(&dest_entry.path.value);
-    if !img_path.is_file() {  // race condition but not a big deal
+    let image_path = src_directory.join(&dest_entry.path.value);
+    if !image_path.is_file() {
         return Ok(());
     }
 
+    // (there is, of course, a fairly big race condition where the file could be deleted before this
+    //  path is used;  however, we don't want to use it yet, because another directory source might
+    //  replace it, and we don't want to generate errors about invalid dimensions in files we don't use)
+    dest_entry.loaded_texture = Some(TextureFromSource::FromImage {
+        image_path,
+    });
+    Ok(())
+}
+
+pub(in crate::formats::anm) fn load_img_file_for_entry(
+    fs: &Fs,
+    specs: &mut WorkingEntrySpecs,
+    img_path: &PathBuf,
+) -> Result<(Option<TextureData>, TextureMetadata), ErrorReported> {
+    use image::{GenericImage, GenericImageView};
+
+    let emitter = fs.emitter;
+
     let (src_image, src_dimensions): (Option<image::DynamicImage>, _);
-    match dest_entry.specs.has_data.unwrap_or(DEFAULT_HAS_DATA) {
+    match specs.has_data.into_option().expect("defaults should be filled!") {
         HasData::True => {
             let image = image::open(img_path).map_err(|e| emitter.emit(error!(
                 message("{}: {}", fs.display_path(img_path), e)
@@ -41,6 +58,7 @@ fn update_entry_from_directory_source(
             src_image = Some(image);
         },
         HasData::Dummy | HasData::False => {
+            // even though there is no need to load the entire image, we may still want its dimensions
             let dims = image::image_dimensions(img_path).map_err(|e| emitter.emit(error!(
                 message("{}: {}", fs.display_path(img_path), e)
             )))?;
@@ -50,38 +68,34 @@ fn update_entry_from_directory_source(
     }
 
     // these must be well-defined for us to continue, so fill in defaults early
-    let dest_format = *dest_entry.specs.img_format.get_or_insert(sp!(DEFAULT_COLOR_FORMAT as u32));
     let offsets = (
-        *dest_entry.specs.offset_x.get_or_insert(0),
-        *dest_entry.specs.offset_y.get_or_insert(0),
+        specs.offset_x.into_option().unwrap_or(0),
+        specs.offset_y.into_option().unwrap_or(0),
     );
 
-    // set missing dest dimensions
+    // use image dimensions to fill in any missing `img_*` fields
+    // FIXME: This mutation is a bit surprising, but I'm not sure how to work out all of the edge cases
+    //        without it.
     for (dest_dim, src_dim, offset) in vec![
-        (&mut dest_entry.specs.img_width, src_dimensions.0, offsets.0),
-        (&mut dest_entry.specs.img_height, src_dimensions.1, offsets.1),
+        (&mut specs.img_width, src_dimensions.0, offsets.0),
+        (&mut specs.img_height, src_dimensions.1, offsets.1),
     ] {
-        if dest_dim.is_none() {
-            if src_dim >= offset {
-                *dest_dim = Some(sp!(src_dim - offset));
-            } else {
-                return Err(emitter.emit(error!(
-                    "{}: image too small ({}x{}) for an offset of ({}, {})",
-                    fs.display_path(img_path),
-                    src_dimensions.0, src_dimensions.1,
-                    offsets.0, offsets.1,
-                )))
-            }
+        if src_dim >= offset {
+            dest_dim.set_soft(src_dim - offset);
+        } else {
+            return Err(emitter.emit(error!(
+                "{}: image too small ({}x{}) for an offset of ({}, {})",
+                fs.display_path(img_path),
+                src_dimensions.0, src_dimensions.1,
+                offsets.0, offsets.1,
+            )))
         }
     }
 
     // all dest dimensions are set now, but pre-existing ones might not match the image
-    let dest_dimensions = (
-        dest_entry.specs.img_width.unwrap().value,
-        dest_entry.specs.img_height.unwrap().value,
-    );
+    let dest_dimensions = (specs.img_width.into_option().unwrap(), specs.img_height.into_option().unwrap());
     let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
-    if src_dimensions != expected_src_dimensions {
+    if src_dimensions != expected_src_dimensions && specs.has_data.into_option() != Some(HasData::Dummy) {
         return Err(emitter.emit(error!(
             "{}: wrong image dimensions (expected {}x{}, got {}x{})",
             fs.display_path(img_path),
@@ -90,28 +104,27 @@ fn update_entry_from_directory_source(
         )))
     }
 
-    // if we read an image, load it into the right format
-    if dest_entry.texture.is_none() && src_image.is_some() {
-        let dest_cformat = ColorFormat::from_format_num(dest_format.value).ok_or_else(|| emitter.emit(error!(
-            message("cannot transcode into unknown color format {}", dest_format),
-            primary(dest_format, "unknown color format"),
-        )))?;
-
+    // if 'has_data: true`, read the texture
+    let texture_data: Option<TextureData> = src_image.map(|src_image| {
+        // obtain ARGB bytes
         let src_data_argb = {
-            src_image.unwrap().into_bgra8()
+            src_image.into_bgra8()
                 .sub_image(offsets.0, offsets.1, dest_dimensions.0, dest_dimensions.1)
                 .to_image().into_raw()
         };
-
-        let dest_data = dest_cformat.transcode_from_argb_8888(&src_data_argb);
-        dest_entry.texture = Some(Texture { data: dest_data });
-    }
-
-    Ok(())
+        src_data_argb.into()
+    });
+    let texture_metadata = TextureMetadata {
+        width: dest_dimensions.0,
+        height: dest_dimensions.1,
+        format: ColorFormat::Argb8888 as u32,
+    };
+    Ok((texture_data, texture_metadata))
 }
 
 // =============================================================================
 
+/// Implementation of `truanm -x`.
 pub fn extract(
     fs: &Fs<'_>,
     anm: &AnmFile,
@@ -124,7 +137,7 @@ pub fn extract(
     let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
 
     anm.entries.iter().map(|entry| {
-        if entry.texture.is_none() {
+        if entry.texture_data.is_none() {
             return Ok(());
         }
 
@@ -187,24 +200,25 @@ pub fn canonicalize_part_of_path_that_exists(path: &Path) -> Result<PathBuf, std
     Ok(ret)
 }
 
-type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
+pub(super) type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
 
 fn produce_image_from_entry(entry: &Entry) -> Result<image::RgbaImage, String> {
     use image::{GenericImage, buffer::ConvertBuffer};
 
-    let texture = entry.texture.as_ref().expect("produce_image_from_entry called without texture!");
-    let content_width = entry.specs.img_width.expect("has data but no width?!").value;
-    let content_height = entry.specs.img_height.expect("has data but no height?!").value;
-    let format = entry.specs.img_format.expect("defaults were filled...").value;
+    let texture_data = entry.texture_data.as_ref().expect("produce_image_from_entry called without texture!");
+    let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
+    let content_width = texture_metadata.width as u32;
+    let content_height = texture_metadata.height as u32;
+    let format = texture_metadata.format;
     let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
         format!("cannot transcode from unknown color format {}", format)
     })?;
 
-    let content_argb = cformat.transcode_to_argb_8888(&texture.data);
+    let content_argb = cformat.transcode_to_argb_8888(&texture_data.data);
     let content = BgraImage::from_raw(content_width, content_height, &content_argb[..]).expect("size error?!");
 
-    let offset_x = entry.specs.offset_x.unwrap_or(0);
-    let offset_y = entry.specs.offset_y.unwrap_or(0);
+    let offset_x = entry.specs.offset_x;
+    let offset_y = entry.specs.offset_y;
     let output_width = content_width + offset_x;
     let output_height = content_height + offset_y;
     let output_init_argb = vec![0xFF; 4 * output_width as usize * output_height as usize];

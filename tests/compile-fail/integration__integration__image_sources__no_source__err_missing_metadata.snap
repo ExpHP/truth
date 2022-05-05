@@ -2,7 +2,12 @@
 source: tests/integration/image_sources.rs
 expression: stderr
 ---
-error: while writing '<output>':in entry 0 (for 'subdir/file.png'): missing required field 'rt_width'!
- = if this data is available in an existing anm file, try using '-i ANM_FILE'
+error: missing required field 'rt_width'!
+  ┌─ <input>:6:15
+  │
+6 │     has_data: false,
+  │               ^^^^^ requires setting 'rt_width'
+  │
+  = you can also set 'img_width' to infer 'rt_width' as the next power of 2
 
 

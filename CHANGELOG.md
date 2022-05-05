@@ -7,6 +7,7 @@
 * **`truecl`** (!!!!) is available in **prototype status,** but the way to invoke it is ~~a well guarded secret~~ `truth-core truecl`.  TH06-TH095 are supported.
 * Multiple `-m` args can now be provided.
 * Decompile commands now support `-o`/`--output`, just like compilation.
+* truanm had some unhelpful behavior when using multiple image sources that provide the same image, or when using `has_data: "dummy"` together with an image source.  Image sources have been redesigned to better support common use cases.
 
 ### New language features in support of ECL
 
