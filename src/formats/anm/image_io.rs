@@ -122,16 +122,6 @@ pub(in crate::formats::anm) fn load_img_file_for_entry(
     Ok((texture_data, texture_metadata))
 }
 
-#[test]
-fn needs_test_1() {
-   panic!("test needed for loading two PNG sources with an offset, where the first one is too small. (should not error)")
-}
-
-#[test]
-fn needs_test_2() {
-    panic!("test needed for loading metadata from a PNG to determine the dimensions for 'has_data: \"generate\"'");
-}
-
 // =============================================================================
 
 /// Implementation of `truanm -x`.

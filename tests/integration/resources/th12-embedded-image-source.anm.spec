@@ -2,6 +2,8 @@
 //       It is mostly here for explanatory purposes.
 //       Since it is not tested, it may fall out of date with the latest compiler syntax.
 
+#pragma image_source "./tests/integration/resources/dir-with-images"
+#pragma image_source "./tests/integration/resources/dir-with-other-images"
 #pragma mapfile "map/any.anmm"
 
 entry {
@@ -17,9 +19,17 @@ script -45 script0 {
 }
 
 
+// a fairly mundane image
+entry {
+    path: "subdir/hi-32x16.png",
+    img_format: FORMAT_ARGB_8888,
+    sprites: {sprite1: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 18.0}},
+}
+
+
 // an image with a marker suitable for testing transcoding
 entry {
-    path: "subdir/hai-10x18.png",  // the image from resources/dir-with-images
+    path: "subdir/hai-10x18.png",
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite1: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 18.0}},
 }
@@ -27,7 +37,7 @@ entry {
 
 // an image with an offset
 entry {
-    path: "subdir/hai-10x18+105+9.png",  // the image from resources/dir-with-images
+    path: "subdir/hai-10x18+105+9.png",
     img_format: FORMAT_ARGB_8888,
     offset_x: 105,
     offset_y: 9,
@@ -37,7 +47,7 @@ entry {
 
 // an image that differs between two image sources.
 entry {
-    path: "subdir/modified-size.png",  // the image from resources/dir-with-images
+    path: "subdir/modified-size.png",
     has_data: true,
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite1: {id: 0, x: 0.0, y: 0.0, w: 2.0, h: 2.0}},

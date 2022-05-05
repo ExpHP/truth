@@ -2,13 +2,13 @@
 source: tests/integration/image_sources.rs
 expression: stderr
 ---
-error: provided dimensions for 'subdir/hai-10x18.png' do not match image source: 10x32 in script, 10x18 in image source
-  ┌─ <input>:9:17
+error: provided dimensions for 'subdir/hi-32x16.png' do not match image source: 32x16 in script, 32x12 in image source
+  ┌─ <input>:6:17
   │
-9 │     img_height: 32,
+6 │     img_height: 16,
   │                 ^^
   │
-  = image was loaded from 'tests/integration/resources/th12-embedded-image-source.anm'
+  = image was loaded from 'tests/integration/resources/th12-embedded-bad-image-source.anm'
   = you can remove these explicit dimensions to infer them from the image source
   = you can add another image source to override this image
   = you can use `has_image: "dummy"` to ignore the image in the source and generate dummy data

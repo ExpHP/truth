@@ -17,6 +17,7 @@ pub mod formats;
 pub use test_file::TestFile;
 mod test_file;
 
+pub use parse_errors::strip_diagnostic_comments;
 mod parse_errors;
 
 // =============================================================================

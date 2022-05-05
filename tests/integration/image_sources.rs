@@ -1,6 +1,42 @@
 #[allow(unused)]
 use crate::integration_impl::{expected, formats::*};
 
+/// Generate two integration test cases that both look for an error, and make sure it does not trigger
+/// when irrelevant.
+///
+/// - The first one will have only one image source, and is expected to fail
+///   due to some problem with the image in that source.
+/// - The second one will have one more image source added, and is expected to succeed,
+///   thanks to the new image source replacing the problematic image with something better.
+macro_rules! lazy_error_source_tests {
+    (
+        $FORMAT:ident, $test_name:ident,
+        image_source_1: $image_source_1:literal,
+        image_source_2: $image_source_2:literal,
+        full_source: $full_source:expr,
+        $(expect_error_in_failure_case: $expect_error:expr,)?
+        check_compiled_in_success_case: $check_compiled:expr,
+    ) => {
+        mod $test_name {
+            use super::*;
+
+            source_test!(
+                $FORMAT, failure,
+                compile_args: &["-i", $image_source_1],
+                full_source: $full_source,
+                $(expect_error: $expect_error,)?
+            );
+
+            source_test!(
+                $FORMAT, success,
+                compile_args: &["-i", $image_source_1, "-i", $image_source_2],
+                full_source: crate::integration_impl::strip_diagnostic_comments($full_source),
+                check_compiled: $check_compiled,
+            );
+        }
+    };
+}
+
 // =============================================================================
 // ANM file image sources
 
@@ -198,7 +234,7 @@ entry {
 entry {
     path: "subdir/file.png",
     has_data: false,
-    img_width: 512,  // use img_ here to test defaulting of buf_ from img_
+    img_width: 512,  // use img_ here to test defaulting of rt_ from img_
     img_height: 512,
     img_format: 3,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
@@ -222,6 +258,21 @@ entry {
 entry {
     path: "subdir/file.png",
     has_data: false,  //~ ERROR required field
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
+}"#,
+    );
+
+    // This input is like 'okay' but it is missing some metadata.
+    source_test!(
+        ANM_12, err_dummy_missing_img_dim,
+        full_source: r#"
+#pragma mapfile "map/any.anmm"
+
+entry {
+    path: "subdir/file.png",
+    has_data: "dummy",  //~ ERROR required field
+    rt_width: 512,
+    rt_height: 512,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }"#,
     );
@@ -542,7 +593,13 @@ entry {
         "#,
         check_compiled: |output, format| {
             let anm = output.read_anm(format);
+            // even though format 8 is not recognized by truth, it should've been able to copy the
+            assert!(anm.entries[0].has_thtx_section());
             assert_eq!(anm.entries[0].img_format().unwrap(), 8);
+            let known_width = 27;
+            let known_height = 25;
+            let known_bpp = 1;
+            assert_eq!(anm.entries[0].img_data().unwrap().len(), known_bpp * known_width * known_height)
         },
     );
 
@@ -629,6 +686,22 @@ entry {
     );
 
     source_test!(
+        // Here, the bad format is specified in an ANM image source (so that it has no span),
+        // then used to generate dummy data.
+        // We need to make sure truth doesn't panic attempting to render an invalid span.
+        ANM_12, bad_dummy_with_no_span,
+        full_source: r#"
+#pragma image_source "./tests/integration/resources/th12-embedded-weird-format-source.anm"
+
+entry {
+    path: "teeny.png",
+    has_data: "dummy",
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_error: "unknown color format",
+    );
+
+    source_test!(
         ANM_12, image_ok,
         full_source: r#"
 #pragma image_source "./tests/integration/resources/dir-with-images"
@@ -655,6 +728,23 @@ entry {
     path: "subdir/hi-7x20.png",
     has_data: true,
     img_format: 8,
+    sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
+}"#,
+        expect_error: "into unknown color format",
+    );
+
+    source_test!(
+        // Here, the bad format is specified in an ANM image source (so that it has no span),
+        // then used to embed a PNG image from file.
+        // We need to make sure truth doesn't panic attempting to render an invalid span.
+        ANM_12, bad_image_into_with_no_span,
+        full_source: r#"
+// This file has an image with img_format: 8
+#pragma image_source "./tests/integration/resources/th12-embedded-weird-format-source.anm"
+#pragma image_source "./tests/integration/resources/dir-with-other-images"
+
+entry {
+    path: "teeny.png",
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
         expect_error: "into unknown color format",
@@ -831,20 +921,6 @@ fn check_data_for_modified_hai_10_18_argb_8888(data: &[u8]) {
     );
 }
 
-fn check_data_for_modified_hai_10_18_gray_8(data: &[u8]) {
-    let pixel_size = 1;
-    let row_size = pixel_size * 10;
-    assert_eq!(data.len(), row_size * 18);
-    assert_eq!(
-        &data[..2 * pixel_size],
-        &[0x00, 0xFF],
-    );
-    assert_eq!(
-        &data[row_size..row_size + 2 * pixel_size],
-        &[0xFF, 0x00],
-    );
-}
-
 source_test!(
     ANM_12, png_import_meta_32x16,
     full_source: r#"
@@ -985,50 +1061,68 @@ entry {
     },
 );
 
-source_test!(
+lazy_error_source_tests!(
     ANM_12, png_import_wrong_img_height,
+    image_source_1: "./tests/integration/resources/dir-with-bad-images",
+    image_source_2: "./tests/integration/resources/dir-with-images",
     full_source: r#"
-#pragma image_source "./tests/integration/resources/dir-with-images"
-
 entry {
     path: "subdir/hi-32x16.png",
     has_data: false,
     img_format: 3,
     img_width: 32,
-    img_height: 32,
-    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+    img_height: 16,
+    sprites: {},
 }"#,
-    expect_error: "wrong image dimensions",
+    expect_error_in_failure_case: "wrong image dimensions",
+    check_compiled_in_success_case: |_output, _format| {},
 );
 
-source_test!(
+lazy_error_source_tests!(
     ANM_12, anm_import_wrong_img_height,
+    // see th12-embedded-bad-image-source.anm.spec
+    image_source_1: "./tests/integration/resources/th12-embedded-bad-image-source.anm",
+    image_source_2: "./tests/integration/resources/th12-embedded-image-source.anm",
     full_source: r#"
-#pragma image_source "./tests/integration/resources/th12-embedded-image-source.anm"
-
 entry {
-    path: "subdir/hai-10x18.png",
-    has_data: false,
+    path: "subdir/hi-32x16.png",
     img_format: 3,
-    img_width: 10,
-    img_height: 32,  //~ ERROR do not match
-    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+    img_width: 32,
+    img_height: 16,  //~ ERROR do not match
+    sprites: {},
 }"#,
+    check_compiled_in_success_case: |_output, _format| {},
 );
 
-source_test!(
-    ANM_12, png_import_with_offset_too_big,
+lazy_error_source_tests!(
+    ANM_12, anm_import_wrong_img_height_then_png,
+    image_source_1: "./tests/integration/resources/th12-embedded-bad-image-source.anm",
+    image_source_2: "./tests/integration/resources/dir-with-images",
     full_source: r#"
-#pragma image_source "./tests/integration/resources/dir-with-images"
+entry {
+    path: "subdir/hi-32x16.png",
+    img_format: 3,
+    img_width: 32,
+    img_height: 16,  //~ ERROR do not match
+    sprites: {},
+}"#,
+    check_compiled_in_success_case: |_output, _format| {},
+);
 
+lazy_error_source_tests!(
+    ANM_12, png_import_with_offset_too_big,
+    image_source_1: "./tests/integration/resources/dir-with-bad-images",
+    image_source_2: "./tests/integration/resources/dir-with-images",
+    full_source: r#"
 entry {
     path: "subdir/hai-10x18+105+9.png",
-    offset_x: 1050,
-    offset_y: 90,
+    offset_x: 105,
+    offset_y: 9,
     has_data: true,
-    sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
+    sprites: {},
 }"#,
-    expect_error: "image too small",
+    expect_error_in_failure_case: "image too small",
+    check_compiled_in_success_case: |_output, _format| {},
 );
 
 source_test!(

@@ -502,7 +502,8 @@ fn generate_texture_dummy_data(
         if dim.into_option().is_none() {
             return Err(emitter.emit(error!(
                 message("missing required field '{name}' (for image '{entry_path}')"),
-                primary(has_data_span, "field is required due to 'has_data: \"dummy\"'"),
+                primary(has_data_span, "requires setting '{name}''"),
+                note("you can use '-i ANM_FILE' or '-i path/to/patchdir' to copy the image dimensions from an image source"),
             )));
         }
     }
@@ -666,7 +667,7 @@ impl WorkingEntry {
                     if !rt_value.value.is_power_of_two() && !path.starts_with("@") {
                         emitter.emit(warning!(
                             message("rt_{} = {} should be a power of two", field, rt_value),
-                            primary(rt_value, "not a power of two")
+                            primary(rt_value, "not a power of two"),
                         )).ignore();
                     }
                 }
