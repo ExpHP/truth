@@ -1,4 +1,5 @@
 use indexmap::IndexMap;
+use core::fmt;
 
 use crate::raw;
 use crate::ast;
@@ -125,7 +126,7 @@ pub enum IntrinsicInstrKind {
 }
 
 impl IntrinsicInstrKind {
-    pub fn descr(&self) -> &'static str {
+    pub fn static_descr(&self) -> &'static str {
         match self {
             Self::Jmp { .. } => "unconditional jump",
             Self::CallEosd { .. } => "call (EoSD)",
@@ -141,23 +142,31 @@ impl IntrinsicInstrKind {
         }
     }
 
-    /// More precise than descr(), but allocates.
-    pub fn heavy_descr(&self) -> String {
-        match self {
-            | Self::Jmp { .. }
-            | Self::CallEosd { .. }
-            | Self::CallReg { .. }
-            | Self::InterruptLabel { .. }
-            | Self::CountJmp { .. }
-            | Self::CondJmp2A { .. }
-            => format!("{}", self.descr()),
+    pub fn descr(&self) -> impl fmt::Display {
+        use IntrinsicInstrKind as I;
+        struct Impl(I);
 
-            Self::AssignOp(op, _ty) => format!("{op} op"),
-            Self::BinOp(op, _ty) => format!("binary {op} op"),
-            Self::UnOp(op, _ty) => format!("unary {op} op"),
-            Self::CondJmp(op, _ty) => format!("conditional ({op}) jump"),
-            Self::CondJmp2B(op) => format!("conditional ({op}) jump after cmp"),
+        impl fmt::Display for Impl {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match self.0 {
+                    | it@I::Jmp { .. }
+                    | it@I::CallEosd { .. }
+                    | it@I::CallReg { .. }
+                    | it@I::InterruptLabel { .. }
+                    | it@I::CountJmp { .. }
+                    | it@I::CondJmp2A { .. }
+                    => write!(f, "{}", it.static_descr()),
+
+                    I::AssignOp(op, _ty) => write!(f, "{op} op"),
+                    I::BinOp(op, _ty) => write!(f, "binary {op} op"),
+                    I::UnOp(op, _ty) => write!(f, "unary {op} op"),
+                    I::CondJmp(op, _ty) => write!(f, "conditional ({op}) jump"),
+                    I::CondJmp2B(op) => write!(f, "conditional ({op}) jump after cmp"),
+                }
+            }
         }
+
+        Impl(*self)
     }
 }
 
@@ -380,7 +389,7 @@ impl IntrinsicAbiHelper<'_> {
             => Ok((index, abi_parts::OutputArgMode::FloatAsInt)),
 
             | (_, _)
-            => Err(self.bad_intrinsic_abi(&format!("output arg has unexpected encoding ({})", encoding.descr()))),
+            => Err(self.bad_intrinsic_abi(&format!("output arg has unexpected encoding ({})", encoding.static_descr()))),
         }
     }
 
@@ -395,7 +404,7 @@ impl IntrinsicAbiHelper<'_> {
             => Ok(index),
 
             | (_, _)
-            => Err(self.bad_intrinsic_abi(&format!("ABI input arg has unexpected encoding ({})", encoding.descr()))),
+            => Err(self.bad_intrinsic_abi(&format!("ABI input arg has unexpected encoding ({})", encoding.static_descr()))),
         }
     }
 }
@@ -465,7 +474,7 @@ impl IntrinsicInstrAbiParts {
         };
 
         if let Some(&(index, encoding)) = encodings.get(0) {
-            return Err(helper.bad_intrinsic_abi(&format!("unexpected {} arg at index {}", encoding.heavy_descr(), index + 1)));
+            return Err(helper.bad_intrinsic_abi(&format!("unexpected {} arg at index {}", encoding.descr(), index + 1)));
         }
         Ok(out)
     }

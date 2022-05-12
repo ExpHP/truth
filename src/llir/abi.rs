@@ -1,3 +1,6 @@
+use core::fmt;
+use indexmap::IndexMap;
+
 use crate::ast;
 use crate::pos::{Sp, Span, SourceStr};
 use crate::diagnostic::{Diagnostic, Emitter};
@@ -6,8 +9,6 @@ use crate::context::{CompilerContext, defs::{self, TypeColor, auto_enum_names}};
 use crate::value::{self, ScalarType};
 use crate::game::{Game, LanguageKey};
 use crate::parse::abi::abi_ast;
-
-use indexmap::IndexMap;
 
 use ArgEncoding as Enc;
 
@@ -87,7 +88,7 @@ pub enum StringArgSize {
 impl ArgEncoding {
     pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false } }
 
-    pub fn descr(&self) -> &'static str {
+    pub fn static_descr(&self) -> &'static str {
         match self {
             Self::Integer { size: 2, .. } => "word-sized integer",
             Self::Integer { size: 4, .. } => "dword integer",
@@ -101,19 +102,28 @@ impl ArgEncoding {
         }
     }
 
-    pub fn heavy_descr(&self) -> String {
-        match self {
-            Self::Integer { arg0: true, ty_color, size } => format!(
-                "{} (in timeline arg0)",
-                Self::Integer { arg0: false, ty_color: ty_color.clone(), size: *size }.heavy_descr(),
-            ),
-            Self::Integer { ty_color: Some(en), size: 4, .. } => format!("{}", en.heavy_descr()),
-            Self::Integer { ty_color: Some(en), size, .. } => format!("{}-byte {}", size, en.heavy_descr()),
-            Self::Integer { ty_color: None, size: 2, .. } => format!("word-sized integer"),
-            Self::Integer { ty_color: None, size: 4, .. } => format!("dword integer"),
-            Self::Integer { ty_color: None, size, .. } => format!("{}-byte integer", size),
-            _ => self.descr().to_string(),
+    pub fn descr(&self) -> impl fmt::Display + '_ {
+        struct Impl<'a>(&'a Enc);
+
+        impl fmt::Display for Impl<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match &self.0 {
+                    Enc::Integer { arg0: true, ty_color, size } => write!(
+                        f,
+                        "{} (in timeline arg0)",
+                        Enc::Integer { arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
+                    ),
+                    Enc::Integer { ty_color: Some(en), size: 4, .. } => write!(f, "{}", en.descr()),
+                    Enc::Integer { ty_color: Some(en), size, .. } => write!(f, "{size}-byte {}", en.descr()),
+                    Enc::Integer { ty_color: None, size: 2, .. } => write!(f, "word-sized integer"),
+                    Enc::Integer { ty_color: None, size: 4, .. } => write!(f, "dword integer"),
+                    Enc::Integer { ty_color: None, size, .. } => write!(f, "{size}-byte integer"),
+                    enc => write!(f, "{}", enc.static_descr()),
+                }
+            }
         }
+
+        Impl(self)
     }
 }
 

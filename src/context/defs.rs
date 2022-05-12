@@ -1,5 +1,6 @@
 use enum_map::{EnumMap, enum_map};
 use indexmap::IndexMap;
+use core::fmt;
 
 use crate::raw;
 use crate::ast;
@@ -1066,10 +1067,18 @@ pub enum TypeColor {
 }
 
 impl TypeColor {
-    pub fn heavy_descr(&self) -> String {
-        match self {
-            TypeColor::Enum(name) => format!("enum {name}"),
+    pub fn descr(&self) -> impl fmt::Display + '_ {
+        struct Impl<'a>(&'a TypeColor);
+
+        impl fmt::Display for Impl<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match &self.0 {
+                    TypeColor::Enum(name) => write!(f, "enum {name}"),
+                }
+            }
         }
+
+        Impl(self)
     }
 
     pub fn enum_name(&self) -> Option<&Ident> {

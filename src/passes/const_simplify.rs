@@ -266,7 +266,7 @@ fn validate_call_const_args(call: &ast::ExprCall, ctx: &CompilerContext<'_>) -> 
                 );
 
                 match const_arg_reason {
-                    ConstArgReason::Encoding(enc) => diag.note(format!("because the argument is a {}", enc.descr())),
+                    ConstArgReason::Encoding(enc) => diag.note(format!("because the argument is a {}", enc.static_descr())),
                     // ConstArgReason::EosdEcl => diag.note(format!("this is a limitation of calls in EoSD ECL")),
                 };
                 return Err(ctx.emitter.emit(diag));
