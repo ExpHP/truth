@@ -66,14 +66,6 @@ pub enum ArgEncoding {
         mask: AcceleratingByteMask,
         furibug: bool,
     },
-    // FIXME: remove
-    /// `T`. Extra argument for timeline.
-    ///
-    /// Such an argument may only appear as the first argument in the AST form.
-    /// Effectively it makes the first argument sugar for `@arg0=`.
-    ///
-    /// In the binary encoding, it is stored in the instruction header rather than the args blob.
-    TimelineArg(TimelineArgKind),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,20 +84,6 @@ pub enum StringArgSize {
     Block { block_size: usize },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TimelineArgKind {
-    /// `T(s)`.  Timeline argument that is just an integer.
-    Word,
-    /// `T(_)`.  Unused timeline argument that won't appear in the AST signature.
-    ///
-    /// It can still be explicitly set via `@arg0=`.
-    Unused,
-    /// `T(e)`, `T(m)`.  Timeline argument that is an ECL or MSG sub index.
-    ///
-    /// This mostly impacts decompilation, as it will try to decompile this arg to a symbol name.
-    Enum(TypeColor),
-}
-
 impl ArgEncoding {
     pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false } }
 
@@ -120,7 +98,6 @@ impl ArgEncoding {
             Self::Color => "hex integer",
             Self::Float => "float",
             Self::String { .. } => "string",
-            Self::TimelineArg { .. } => "timeline arg0",
         }
     }
 
@@ -210,7 +187,6 @@ impl ArgEncoding {
             | ArgEncoding::Padding
             | ArgEncoding::Color
             | ArgEncoding::Integer { .. }
-            | ArgEncoding::TimelineArg { .. }
             => ScalarType::Int,
 
             | ArgEncoding::Float
@@ -390,9 +366,6 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
 
                 | ArgEncoding::Integer { arg0: true, ref ty_color, .. }
                 => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: ty_color.clone() },
-
-                | ArgEncoding::TimelineArg { .. }
-                => unreachable!(), // XXX
 
                 | ArgEncoding::JumpOffset
                 | ArgEncoding::JumpTime

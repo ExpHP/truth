@@ -17,7 +17,7 @@ use crate::resolve::{RegId, IdMap};
 use crate::context::{self, Defs, CompilerContext};
 use crate::context::defs::{ConstNames, TypeColor, auto_enum_names};
 use crate::game::LanguageKey;
-use crate::llir::{ArgEncoding, TimelineArgKind, StringArgSize, InstrAbi, RegisterEncodingStyle};
+use crate::llir::{ArgEncoding, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
 use crate::llir::raise::{CannotRaiseIntrinsic, RaisedIntrinsicParts};
@@ -230,7 +230,6 @@ fn decode_args_with_abi(
         param_mask /= 2;
 
         let value = match *enc {
-            | ArgEncoding::TimelineArg { .. }
             | ArgEncoding::Integer { arg0: true, .. }
             => {
                 // a check that non-timeline languages don't have timeline args in their signature
@@ -644,12 +643,9 @@ impl AtomRaiser<'_, '_> {
         match enc {
             | ArgEncoding::Padding
             | ArgEncoding::Integer { ty_color: None, .. }
-            | ArgEncoding::TimelineArg(TimelineArgKind::Unused)
-            | ArgEncoding::TimelineArg(TimelineArgKind::Word)
             => Ok(ast::Expr::from(raw.expect_int())),
 
             | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
-            | ArgEncoding::TimelineArg(TimelineArgKind::Enum(ty_color))
             => {
                 let lookup_table = match ty_color {
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],

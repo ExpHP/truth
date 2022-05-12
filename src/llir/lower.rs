@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use super::{
     unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs,
-    ArgEncoding, StringArgSize, TimelineArgKind, ScalarType,
+    ArgEncoding, StringArgSize, ScalarType,
 };
 
 use crate::raw;
@@ -513,7 +513,6 @@ fn encode_args(
     assert!(args_iter.len() <= arg_encodings_iter.len());
     for (arg, enc) in zip!(args_iter, arg_encodings_iter.by_ref()) {
         match *enc {
-            | ArgEncoding::TimelineArg { .. }
             | ArgEncoding::Integer { arg0: true, .. }
             => unreachable!(),
 

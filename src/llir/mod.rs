@@ -7,7 +7,7 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::value::{ScalarValue, ScalarType, ReadType};
 use crate::resolve::{RegId};
 
-pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, TimelineArgKind, StringArgSize};
+pub use abi::{InstrAbi, ArgEncoding, AcceleratingByteMask, StringArgSize};
 mod abi;
 
 pub use lower::Lowerer;

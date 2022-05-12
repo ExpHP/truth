@@ -293,7 +293,6 @@ struct IntrinsicAbiHelper<'a> {
 
 impl IntrinsicAbiHelper<'_> {
     fn bad_intrinsic_abi(&self, message: &str) -> Diagnostic {
-        // TODO: show the span of what sets the intrinsic as well, this should be part of core mapfiles.
         let mut diag = error!(
             message("bad ABI for intrinsic {}: {message}", self.intrinsic),
             primary(self.intrinsic, "intrinsic defined here"),
