@@ -9,6 +9,6 @@ error: unexpected token `:`
    │                 ^ unexpected token
    │
    = 
-     Expected one of "!", "$", "%", "(", "-", "REG", "_S", "_f", "anim", "case", "cos", "default", "ecli", "entry", "float", "int", "mapfile", "offsetof", "script", "sin", "sqrt", "timeline", "timeof", FLOAT, FLOAT_RAD, IDENT, INSTR, INT, INT_BIN, INT_HEX or STRING
+     Expected one of "!", "$", "%", "(", "-", "REG", "_S", "_f", "anim", "case", "cos", "default", "ecli", "entry", "float", "int", "mapfile", "offsetof", "script", "sin", "sqrt", "timeline", "timeof", FLOAT, FLOAT_RAD, IDENT, INSTR, INT or STRING
 
 

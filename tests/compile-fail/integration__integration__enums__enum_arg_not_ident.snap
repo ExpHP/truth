@@ -3,9 +3,9 @@ source: tests/integration/enums.rs
 expression: stderr
 ---
 error: invalid identifier: ax@3
-  ┌─ <mapfile-1>:3:5
+  ┌─ <mapfile-1>:3:12
   │
 3 │ 999 S(enum="ax@3")
-  │     ^^^^^^^^^^^^^^
+  │            ^^^^^^
 
 

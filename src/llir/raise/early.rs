@@ -38,6 +38,9 @@ struct EarlyRaiseInstr {
     difficulty_mask: raw::DifficultyMask,
     opcode: raw::Opcode,
     args: EarlyRaiseArgs,
+    /// Timeline arg0, only if it should be raised to `@arg0`. (if it should be raised as a standard
+    /// argument, it will be in `args`)
+    pseudo_arg0: Option<raw::ExtraArg>,
 }
 
 #[derive(Debug)]
@@ -79,7 +82,6 @@ pub(in crate::llir::raise) fn early_raise_instrs(
 #[derive(Debug, Clone)]
 struct UnknownArgsData {
     param_mask: raw::ParamMask,
-    extra_arg: Option<raw::ExtraArg>,
     blob: Vec<u8>,
 }
 
@@ -112,13 +114,13 @@ fn early_raise_intrinsics(
         // blob?
         let raw_args = match &instr.args {
             EarlyRaiseArgs::Decoded(args) => args,
-            EarlyRaiseArgs::Unknown(UnknownArgsData { param_mask, extra_arg, blob }) => return Ok(make_instr(
+            EarlyRaiseArgs::Unknown(UnknownArgsData { param_mask, blob }) => return Ok(make_instr(
                 RaiseIntrinsicKind::Blob,
                 RaisedIntrinsicParts {
                     opcode: Some(instr.opcode),
                     pseudo_blob: Some(blob.clone()),
                     pseudo_mask: Some(param_mask.clone()),
-                    pseudo_arg0: extra_arg.map(|x| (x as i32).into()),
+                    pseudo_arg0: instr.pseudo_arg0.map(|x| (x as i32).into()),
                     ..Default::default()
                 })),
         };
@@ -188,9 +190,9 @@ impl Raiser<'_> {
             time: instr.time,
             opcode: instr.opcode,
             difficulty_mask: instr.difficulty,
+            pseudo_arg0: instr.extra_arg,
             args: EarlyRaiseArgs::Unknown(UnknownArgsData {
                 param_mask: instr.param_mask,
-                extra_arg: instr.extra_arg,
                 blob: instr.args_blob.to_vec(),
             }),
         })
@@ -209,6 +211,7 @@ fn decode_args_with_abi(
     let mut param_mask = instr.param_mask;
     let mut args_blob = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];
+    let mut pseudo_arg0 = instr.extra_arg;
     let mut remaining_len = instr.args_blob.len();
 
     fn decrease_len(emitter: &impl Emitter, remaining_len: &mut usize, amount: usize) -> Result<(), ErrorReported> {
@@ -232,7 +235,7 @@ fn decode_args_with_abi(
             => {
                 // a check that non-timeline languages don't have timeline args in their signature
                 // is done earlier so we can unwrap this
-                let extra_arg = instr.extra_arg.expect("timeline arg in sig for non-timeline language");
+                let extra_arg = pseudo_arg0.take().expect("timeline arg in sig for non-timeline language");
                 ScalarValue::Int(extra_arg as _)
             },
 
@@ -253,7 +256,7 @@ fn decode_args_with_abi(
             },
 
             | ArgEncoding::Integer { size, .. }
-            => panic!("unexpected integer size: {}", size),
+            => panic!("unexpected integer size: {size}"),
 
             | ArgEncoding::Float
             => {
@@ -317,6 +320,7 @@ fn decode_args_with_abi(
         time: instr.time,
         opcode: instr.opcode,
         difficulty_mask: instr.difficulty,
+        pseudo_arg0,
         args: EarlyRaiseArgs::Decoded(args),
     })
 }
@@ -509,14 +513,15 @@ impl AtomRaiser<'_, '_> {
             Ok(self.raise_arg(emitter, &arg, enc, dest_label)?)
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
-        // Move unused timeline arguments out of the argument list and into a pseudo-arg.
-        let mut pseudo_arg0 = None;
-        if matches!(encodings.get(0), Some(ArgEncoding::TimelineArg(TimelineArgKind::Unused))) {
-            let arg0_expr = raised_args.remove(0);
-            if arg0_expr.as_const_int().unwrap() != 0 {
-                pseudo_arg0 = Some(arg0_expr);
+        // Show an explicit @arg0 if necessary
+        let pseudo_arg0 = match instr.pseudo_arg0 {
+            None | Some(0) => None,
+            Some(arg0) => {
+                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true };
+                let expr = self.raise_arg(emitter, &SimpleArg::from(arg0 as i32), &enc, dest_label)?;
+                Some(expr)
             }
-        }
+        };
 
         // drop early STD padding args from the end as long as they're zero.
         //

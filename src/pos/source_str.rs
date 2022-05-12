@@ -37,8 +37,6 @@ impl<'a> SourceStr<'a> {
 
     /// Construct from a source string and its corresponding span.
     pub fn from_span(span: Span, str: &'a str) -> Self {
-        println!("{:?}", span);
-        println!("{:?}", str);
         assert_eq!(span.len(), str.len(), "input str is not original source text, or span is wrong!");
         SourceStr {
             str,

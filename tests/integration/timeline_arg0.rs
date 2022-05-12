@@ -15,17 +15,17 @@ const TIMELINE_DEBUGGING_ECLMAP: &'static str = r#"!eclmap
 13 hasUnusedArg0
 
 !timeline_ins_signatures
-10 T(_)ff
-11 T(e)SS
-12 T(m)SS
-13 T(_)SS
+10 ff
+11 s(arg0;enum="EclSub")SS
+12 s(arg0;enum="MsgScript")SS
+13 SS
 "#;
 
 source_test!(
     ECL_06, signature_with_arg0_in_not_timeline,
     mapfile: r#"!eclmap
 !ins_signatures
-1000 T(m)  //~ ERROR only valid in
+1000 s(arg0; enum="MsgScript")  //~ ERROR only valid in
     "#,
     main_body: "",
 );
@@ -34,16 +34,7 @@ source_test!(
     ECL_08, signature_with_arg0_in_th08_timeline,
     mapfile: r#"!eclmap
 !timeline_ins_signatures
-1000 T(m)  //~ ERROR only valid in
-    "#,
-    main_body: "",
-);
-
-source_test!(
-    ECL_06, signature_without_arg0_in_th06_timeline,
-    mapfile: r#"!eclmap
-!timeline_ins_signatures
-1000 SS  //~ ERROR is missing
+1000 s(arg0; enum="MsgScript")  //~ ERROR only valid in
     "#,
     main_body: "",
 );
@@ -137,7 +128,7 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_06, bad_type_for_optional_arg0,
+    ECL_TIMELINE_06, bad_type_for_explicit_arg0,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(@arg0=5.5, 3, 3);  //~ ERROR type error
@@ -145,7 +136,7 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_06, blob_without_optional_arg0,
+    ECL_TIMELINE_06, blob_without_unused_arg0,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(@blob="FFFFFFFF FFFFFFFF");
@@ -157,7 +148,7 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_06, optional_arg0_zero,
+    ECL_TIMELINE_06, unused_arg0_zero,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(3, 3);
@@ -166,7 +157,7 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_06, optional_arg0_nonzero,
+    ECL_TIMELINE_06, unused_arg0_nonzero,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     main_body: r#"
     hasUnusedArg0(@arg0=5, 3, 3);
@@ -175,10 +166,10 @@ source_test!(
 );
 
 source_test!(
-    ECL_TIMELINE_06, optional_arg0_padding_edge_case,
+    ECL_TIMELINE_06, unused_arg0_padding_edge_case,
     mapfile: r#"!eclmap
 !timeline_ins_signatures
-200 T(m)S__
+200 s(arg0;enum="MsgScript")S__
 "#,
     // this is an edge case that arose in decompilation where the presence of a timeline
     // arg could make the code that trims padding look at the wrong values

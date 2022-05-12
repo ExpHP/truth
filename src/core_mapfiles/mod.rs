@@ -1,7 +1,9 @@
 use crate::raw;
-use crate::pos::Sp;
+use crate::pos::{Sp, SourceStr};
 use crate::game::{Game, LanguageKey};
 use crate::mapfile::Mapfile;
+use crate::error::ErrorReported;
+use crate::diagnostic::RootEmitter;
 
 mod anm;
 mod ecl;
@@ -10,7 +12,7 @@ mod std;
 
 /// Obtain a mapfile with signatures and types for all vanilla instructions and registers
 /// for a single InstrLanguage.
-pub fn core_mapfile(game: Game, language: LanguageKey) -> Mapfile {
+pub fn core_mapfile(emitter: &RootEmitter, game: Game, language: LanguageKey) -> Mapfile {
     let signatures = match language {
         LanguageKey::Anm => self::anm::core_signatures(game),
         LanguageKey::Std => self::std::core_signatures(game),
@@ -21,7 +23,8 @@ pub fn core_mapfile(game: Game, language: LanguageKey) -> Mapfile {
         LanguageKey::Dummy => CoreSignatures::EMPTY,
     };
 
-    signatures.to_mapfile(language, game)
+    let mapfile = signatures.to_mapfile(language, game);
+    add_spans_to_core_mapfile(emitter, &mapfile)
 }
 
 /// Struct for representing some embedded mapfile information (notably the default signatures and
@@ -111,4 +114,25 @@ where
         (Some(value), Ok(index)) => map[index] = (key, value.sp_map(ToOwned::to_owned)),
         (Some(value), Err(index)) => map.insert(index, (key, value.sp_map(ToOwned::to_owned))),
     }
+}
+
+/// Bit of a silly hack.
+///
+/// Core mapfiles are written to text and then parsed back from that text so that diagnostics can
+/// point into them.
+fn add_spans_to_core_mapfile(emitter: &RootEmitter, mapfile: &Mapfile) -> Mapfile {
+    _add_spans_to_core_mapfile_imp(emitter, mapfile)
+        .expect("shouldn't fail for trusted input!")
+}
+
+fn _add_spans_to_core_mapfile_imp(emitter: &RootEmitter, mapfile: &Mapfile) -> Result<Mapfile, ErrorReported> {
+    let seqmap = mapfile.to_borrowed_seqmap();
+    let text = format!("{seqmap}");
+    let (file_id, text) = {
+        emitter.files.add(&format!("<builtin {} signatures>", mapfile.language.descr()), text.as_bytes())
+            .map_err(|e| emitter.emit(e))?
+    };
+    let source_str = SourceStr::from_full_source(file_id, &text);
+    let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &text, &emitter)?;
+    Mapfile::from_seqmap(seqmap, &emitter)
 }

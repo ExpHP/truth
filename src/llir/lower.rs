@@ -485,11 +485,7 @@ fn encode_args(
     // handle timeline first argument; this may come from @arg0 or the first standard argument
     let mut extra_arg = instr.explicit_extra_arg;
     match arg_encodings_iter.peek() {
-        Some(&ArgEncoding::TimelineArg(TimelineArgKind::Unused)) => {
-            arg_encodings_iter.next(); // consume it
-            extra_arg.get_or_insert(0);
-        }
-        Some(&ArgEncoding::TimelineArg(_)) => {
+        Some(&ArgEncoding::Integer { arg0: true, .. }) => {
             arg_encodings_iter.next(); // consume it
             let first_normal_arg = args_iter.next().expect("type checker already checked arity");
 
@@ -518,6 +514,7 @@ fn encode_args(
     for (arg, enc) in zip!(args_iter, arg_encodings_iter.by_ref()) {
         match *enc {
             | ArgEncoding::TimelineArg { .. }
+            | ArgEncoding::Integer { arg0: true, .. }
             => unreachable!(),
 
             | ArgEncoding::Color

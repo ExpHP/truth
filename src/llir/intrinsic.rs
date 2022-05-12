@@ -41,7 +41,7 @@ impl IntrinsicInstrs {
                             message("opcode {} is an intrinsic but has no signature", opcode),
                             primary(kind, "defined as an intrinsic here"),
                         )))?;
-                    let abi_props = IntrinsicInstrAbiParts::from_abi(kind.value, abi, abi_loc)
+                    let abi_props = IntrinsicInstrAbiParts::from_abi(kind, abi, abi_loc)
                         .map_err(|e| emitter.as_sized().emit(e))?;
                     Ok((kind.value, abi_props))
                 })
@@ -152,11 +152,11 @@ impl IntrinsicInstrKind {
             | Self::CondJmp2A { .. }
             => format!("{}", self.descr()),
 
-            Self::AssignOp(op, _ty) => format!("{} op", op),
-            Self::BinOp(op, _ty) => format!("binary {} op", op),
-            Self::UnOp(op, _ty) => format!("unary {} op", op),
-            Self::CondJmp(op, _ty) => format!("conditional ({}) jump", op),
-            Self::CondJmp2B(op) => format!("conditional ({}) jump after cmp", op),
+            Self::AssignOp(op, _ty) => format!("{op} op"),
+            Self::BinOp(op, _ty) => format!("binary {op} op"),
+            Self::UnOp(op, _ty) => format!("unary {op} op"),
+            Self::CondJmp(op, _ty) => format!("conditional ({op}) jump"),
+            Self::CondJmp2B(op) => format!("conditional ({op}) jump after cmp"),
         }
     }
 }
@@ -285,175 +285,188 @@ pub mod abi_parts {
     }
 }
 
-fn intrinsic_abi_error(abi_loc: &InstrAbiLoc, message: &str) -> Diagnostic {
-    let mut diag = error!(message("bad ABI for intrinsic: {}", message));
-    match abi_loc {
-        InstrAbiLoc::Span(span) => diag.primary(span, message.to_string()),
-        InstrAbiLoc::CoreMapfile { language, opcode, abi_str } => {
-            diag.note(format!("the built-in signature for {} opcode {} is \"{}\"", language.descr(), opcode, abi_str))
-        },
-    };
-    diag
+/// Holds context for producing error messages during intrinsic ABI matching.
+struct IntrinsicAbiHelper<'a> {
+    intrinsic: Sp<IntrinsicInstrKind>,
+    abi_loc: &'a InstrAbiLoc,
 }
 
-fn remove_first_where<T>(vec: &mut Vec<T>, pred: impl FnMut(&T) -> bool) -> Option<T> {
-    match vec.iter().position(pred) {
-        Some(index) => Some(vec.remove(index)),
-        None => None,
-    }
-}
-
-fn find_and_remove_padding(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, _abi_loc: &InstrAbiLoc) -> Result<abi_parts::PaddingInfo, Diagnostic> {
-    let mut count = 0;
-    let mut first_index = arg_encodings.len();
-    while let Some(&(index, ArgEncoding::Padding)) = arg_encodings.last() {
-        // assumption that this func always runs first (nothing is deleted before us)
-        assert_eq!(index, arg_encodings.len() - 1);
-
-        arg_encodings.pop();
-        count += 1;
-        first_index = index;
-    }
-    Ok(abi_parts::PaddingInfo { count, index: first_index })
-}
-
-fn find_and_remove_jump(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
-    let offset_data = remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::JumpOffset);
-    let time_data = remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::JumpTime);
-
-    let offset_index = offset_data.map(|(index, _)| index);
-    let time_index = time_data.map(|(index, _)| index);
-
-    let offset_index = offset_index.ok_or_else(|| {
-        intrinsic_abi_error(abi_span, "missing jump offset ('o')")
-    })?;
-
-    if let Some(time_index) = time_index {
-        if time_index == offset_index + 1 {
-            Ok((offset_index, abi_parts::JumpArgOrder::LocTime))
-        } else if time_index + 1 == offset_index {
-            Ok((time_index, abi_parts::JumpArgOrder::TimeLoc))
-        } else {
-            Err(intrinsic_abi_error(abi_span, "offset ('o') and time ('t') args must be consecutive"))
-        }
-    } else {
-        Ok((offset_index, abi_parts::JumpArgOrder::Loc))
-    }
-}
-
-fn find_and_remove_sub_id(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc) -> Result<usize, Diagnostic> {
-    let data = remove_first_where(arg_encodings, |&(_, enc)| {
-        match enc {
-            ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Enum(enum_name)), arg0: false } => {
-                enum_name == &auto_enum_names::ecl_sub()
+impl IntrinsicAbiHelper<'_> {
+    fn bad_intrinsic_abi(&self, message: &str) -> Diagnostic {
+        // TODO: show the span of what sets the intrinsic as well, this should be part of core mapfiles.
+        let mut diag = error!(
+            message("bad ABI for intrinsic {}: {message}", self.intrinsic),
+            primary(self.intrinsic, "intrinsic defined here"),
+        );
+        match self.abi_loc {
+            InstrAbiLoc::Span(span) => diag.primary(span, format!("signature defined here")),
+            InstrAbiLoc::CoreMapfile { language, opcode, abi_str } => {
+                diag.note(format!("the built-in signature for {} opcode {opcode} is \"{abi_str}\"", language.descr()))
             },
-            _ => false,
+        };
+        diag
+    }
+
+    fn remove_first_where<T>(vec: &mut Vec<T>, pred: impl FnMut(&T) -> bool) -> Option<T> {
+        match vec.iter().position(pred) {
+            Some(index) => Some(vec.remove(index)),
+            None => None,
         }
-    });
-    let index = data.map(|(index, _)| index);
-    let index = index.ok_or_else(|| {
-        intrinsic_abi_error(abi_span, "missing sub id ('E')")
-    })?;
-    Ok(index)
-}
+    }
 
-fn remove_out_arg(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
-    // it is expected that previous detect_and_remove functions have already removed everything before the out operand.
-    let (index, encoding) = match arg_encodings.len() {
-        0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
-        _ => arg_encodings.remove(0),
-    };
-    match (ty_in_ast, encoding) {
-        | (ScalarType::Int, ArgEncoding::Integer { .. })
-        | (ScalarType::Float, ArgEncoding::Float)
-        => Ok((index, abi_parts::OutputArgMode::Natural)),
+    fn find_and_remove_padding(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<abi_parts::PaddingInfo, Diagnostic> {
+        let mut count = 0;
+        let mut first_index = arg_encodings.len();
+        while let Some(&(index, ArgEncoding::Padding)) = arg_encodings.last() {
+            // assumption that this func always runs first (nothing is deleted before us)
+            assert_eq!(index, arg_encodings.len() - 1);
 
-        | (ScalarType::Float, ArgEncoding::Integer { .. })
-        => Ok((index, abi_parts::OutputArgMode::FloatAsInt)),
+            arg_encodings.pop();
+            count += 1;
+            first_index = index;
+        }
+        Ok(abi_parts::PaddingInfo { count, index: first_index })
+    }
 
-        | (_, _)
-        => Err(intrinsic_abi_error(abi_span, &format!("output arg has unexpected encoding ({})", encoding.descr()))),
+    fn find_and_remove_jump(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
+        let offset_data = Self::remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::JumpOffset);
+        let time_data = Self::remove_first_where(arg_encodings, |&(_, enc)| enc == &ArgEncoding::JumpTime);
+
+        let offset_index = offset_data.map(|(index, _)| index);
+        let time_index = time_data.map(|(index, _)| index);
+
+        let offset_index = offset_index.ok_or_else(|| {
+            self.bad_intrinsic_abi("missing jump offset ('o')")
+        })?;
+
+        if let Some(time_index) = time_index {
+            if time_index == offset_index + 1 {
+                Ok((offset_index, abi_parts::JumpArgOrder::LocTime))
+            } else if time_index + 1 == offset_index {
+                Ok((time_index, abi_parts::JumpArgOrder::TimeLoc))
+            } else {
+                Err(self.bad_intrinsic_abi("offset ('o') and time ('t') args must be consecutive"))
+            }
+        } else {
+            Ok((offset_index, abi_parts::JumpArgOrder::Loc))
+        }
+    }
+
+    fn find_and_remove_sub_id(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<usize, Diagnostic> {
+        let data = Self::remove_first_where(arg_encodings, |&(_, enc)| {
+            match enc {
+                ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Enum(enum_name)), arg0: false } => {
+                    enum_name == &auto_enum_names::ecl_sub()
+                },
+                _ => false,
+            }
+        });
+        let index = data.map(|(index, _)| index);
+        let index = index.ok_or_else(|| self.bad_intrinsic_abi("missing sub id ('E')"))?;
+        Ok(index)
+    }
+
+    fn remove_out_arg(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>, ty_in_ast: ScalarType) -> Result<(usize, abi_parts::OutputArgMode), Diagnostic> {
+        // it is expected that previous detect_and_remove functions have already removed everything before the out operand.
+        let (index, encoding) = match arg_encodings.len() {
+            0 => return Err(self.bad_intrinsic_abi("not enough arguments")),
+            _ => arg_encodings.remove(0),
+        };
+        match (ty_in_ast, encoding) {
+            | (ScalarType::Int, ArgEncoding::Integer { .. })
+            | (ScalarType::Float, ArgEncoding::Float)
+            => Ok((index, abi_parts::OutputArgMode::Natural)),
+
+            | (ScalarType::Float, ArgEncoding::Integer { .. })
+            => Ok((index, abi_parts::OutputArgMode::FloatAsInt)),
+
+            | (_, _)
+            => Err(self.bad_intrinsic_abi(&format!("output arg has unexpected encoding ({})", encoding.descr()))),
+        }
+    }
+
+    fn remove_plain_arg(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>, ty_in_ast: ScalarType) -> Result<usize, Diagnostic> {
+        let (index, encoding) = match arg_encodings.len() {
+            0 => return Err(self.bad_intrinsic_abi("not enough arguments")),
+            _ => arg_encodings.remove(0),
+        };
+        match (ty_in_ast, encoding) {
+            | (ScalarType::Int, ArgEncoding::Integer { .. })
+            | (ScalarType::Float, ArgEncoding::Float)
+            => Ok(index),
+
+            | (_, _)
+            => Err(self.bad_intrinsic_abi(&format!("ABI input arg has unexpected encoding ({})", encoding.descr()))),
+        }
     }
 }
 
-fn remove_plain_arg(arg_encodings: &mut Vec<(usize, &ArgEncoding)>, abi_span: &InstrAbiLoc, ty_in_ast: ScalarType) -> Result<usize, Diagnostic> {
-    let (index, encoding) = match arg_encodings.len() {
-        0 => return Err(intrinsic_abi_error(abi_span, "not enough arguments")),
-        _ => arg_encodings.remove(0),
-    };
-    match (ty_in_ast, encoding) {
-        | (ScalarType::Int, ArgEncoding::Integer { .. })
-        | (ScalarType::Float, ArgEncoding::Float)
-        => Ok(index),
-
-        | (_, _)
-        => Err(intrinsic_abi_error(abi_span, &format!("ABI input arg has unexpected encoding ({})", encoding.descr()))),
-    }
-}
 
 impl IntrinsicInstrAbiParts {
-    pub fn from_abi(intrinsic: IntrinsicInstrKind, abi: &InstrAbi, abi_loc: &InstrAbiLoc) -> Result<Self, Diagnostic> {
+    pub fn from_abi(intrinsic: Sp<IntrinsicInstrKind>, abi: &InstrAbi, abi_loc: &InstrAbiLoc) -> Result<Self, Diagnostic> {
         use IntrinsicInstrKind as I;
 
         let mut encodings = abi.arg_encodings().enumerate().collect::<Vec<_>>();
         let num_instr_args = encodings.len();
 
-        let padding = find_and_remove_padding(&mut encodings, abi_loc)?;
+        let helper = IntrinsicAbiHelper { intrinsic, abi_loc };
+
+        let padding = helper.find_and_remove_padding(&mut encodings)?;
         let mut out = IntrinsicInstrAbiParts {
             num_instr_args, padding,
             plain_args: vec![], outputs: vec![], jump: None, sub_id: None,
         };
 
-        match intrinsic {
+        match intrinsic.value {
             I::Jmp => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
+                out.jump = Some(helper.find_and_remove_jump(&mut encodings)?);
             },
             I::CallEosd => {
-                out.sub_id = Some(find_and_remove_sub_id(&mut encodings, abi_loc)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Float)?);
+                out.sub_id = Some(helper.find_and_remove_sub_id(&mut encodings)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ScalarType::Int)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ScalarType::Float)?);
             },
             I::CallReg => {
-                out.sub_id = Some(find_and_remove_sub_id(&mut encodings, abi_loc)?);
+                out.sub_id = Some(helper.find_and_remove_sub_id(&mut encodings)?);
             },
             I::InterruptLabel => {
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ScalarType::Int)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ScalarType::Int)?);
             }
             I::AssignOp(_op, ty) => {
-                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
+                out.outputs.push(helper.remove_out_arg(&mut encodings, ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ty)?);
             },
             I::BinOp(op, arg_ty) => {
                 let out_ty = ast::Expr::binop_ty_from_arg_ty(op, arg_ty);
-                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, out_ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
+                out.outputs.push(helper.remove_out_arg(&mut encodings, out_ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, arg_ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, arg_ty)?);
             },
             I::UnOp(op, arg_ty) => {
                 let out_ty = ast::Expr::unop_ty_from_arg_ty(op, arg_ty);
-                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, out_ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, arg_ty)?);
+                out.outputs.push(helper.remove_out_arg(&mut encodings, out_ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, arg_ty)?);
             },
             I::CountJmp => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
-                out.outputs.push(remove_out_arg(&mut encodings, abi_loc, ScalarType::Int)?);
+                out.jump = Some(helper.find_and_remove_jump(&mut encodings)?);
+                out.outputs.push(helper.remove_out_arg(&mut encodings, ScalarType::Int)?);
             },
             I::CondJmp(_op, ty) => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
+                out.jump = Some(helper.find_and_remove_jump(&mut encodings)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ty)?);
             },
             I::CondJmp2A(ty) => {
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
-                out.plain_args.push(remove_plain_arg(&mut encodings, abi_loc, ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ty)?);
+                out.plain_args.push(helper.remove_plain_arg(&mut encodings, ty)?);
             },
             I::CondJmp2B(_op) => {
-                out.jump = Some(find_and_remove_jump(&mut encodings, abi_loc)?);
+                out.jump = Some(helper.find_and_remove_jump(&mut encodings)?);
             },
         };
 
         if let Some(&(index, encoding)) = encodings.get(0) {
-            return Err(intrinsic_abi_error(abi_loc, &format!("unexpected {} arg at index {}", encoding.heavy_descr(), index + 1)));
+            return Err(helper.bad_intrinsic_abi(&format!("unexpected {} arg at index {}", encoding.heavy_descr(), index + 1)));
         }
         Ok(out)
     }
@@ -468,7 +481,7 @@ pub struct ParseIntrinsicError {
 }
 
 impl From<strum::ParseError> for ParseIntrinsicError {
-    fn from(e: strum::ParseError) -> Self { ParseIntrinsicError { message: format!("{}", e) }}
+    fn from(e: strum::ParseError) -> Self { ParseIntrinsicError { message: format!("{e}") }}
 }
 
 /// Parse from a mapfile string.
@@ -540,17 +553,17 @@ impl std::fmt::Display for IntrinsicInstrKind {
         };
         let tag = IntrinsicInstrTag::from(self);
         match self {
-            IKind::Jmp => write!(f, "{}()", tag),
-            IKind::CallEosd => write!(f, "{}()", tag),
-            IKind::CallReg => write!(f, "{}()", tag),
-            IKind::InterruptLabel => write!(f, "{}()", tag),
-            IKind::AssignOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
-            IKind::BinOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
-            IKind::UnOp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
-            IKind::CountJmp => write!(f, "{}()", tag),
-            IKind::CondJmp(op, ty) => write!(f, "{}({},{})", tag, op, render_ty(ty)),
-            IKind::CondJmp2A(ty) => write!(f, "{}({})", tag, render_ty(ty)),
-            IKind::CondJmp2B(op) => write!(f, "{}({})", tag, op),
+            IKind::Jmp => write!(f, "{tag}()"),
+            IKind::CallEosd => write!(f, "{tag}()"),
+            IKind::CallReg => write!(f, "{tag}()"),
+            IKind::InterruptLabel => write!(f, "{tag}()"),
+            IKind::AssignOp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
+            IKind::BinOp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
+            IKind::UnOp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
+            IKind::CountJmp => write!(f, "{tag}()"),
+            IKind::CondJmp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
+            IKind::CondJmp2A(ty) => write!(f, "{tag}({})", render_ty(ty)),
+            IKind::CondJmp2B(op) => write!(f, "{tag}({op})"),
         }
     }
 }

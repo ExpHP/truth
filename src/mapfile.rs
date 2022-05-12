@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap};
+use std::borrow::Cow;
 
 use crate::resolve::IdMap;
 use crate::pos::{Sp, FileId};
@@ -69,7 +70,7 @@ impl Mapfile {
         let seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
 
         // if the map is a gamemap, it points to another file; that's the one we really want.
-        let seqmap = if seqmap.magic == "!gamemap" {
+        let seqmap = if &seqmap.magic[..] == "!gamemap" {
             let game = match game {
                 Some(game) => game,
                 None => return Err(emitter.emit(error!("can't use gamemap because no game was supplied!")))
@@ -136,83 +137,99 @@ impl Mapfile {
     }
 
     pub fn from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
-        let SeqmapRaw { magic, sections } = seqmap;
-        let GatheredSeqmaps { mut maps, enum_maps } = gather_seqmaps(sections);
+        mapfile_from_seqmap(seqmap, emitter)
+    }
 
-        // NOTE: Experimental.  We have two options for deciding the language:
-        //
-        //   - Take the language as an argument to this function (since it should be known, anyways).
-        //     (this could be better for Ending MSG)
-        //   - Decide it from the magic.
-        //     (this could facilitate the separation of "timelinemap"s out from eclmaps)
-        //
-        // Neither is a clear winner at this point in time, but deciding it from the magic is a smaller
-        // diff so we do that for now.    - Exp
-        let language = match &magic[..] {
-            "!eclmap" => LanguageKey::Ecl,
-            "!anmmap" => LanguageKey::Anm,
-            "!stdmap" => LanguageKey::Std,
-            "!msgmap" => LanguageKey::Msg,
-            _ => return Err(emitter.emit(error!(
-                message("bad magic: {:?}", magic),
-                primary(magic, "bad magic"),
-            ))),
-        };
-
-        let mut pop_map = |section: &str| maps.remove(&section.to_string()).unwrap_or_else(Vec::new);
-        let parse_idents = |section: &str, m: Vec<(i32, Sp<String>)>| -> Result<Vec<(i32, Sp<Ident>)>, ErrorReported> {
-            emitter.chain_with(|f| write!(f, "section !{}", section), |emitter| {
-                m.into_iter().map(|(key, value)| {
-                    let ident = Ident::new_user(&value).map_err(|e| emitter.emit(error!(
-                        message("at key {}: {}", key, e),
-                        primary(value, "bad identifier"),
-                    )))?;
-                    Ok((key, sp!(value.span => ident)))
-                }).collect_with_recovery()
-            })
-        };
-        macro_rules! pop_ident_map {
-            ($name:literal) => { parse_idents($name, pop_map($name)) }
-        }
-
-        let enums = enum_maps.into_iter().map(|(enum_name, data)| {
-            let enum_ident = Ident::new_user(&enum_name).map_err(|e| {
-                emitter.emit(error!(
-                    message("at enum {:?}: {}", enum_name, e),
-                    primary(enum_name, "bad identifier"),
-                ))
-            })?;
-            let new_data = parse_idents(&format!("{}{}{}", ENUM_SECT_START, enum_name, ENUM_SECT_END), data)?;
-            Ok((sp!(enum_name.span => enum_ident), new_data))
-        }).collect_with_recovery()?;
-
-        let out = Mapfile {
-            language,
-            ins_names: pop_ident_map!("ins_names")?,
-            ins_signatures: pop_map("ins_signatures"),
-            ins_rets: pop_map("ins_rets"),
-            gvar_names: pop_ident_map!("gvar_names")?,
-            gvar_types: pop_map("gvar_types"),
-            timeline_ins_names: pop_ident_map!("timeline_ins_names")?,
-            timeline_ins_signatures: pop_map("timeline_ins_signatures"),
-            ins_intrinsics: pop_map("ins_intrinsics"),
-            difficulty_flags: pop_map("difficulty_flags"),
-            enums,
-            is_core_mapfile: false,
-        };
-        for (key, _) in maps {
-            emitter.emit(warning!(
-                message("unrecognized section in eclmap: {:?}", key),
-                primary(key, "unrecognized section"),
-            )).ignore();
-        }
-
-        Ok(out)
+    /// Generate a Seqmap.  Could be useful for writing a generated file.
+    pub fn to_borrowed_seqmap(&self) -> SeqmapRaw<'_> {
+        borrowed_seqmap_from_mapfile(self)
     }
 }
 
+// ============================================================================
+
+// This gets used internally by core signatures for timelines, so that they can write a mapfile that looks
+// just like all the others.
+const TIMELINE_MAP_MAGIC: &'static str = "!__noncommittal_internal_name_for_timelinemap__do_not_use";
+
 const ENUM_SECT_START: &'static str = "enum(name=\"";
 const ENUM_SECT_END: &'static str = "\")";
+
+fn mapfile_from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
+    let SeqmapRaw { magic, sections } = seqmap;
+    let GatheredSeqmaps { mut maps, enum_maps } = gather_seqmaps(sections);
+
+    // NOTE: Experimental.  We have two options for deciding the language:
+    //
+    //   - Take the language as an argument to this function (since it should be known, anyways).
+    //     (this could be better for Ending MSG)
+    //   - Decide it from the magic.
+    //     (this could facilitate the separation of "timelinemap"s out from eclmaps)
+    //
+    // Neither is a clear winner at this point in time, but deciding it from the magic is a smaller
+    // diff so we do that for now.    - Exp
+    let language = match &magic[..] {
+        "!eclmap" => LanguageKey::Ecl,
+        "!anmmap" => LanguageKey::Anm,
+        "!stdmap" => LanguageKey::Std,
+        "!msgmap" => LanguageKey::Msg,
+        TIMELINE_MAP_MAGIC => LanguageKey::Timeline,
+        _ => return Err(emitter.emit(error!(
+            message("bad magic: {:?}", magic),
+            primary(magic, "bad magic"),
+        ))),
+    };
+
+    let mut pop_map = |section: &str| maps.remove(&section.to_string()).unwrap_or_else(Vec::new);
+    let parse_idents = |section: &str, m: Vec<(i32, Sp<String>)>| -> Result<Vec<(i32, Sp<Ident>)>, ErrorReported> {
+        emitter.chain_with(|f| write!(f, "section !{section}"), |emitter| {
+            m.into_iter().map(|(key, value)| {
+                let ident = Ident::new_user(&value).map_err(|e| emitter.emit(error!(
+                    message("at key {key}: {e}"),
+                    primary(value, "bad identifier"),
+                )))?;
+                Ok((key, sp!(value.span => ident)))
+            }).collect_with_recovery()
+        })
+    };
+    macro_rules! pop_ident_map {
+        ($name:literal) => { parse_idents($name, pop_map($name)) }
+    }
+
+    let enums = enum_maps.into_iter().map(|(enum_name, data)| {
+        let enum_ident = Ident::new_user(&enum_name).map_err(|e| {
+            emitter.emit(error!(
+                message("at enum {enum_name:?}: {e}"),
+                primary(enum_name, "bad identifier"),
+            ))
+        })?;
+        let new_data = parse_idents(&format!("{}{}{}", ENUM_SECT_START, enum_name, ENUM_SECT_END), data)?;
+        Ok((sp!(enum_name.span => enum_ident), new_data))
+    }).collect_with_recovery()?;
+
+    let out = Mapfile {
+        language,
+        ins_names: pop_ident_map!("ins_names")?,
+        ins_signatures: pop_map("ins_signatures"),
+        ins_rets: pop_map("ins_rets"),
+        gvar_names: pop_ident_map!("gvar_names")?,
+        gvar_types: pop_map("gvar_types"),
+        timeline_ins_names: pop_ident_map!("timeline_ins_names")?,
+        timeline_ins_signatures: pop_map("timeline_ins_signatures"),
+        ins_intrinsics: pop_map("ins_intrinsics"),
+        difficulty_flags: pop_map("difficulty_flags"),
+        enums,
+        is_core_mapfile: false,
+    };
+    for (key, _) in maps {
+        emitter.emit(warning!(
+            message("unrecognized section in eclmap: {key:?}"),
+            primary(key, "unrecognized section"),
+        )).ignore();
+    }
+
+    Ok(out)
+}
 
 struct GatheredSeqmaps {
     maps: BTreeMap<Sp<String>, Vec<(i32, Sp<String>)>>,
@@ -223,9 +240,9 @@ fn gather_seqmaps(sections: Vec<SeqmapRawSection<'_>>) -> GatheredSeqmaps {
     let mut maps = BTreeMap::new();
     let mut enum_maps = BTreeMap::new();
     for section in sections {
-        let cur_map = maps.entry(section.header.sp_map(ToString::to_string)).or_insert_with(Vec::new);
+        let cur_map = maps.entry(section.header.sp_map(|x| x.to_string())).or_insert_with(Vec::new);
         for (number, value) in section.lines {
-            cur_map.push((number.value, value.sp_map(ToString::to_string)));
+            cur_map.push((number.value, value.sp_map(|x| x.to_string())));
         }
     }
     for key in maps.keys().cloned().collect::<Vec<_>>() {
@@ -243,11 +260,63 @@ fn mapify_section(header: &str, section: Vec<(i32, Sp<String>)>, emitter: &impl 
     for (number, value) in section {
         if let Some(previous) = out.insert(number, value.clone()) {
             return Err(emitter.emit(error!(
-                message("in section '{}': duplicate key error for id {}", header, number),
+                message("in section '{header}': duplicate key error for id {number}"),
                 primary(value, "redefinition"),
                 secondary(previous, "previous definition"),
             )));
         }
     }
     Ok(out)
+}
+
+// ============================================================================
+
+/// Generate a Seqmap.  Could be useful for writing a generated file.
+fn borrowed_seqmap_from_mapfile<'a>(mapfile: &'a Mapfile) -> SeqmapRaw<'a> {
+    let Mapfile {
+        language, ins_names, ins_signatures, ins_rets, gvar_names, gvar_types, enums,
+        timeline_ins_names, timeline_ins_signatures, difficulty_flags, ins_intrinsics,
+        is_core_mapfile: _,
+    } = mapfile;
+
+    let magic = match language {
+        LanguageKey::Ecl => "!eclmap",
+        LanguageKey::Anm => "!anmmap",
+        LanguageKey::Std => "!stdmap",
+        LanguageKey::Msg => "!msgmap",
+        LanguageKey::Timeline => TIMELINE_MAP_MAGIC,
+        _ => unimplemented!("unexpected language key: {language:?}"),
+    };
+
+    fn ident_section<'a>(header: &'static str, section: &'a [(i32, Sp<Ident>)]) -> SeqmapRawSection<'a> {
+        SeqmapRawSection {
+            header: sp!(Cow::Borrowed(header)),
+            lines: section.iter().map(|&(num, ref ident)| (sp!(num), sp!(ident.span => Cow::Borrowed(ident.as_str())))).collect()
+        }
+    }
+    fn string_section<'a>(header: &'static str, section: &'a [(i32, Sp<String>)]) -> SeqmapRawSection<'a> {
+        SeqmapRawSection {
+            header: sp!(Cow::Borrowed(header)),
+            lines: section.iter().map(|&(num, ref string)| (sp!(num), sp!(string.span => Cow::Borrowed(&string[..])))).collect()
+        }
+    }
+
+    if !enums.is_empty() {
+        unimplemented!("stringification of mapfiles with enums not implemented yet")
+    }
+
+    SeqmapRaw {
+        magic: sp!(Cow::Borrowed(magic)),
+        sections: vec![
+            ident_section("ins_names", ins_names),
+            string_section("ins_signatures", ins_signatures),
+            string_section("ins_rets", ins_rets),
+            ident_section("gvar_names", gvar_names),
+            string_section("gvar_types", gvar_types),
+            string_section("ins_intrinsics", ins_intrinsics),
+            ident_section("timeline_ins_names", timeline_ins_names),
+            string_section("timeline_ins_signatures", timeline_ins_signatures),
+            string_section("difficulty_flags", difficulty_flags),
+        ],
+    }
 }

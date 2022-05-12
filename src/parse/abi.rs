@@ -306,7 +306,7 @@ impl_from_scalar_for_other_ints!{ u32, u8 }
 impl FromScalar for String {
     fn from_scalar(scalar: &Sp<Scalar>, attr_name: &Sp<Ident>) -> Result<Self, Diagnostic> {
         match &scalar.value {
-            Scalar::String(str) => Ok(crate::fmt::stringify(str)),
+            Scalar::String(str) => Ok(str.string.clone()),
             _ => Err(wrong_scalar_type(attr_name, "string", scalar)),
         }
     }

@@ -672,7 +672,8 @@ impl CompilerContext<'_> {
                 abi.validate_against_language(abi_str.span, game, language, emitter)?;
 
                 let abi_loc = match mapfile.is_core_mapfile {
-                    false => InstrAbiLoc::Span(abi_str.span),
+                    // FIXME
+                    _ => InstrAbiLoc::Span(abi_str.span),
                     true => InstrAbiLoc::CoreMapfile {
                         language, opcode: opcode as u16, abi_str: abi_str[..].into(),
                     },

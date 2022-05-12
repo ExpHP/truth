@@ -2,7 +2,7 @@
 source: tests/integration/mapfiles.rs
 expression: stderr
 ---
-error: bad ABI for intrinsic: output arg has unexpected encoding (float)
+error: bad ABI for intrinsic AssignOp(=,int): output arg has unexpected encoding (float)
   ┌─ <mapfile-1>:5:4
   │
 5 │ 99 fS

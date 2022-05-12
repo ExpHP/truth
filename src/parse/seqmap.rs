@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+use core::fmt;
+
 use regex::Regex;
 use lazy_static::lazy_static;
 
@@ -9,24 +12,26 @@ use crate::error::{ErrorReported};
 ///
 /// It doesn't handle any processing of "duplicate" entries or etc.,
 /// just faithfully gives all lines as they appeared in the file.
+///
+/// It can be written back to text via [`fmt::Display`].
 #[derive(Debug)]
 pub struct SeqmapRaw<'a> {
     /// This includes the `!`.
-    pub magic: Sp<&'a str>,
+    pub magic: Sp<Cow<'a, str>>,
     pub sections: Vec<SeqmapRawSection<'a>>,
 }
 
 #[derive(Debug)]
 pub struct SeqmapRawSection<'a> {
     /// This does not include the `!` and will have at least one character, but is otherwise unvalidated.
-    pub header: Sp<&'a str>,
-    pub lines: Vec<(Sp<i32>, Sp<&'a str>)>,
+    pub header: Sp<Cow<'a, str>>,
+    pub lines: Vec<(Sp<i32>, Sp<Cow<'a, str>>)>,
 }
 
 const IDENT_RE_STR: &str = "[_a-zA-Z][_a-zA-Z0-9]*";
 lazy_static! {
     static ref SEQMAP_START_RE: Regex = Regex::new(&format!(r"^!({}(?:\([^\)]+\))?)$", IDENT_RE_STR)).unwrap();
-    static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s*(\S*)$").unwrap();
+    static ref SEQMAP_ITEM_RE: Regex = Regex::new(r"^(-?[0-9]+)\s*(.*)$").unwrap();
 }
 
 impl<'a> SeqmapRaw<'a> {
@@ -75,7 +80,7 @@ fn parse_seqmap<'a>(mut text: SourceStr<'a>, emitter: &impl Emitter) -> Result<S
             };
 
             cur_section = {
-                sections.push(SeqmapRawSection { header, lines: vec![] });
+                sections.push(SeqmapRawSection { header: header.sp_map(Cow::Borrowed), lines: vec![] });
                 Some(sections.last_mut().unwrap())
             };
         } else {
@@ -97,11 +102,25 @@ fn parse_seqmap<'a>(mut text: SourceStr<'a>, emitter: &impl Emitter) -> Result<S
                             message("mapfile missing section header"),
                             primary(line.trim_end().span(), "entry without section header"),
                         ))),
-                        Some(section) => section.lines.push((number, value)),
+                        Some(section) => section.lines.push((number, value.sp_map(Cow::Borrowed))),
                     }
                 }
             }
         }
     }
-    Ok(SeqmapRaw { magic, sections })
+    Ok(SeqmapRaw { magic: magic.sp_map(Cow::Borrowed), sections })
+}
+
+impl fmt::Display for SeqmapRaw<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "{}", self.magic)?;
+        for SeqmapRawSection { header, lines } in &self.sections {
+            writeln!(f)?;
+            writeln!(f, "!{header}")?;
+            for &(num, ref text) in lines {
+                writeln!(f, "{num} {text}")?;
+            }
+        }
+        Ok(())
+    }
 }

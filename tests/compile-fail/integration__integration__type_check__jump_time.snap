@@ -9,6 +9,6 @@ error: unexpected token `2.4`
    │                                  ^^^ unexpected token
    │
    = 
-     Expected one of "-", INT, INT_BIN or INT_HEX
+     Expected one of "-" or INT
 
 

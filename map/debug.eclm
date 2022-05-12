@@ -28,7 +28,7 @@
 13 hasUnusedArg0
 
 !timeline_ins_signatures
-10 T(_)ff
-11 T(e)SS
-12 T(m)SS
-13 T(_)SS
+10 ff
+11 s(arg0;enum="EclSub")SS
+12 s(arg0;enum="MsgScript")SS
+13 SS

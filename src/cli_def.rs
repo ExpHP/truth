@@ -616,7 +616,7 @@ fn load_mapfiles(
     mapfile_args: Vec<PathBuf>,
 ) -> Result<(), ErrorReported> {
     for &language in core_mapfile_languages {
-        let core_mapfile = crate::core_mapfiles::core_mapfile(game, language);
+        let core_mapfile = crate::core_mapfiles::core_mapfile(truth.ctx().emitter, game, language);
         truth.apply_mapfile(&core_mapfile, game).expect("failed to apply core mapfile!?");
     }
 

@@ -8,6 +8,6 @@ error: argument must be a compile-time constant
 6 │     hasMsgArg0($REG[20], 3, 3);
   │                ^^^^^^^^ not constant
   │
-  = because the argument is a timeline arg0
+  = because the argument is a word-sized integer
 
 

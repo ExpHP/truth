@@ -83,15 +83,16 @@ pub fn parse_diagnostics(text: &[u8]) -> Vec<ParsedDiagnostic> {
             let line_no = captures.get(2).unwrap().as_str().parse::<i32>().unwrap();
 
             let diagnostic = cur_diagnostic.as_mut().expect("no diagnostic header line?");
-            assert!(diagnostic.src_line_number.is_none(), "multiple line numbers");
-            diagnostic.src_line_number = Some(line_no);
-            // filenames should've been replaced with things like <input> and etc. before calling us
-            assert!(
-                filename.starts_with("<") && filename.ends_with(">"),
-                "file path was not made deterministic: {:?}", filename,
-            );
+            if diagnostic.src_line_number.is_none() {
+                diagnostic.src_line_number = Some(line_no);
+                // filenames should've been replaced with things like <input> and etc. before calling us
+                assert!(
+                    filename.starts_with("<") && filename.ends_with(">"),
+                    "file path was not made deterministic: {:?}", filename,
+                );
 
-            diagnostic.src_filename = Some(filename.to_string());
+                diagnostic.src_filename = Some(filename.to_string());
+            }
         }
 
         if let Some(diagnostic) = &mut cur_diagnostic {
