@@ -29,10 +29,8 @@ pub struct Mapfile {
 
     /// Indicates that this mapfile contains builtin definitions.
     ///
-    /// Core mapfiles are allowed to contain null spans, so care must be taken when using them
-    /// in diagnostics.  (since core mapfiles can be trusted to contain valid definitions,
-    /// this issue really only comes up when showing messages of the "expected X due to definition
-    /// of Y located here in this mapfile" variety)
+    /// This flag is intended for use by diagnostics to avoid displaying spans from core mapfiles
+    /// (or at least to avoid giving them primary level labels, since they aren't user-actionable).
     pub is_core_mapfile: bool,
 }
 
@@ -136,7 +134,7 @@ impl Mapfile {
         Ok(base_dir.join(rel_path))
     }
 
-    pub fn from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
+    pub fn from_seqmap(seqmap: SeqmapRaw<'_>, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
         mapfile_from_seqmap(seqmap, emitter)
     }
 
@@ -155,7 +153,7 @@ const TIMELINE_MAP_MAGIC: &'static str = "!__noncommittal_internal_name_for_time
 const ENUM_SECT_START: &'static str = "enum(name=\"";
 const ENUM_SECT_END: &'static str = "\")";
 
-fn mapfile_from_seqmap(seqmap: SeqmapRaw, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
+fn mapfile_from_seqmap(seqmap: SeqmapRaw<'_>, emitter: &impl Emitter) -> Result<Mapfile, ErrorReported> {
     let SeqmapRaw { magic, sections } = seqmap;
     let GatheredSeqmaps { mut maps, enum_maps } = gather_seqmaps(sections);
 
@@ -272,7 +270,7 @@ fn mapify_section(header: &str, section: Vec<(i32, Sp<String>)>, emitter: &impl 
 // ============================================================================
 
 /// Generate a Seqmap.  Could be useful for writing a generated file.
-fn borrowed_seqmap_from_mapfile<'a>(mapfile: &'a Mapfile) -> SeqmapRaw<'a> {
+fn borrowed_seqmap_from_mapfile(mapfile: &Mapfile) -> SeqmapRaw<'_> {
     let Mapfile {
         language, ins_names, ins_signatures, ins_rets, gvar_names, gvar_types, enums,
         timeline_ins_names, timeline_ins_signatures, difficulty_flags, ins_intrinsics,

@@ -168,8 +168,8 @@ impl InstrAbi {
         //
         //       Hence, we check based on the language instead.
         let invalid_signature = |message| emitter.as_sized().emit(error!(
-            message("{}", message),
-            primary(abi_span, "{}", message),
+            message("{message}"),
+            primary(abi_span, ""),
         ));
         let sig_has_arg0 = matches!(self.encodings.get(0), Some(ArgEncoding::Integer { arg0: true, .. }));
         let lang_has_arg0 = language == LanguageKey::Timeline && game < Game::Th08;
@@ -322,15 +322,15 @@ fn override_option<A>(opt: &mut Option<A>, new_value: Option<A>) {
 
 fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {
     let err = |message: String| Err(error!(
-        message("bad signature: {}", message),
-        primary(abi_span, "{}", message),
+        message("bad signature: {message}"),
+        primary(abi_span, ""),
     ));
     let o_count = encodings.iter().filter(|&c| c == &Enc::JumpOffset).count();
     let t_count = encodings.iter().filter(|&c| c == &Enc::JumpTime).count();
 
     for &(char, count) in &[('o', o_count), ('t', t_count)][..] {
         if count > 1 {
-            return err(format!("signature has multiple '{}' args", char));
+            return err(format!("signature has multiple '{char}' args"));
         }
     }
     if t_count == 1 && o_count == 0 {

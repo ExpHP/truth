@@ -110,7 +110,7 @@ source_test!(
     ANM_10, intrinsic_jmp_needs_offset,
     mapfile: r#"!anmmap
 !ins_intrinsics
-4 Jmp(+)
+4 Jmp()
 !ins_signatures
 4 St     //~ ERROR without an 'o'
 "#,
@@ -121,9 +121,9 @@ source_test!(
     ANM_10, intrinsic_jmp_mislabeled_time,
     mapfile: r#"!anmmap
 !ins_intrinsics
-4 Jmp()
+4 Jmp()   //~ ERROR unexpected dword
 !ins_signatures
-4 So     //~ ERROR unexpected dword
+4 So
 "#,
     main_body: r#""#,
 );
@@ -143,9 +143,9 @@ source_test!(
     ANM_10, intrinsic_op_output_arg_wrong_type,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)
+99 AssignOp(=,int)  //~ ERROR unexpected encoding
 !ins_signatures
-99 fS     //~ ERROR unexpected encoding
+99 fS
 "#,
     main_body: r#""#,
 );
@@ -154,9 +154,9 @@ source_test!(
     ANM_10, intrinsic_op_input_arg_wrong_type,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)
+99 AssignOp(=,int)  //~ ERROR unexpected encoding
 !ins_signatures
-99 Sf     //~ ERROR unexpected encoding
+99 Sf
 "#,
     main_body: r#""#,
 );
@@ -165,9 +165,9 @@ source_test!(
     ANM_10, intrinsic_has_extra_arg,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)
+99 AssignOp(=,int)   //~ ERROR unexpected
 !ins_signatures
-99 SSS     //~ ERROR unexpected
+99 SSS
 "#,
     main_body: r#""#,
 );
@@ -176,9 +176,9 @@ source_test!(
     ANM_10, intrinsic_has_insufficient_args,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)
+99 AssignOp(=,int)  //~ ERROR not enough arguments
 !ins_signatures
-99 S     //~ ERROR not enough arguments
+99 S
 "#,
     main_body: r#""#,
 );
@@ -187,10 +187,9 @@ source_test!(
     ANM_10, intrinsic_with_mismatched_signature_in_core_map,
     mapfile: r#"!anmmap
 !ins_intrinsics
-3 Jmp()    # id of sprite which is S
+3 Jmp()    # id of 'sprite'  //~ ERROR missing jump offset
 "#,
     main_body: r#""#,
-    expect_error: "missing jump offset",
 );
 
 source_test!(

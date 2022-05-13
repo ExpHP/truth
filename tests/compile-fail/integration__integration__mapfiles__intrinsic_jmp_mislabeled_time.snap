@@ -3,9 +3,12 @@ source: tests/integration/mapfiles.rs
 expression: stderr
 ---
 error: bad ABI for intrinsic Jmp(): unexpected dword integer arg at index 1
-  ┌─ <mapfile-1>:5:3
+  ┌─ <mapfile-1>:3:3
   │
+3 │ 4 Jmp()
+  │   ^^^^^ intrinsic defined here
+4 │ !ins_signatures
 5 │ 4 So
-  │   ^^ unexpected dword integer arg at index 1
+  │   ^^ signature defined here
 
 

@@ -2,7 +2,12 @@
 source: tests/integration/mapfiles.rs
 expression: stderr
 ---
-error: bad ABI for intrinsic: missing jump offset ('o')
- = the built-in signature for ANM opcode 3 is "n"
+error: bad ABI for intrinsic Jmp(): missing jump offset ('o')
+  ┌─ <mapfile-1>:3:3
+  │
+3 │ 3 Jmp()    # id of 'sprite'
+  │   ^^^^^ intrinsic defined here
+  │
+  = the built-in signature for ANM opcode 3 is "n"
 
 

@@ -6,6 +6,6 @@ error: arg0 args are only valid in th06 and th07 timelines
   ┌─ <mapfile-1>:3:6
   │
 3 │ 1000 s(arg0; enum="MsgScript")
-  │      ^^^^^^^^^^^^^^^^^^^^^^^^^ arg0 args are only valid in th06 and th07 timelines
+  │      ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 

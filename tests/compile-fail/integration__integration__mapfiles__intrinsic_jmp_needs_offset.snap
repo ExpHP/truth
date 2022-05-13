@@ -6,6 +6,6 @@ error: bad signature: signature has a 't' arg without an 'o' arg
   ┌─ <mapfile-1>:5:3
   │
 5 │ 4 St
-  │   ^^ signature has a 't' arg without an 'o' arg
+  │   ^^
 
 

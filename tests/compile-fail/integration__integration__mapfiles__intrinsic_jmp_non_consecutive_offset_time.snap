@@ -6,6 +6,9 @@ error: bad ABI for intrinsic CountJmp(): offset ('o') and time ('t') args must b
   ┌─ <mapfile-1>:3:5
   │
 3 │ 300 tSo
-  │     ^^^ offset ('o') and time ('t') args must be consecutive
+  │     ^^^ signature defined here
+4 │ !ins_intrinsics
+5 │ 300 CountJmp()
+  │     ^^^^^^^^^^ intrinsic defined here
 
 

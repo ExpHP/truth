@@ -118,8 +118,12 @@ where
 
 /// Bit of a silly hack.
 ///
-/// Core mapfiles are written to text and then parsed back from that text so that diagnostics can
-/// point into them.
+/// Core mapfiles are written to text and then parsed back from that text so that it has spans.
+///
+/// Generally speaking, it is still undesirable to have an error point into a core mapfile as it doesn't
+/// reflect something user actionable.  This hack exists mostly so that the ABI parser can assume there
+/// are always spans, and so that truth can still print an error instead of crashing in the relatively
+/// few instances where it may try to print a span from a core mapfile.
 fn add_spans_to_core_mapfile(emitter: &RootEmitter, mapfile: &Mapfile) -> Mapfile {
     _add_spans_to_core_mapfile_imp(emitter, mapfile)
         .expect("shouldn't fail for trusted input!")
@@ -134,5 +138,8 @@ fn _add_spans_to_core_mapfile_imp(emitter: &RootEmitter, mapfile: &Mapfile) -> R
     };
     let source_str = SourceStr::from_full_source(file_id, &text);
     let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &text, &emitter)?;
-    Mapfile::from_seqmap(seqmap, &emitter)
+
+    let mut out = Mapfile::from_seqmap(seqmap, &emitter)?;
+    out.is_core_mapfile = true;
+    Ok(out)
 }
