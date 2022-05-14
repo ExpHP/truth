@@ -2,50 +2,33 @@
 
 ## Added
 
-### Commands
-
 * **`truecl`** (!!!!) is available in **prototype status,** but the way to invoke it is ~~a well guarded secret~~ `truth-core truecl`.  TH06-TH095 are supported.
-* Multiple `-m` args can now be provided.
-* Decompile commands now support `-o`/`--output`, just like compilation.
-* truanm had some unhelpful behavior when using multiple image sources that provide the same image, or when using `has_data: "dummy"` together with an image source.  Image sources have been redesigned to better support common use cases.
-
-### New language features in support of ECL
-
 * **Function definition syntax for exported subs.**  `void Sub0(int x) {}`
 * **Natural call syntax for exported subs.**  `Sub0(10, 20.4);`
 * **Difficulty switches.**  `I0 = A + (3:4:4:5);`
 * **Difficulty flags.** `{"ENH"}: ins_10();`
+* **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
+* **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
+
+# Version 0.5.0
+
+Version 0.5.0 is a major release of the compiler containing many of the language additions that were found useful in alpha implementations of truecl.  While `truecl` is still not officially released, these additions and improvements are available in all languages.
+
+## Added
+
+### Commands
+
+* Multiple `-m` args can now be provided.
+* Decompile commands now support `-o`/`--output`, just like compilation.  This is extremely useful on Windows where redirection on STDOUT may produce a file in a different encoding from UTF-8 depending on the system configuration.
+* truanm had some unhelpful behavior when using multiple image sources that provide the same image, or when using `has_data: "dummy"` together with an image source.  Image sources have been redesigned to better support common use cases.
+
+### Language features
+
 * **`INF`, `NAN`, `PI` constants.**
 * **`break` keyword.**  This exits the nearest surrounding loop.
-* **`offsetof(label)` and `timeof(label)` expressions.**  You can use these if you want to write a jump using `ins_` syntax or the instruction alias.  They'll also show up in contrived cases when decompiling an EoSD ECL file that uses conditional jumps in a funny way.
-* **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **New type-cast syntax.**  The old `_S` and `_f` functions have been split into two types of operations: `int(expr)` and `float(expr)` for type-casts, and `$(expr)` and `%(expr)` to read a temporary as some type.  (the two are the same in most languages, except EoSD ECL which does not auto-cast)
-* **Enum consts.** A mapfile can define enums (see below section on mapfiles), which can then be used like `EnumName.ConstName` or simply `ConstName` in source code.
-* **`enum bool`.** `true` and `false` are no longer keywords but rather members of a builtin `enum`.  Use it like any other enum.
-
-### Improvements to decompilation
-
-* Allow detection of `if/elseif` chains that have no `else` block.
-* Many improvements to detection of `if/else`s and loops in general.
-* Decompiling intrinsics will fall back to instruction syntax if the intrinsic cannot be decompiled. (e.g. PCB stage 7 ECL has a `set_int` instruction that tries to assign to an immediate)
-* Decompiling sub/script/sprite names will fall back to raw integers if the corresponding items don't exist.
-
-### Additions to mapfiles
-
-Mapfiles can now define the following additional sections:
-
-* **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
-* **Intrinsic mappings.** (`!ins_intrinsics`)  For instance, a patch which adds a jump intrinsic to MSG could also provide a mapfile which tells trumsg about this intrinsic:
-  ```
-  !msgmap
-  !ins_instrinsics
-  100 Jmp()
-  !ins_signatures
-  100 ot
-  ```
-  and then you would be able to write `loop { }`s in MSG!
-* **Enums.**
-  A mapfile can define an enum:
+* **`offsetof(label)` and `timeof(label)` expressions.**  You can use these if you want to write a jump using `ins_` syntax or the instruction alias. (these were a necessary addition for decompilation of EoSD ECL files that use conditional jumps in a funny way).
+* **User-defined enums.**  A mapfile can define an enum:
   ```
   !enum(name="TestEnum")
   20 Red
@@ -56,19 +39,39 @@ Mapfiles can now define the following additional sections:
   !ins_signatures
   100 S(enum="TestEnum")
   ```
-  In this example, when calling `ins_100` you will be able to use `ins_100(.Red)` as a shorthand for `ins_100(TestEnum.Red)`, and during decompilation it will try to decompile the values from this enum. Enums are *open,* in that the same enum can be defined multiple times or even across multiple mapfiles, and the list of consts will be merged.
+  In this example, when calling `ins_100` you will be able to use `ins_100(Red)` as a shorthand for `ins_100(TestEnum.Red)`, and during decompilation it will try to decompile the values from this enum. Enums are *open,* in that the same enum can be defined multiple times or even across multiple mapfiles, and the list of consts will be merged.
+* **Built-in enums:**
+  * **`bool`.** `true` and `false` are no longer keywords but rather members of a builtin `enum bool`.  Use it like any other enum.
+  * **`BitmapColorFormat`.**  This now houses the constants `FORMAT_ARGB_8888`, `FORMAT_RGB_565`, `FORMAT_ARGB_4444`, and `FORMAT_GRAY_8` used by `img_format` and `rt_format` in ANM files.
+  * **`AnmSprite`, `AnmScript`, `MsgScript`, `EclSub`.** These get automatically generated from the names defined in a source script, allowing you to write e.g. `S(enum="AnmSprite")` and `S(enum="AnmScript")` instead of `n` and `N`.  This makes them more flexible, allowing these types to be used in word-sized arguments and, in the future, timeline arg0. 
+* **Intrinsic mappings.** (`!ins_intrinsics`)  For instance, a patch which adds jump intrinsics to MSG could also provide a mapfile which tells trumsg about this intrinsic:
+  ```
+  !msgmap
+  !ins_instrinsics
+  100 Jmp()
+  !ins_signatures
+  100 ot
+  ```
+  and then you would be able to write `loop { }`s in MSG!
 
-### Internal changes
+### Improvements to decompilation
 
-* The order of arguments to intrinsics is no longer hardcoded by game/format, but rather inferred from the mapfile signature (meaning it can be defined by the user).
-* Time labels are now internally stored as statements.  This drastically simplifies parsing and some aspects of loop compilation/decompilation.
+* Can now detect of `if/elseif` chains that have no `else` block.
+* Many improvements to detection of nested `if/else`s and loops.
+* Decompiling intrinsics will fall back to instruction syntax if the intrinsic cannot be decompiled. (e.g. PCB stage 7 ECL has a `set_int` instruction that tries to assign to an immediate)
+* Decompiling sub/script/sprite names will fall back to raw integers if the corresponding items don't exist.
 
 ## Compatibility notes
 
 * Using registers (e.g. `$REG[8]`) in a format without registers such as STD is now detected as an error.
 * If e.g. `X` is an alias for `$REG[3]`, then using both `X` and `REG[3]` in the same function body will now generate a warning.  Similarly, using two different aliases (e.g. `X` and `Y`) for the same register will also warn.
-  * This is done in order to call attention to accidental usage of EoSD's `I0` or PCB's "param" registers in subs where these registers are already implicitly in use by function parameters.
+  * This is partly so that, in future versions of truth that provide `truecl`, the compiler can call attention to accidental usage of EoSD's `I0` or PCB's "param" registers in subs where these registers are already implicitly in use by function parameters.
 * Previously, using `-m mapfile.eclm` during decompilation would disable lookup from `TRUTH_MAP_PATH`.  Now that multiple `-m` are supported, this behavior now seems surprising, so `TRUTH_MAP_PATH` is now *always* searched during decompilation.
+
+## Internal changes
+
+* The order and encoding of arguments to intrinsics is no longer hardcoded by game/format, but rather inferred from the mapfile signature, meaning it can be defined by the user.  So for instance, a `CondJmp(op="=="; type="float")` could have any of the signatures `otff`, `toff`, `ffto`, or `ffot`, and these would all be encoded correctly by the compiler.
+* Time labels are now internally stored as statements.  This drastically simplifies parsing and some aspects of loop compilation/decompilation.
 
 # Version 0.4.3
 
