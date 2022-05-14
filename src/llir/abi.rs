@@ -1,5 +1,4 @@
 use core::fmt;
-use indexmap::IndexMap;
 
 use crate::ast;
 use crate::pos::{Sp, Span, SourceStr};
@@ -226,7 +225,7 @@ fn arg_encoding_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Res
 }
 
 fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
-    let (size, mut default_ty_color) = match param.format_char.value {
+    let (size, default_ty_color) = match param.format_char.value {
         // FIXME: Uu should be unsigned but I'm not sure yet if I want  `i(signed)`, `i(unsigned)`, or `i(sign=1)`
         'S' => (4u8, None),
         's' => (2, None),
@@ -304,7 +303,7 @@ fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Op
     })
 }
 
-fn other_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
+fn other_from_attrs(param: &abi_ast::Param, _emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
     match param.format_char.value {
         'C' => Ok(Some(ArgEncoding::Color)),
         'o' => Ok(Some(ArgEncoding::JumpOffset)),
@@ -313,11 +312,6 @@ fn other_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Opt
         '_' => Ok(Some(ArgEncoding::Padding)),
         _ => Ok(None),
     }
-}
-
-
-fn override_option<A>(opt: &mut Option<A>, new_value: Option<A>) {
-    *opt = new_value.or(opt.take());
 }
 
 fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic> {

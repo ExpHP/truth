@@ -65,7 +65,8 @@ impl Mapfile {
         let path = fs.canonicalize(path).map_err(|e| emitter.emit(e))?;
 
         let (file_id, mut file_contents) = read_file(&path)?;
-        let seqmap = SeqmapRaw::parse(file_id, &file_contents, emitter)?;
+        let mut source_str = crate::pos::SourceStr::from_full_source(file_id, &file_contents[..]);
+        let seqmap = SeqmapRaw::parse(source_str, emitter)?;
 
         // if the map is a gamemap, it points to another file; that's the one we really want.
         let seqmap = if &seqmap.magic[..] == "!gamemap" {
@@ -75,9 +76,11 @@ impl Mapfile {
             };
             let base_dir = path.parent().expect("filename must have parent");
             let game_specific_map_path = Self::handle_gamemap(base_dir, seqmap, game, emitter)?;
+
             let (file_id, new_file_contents) = read_file(&game_specific_map_path)?;
-            file_contents = new_file_contents; // replace outer variable for longer lifetime
-            SeqmapRaw::parse(file_id, &file_contents, emitter)?
+            file_contents = new_file_contents;  // replace outer variable for longer lifetime
+            source_str = crate::pos::SourceStr::from_full_source(file_id, &file_contents[..]);
+            SeqmapRaw::parse(source_str, emitter)?
         } else {
             seqmap
         };

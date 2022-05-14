@@ -136,8 +136,8 @@ fn _add_spans_to_core_mapfile_imp(emitter: &RootEmitter, mapfile: &Mapfile) -> R
         emitter.files.add(&format!("<builtin {} signatures>", mapfile.language.descr()), text.as_bytes())
             .map_err(|e| emitter.emit(e))?
     };
-    let source_str = SourceStr::from_full_source(file_id, &text);
-    let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &text, &emitter)?;
+    let source_str = SourceStr::from_full_source(file_id, &text[..]);
+    let seqmap = crate::parse::seqmap::SeqmapRaw::parse(source_str, &emitter)?;
 
     let mut out = Mapfile::from_seqmap(seqmap, &emitter)?;
     out.is_core_mapfile = true;

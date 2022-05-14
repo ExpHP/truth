@@ -38,6 +38,9 @@ macro_rules! define_token_enum {
                         $( $Token::$fixed_variant => $fixed_str, )*
                         $( $Token::$regex_variant(str) => str, )*
                         $Token::Error => "<invalid>",
+
+                        // e.g. virtual tokens
+                        #[allow(unreachable_patterns)]
                         _ => "<special>",
                     }
                 }

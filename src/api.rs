@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::ast;
-use crate::pos::{Sp, SourceStr};
+use crate::pos::{Sp};
 use crate::game::{Game, LanguageKey};
 use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
@@ -74,8 +74,9 @@ impl Truth<'_> {
     //        but they do so that they can verify timeline arg0 presence...
     /// For unit tests.
     pub fn apply_mapfile_str(&mut self, text: &str, game: Game) -> Result<(), ErrorReported> {
-        let (file_id, source_str) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
-        let seqmap = crate::parse::seqmap::SeqmapRaw::parse(file_id, &source_str[..], &self.ctx.emitter)?;
+        let (file_id, text_rc) = self.ctx.emitter.files.add("<input mapfile>", text.as_ref()).map_err(|e| self.emit(e))?;
+        let source_str = crate::pos::SourceStr::from_full_source(file_id, &text_rc[..]);
+        let seqmap = crate::parse::seqmap::SeqmapRaw::parse(source_str, &self.ctx.emitter)?;
         self.apply_mapfile(&crate::Mapfile::from_seqmap(seqmap, &self.ctx.emitter)?, game)
     }
 
@@ -127,9 +128,10 @@ impl Truth<'_> {
     ///
     /// This is primarily for unit tests for parsers of things besides the full AST. (otherwise you
     /// would use [`Self::parse`]...)
-    pub(crate) fn register_source<'b>(&mut self, display_name: &str, text: &'b str) -> Result<SourceStr<'b>, ErrorReported> {
+    #[cfg(test)]
+    pub(crate) fn register_source<'b>(&mut self, display_name: &str, text: &'b str) -> Result<crate::pos::SourceStr<'b>, ErrorReported> {
         let (file_id, _) = self.ctx.emitter.files.add(display_name, text.as_ref()).map_err(|e| self.emit(e))?;
-        Ok(SourceStr::from_full_source(file_id, text))
+        Ok(crate::pos::SourceStr::from_full_source(file_id, text))
     }
 }
 

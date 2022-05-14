@@ -36,7 +36,7 @@ define_token_enum! {
 
 pub type AttributeLexer<'input> = crate::parse::lexer::GenericLexer<'input, Token<'input>>;
 
-use abi_ast::{Abi, Param, Scalar, Attributes, AttributeRhs};
+use abi_ast::{Abi, Scalar, Attributes, AttributeRhs};
 pub mod abi_ast {
     //! An AST for an ABI in a more abstract form, as a series of type characters with
     //! attribute dictionaries.
@@ -90,6 +90,7 @@ pub mod abi_ast {
     }
 
     impl Scalar {
+        #[allow(unused)]
         pub(super) fn descr(&self) -> &'static str {
             match self {
                 Scalar::Number { .. } => "number",
@@ -148,7 +149,7 @@ pub fn parse_abi(
 
 /// Parse an `ins_intrinsic` string into its AST.
 pub fn parse_intrinsic(
-    mut text: SourceStr<'_>,
+    text: SourceStr<'_>,
     emitter: &impl Emitter,
 ) -> Result<(Sp<Ident>, Attributes), ErrorReported> {
     let mut lexer = AttributeLexer::new(text.clone());
@@ -159,7 +160,7 @@ pub fn parse_intrinsic(
     })?;
     let intrinsic_name = match Ident::new_user(intrinsic_name_str.value) {
         Ok(ident) => sp!(intrinsic_name_str.span => ident),
-        Err(e) => return Err(emitter.emit(error!(
+        Err(_) => return Err(emitter.emit(error!(
             message("invalid identifier: {intrinsic_name_str}"),
             primary(intrinsic_name_str.span, ""),
         ))),
@@ -212,7 +213,7 @@ fn extract_attr_tokens<'input>(
     emitter: &impl Emitter,
 ) -> Result<Vec<(Location, Token<'input>, Location)>, ErrorReported>  {
     let first_token = expect_token(lexer, "open parenthesis", emitter, |token| match token {
-        token @ (l, Token::ParenOpen, r) => Some(token),
+        token @ (_, Token::ParenOpen, _) => Some(token),
         _ => None,
     })?;
     let mut tokens = vec![first_token];
@@ -501,6 +502,7 @@ fn wrong_num_values<T>(attr_name: &Sp<Ident>, expected: usize, got: &[T]) -> Dia
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::abi_ast::Param;
 
     trait LiteralScalar {
         fn into_scalar(self) -> Scalar;

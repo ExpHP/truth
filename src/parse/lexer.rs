@@ -5,8 +5,6 @@
 //! Now that truth also requires UTF-8, the only real reason this still exists is because
 //! I don't see a satisfactory alternative for how to embed the virtual token
 
-use std::fmt;
-
 use crate::diagnostic::Diagnostic;
 use crate::pos::{FileId, BytePos, SourceStr};
 

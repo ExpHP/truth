@@ -4,7 +4,7 @@ use core::fmt;
 use regex::Regex;
 use lazy_static::lazy_static;
 
-use crate::pos::{Sp, Span, FileId, SourceStr};
+use crate::pos::{Sp, SourceStr};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 
@@ -35,8 +35,8 @@ lazy_static! {
 }
 
 impl<'a> SeqmapRaw<'a> {
-    pub fn parse(file_id: FileId, text: &'a str, emitter: &impl Emitter) -> Result<Self, ErrorReported> {
-        parse_seqmap(SourceStr::from_full_source(file_id, text), emitter)
+    pub fn parse(source: SourceStr<'a>, emitter: &impl Emitter) -> Result<Self, ErrorReported> {
+        parse_seqmap(source, emitter)
     }
 }
 
