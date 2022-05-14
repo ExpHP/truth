@@ -11,9 +11,6 @@ PRODUCT_NAME = 'truth'
 TARGETS = ['x86_64-pc-windows-msvc']
 PROG = os.path.basename(sys.argv[0])
 
-ADDITIONAL_BLACKLISTS = [
-    ('map/*.eclm', 'contains unstable syntax for truecl'),
-]
 
 def main():
     parser = argparse.ArgumentParser(
@@ -63,14 +60,7 @@ def make_release(version, target):
     if not did_something:
         die("no executables copied!")
 
-    remove_additional_blacklist_items(release_dir)
     subprocess.run(['powershell', 'Compress-Archive', '-Force', release_dir, release_zip], check=True)
-
-def remove_additional_blacklist_items(release_dir):
-    for blacklist_path, reason in ADDITIONAL_BLACKLISTS:
-        for path in glob.glob(f'{release_dir}/{blacklist_path}'):
-            print(f'skipping {os.path.relpath(path, release_dir)} ({reason})')
-            os.unlink(path)
 
 def exe_is_public(name):
     import re
