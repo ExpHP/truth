@@ -2,34 +2,52 @@
 source: tests/integration/mapfiles.rs
 expression: stderr
 ---
-error: invalid intrinsic name: missing '('
-  ┌─ <mapfile-1>:5:3
+error: expected open parenthesis
+  ┌─ <mapfile-1>:5:8
   │
 5 │ 4 lmfao
-  │   ^^^^^ missing '('
+  │        ^
 
-error: invalid intrinsic name: missing ')'
-  ┌─ <mapfile-1>:8:3
+error: missing closing parenthesis for attribute list
+  ┌─ <mapfile-1>:8:10
   │
-8 │ 5 CondJmp(>,int
-  │   ^^^^^^^^^^^^^ missing ')'
+8 │ 5 CondJmp(op=">";type="int"
+  │          ^ unclosed parenthesis
 
-error: invalid intrinsic name: too many arguments to intrinsic name
-   ┌─ <mapfile-1>:11:3
+warning: unsupported or unknown attribute 'type' for 'Jmp'
+   ┌─ <mapfile-1>:11:7
    │
-11 │ 6 Jmp(int)
-   │   ^^^^^^^^ too many arguments to intrinsic name
+11 │ 6 Jmp(type="int")
+   │       ^^^^
 
-error: invalid intrinsic name: not enough arguments to intrinsic name
+error: missing attribute 'type' for 'CondJmp'
    ┌─ <mapfile-1>:14:3
    │
-14 │ 7 CondJmp(>=)
-   │   ^^^^^^^^^^^ not enough arguments to intrinsic name
+14 │ 7 CondJmp(op=">=")
+   │   ^^^^^^^
 
-error: invalid intrinsic name: Matching variant not found
+error: Matching variant not found
    ┌─ <mapfile-1>:17:3
    │
-17 │ 8 CondimentJmp(>=,int)
-   │   ^^^^^^^^^^^^^^^^^^^^ Matching variant not found
+17 │ 8 CondimentJmp(op=">=";type="int")
+   │   ^^^^^^^^^^^^
+
+error: unexpected token after attributes
+   ┌─ <mapfile-1>:20:31
+   │
+20 │ 9 CondJmp(op=">=";type="int") lol
+   │                               ^^^
+
+error: expected identifier
+   ┌─ <mapfile-1>:23:4
+   │
+23 │ 10 10()
+   │    ^^
+
+error: invalid identifier: break
+   ┌─ <mapfile-1>:26:4
+   │
+26 │ 11 break()
+   │    ^^^^^
 
 

@@ -991,7 +991,8 @@ impl SingleSubLowerer<'_, '_> {
                         Ok(ExprClass::NeedsElaboration(TemporaryExpr { tmp_ty, read_ty, tmp_expr: b }))
                     } else {
                         // This path will get taken by `int(...)/float(...)` in EoSD, requiring
-                        // a `UnOp(int,float)` or `UnOp(float,int)` user-defined intrinsic.
+                        // a `UnOp(op="int";type="float")` or `UnOp(op="float";type="int")`
+                        // user-defined intrinsic.
                         Ok(needs_elaboration())
                     }
                 } else {

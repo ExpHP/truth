@@ -89,19 +89,28 @@ source_test!(
 !ins_intrinsics
 
 # no parens
-4 lmfao            //~ ERROR invalid intrinsic name
+4 lmfao            //~ ERROR expected open paren
 
 # xkcd 859
-5 CondJmp(>,int    //~ ERROR invalid intrinsic name
+5 CondJmp(op=">";type="int"    //~ ERROR missing closing paren
 
 # extra arg
-6 Jmp(int)         //~ ERROR invalid intrinsic name
+6 Jmp(type="int")         //~ WARNING unknown attribute
 
 # missing arg
-7 CondJmp(>=)      //~ ERROR invalid intrinsic name
+7 CondJmp(op=">=")      //~ ERROR missing attribute
 
 # intrinsic name typo
-8 CondimentJmp(>=,int)  //~ ERROR invalid intrinsic name
+8 CondimentJmp(op=">=";type="int")  //~ ERROR variant not found
+
+# garbage after
+9 CondJmp(op=">=";type="int") lol   //~ ERROR unexpected token
+
+# integer
+10 10()   //~ ERROR identifier
+
+# keyword
+11 break()   //~ ERROR identifier
 "#,
     main_body: r#""#,
 );
@@ -143,7 +152,7 @@ source_test!(
     ANM_10, intrinsic_op_output_arg_wrong_type,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)  //~ ERROR unexpected encoding
+99 AssignOp(op="="; type="int")  //~ ERROR unexpected encoding
 !ins_signatures
 99 fS
 "#,
@@ -154,7 +163,7 @@ source_test!(
     ANM_10, intrinsic_op_input_arg_wrong_type,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)  //~ ERROR unexpected encoding
+99 AssignOp(op="="; type="int")  //~ ERROR unexpected encoding
 !ins_signatures
 99 Sf
 "#,
@@ -165,7 +174,7 @@ source_test!(
     ANM_10, intrinsic_has_extra_arg,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)   //~ ERROR unexpected
+99 AssignOp(op="="; type="int")   //~ ERROR unexpected
 !ins_signatures
 99 SSS
 "#,
@@ -176,7 +185,7 @@ source_test!(
     ANM_10, intrinsic_has_insufficient_args,
     mapfile: r#"!anmmap
 !ins_intrinsics
-99 AssignOp(=,int)  //~ ERROR not enough arguments
+99 AssignOp(op="="; type="int")  //~ ERROR not enough arguments
 !ins_signatures
 99 S
 "#,
@@ -212,7 +221,7 @@ source_test!(
     ANM_10, intrinsic_for_op_that_no_game_has,
     mapfile: r#"!anmmap
 !ins_intrinsics
-999 BinOp(>>>,int)
+999 BinOp(op=">>>"; type="int")
 !ins_signatures
 999 SSS
 "#,
@@ -261,7 +270,7 @@ source_test!(
 !ins_signatures
 99  Sff   # EoSD ECL writes output regs as integers
 !ins_intrinsics
-99  BinOp(+,float)
+99  BinOp(op="+"; type="float")
 "#,
     main_body: r#"
     ins_99($REG[10], %REG[20], 3.5f);

@@ -293,7 +293,7 @@ source_test!(
 !ins_signatures
 10 SS_
 !ins_intrinsics
-10 AssignOp(=,int)
+10 AssignOp(op="="; type="int")
     "#,
     main_body: r#"
     {"EN"}: ins_10(I0, 10, 0);

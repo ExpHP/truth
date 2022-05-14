@@ -2,11 +2,11 @@
 source: tests/integration/mapfiles.rs
 expression: stderr
 ---
-error: bad ABI for intrinsic AssignOp(=,int): ABI input arg has unexpected encoding (float)
+error: bad ABI for intrinsic AssignOp(op="="; type="int"): ABI input arg has unexpected encoding (float)
   ┌─ <mapfile-1>:3:4
   │
-3 │ 99 AssignOp(=,int)
-  │    ^^^^^^^^^^^^^^^ intrinsic defined here
+3 │ 99 AssignOp(op="="; type="int")
+  │    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ intrinsic defined here
 4 │ !ins_signatures
 5 │ 99 Sf
   │    ^^ signature defined here

@@ -165,8 +165,8 @@ source_test!(
 1000 Sf
 1001 SS
 !ins_intrinsics
-1000 UnOp(int,float)
-1001 UnOp(float,int)
+1000 UnOp(op="int"; type="float")
+1001 UnOp(op="float"; type="int")
 "#,
     main_body: r#"
         int x = int(F0 + 2.0);
@@ -187,10 +187,10 @@ source_test!(
 1002 SS
 1003 Sf
 !ins_intrinsics
-1000 UnOp(int,float)
-1001 UnOp(float,int)
-1002 AssignOp(+=,int)
-1003 AssignOp(+=,float)
+1000 UnOp(op="int"; type="float")
+1001 UnOp(op="float"; type="int")
+1002 AssignOp(op="+="; type="int")
+1003 AssignOp(op="+="; type="float")
 "#,
     main_body: r#"
         int x = 1;
