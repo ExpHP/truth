@@ -703,12 +703,10 @@ impl CompilerContext<'_> {
         }
 
         mapfile.ins_intrinsics.iter().map(|&(opcode, ref kind_str)| {
-            let kind = sp!(kind_str.span => kind_str.parse().map_err(|e| {
-                emitter.emit(error!(
-                    message("invalid intrinsic name: {}", e),
-                    primary(kind_str, "{}", e),
-                ))
-            })?);
+            // since there's no escape syntax in mapfile values, abi_str exactly matches the source text,
+            // so we can construct a SourceStr
+            let kind_source = SourceStr::from_span(kind_str.span, &kind_str);
+            let kind = sp!(kind_str.span => IntrinsicInstrKind::parse(kind_source, emitter)?);
             self.defs.add_user_intrinsic(mapfile.language, opcode as _, kind);
             Ok(())
         }).collect_with_recovery::<()>()?;

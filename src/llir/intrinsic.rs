@@ -4,11 +4,13 @@ use core::fmt;
 use crate::raw;
 use crate::ast;
 use crate::context;
+use crate::ident::Ident;
 use crate::context::defs::{InstrAbiLoc, auto_enum_names, TypeColor};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{LanguageHooks, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
-use crate::pos::{Span, Sp};
+use crate::pos::{Span, Sp, SourceStr};
+use crate::parse::abi::{abi_ast, AttributeDeserializer};
 use crate::value::{ScalarType};
 
 /// Maps opcodes to and from intrinsics.
@@ -482,71 +484,66 @@ impl IntrinsicInstrAbiParts {
 
 // =============================================================================
 
-#[derive(Debug, thiserror::Error)]
-#[error("{}", .message)]
-pub struct ParseIntrinsicError {
-    message: String,
-}
-
-impl From<strum::ParseError> for ParseIntrinsicError {
-    fn from(e: strum::ParseError) -> Self { ParseIntrinsicError { message: format!("{e}") }}
-}
-
 /// Parse from a mapfile string.
-impl std::str::FromStr for IntrinsicInstrKind {
-    type Err = ParseIntrinsicError;
+impl IntrinsicInstrKind {
+    pub fn parse(s: SourceStr<'_>, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
+        let (intrinsic_name, attributes) = crate::parse::abi::parse_intrinsic(s, &emitter)?;
+        intrinsic_from_attrs(&intrinsic_name, attributes, emitter)
+    }
+}
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use IntrinsicInstrTag as Tag;
-        use IntrinsicInstrKind as IKind;
+fn intrinsic_from_attrs(
+    intrinsic_name: &Sp<Ident>,
+    attributes: abi_ast::Attributes,
+    emitter: &dyn Emitter,
+) -> Result<IntrinsicInstrKind, ErrorReported> {
+    use IntrinsicInstrTag as Tag;
+    use IntrinsicInstrKind as IKind;
 
-        let fail = |msg: &str| ParseIntrinsicError { message: msg.to_string() };
+    let tag = intrinsic_name.as_str().parse::<Tag>().map_err(|e| emitter.as_sized().emit(error!(
+        message("{e}"),
+        primary(intrinsic_name.span, ""),
+    )))?;
 
-        let (prefix, mut args) = if let Some(lparen_index) = s.find("(") {
-            if s.chars().next_back() != Some(')') {
-                return Err(fail("missing ')'"));
-            }
-            let (before_paren, at_paren) = s.split_at(lparen_index);
-            let args = at_paren[1..at_paren.len() - 1].split(",").collect::<Vec<_>>();
-            (before_paren, args)
-        } else {
-            return Err(fail("missing '('"));
-        };
+    let mut deserializer = AttributeDeserializer::new(sp!(intrinsic_name.span => intrinsic_name.as_str()), attributes, emitter);
 
-        if args == [""] {
-            args.pop();
-        }
+    let out = match tag {
+        Tag::Jmp => IKind::Jmp,
+        Tag::CallEosd => IKind::CallEosd,
+        Tag::CallReg => IKind::CallReg,
+        Tag::InterruptLabel => IKind::InterruptLabel,
+        Tag::AssignOp => IKind::AssignOp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
+        Tag::BinOp => IKind::BinOp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
+        Tag::UnOp => IKind::UnOp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
+        Tag::CountJmp => IKind::CountJmp,
+        Tag::CondJmp => IKind::CondJmp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
+        Tag::CondJmp2A => IKind::CondJmp2A(read_type_attr(&mut deserializer)?),
+        Tag::CondJmp2B => IKind::CondJmp2B(read_op_attr(&mut deserializer)?),
+    };
+    deserializer.finish()?;
+    Ok(out)
+}
 
-        let parse_type = |s: &str| match s {
-            "int" => Ok(ScalarType::Int),
-            "float" => Ok(ScalarType::Float),
-            _ => Err(fail("bad type; expected int or float"))
-        };
+fn read_op_attr<Op: core::str::FromStr>(deserializer: &mut AttributeDeserializer) -> Result<Op, ErrorReported>
+where
+    <Op as core::str::FromStr>::Err: core::fmt::Display,
+{
+    let string = deserializer.expect_value::<String>("op")?;
+    string.parse::<Op>().map_err(|e| deserializer.emitter().emit(error!(
+        message("{e}"),
+        primary(string.span, ""),
+    )))
+}
 
-        let tag = prefix.parse::<Tag>().map_err(|s| fail(&s.to_string()))?;
-        let mut args = args.into_iter();
-        let mut next_arg = || {
-            args.next().ok_or_else(|| fail("not enough arguments to intrinsic name"))
-        };
-        let out = match tag {
-            Tag::Jmp => IKind::Jmp,
-            Tag::CallEosd => IKind::CallEosd,
-            Tag::CallReg => IKind::CallReg,
-            Tag::InterruptLabel => IKind::InterruptLabel,
-            Tag::AssignOp => IKind::AssignOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
-            Tag::BinOp => IKind::BinOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
-            Tag::UnOp => IKind::UnOp(next_arg()?.parse()?, parse_type(next_arg()?)?),
-            Tag::CountJmp => IKind::CountJmp,
-            Tag::CondJmp => IKind::CondJmp(next_arg()?.parse()?, parse_type(next_arg()?)?),
-            Tag::CondJmp2A => IKind::CondJmp2A(parse_type(next_arg()?)?),
-            Tag::CondJmp2B => IKind::CondJmp2B(next_arg()?.parse()?),
-        };
-
-        if let Some(_) = args.next() {
-            Err(fail("too many arguments to intrinsic name"))
-        } else {
-            Ok(out)
-        }
+fn read_type_attr(deserializer: &mut AttributeDeserializer) -> Result<ScalarType, ErrorReported> {
+    let string = deserializer.expect_value::<String>("type")?;
+    match &string[..] {
+        "int" => Ok(ScalarType::Int),
+        "float" => Ok(ScalarType::Float),
+        _ => Err(deserializer.emitter().emit(error!(
+            message("bad type; expected int or float"),
+            primary(string.span, ""),
+        ))),
     }
 }
 
@@ -561,17 +558,17 @@ impl std::fmt::Display for IntrinsicInstrKind {
         };
         let tag = IntrinsicInstrTag::from(self);
         match self {
-            IKind::Jmp => write!(f, "{tag}()"),
-            IKind::CallEosd => write!(f, "{tag}()"),
-            IKind::CallReg => write!(f, "{tag}()"),
-            IKind::InterruptLabel => write!(f, "{tag}()"),
-            IKind::AssignOp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
-            IKind::BinOp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
-            IKind::UnOp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
-            IKind::CountJmp => write!(f, "{tag}()"),
-            IKind::CondJmp(op, ty) => write!(f, "{tag}({op},{})", render_ty(ty)),
-            IKind::CondJmp2A(ty) => write!(f, "{tag}({})", render_ty(ty)),
-            IKind::CondJmp2B(op) => write!(f, "{tag}({op})"),
+            IKind::Jmp => write!(f, r#"{tag}()"#),
+            IKind::CallEosd => write!(f, r#"{tag}()"#),
+            IKind::CallReg => write!(f, r#"{tag}()"#),
+            IKind::InterruptLabel => write!(f, r#"{tag}()"#),
+            IKind::AssignOp(op, ty) => write!(f, r#"{tag}(op="{op}",type="{}")"#, render_ty(ty)),
+            IKind::BinOp(op, ty) => write!(f, r#"{tag}(op="{op}",type="{}")"#, render_ty(ty)),
+            IKind::UnOp(op, ty) => write!(f, r#"{tag}(op="{op}",type="{}")"#, render_ty(ty)),
+            IKind::CountJmp => write!(f, r#"{tag}()"#),
+            IKind::CondJmp(op, ty) => write!(f, r#"{tag}(op="{op}",type="{}")"#, render_ty(ty)),
+            IKind::CondJmp2A(ty) => write!(f, r#"{tag}(type="{}")"#, render_ty(ty)),
+            IKind::CondJmp2B(op) => write!(f, r#"{tag}(op="{op}")"#),
         }
     }
 }

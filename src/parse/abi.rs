@@ -9,7 +9,7 @@ use crate::ident::Ident;
 use lalrpop_util::lalrpop_mod;
 use indexmap::IndexMap;
 
-lalrpop_mod!(attrs_parser, "/parse/abi_attrs.rs");
+lalrpop_mod!(attrs_lalrparser, "/parse/abi_attrs.rs");
 
 define_token_enum! {
     #[derive(logos::Logos, Clone, Copy, Debug, PartialEq)]
@@ -34,9 +34,9 @@ define_token_enum! {
     }
 }
 
-type AttributeLexer<'input> = crate::parse::lexer::GenericLexer<'input, Token<'input>>;
+pub type AttributeLexer<'input> = crate::parse::lexer::GenericLexer<'input, Token<'input>>;
 
-use abi_ast::{Abi, Param, Scalar, AttributeRhs};
+use abi_ast::{Abi, Param, Scalar, Attributes, AttributeRhs};
 pub mod abi_ast {
     //! An AST for an ABI in a more abstract form, as a series of type characters with
     //! attribute dictionaries.
@@ -51,8 +51,10 @@ pub mod abi_ast {
     #[derive(Debug, Clone, PartialEq)]
     pub struct Param {
         pub format_char: Sp<char>,
-        pub attributes: IndexMap<Sp<Ident>, AttributeRhs>,
+        pub attributes: Attributes,
     }
+
+    pub type Attributes = IndexMap<Sp<Ident>, AttributeRhs>;
 
     #[derive(Debug, Clone, PartialEq)]
     pub enum AttributeRhs {
@@ -78,12 +80,9 @@ pub mod abi_ast {
         {
             let mut outer_name_buf = [0u8; 4];
             let outer_name = self.format_char.encode_utf8(&mut outer_name_buf);
+            let outer_name = sp!(self.format_char.span => &*outer_name);
 
-            let mut deserializer = AttributeDeserializer {
-                outer_name: sp!(self.format_char.span => &*outer_name),
-                remaining_attributes: self.attributes,
-                emitter,
-            };
+            let mut deserializer = AttributeDeserializer::new(outer_name, self.attributes, emitter);
             let value = callback(&mut deserializer)?;
             deserializer.finish()?;
             Ok(value)
@@ -100,7 +99,7 @@ pub mod abi_ast {
 
         pub(super) fn format_as_literal(&self) -> String {
             match self {
-                Scalar::Number(number) => format!("{}", number),
+                Scalar::Number(number) => format!("{number}"),
                 Scalar::String(literal) => crate::fmt::stringify(&literal),
             }
         }
@@ -128,14 +127,7 @@ pub fn parse_abi(
                 let next_non_ws = text.chars().filter(|&c| !is_ws(c)).next();
                 let attributes = match next_non_ws {
                     // Type with attributes.
-                    Some('(') => {
-                        let attr_tokens = extract_attr_tokens(&mut text, emitter)?;
-                        let ident_rhs_pairs = {
-                            attrs_parser::AttributesParser::new().parse(attr_tokens)
-                                .map_err(|e| emitter.emit(e))?
-                        };
-                        mapify_attributes(ident_rhs_pairs, emitter)?
-                    },
+                    Some('(') => extract_attributes_from_str(&mut text, emitter)?,
                     // Type without attributes.
                     _ => Default::default(),
                 };
@@ -154,20 +146,78 @@ pub fn parse_abi(
     Ok(Abi { params })
 }
 
-/// Given a string whose first token is '(', extract tokens up to and including
-/// a ')' token for an attribute list.
-fn extract_attr_tokens<'input>(
-    text: &mut SourceStr<'input>,
+/// Parse an `ins_intrinsic` string into its AST.
+pub fn parse_intrinsic(
+    mut text: SourceStr<'_>,
     emitter: &impl Emitter,
-) -> Result<Vec<(Location, Token<'input>, Location)>, ErrorReported>  {
+) -> Result<(Sp<Ident>, Attributes), ErrorReported> {
     let mut lexer = AttributeLexer::new(text.clone());
 
-    let first_token = lexer.next().expect("should begin with open paren").unwrap();
-    assert_eq!(first_token.1, Token::ParenOpen);
+    let intrinsic_name_str = expect_token(&mut lexer, "identifier", emitter, |(l, token, r)| match token {
+        Token::Ident(ident_str) => Some(sp!(Span::from_locs(l, r) => ident_str)),
+        _ => None,
+    })?;
+    let intrinsic_name = match Ident::new_user(intrinsic_name_str.value) {
+        Ok(ident) => sp!(intrinsic_name_str.span => ident),
+        Err(e) => return Err(emitter.emit(error!(
+            message("invalid identifier: {intrinsic_name_str}"),
+            primary(intrinsic_name_str.span, ""),
+        ))),
+    };
+
+    let attributes = extract_attributes(&mut lexer, emitter)?;
+
+    if let Some((l, _, r)) = lexer.next().transpose().map_err(|e| emitter.emit(e))? {
+        return Err(emitter.emit(error!(
+            message("unexpected token after attributes"),
+            primary(Span::from_locs(l, r), ""),
+        )));
+    }
+
+    Ok((intrinsic_name, attributes))
+}
+
+/// Given a string that starts with '(', extract tokens up to and including
+/// a ')' token and parse them into the AST for an attribute list.
+fn extract_attributes_from_str<'input>(
+    text: &mut SourceStr<'input>,
+    emitter: &impl Emitter,
+) -> Result<Attributes, ErrorReported>  {
+    let mut lexer = AttributeLexer::new(text.clone());
+    let attributes = extract_attributes(&mut lexer, emitter)?;
+    let end = lexer.location().1;
+
+    *text = text.slice_from((end - text.span().start).0 as _);
+    Ok(attributes)
+}
+
+/// Given a lexer whose first token is '(', extract tokens up to and including
+/// a ')' token and parse them into the AST for an attribute list.
+///
+/// (if first token is not `')'` this generates a user-facing error)
+fn extract_attributes<'input>(
+    lexer: &mut AttributeLexer<'input>,
+    emitter: &impl Emitter,
+) -> Result<Attributes, ErrorReported>  {
+    let attr_tokens = extract_attr_tokens(lexer, emitter)?;
+    let ident_rhs_pairs = {
+        attrs_lalrparser::AttributesParser::new().parse(attr_tokens)
+            .map_err(|e| emitter.emit(e))?
+    };
+    mapify_attributes(ident_rhs_pairs, emitter)
+}
+
+fn extract_attr_tokens<'input>(
+    lexer: &mut AttributeLexer<'input>,
+    emitter: &impl Emitter,
+) -> Result<Vec<(Location, Token<'input>, Location)>, ErrorReported>  {
+    let first_token = expect_token(lexer, "open parenthesis", emitter, |token| match token {
+        token @ (l, Token::ParenOpen, r) => Some(token),
+        _ => None,
+    })?;
     let mut tokens = vec![first_token];
 
-    // You can't nest parentheses in attributes so simply scan for a ')'.
-    // However, because ')' can appear in strings we need to use the lexer.
+    // You can't nest parentheses in attributes so simply scan for a ')' token.
     while tokens.last().map(|(_, tok, _)| tok) != Some(&Token::ParenClose) {
         match lexer.next() {
             None => {
@@ -176,21 +226,19 @@ fn extract_attr_tokens<'input>(
                 return Err(emitter.emit(error!(
                     message("missing closing parenthesis for attribute list"),
                     primary(open_paren_span, "unclosed parenthesis"),
-                )))
+                )));
             },
             Some(Err(e)) => return Err(emitter.emit(e)),
             Some(Ok(token)) => tokens.push(token),
         }
     }
-    let end = lexer.location().1;
-    *text = text.slice_from((end - text.span().start).0 as _);
     Ok(tokens)
 }
 
 fn mapify_attributes(
     attrs: impl IntoIterator<Item=(Sp<Ident>, AttributeRhs)>,
     emitter: &impl Emitter,
-) -> Result<IndexMap<Sp<Ident>, AttributeRhs>, ErrorReported> {
+) -> Result<Attributes, ErrorReported> {
     let mut out = IndexMap::default();
     for (ident, rhs) in attrs {
         match out.entry(ident.clone()) {
@@ -205,14 +253,56 @@ fn mapify_attributes(
     Ok(out)
 }
 
+/// Reads a token and calls a closure to determine whether the token is of the right kind.
+///
+/// If it is the right kind, the closure should produce `Some` (potentially with some payload of
+/// interest).  Otherwise, it should return `None`, and a user-facing error will be emitted.
+fn expect_token<'input, T>(
+    lexer: &mut AttributeLexer<'input>,
+    expected: &'static str,
+    emitter: &impl Emitter,
+    callback: impl FnOnce((Location, Token<'input>, Location)) -> Option<T>,
+) -> Result<T, ErrorReported> {
+    let option = lexer.next().transpose().map_err(|e| emitter.emit(e))?;
+
+    // If there is a token, ask the callback if it's what we wanted.
+    if let Some(token) = option {
+        if let Some(successful_return_value) = callback(token) {
+            return Ok(successful_return_value);
+        }
+    }
+
+    // Otherwise it's either the wrong kind of token or EoF.
+    let err_span = match option {
+        Some((l, _, r)) => Span::from_locs(l, r),
+        None => Span::from_locs(lexer.location(), lexer.location()),
+    };
+    Err(emitter.emit(error!(
+        message("expected {expected}"),
+        primary(err_span, ""),
+    )))
+}
+
 // =============================================================================
 
 /// Helper for validating the attributes of a specific ABI type.
 pub struct AttributeDeserializer<'a> {
     /// Format character, or intrinsic name.
     outer_name: Sp<&'a str>,
-    remaining_attributes: IndexMap<Sp<Ident>, AttributeRhs>,
+    remaining_attributes: Attributes,
     emitter: &'a dyn Emitter,
+}
+
+impl<'a> AttributeDeserializer<'a> {
+    pub fn new(outer_name: Sp<&'a str>, attributes: Attributes, emitter: &'a dyn Emitter) -> Self {
+        AttributeDeserializer {
+            outer_name,
+            remaining_attributes: attributes,
+            emitter,
+        }
+    }
+
+    pub fn emitter(&self) -> &(impl Emitter + '_) { &self.emitter }
 }
 
 impl AttributeDeserializer<'_> {
@@ -235,17 +325,20 @@ impl AttributeDeserializer<'_> {
         }
     }
 
-    // /// Require an attribute to be present in the attribute list, validating it as having the desired type.
-    // pub fn expect_value<T: FromAttribute>(&mut self, attr_name: &str) -> Result<T, ErrorReported> {
-    //     self.maybe_expect_value(attr_name, None)
-    // }
+    /// Require an attribute to be present in the attribute list, validating it as having the desired type.
+    pub fn expect_value<T: FromAttribute>(&mut self, attr_name: &str) -> Result<Sp<T>, ErrorReported> {
+        match self.accept_value(attr_name)? {
+            Some(value) => Ok(value),
+            None => Err(self.error_missing(attr_name)),
+        }
+    }
 
     // /// Behaves either like [`Self::accept_value`] or [`Self::expect_value`] depending on whether a default exists.
     // ///
     // /// Useful for some cases where one format is an alias of another, but with a default set for something required.
     // pub fn maybe_expect_value<T: FromAttribute>(&mut self, attr_name: &str, default: Option<T>) -> Result<T, ErrorReported> {
     //     match (self.accept_value(attr_name)?, default) {
-    //         (Some(value), _) => Ok(value),
+    //         (Some(value), _) => Ok(value.value),
     //         (None, Some(default)) => Ok(default),
     //         (None, None) => Err(self.error_missing(attr_name)),
     //     }
@@ -291,8 +384,8 @@ macro_rules! impl_from_scalar_for_other_ints {
                 fn from_scalar(scalar: &Sp<Scalar>, attr_name: &Sp<Ident>) -> Result<Self, Diagnostic> {
                     i32::from_scalar(scalar, attr_name)?
                         .try_into()
-                        .map_err(|err| error!(
-                            message("value out of range for '{}'", attr_name),
+                        .map_err(|_| error!(
+                            message("value out of range for '{attr_name}'"),
                             primary(scalar, ""),
                         ))
                 }
@@ -378,7 +471,7 @@ fn missing_value(attr_name: &Sp<Ident>) -> Diagnostic {
 
 fn expected_no_value(attr_name: &Sp<Ident>, value: &Sp<Scalar>) -> Diagnostic {
     error!(
-        message("flag '{}' does not take a value", attr_name),
+        message("flag '{attr_name}' does not take a value"),
         primary(value, ""),
     )
 }
