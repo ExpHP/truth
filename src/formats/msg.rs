@@ -336,20 +336,24 @@ fn compile(
     let mut errors = ErrorFlag::new();
     let mut lowerer = crate::llir::Lowerer::new(hooks);
     let mut scripts = IndexMap::new();
+    let do_debug_info = true;
 
     script_code.iter().map(|(name, code)| {
-        let mut script_debug_info = debug_info::ScriptBuilder::default();
-        script_debug_info.exported_as(debug_info::ScriptType::Script {
-            binary_file_id: panic!("FIXME binary_file_id"),
-            index: panic!("MSG script index"),
-        });
-        script_debug_info.name(name.to_string());
-        script_debug_info.name_span(name.span.into());
-
-        let instrs = lowerer.lower_sub(&code.0, None, ctx, Some(&mut script_debug_info))?;
+        let (instrs, lowering_info) = lowerer.lower_sub(&code.0, None, ctx, do_debug_info)?;
         scripts.insert(name.value.clone(), instrs);
 
-        ctx.debug_info.exported_scripts.push(script_debug_info.build().unwrap());
+        if do_debug_info {
+            let lowering_info = lowering_info.unwrap();
+            let export_info = debug_info::ScriptExportInfo {
+                exported_as: debug_info::ScriptType::Script {
+                    binary_file_id: panic!("FIXME binary_file_id"),
+                    index: panic!("MSG script index"),
+                },
+                name: name.to_string(),
+                name_span: name.span.into(),
+            };
+            ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+        }
         Ok(())
     }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
 

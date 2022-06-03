@@ -11,6 +11,7 @@ use crate::ident::{Ident};
 use crate::llir::{self, ReadInstr, RawInstr, LanguageHooks, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
+use crate::debug_info;
 
 // =============================================================================
 
@@ -296,7 +297,7 @@ fn compile_std(
     };
 
     let emit = |e| ctx.emitter.emit(e);
-    let (meta, main_sub) = {
+    let (meta, main_sub, main_ident) = {
         // FIXME: copypasta with msg.rs  (both languages appear to want very similar things)
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
@@ -311,7 +312,7 @@ fn compile_std(
                     }
                 },
                 ast::Item::Meta { keyword, .. } => return Err(emit(error!(
-                    message("unexpected '{}' in STD file", keyword),
+                    message("unexpected '{keyword}' in STD file"),
                     primary(keyword, "not valid in STD files"),
                 ))),
                 ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
@@ -339,7 +340,7 @@ fn compile_std(
             }
         }
         match (found_meta, found_main_sub) {
-            (Some((_, meta)), Some((_, main))) => (meta, main),
+            (Some((_, meta)), Some((main_ident, main))) => (meta, main, main_ident),
             (None, _) => return Err(emit(error!("missing 'main' sub"))),
             (Some(_), None) => return Err(emit(error!("missing 'meta' section"))),
         }
@@ -349,10 +350,26 @@ fn compile_std(
     let mut out = StdFile::init_from_meta(format, meta).map_err(|e| ctx.emitter.emit(e))?;
     let mut errors = ErrorFlag::new();
     let mut lowerer = crate::llir::Lowerer::new(hooks);
-    out.script = lowerer.lower_sub(&main_sub.0, None, ctx, None).unwrap_or_else(|e| {
+    let do_debug_info = true;
+
+    let lowering_info;
+    (out.script, lowering_info) = lowerer.lower_sub(&main_sub.0, None, ctx, do_debug_info).unwrap_or_else(|e| {
         errors.set(e);
-        vec![] // dummy instructions so we can call lowerer.finish before returning
+        (vec![], None) // dummy instructions so we can call lowerer.finish before returning
     });
+
+    if do_debug_info {
+        let lowering_info = lowering_info.unwrap();
+        let export_info = debug_info::ScriptExportInfo {
+            exported_as: debug_info::ScriptType::Script {
+                binary_file_id: panic!("FIXME binary_file_id"),
+                index: 0,
+            },
+            name: main_ident.to_string(),
+            name_span: main_ident.span.into(),
+        };
+        ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+    }
 
     lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
 

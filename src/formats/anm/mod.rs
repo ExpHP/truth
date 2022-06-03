@@ -1010,18 +1010,22 @@ fn compile(
             let script_index = script_ids.get_index_of(&name.value).unwrap();
             let (_, sp_pat![id]) = script_ids[script_index];
 
-            let mut script_debug_info = debug_info::ScriptBuilder::default();
-            script_debug_info.exported_as(debug_info::ScriptType::Script {
-                binary_file_id: panic!("FIXME binary_file_id"),
-                index: script_index as _,
-            });
-            script_debug_info.name(name.to_string());
-            script_debug_info.name_span(name.span.into());
-
             let def_id = None;
-            let instrs = lowerer.lower_sub(&code.0, def_id, ctx, Some(&mut script_debug_info))?;
+            let do_debug_info = true;
+            let (instrs, lowering_info) = lowerer.lower_sub(&code.0, def_id, ctx, do_debug_info)?;
 
-            ctx.debug_info.exported_scripts.push(script_debug_info.build().unwrap());
+            if do_debug_info {
+                let lowering_info = lowering_info.unwrap();
+                let export_info = debug_info::ScriptExportInfo {
+                    exported_as: debug_info::ScriptType::Script {
+                        binary_file_id: panic!("FIXME binary_file_id"),
+                        index: script_index as _,
+                    },
+                    name: name.to_string(),
+                    name_span: name.span.into(),
+                };
+                ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+            }
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }

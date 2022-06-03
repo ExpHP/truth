@@ -162,9 +162,9 @@ impl<'a> Lowerer<'a> {
         code: &[Sp<ast::Stmt>],
         def_id: Option<DefId>,
         ctx: &mut CompilerContext<'_>,
-        debug_info: Option<&mut debug_info::ScriptBuilder>,
-    ) -> Result<Vec<RawInstr>, ErrorReported> {
-        lower_sub_ast_to_instrs(self, code, def_id, ctx, debug_info)
+        do_debug_info: bool,
+    ) -> Result<(Vec<RawInstr>, Option<debug_info::ScriptLoweringInfo>), ErrorReported> {
+        lower_sub_ast_to_instrs(self, code, def_id, ctx, do_debug_info)
     }
 
     /// Report any errors that can only be reported once all functions have been compiled.
@@ -180,8 +180,8 @@ fn lower_sub_ast_to_instrs(
     code: &[Sp<ast::Stmt>],
     def_id: Option<DefId>,
     ctx: &mut CompilerContext<'_>,
-    mut debug_info: Option<&mut debug_info::ScriptBuilder>,
-) -> Result<Vec<RawInstr>, ErrorReported> {
+    do_debug_info: bool,
+) -> Result<(Vec<RawInstr>, Option<debug_info::ScriptLoweringInfo>), ErrorReported> {
     use stackless::{SingleSubLowerer, assign_registers};
 
     // see test bad_instr_alias_expr_ordering
@@ -201,18 +201,18 @@ fn lower_sub_ast_to_instrs(
     let mut out = sub_lowerer.out;
 
     // And now postprocess
-    assign_registers(
-        &mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx, debug_info.as_deref_mut(),
+    let debug_info_registers = assign_registers(
+        &mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx, do_debug_info,
     )?;
 
     // This can't happen before register assignment or we might allocate something multiple times
     out = elaborate_diff_switches(out, &ctx.diff_flag_defs);
 
-    let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter, debug_info)?;
+    let (label_info, debug_info_labels) = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter, do_debug_info)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
 
     let mut encoding_state = ArgEncodingState::new();
-    Ok(out.into_iter().filter_map(|x| match x.value {
+    let instrs = out.into_iter().filter_map(|x| match x.value {
         LowerStmt::Instr(instr) => Some({
             // this is the second time we're using encode_args (first time was to get labels), so suppress warnings
             let null_emitter = ctx.emitter.with_writer(crate::diagnostic::dev_null());
@@ -222,7 +222,13 @@ fn lower_sub_ast_to_instrs(
         LowerStmt::Label { .. } => None,
         LowerStmt::RegAlloc { .. } => None,
         LowerStmt::RegFree { .. } => None,
-    }).collect())
+    }).collect();
+    let debug_info = do_debug_info.then(|| debug_info::ScriptLoweringInfo {
+        register_info: debug_info_registers.unwrap(),
+        offset_info: debug_info_labels.unwrap(),
+    });
+
+    Ok((instrs, debug_info))
 }
 
 // =============================================================================
@@ -309,8 +315,8 @@ fn gather_label_info(
     code: &[Sp<LowerStmt>],
     defs: &context::Defs,
     emitter: &context::RootEmitter,
-    debug_info: Option<&mut debug_info::ScriptBuilder>,
-) -> Result<LabelInfoverse, ErrorReported> {
+    do_debug_info: bool,
+) -> Result<(LabelInfoverse, Option<debug_info::ScriptOffsetInfo>), ErrorReported> {
     use indexmap::map::Entry;
 
     // Due to things like the TH12 MSG furigana bug, the size of an instruction can depend
@@ -335,8 +341,8 @@ fn gather_label_info(
     let mut offset = initial_offset;
     let mut labels = IndexMap::new();
     let mut stmt_offsets = vec![];
-    let mut debug_info_instrs = debug_info.as_ref().map(|_| vec![]);
-    let mut debug_info_labels = debug_info.as_ref().map(|_| vec![]);
+    let mut debug_info_instrs = do_debug_info.then(|| vec![]);
+    let mut debug_info_labels = do_debug_info.then(|| vec![]);
 
     let mut encoding_state = ArgEncodingState::new();
 
@@ -381,13 +387,14 @@ fn gather_label_info(
         Ok(())
     }).collect_with_recovery()?;
 
-    if let Some(debug_info) = debug_info {
-        debug_info.instrs(debug_info_instrs.unwrap());
-        debug_info.labels(debug_info_labels.unwrap());
-        debug_info.end_offset(offset);
-    }
+    let debug_info = do_debug_info.then(|| debug_info::ScriptOffsetInfo {
+        instrs: debug_info_instrs.unwrap(),
+        labels: debug_info_labels.unwrap(),
+        end_offset: offset,
+    });
+    let output = LabelInfoverse { labels, stmt_offsets };
 
-    Ok(LabelInfoverse { labels, stmt_offsets })
+    Ok((output, debug_info))
 }
 
 /// Eliminates all `LowerArg::Label`s by replacing them with their dword values.

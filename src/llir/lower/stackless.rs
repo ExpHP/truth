@@ -1103,15 +1103,17 @@ pub (in crate::llir::lower) fn assign_registers(
     sub_info: Option<&super::SubInfo>,
     def_id: Option<DefId>,
     ctx: &CompilerContext,
-    debug_info: Option<&mut debug_info::ScriptBuilder>,
-) -> Result<(), ErrorReported> {
+    do_debug_info: bool,
+) -> Result<Option<debug_info::ScriptRegisterInfo>, ErrorReported> {
     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(hooks.language(), reg));
 
     let mut local_regs = IdMap::<DefId, (RegId, ScalarType, Span)>::new();
     let mut has_used_scratch: Option<Span> = None;
     let mut has_anti_scratch_ins: Option<Span> = None;
 
-    let mut debug_info_locals = debug_info.as_ref().map(|_| vec![]);
+    let mut debug_info = do_debug_info.then(|| debug_info::ScriptRegisterInfo {
+        locals: vec![],
+    });
 
     // FIXME:  Should this be here?  Stack-based ECL might want this check as well...
     // For detecting multiple names that represent the same register for non-scratch registers;
@@ -1145,8 +1147,8 @@ pub (in crate::llir::lower) fn assign_registers(
 
         for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers(sub_info.sub_format) {
             local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
-            if let Some(debug_info_locals) = &mut debug_info_locals {
-                debug_info_locals.push(debug_info::Local {
+            if let Some(debug_info) = &mut debug_info {
+                debug_info.locals.push(debug_info::Local {
                     name: ctx.defs.var_name(param_def_id).to_string(),
                     name_span: param_span.into(),
                     r#type: ty.into(),
@@ -1177,8 +1179,8 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 assert!(local_regs.insert(def_id, (reg, required_ty, stmt.span)).is_none());
                 assert!(!names_used_for_regs.contains_key(&reg));
-                if let Some(debug_info_locals) = &mut debug_info_locals {
-                    debug_info_locals.push(debug_info::Local {
+                if let Some(debug_info) = &mut debug_info {
+                    debug_info.locals.push(debug_info::Local {
                         name: ctx.defs.var_name(def_id).to_string(),
                         name_span: stmt.span.into(),
                         r#type: ReadType::from_ty(required_ty).expect("string-typed register?!").into(),
@@ -1248,7 +1250,7 @@ pub (in crate::llir::lower) fn assign_registers(
         global_scratch_results.has_used_scratch.get_or_insert(span);
     }
 
-    Ok(())
+    Ok(debug_info)
 }
 
 fn each_lower_arg(arg: &mut Sp<LowerArg>, func: &mut dyn FnMut(&mut Sp<LowerArg>)) {
