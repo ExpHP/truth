@@ -97,7 +97,7 @@ impl SparseScriptTable {
         builder.field("table", &{
             let mut inner = Meta::make_object();
             for (&id, entry) in &self.table {
-                inner.field(format!("{}", id), entry);
+                inner.field(format!("{id}"), entry);
             }
             inner.field_default("default", &self.default, &Default::default());
             inner.build()
@@ -301,7 +301,7 @@ fn compile(
                     }
                 },
                 ast::Item::Meta { keyword, .. } => return Err(emit(error!(
-                    message("unexpected '{}' in MSG file", keyword),
+                    message("unexpected '{keyword}' in MSG file"),
                     primary(keyword, "not valid in MSG files"),
                 ))),
                 ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
@@ -312,9 +312,9 @@ fn compile(
                     match script_code.entry(ident.clone()) {
                         indexmap::map::Entry::Vacant(e) => { e.insert(code); },
                         indexmap::map::Entry::Occupied(prev) => return Err(emit(error!(
-                            message("redefinition of script '{}'", ident),
-                            primary(ident, "this defines a script called '{}'...", ident),
-                            secondary(prev.key(), "...but '{}' was already defined here", ident),
+                            message("redefinition of script '{ident}'"),
+                            primary(ident, "this defines a script called '{ident}'..."),
+                            secondary(prev.key(), "...but '{ident}' was already defined here"),
                         ))),
                     }
                 },
@@ -535,7 +535,7 @@ fn write_msg(
         let script_offset = w.pos()? - start_pos;
 
         script_offsets.insert(ident.clone(), script_offset);
-        emitter.chain_with(|f| write!(f, "script {}", ident), |emitter| {
+        emitter.chain_with(|f| write!(f, "script {ident}"), |emitter| {
             llir::write_instrs(w, emitter, instr_format, script)
         })?;
     }
@@ -549,7 +549,7 @@ fn write_msg(
             ScriptTableOffset::Zero => 0,
             ScriptTableOffset::Name(ref ident) => *script_offsets.get(ident).ok_or_else(|| {
                 emitter.emit(error!(
-                    message("invalid script '{}'", ident),
+                    message("invalid script '{ident}'"),
                     primary(entry.script, "no such script"),
                 ))
             })?,

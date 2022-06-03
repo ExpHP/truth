@@ -62,7 +62,7 @@ impl MissionMsgFile {
         match game {
             Game::Th095 => compile(ast, ctx).map(MissionMsgFile::Th095),
             Game::Th125 => compile(ast, ctx).map(MissionMsgFile::Th125),
-            _ => Err(ctx.emitter.emit(error!("--mission does not exist for game {}", game))),
+            _ => Err(ctx.emitter.emit(error!("--mission does not exist for game {game}"))),
         }
     }
 
@@ -79,7 +79,7 @@ impl MissionMsgFile {
         match game {
             Game::Th095 => read_mission_msg(r, &emitter).map(MissionMsgFile::Th095),
             Game::Th125 => read_mission_msg(r, &emitter).map(MissionMsgFile::Th125),
-            _ => Err(emitter.emit(error!("--mission does not exist for game {}", game))),
+            _ => Err(emitter.emit(error!("--mission does not exist for game {game}"))),
         }
     }
 }
@@ -306,7 +306,7 @@ fn read_mission_msg<E: Entry>(
     }
 
     let entries = (0..num_entries).map(|i| {
-        emitter.chain_with(|f| write!(f, "while reading entry {}", i), |emitter| {
+        emitter.chain_with(|f| write!(f, "while reading entry {i}"), |emitter| {
             E::read(reader, emitter)
         })
     }).collect::<Result<_, _>>()?;
@@ -321,7 +321,7 @@ fn read_mission_text_lines<const N: usize>(
     cipher: ZunMissionCipher,
 ) -> ReadResult<[Sp<String>; N]>{
     let text = (0..N).map(|line| {
-        emitter.chain_with(|f| write!(f, "in line {}", line), |emitter| {
+        emitter.chain_with(|f| write!(f, "in line {line}"), |emitter| {
             let mut bytes = reader.read_byte_vec(64)?;
             for (byte, c) in bytes.iter_mut().zip(cipher.bytes_for_line(line)) {
                 *byte = u8::wrapping_add(*byte, c)
