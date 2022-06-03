@@ -60,13 +60,46 @@ pub struct BinaryFile {
 #[derive(serde::Serialize)]
 #[derive(Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
-#[derive(derive_builder::Builder)]
-#[builder(pattern = "mutable")]
 pub struct Script {
+    // These smaller structs exist to make it easier to construct, by breaking it up
+    // similarly to how the lowering code is organized.  Feel free to ruthlessly reorganize and
+    // refactor these structs when changing the lowering code.
+    #[serde(flatten)]
+    pub export_info: ScriptExportInfo,
+    #[serde(flatten)]
+    pub lowering_info: ScriptLoweringInfo,
+}
+
+#[derive(serde::Serialize)]
+#[derive(Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct ScriptLoweringInfo {
+    #[serde(flatten)]
+    pub register_info: ScriptRegisterInfo,
+    #[serde(flatten)]
+    pub offset_info: ScriptOffsetInfo,
+}
+
+#[derive(serde::Serialize)]
+#[derive(Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct ScriptExportInfo {
     pub exported_as: ScriptType,
     pub name: String,
     pub name_span: Span,
+}
+
+#[derive(serde::Serialize)]
+#[derive(Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct ScriptRegisterInfo {
     pub locals: Vec<Local>,
+}
+
+#[derive(serde::Serialize)]
+#[derive(Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct ScriptOffsetInfo {
     pub instrs: Vec<Instr>,
     /// Offset (in bytes) from the first instruction to the position after the last instruction.
     pub end_offset: raw::BytePos,

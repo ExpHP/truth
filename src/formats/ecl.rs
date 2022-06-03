@@ -191,6 +191,7 @@ fn compile(
     // Compilation pass
     let emitter = ctx.emitter;
     let emit = |e| emitter.emit(e);
+    let do_debug_info = true;
     let mut subs = IndexMap::new();
     let mut timeline_indices_in_ast_order = get_and_validate_timeline_indices(&ast.items, emitter)?.into_iter();
     let mut compiled_timelines = vec![None; timeline_indices_in_ast_order.len()];  // to be filled later
@@ -218,21 +219,24 @@ fn compile(
             ast::Item::Timeline { code, .. } => {
                 let timeline_index = timeline_indices_in_ast_order.next().unwrap();
 
-                let mut script_debug_info = debug_info::ScriptBuilder::default();
-                script_debug_info.exported_as(debug_info::ScriptType::Timeline {
-                    binary_file_id: panic!("FIXME binary_file_id"),
-                    index: timeline_index as _,
-                });
-                script_debug_info.name("".to_string());
-                script_debug_info.name_span(Span::NULL.into());
-
                 let def_id = None;
-                let instrs = timeline_lowerer.lower_sub(&code.0, def_id, ctx, Some(&mut script_debug_info))?;
+                let (instrs, lowering_info) = timeline_lowerer.lower_sub(&code.0, def_id, ctx, do_debug_info)?;
 
                 assert!(compiled_timelines[timeline_index].is_none());
                 compiled_timelines[timeline_index] = Some(instrs);
 
-                ctx.debug_info.exported_scripts.push(script_debug_info.build().unwrap());
+                if do_debug_info {
+                    let lowering_info = lowering_info.unwrap();
+                    let export_info = debug_info::ScriptExportInfo {
+                        exported_as: debug_info::ScriptType::Timeline {
+                            binary_file_id: panic!("FIXME binary_file_id"),
+                            index: timeline_index as _,
+                        },
+                        name: "".to_string(),
+                        name_span: Span::NULL.into(),
+                    };
+                    ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+                }
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
@@ -250,14 +254,6 @@ fn compile(
                 let def_id = ctx.resolutions.expect_def(ident);
                 assert_eq!(sub_info.subs.get_index_of(&def_id).unwrap(), subs.len());
 
-                let mut script_debug_info = debug_info::ScriptBuilder::default();
-                script_debug_info.exported_as(debug_info::ScriptType::Sub {
-                    binary_file_id: panic!("FIXME binary_file_id"),
-                    index: sub_index as _,
-                });
-                script_debug_info.name(ident.to_string());
-                script_debug_info.name_span(ident.span.into());
-
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                     return Err(emit(error!(
@@ -266,11 +262,24 @@ fn compile(
                     )));
                 }
 
-                let instrs = ecl_lowerer.lower_sub(&code.0, Some(def_id), ctx, Some(&mut script_debug_info)).unwrap_or_else(|e| {
+                let (instrs, lowering_info) = ecl_lowerer.lower_sub(&code.0, Some(def_id), ctx, do_debug_info).unwrap_or_else(|e| {
                     errors.set(e);
-                    vec![]  // dummy instrs so that we can still insert an item into 'subs' and get the right indices
+                    (vec![], None)  // dummy instrs so that we can still insert an item into 'subs' and get the right indices
                 });
                 subs.insert(ident.value.as_raw().clone(), instrs);
+
+                if do_debug_info {
+                    let lowering_info = lowering_info.unwrap();
+                    let export_info = debug_info::ScriptExportInfo {
+                        exported_as: debug_info::ScriptType::Sub {
+                            binary_file_id: panic!("FIXME binary_file_id"),
+                            index: sub_index as _,
+                        },
+                        name: ident.to_string(),
+                        name_span: ident.span.into(),
+                    };
+                    ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+                }
             }
 
             // TODO: support inline and const
