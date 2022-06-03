@@ -396,7 +396,7 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
             reader.seek_to(start_pos + object_offsets[i] as u64)?;
 
             let expected_id = i;
-            let value = emitter.chain_with(|f| write!(f, "object at index {}", i), |emitter| {
+            let value = emitter.chain_with(|f| write!(f, "object at index {i}"), |emitter| {
                 read_object(reader, emitter, expected_id)
             })?;
             Ok((key, value))
@@ -488,7 +488,7 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn Emitter, s: 
 fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) -> ReadResult<Object> {
     let id = f.read_u16()?;
     if id as usize != expected_id {
-        emitter.emit(warning!("object has non-sequential id (expected {}, got {})", expected_id, id)).ignore();
+        emitter.emit(warning!("object has non-sequential id (expected {expected_id}, got {id})")).ignore();
     }
 
     let layer = f.read_u16()?;
@@ -520,15 +520,15 @@ fn read_quad(f: &mut BinReader, emitter: &impl Emitter) -> ReadResult<Option<Qua
         (0, 0x1c) => {},
         (1, 0x24) => {},
         (-1, _) | (0, _) | (1, _) => {
-            return Err(emitter.emit(error!("unexpected size for type {} quad: {:#x}", kind, size)));
+            return Err(emitter.emit(error!("unexpected size for type {kind} quad: {size:#x}")));
         },
-        _ => return Err(emitter.emit(error!("unknown quad type: {}", kind))),
+        _ => return Err(emitter.emit(error!("unknown quad type: {kind}"))),
     };
 
     let anm_script = f.read_u16()?;
     match f.read_u16()? {
         0 => {},  // This word is zero in the file, and used to store an index in-game.
-        s => return Err(emitter.emit(warning!("unexpected data in quad index field: {:#04x}", s))),
+        s => return Err(emitter.emit(warning!("unexpected data in quad index field: {s:#04x}"))),
     };
 
     Ok(Some(Quad {
@@ -589,7 +589,7 @@ fn read_instance(f: &mut BinReader, emitter: &impl Emitter, objects: &IndexMap<S
     }
     let object = match objects.get_index(object_id as usize) {
         Some((ident, _)) => ident.clone(),
-        None => return Err(emitter.emit(error!("object index too large! ({}, but there are only {} objects)", object_id, objects.len()))),
+        None => return Err(emitter.emit(error!("object index too large! ({object_id}, but there are only {} objects)", objects.len()))),
     };
     let pos = f.read_f32s_3()?;
     Ok(Some(Instance { object, unknown, pos }))

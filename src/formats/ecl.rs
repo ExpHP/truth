@@ -206,7 +206,7 @@ fn compile(
         // eprintln!("{:?}", item);
         match &item.value {
             ast::Item::Meta { keyword, .. } => return Err(emit(error!(
-                message("unexpected '{}' in old ECL format file", keyword),
+                message("unexpected '{keyword}' in old ECL format file"),
                 primary(keyword, "not valid in old format ECL files"),
             ))),
             ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
@@ -257,7 +257,7 @@ fn compile(
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
                     return Err(emit(error!(
-                        message("return types are not supported in old-style ECL subs like '{}'", ident),
+                        message("return types are not supported in old-style ECL subs like '{ident}'"),
                         primary(ty_keyword, "unsupported return type"),
                     )));
                 }
@@ -315,7 +315,7 @@ fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<In
                     indexmap::map::Entry::Occupied(e) => {
                         let prev_ident = e.get();
                         return Err(ctx.emitter.emit(error!(
-                            message("duplicate script '{}'", ident),
+                            message("duplicate script '{ident}'"),
                             primary(ident, "redefined here"),
                             secondary(prev_ident, "originally defined here"),
                         )));
@@ -476,7 +476,7 @@ fn read_olde_ecl(
             expected_nonzero_timelines = 1;
             if num_subs_high_word != 0 {
                 emitter.emit(warning!(
-                    "unexpected nonzero high word for num_subs: {:#x}", num_subs_high_word,
+                    "unexpected nonzero high word for num_subs: {num_subs_high_word:#x}",
                 )).ignore();
             }
         },
@@ -488,7 +488,7 @@ fn read_olde_ecl(
     let mut num_timelines = timeline_offsets.iter().position(|&x| x == 0).unwrap_or(timeline_offsets.len());
     for &offset in &timeline_offsets[num_timelines..] {
         if offset != 0 {
-            return Err(emitter.emit(error!("unexpected timeline offset {:#x} after a null offset", offset)));
+            return Err(emitter.emit(error!("unexpected timeline offset {offset:#x} after a null offset")));
         }
     }
 
@@ -506,7 +506,7 @@ fn read_olde_ecl(
         let name = auto_sub_name(index as u32);
 
         reader.seek_to(start_pos + sub_offset as u64)?;
-        let instrs = emitter.chain_with(|f| write!(f, "in sub {}", index), |emitter| {
+        let instrs = emitter.chain_with(|f| write!(f, "in sub {index}"), |emitter| {
             llir::read_instrs(reader, emitter, ecl_format, sub_offset as u64, None)
         })?;
         Ok((name, instrs))
@@ -514,7 +514,7 @@ fn read_olde_ecl(
 
     let timelines = timeline_offsets[..num_timelines].iter().enumerate().map(|(index, &sub_offset)| {
         reader.seek_to(start_pos + sub_offset as u64)?;
-        let instrs = emitter.chain_with(|f| write!(f, "in timeline sub {}", index), |emitter| {
+        let instrs = emitter.chain_with(|f| write!(f, "in timeline sub {index}"), |emitter| {
             llir::read_instrs(reader, emitter, timeline_format, sub_offset as u64, None)
         })?;
         Ok(instrs)
@@ -575,7 +575,7 @@ fn write_olde_ecl(
     let mut sub_offsets = vec![];
     for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(w.pos()? - start_pos);
-        emitter.chain_with(|f| write!(f, "in sub {} (index {})", ident, index), |emitter| {
+        emitter.chain_with(|f| write!(f, "in sub {ident} (index {index})"), |emitter| {
             llir::write_instrs(w, emitter, ecl_format, instrs)
         })?;
     }
@@ -583,7 +583,7 @@ fn write_olde_ecl(
     let mut timeline_offsets = vec![];
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         timeline_offsets.push(w.pos()? - start_pos);
-        emitter.chain_with(|f| write!(f, "in timeline {}", index), |emitter| {
+        emitter.chain_with(|f| write!(f, "in timeline {index}"), |emitter| {
             llir::write_instrs(w, emitter, timeline_format, instrs)
         })?;
     }
@@ -815,7 +815,7 @@ impl OldeExportedSub {
         for (param_index, param) in func.params.iter().enumerate() {
             if let Some(qualifier) = &param.qualifier {
                 return Err(ctx.emitter.emit(error!(
-                    message("unexpected {} param in exported function", qualifier),
+                    message("unexpected {qualifier} param in exported function"),
                     primary(qualifier, ""),
                 )));
             }
@@ -905,7 +905,7 @@ fn game_format(game: Game) -> Result<OldeFileFormat, ErrorReported> {
         | Game::Th06 | Game::Th07 | Game::Th08 | Game::Th09 | Game::Th095
         => Ok(OldeFileFormat::new(game)),
 
-        _ => unimplemented!("game {} not yet supported", game),
+        _ => unimplemented!("game {game} not yet supported"),
     }
 }
 
