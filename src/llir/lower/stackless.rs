@@ -15,6 +15,7 @@ use crate::resolve::{DefId, RegId, NodeId, IdMap};
 use crate::value::{ScalarType, ReadType};
 use crate::context::CompilerContext;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
+use crate::debug_info;
 
 use IntrinsicInstrKind as IKind;
 
@@ -1102,12 +1103,15 @@ pub (in crate::llir::lower) fn assign_registers(
     sub_info: Option<&super::SubInfo>,
     def_id: Option<DefId>,
     ctx: &CompilerContext,
+    debug_info: Option<&mut debug_info::ScriptBuilder>,
 ) -> Result<(), ErrorReported> {
     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(hooks.language(), reg));
 
     let mut local_regs = IdMap::<DefId, (RegId, ScalarType, Span)>::new();
     let mut has_used_scratch: Option<Span> = None;
     let mut has_anti_scratch_ins: Option<Span> = None;
+
+    let mut debug_info_locals = debug_info.as_ref().map(|_| vec![]);
 
     // FIXME:  Should this be here?  Stack-based ECL might want this check as well...
     // For detecting multiple names that represent the same register for non-scratch registers;
@@ -1141,6 +1145,14 @@ pub (in crate::llir::lower) fn assign_registers(
 
         for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers(sub_info.sub_format) {
             local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
+            if let Some(debug_info_locals) = &mut debug_info_locals {
+                debug_info_locals.push(debug_info::Local {
+                    name: ctx.defs.var_name(param_def_id).to_string(),
+                    name_span: param_span.into(),
+                    r#type: ty.into(),
+                    bound_to: param_reg.into(),
+                });
+            }
 
             names_used_for_regs.entry(param_reg).or_insert_with(Default::default)
                 .insert(UsedName::DefId(param_def_id), UsedNameData { note: param_note.as_deref(), span: param_span });
@@ -1165,6 +1177,14 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 assert!(local_regs.insert(def_id, (reg, required_ty, stmt.span)).is_none());
                 assert!(!names_used_for_regs.contains_key(&reg));
+                if let Some(debug_info_locals) = &mut debug_info_locals {
+                    debug_info_locals.push(debug_info::Local {
+                        name: ctx.defs.var_name(def_id).to_string(),
+                        name_span: stmt.span.into(),
+                        r#type: ReadType::from_ty(required_ty).expect("string-typed register?!").into(),
+                        bound_to: reg.into(),
+                    });
+                }
             },
             LowerStmt::RegFree { def_id } => {
                 let inherent_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) we allocated a reg so it must have a type");

@@ -11,6 +11,7 @@ use crate::llir::{self, ReadInstr, RawInstr, LanguageHooks, InstrFormat, Decompi
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::value::ScalarValue;
+use crate::debug_info;
 
 use indexmap::IndexMap;
 
@@ -335,9 +336,20 @@ fn compile(
     let mut errors = ErrorFlag::new();
     let mut lowerer = crate::llir::Lowerer::new(hooks);
     let mut scripts = IndexMap::new();
+
     script_code.iter().map(|(name, code)| {
-        let instrs = lowerer.lower_sub(&code.0, None, ctx)?;
+        let mut script_debug_info = debug_info::ScriptBuilder::default();
+        script_debug_info.exported_as(debug_info::ScriptType::Script {
+            binary_file_id: panic!("FIXME binary_file_id"),
+            index: panic!("MSG script index"),
+        });
+        script_debug_info.name(name.to_string());
+        script_debug_info.name_span(name.span.into());
+
+        let instrs = lowerer.lower_sub(&code.0, None, ctx, Some(&mut script_debug_info))?;
         scripts.insert(name.value.clone(), instrs);
+
+        ctx.debug_info.exported_scripts.push(script_debug_info.build().unwrap());
         Ok(())
     }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
 
