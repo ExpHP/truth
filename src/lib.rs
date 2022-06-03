@@ -33,6 +33,7 @@ pub mod context;
 
 pub mod passes;
 
+pub mod debug_info;
 
 pub mod raw;
 

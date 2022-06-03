@@ -16,6 +16,7 @@ use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, Decompi
 use crate::resolve::{RegId, DefId, IdMap};
 use crate::context::CompilerContext;
 use crate::context::defs::auto_enum_names;
+use crate::debug_info;
 
 // =============================================================================
 
@@ -217,11 +218,21 @@ fn compile(
             ast::Item::Timeline { code, .. } => {
                 let timeline_index = timeline_indices_in_ast_order.next().unwrap();
 
+                let mut script_debug_info = debug_info::ScriptBuilder::default();
+                script_debug_info.exported_as(debug_info::ScriptType::Timeline {
+                    binary_file_id: panic!("FIXME binary_file_id"),
+                    index: timeline_index as _,
+                });
+                script_debug_info.name("".to_string());
+                script_debug_info.name_span(Span::NULL.into());
+
                 let def_id = None;
-                let instrs = timeline_lowerer.lower_sub(&code.0, def_id, ctx)?;
+                let instrs = timeline_lowerer.lower_sub(&code.0, def_id, ctx, Some(&mut script_debug_info))?;
 
                 assert!(compiled_timelines[timeline_index].is_none());
                 compiled_timelines[timeline_index] = Some(instrs);
+
+                ctx.debug_info.exported_scripts.push(script_debug_info.build().unwrap());
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
@@ -233,9 +244,19 @@ fn compile(
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, params: _, ty_keyword }) => {
+                let sub_index = subs.len();
+
                 // make double sure that the order of the subs we're compiling matches the numbers we assigned them
                 let def_id = ctx.resolutions.expect_def(ident);
                 assert_eq!(sub_info.subs.get_index_of(&def_id).unwrap(), subs.len());
+
+                let mut script_debug_info = debug_info::ScriptBuilder::default();
+                script_debug_info.exported_as(debug_info::ScriptType::Sub {
+                    binary_file_id: panic!("FIXME binary_file_id"),
+                    index: sub_index as _,
+                });
+                script_debug_info.name(ident.to_string());
+                script_debug_info.name_span(ident.span.into());
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
@@ -245,7 +266,7 @@ fn compile(
                     )));
                 }
 
-                let instrs = ecl_lowerer.lower_sub(&code.0, Some(def_id), ctx).unwrap_or_else(|e| {
+                let instrs = ecl_lowerer.lower_sub(&code.0, Some(def_id), ctx, Some(&mut script_debug_info)).unwrap_or_else(|e| {
                     errors.set(e);
                     vec![]  // dummy instrs so that we can still insert an item into 'subs' and get the right indices
                 });

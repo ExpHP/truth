@@ -286,7 +286,11 @@ fn _run_randomized_test(truth: &mut Truth, plain_vars: &[Var], text: &str) -> Re
     let old_stmts = parsed_block.0;
     let mut errors = truth::error::ErrorFlag::new();
     let mut lowerer = llir::Lowerer::new(&hooks);
-    let instrs = lowerer.lower_sub(&old_stmts, None, ctx).unwrap_or_else(|e| { errors.set(e); vec![] });
+    let (def_id, debug_info) = (None, None);
+    let instrs = lowerer.lower_sub(&old_stmts, def_id, ctx, debug_info).unwrap_or_else(|e| {
+        errors.set(e);
+        vec![]  // dummy instructions so we can call lowerer.finish before returning
+    });
     lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
 
     errors.into_result(())?;
@@ -397,7 +401,11 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         let mut lowerer = llir::Lowerer::new(&hooks);
         let mut errors = truth::error::ErrorFlag::new();
 
-        lowerer.lower_sub(&parsed_block.0, None, truth.ctx()).unwrap_or_else(|e| { errors.set(e); vec![] });
+        let (def_id, debug_info) = (None, None);
+        lowerer.lower_sub(&parsed_block.0, def_id, truth.ctx(), debug_info).unwrap_or_else(|e| {
+            errors.set(e);
+            vec![]  // dummy instrs so we can call .finish()
+        });
         lowerer.finish(truth.ctx()).unwrap_or_else(|e| errors.set(e));
         errors.into_result(())
     })().unwrap_err().ignore();

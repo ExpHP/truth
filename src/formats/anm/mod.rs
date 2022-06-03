@@ -21,6 +21,7 @@ use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
 use crate::context::defs::auto_enum_names;
 use crate::resolve::RegId;
+use crate::debug_info;
 
 mod read_write;
 mod image_io;
@@ -1006,8 +1007,21 @@ fn compile(
     let mut entries = vec![];
     groups.into_iter().map(|(mut entry, ast_scripts)| {
         for (name, code) in ast_scripts {
-            let (_, sp_pat![id]) = script_ids[&name.value];
-            let instrs = lowerer.lower_sub(&code.0, None, ctx)?;
+            let script_index = script_ids.get_index_of(&name.value).unwrap();
+            let (_, sp_pat![id]) = script_ids[script_index];
+
+            let mut script_debug_info = debug_info::ScriptBuilder::default();
+            script_debug_info.exported_as(debug_info::ScriptType::Script {
+                binary_file_id: panic!("FIXME binary_file_id"),
+                index: script_index as _,
+            });
+            script_debug_info.name(name.to_string());
+            script_debug_info.name_span(name.span.into());
+
+            let def_id = None;
+            let instrs = lowerer.lower_sub(&code.0, def_id, ctx, Some(&mut script_debug_info))?;
+
+            ctx.debug_info.exported_scripts.push(script_debug_info.build().unwrap());
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
         }

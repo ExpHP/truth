@@ -1,4 +1,5 @@
 use std::collections::{HashMap};
+use indexmap::IndexMap;
 
 use super::{
     unsupported, SimpleArg, RawInstr, LanguageHooks, IntrinsicInstrs,
@@ -17,6 +18,7 @@ use crate::io::{Encoded, DEFAULT_ENCODING};
 use crate::value::{ScalarValue};
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use crate::diff_switch_utils as ds_util;
+use crate::debug_info;
 
 mod stackless;
 mod intrinsic;
@@ -112,10 +114,10 @@ impl LowerArg {
 
 /// Type that provides methods to lower function bodies to instructions.
 ///
+/// Ideally, a single `Lowerer` should be used to lower all script bodies of a given language.
 /// It tracks some state related to diagnostics, so that some consolidated errors/warnings
 /// can be given at the end of compilation.
 ///
-/// Each language should have a separate instance.
 /// This is a panic-bomb, so `.finish()` must be called.
 pub struct Lowerer<'a> {
     hooks: &'a dyn LanguageHooks,
@@ -151,12 +153,18 @@ impl<'a> Lowerer<'a> {
         self
     }
 
-    /// Compile a single sub.
+    /// Compile a single sub or script body.
     ///
     /// `def_id` should be provided if and only if [`Self::with_export_info`] has been called;
     /// it is used to look up information about the current sub's parameter list.
-    pub fn lower_sub(&mut self, code: &[Sp<ast::Stmt>], def_id: Option<DefId>, ctx: &mut CompilerContext<'_>) -> Result<Vec<RawInstr>, ErrorReported> {
-        lower_sub_ast_to_instrs(self, code, def_id, ctx)
+    pub fn lower_sub(
+        &mut self,
+        code: &[Sp<ast::Stmt>],
+        def_id: Option<DefId>,
+        ctx: &mut CompilerContext<'_>,
+        debug_info: Option<&mut debug_info::ScriptBuilder>,
+    ) -> Result<Vec<RawInstr>, ErrorReported> {
+        lower_sub_ast_to_instrs(self, code, def_id, ctx, debug_info)
     }
 
     /// Report any errors that can only be reported once all functions have been compiled.
@@ -172,6 +180,7 @@ fn lower_sub_ast_to_instrs(
     code: &[Sp<ast::Stmt>],
     def_id: Option<DefId>,
     ctx: &mut CompilerContext<'_>,
+    mut debug_info: Option<&mut debug_info::ScriptBuilder>,
 ) -> Result<Vec<RawInstr>, ErrorReported> {
     use stackless::{SingleSubLowerer, assign_registers};
 
@@ -192,12 +201,14 @@ fn lower_sub_ast_to_instrs(
     let mut out = sub_lowerer.out;
 
     // And now postprocess
-    assign_registers(&mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx)?;
+    assign_registers(
+        &mut out, &mut lowerer.inner, hooks, lowerer.sub_info.as_ref(), def_id, &ctx, debug_info.as_deref_mut(),
+    )?;
 
     // This can't happen before register assignment or we might allocate something multiple times
     out = elaborate_diff_switches(out, &ctx.diff_flag_defs);
 
-    let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter)?;
+    let label_info = gather_label_info(hooks, 0, &out, &ctx.defs, &ctx.emitter, debug_info)?;
     encode_labels(&mut out, hooks, &label_info, &ctx.emitter)?;
 
     let mut encoding_state = ArgEncodingState::new();
@@ -284,7 +295,7 @@ fn select_diff_for_lower_arg(arg: &Sp<LowerArg>, difficulty: u32) -> Sp<LowerArg
 
 struct LabelInfoverse {
     stmt_offsets: Vec<raw::BytePos>,
-    labels: HashMap<Sp<Ident>, RawLabelInfo>,
+    labels: IndexMap<Sp<Ident>, RawLabelInfo>,
 }
 struct RawLabelInfo {
     time: raw::Time,
@@ -298,8 +309,9 @@ fn gather_label_info(
     code: &[Sp<LowerStmt>],
     defs: &context::Defs,
     emitter: &context::RootEmitter,
+    debug_info: Option<&mut debug_info::ScriptBuilder>,
 ) -> Result<LabelInfoverse, ErrorReported> {
-    use std::collections::hash_map::Entry;
+    use indexmap::map::Entry;
 
     // Due to things like the TH12 MSG furigana bug, the size of an instruction can depend
     // on other instructions written before it.  Thus, there's no easy way to get the size
@@ -321,16 +333,21 @@ fn gather_label_info(
     let instr_format = hooks.instr_format();
 
     let mut offset = initial_offset;
-    let mut labels = HashMap::new();
+    let mut labels = IndexMap::new();
     let mut stmt_offsets = vec![];
+    let mut debug_info_instrs = debug_info.as_ref().map(|_| vec![]);
+    let mut debug_info_labels = debug_info.as_ref().map(|_| vec![]);
 
     let mut encoding_state = ArgEncodingState::new();
 
-    code.iter().enumerate().map(|(index, thing)| {
+    code.iter().enumerate().map(|(index, stmt)| {
         stmt_offsets.push(offset);
-        match thing.value {
+        match stmt.value {
             LowerStmt::Instr(ref instr) => {
-                emitter.chain_with(|f| write!(f, "in instruction {}", index), |emitter| {
+                emitter.chain_with(|f| write!(f, "in instruction {index}"), |emitter| {
+                    if let Some(debug_info_instrs) = &mut debug_info_instrs {
+                        debug_info_instrs.push(debug_info::Instr { offset, span: stmt.span.into() });
+                    }
                     // encode the instruction with dummy values
                     let same_size_instr = substitute_dummy_args(instr);
                     let raw_instr = encode_args(&mut encoding_state, hooks, &same_size_instr, defs, emitter)?;
@@ -341,11 +358,18 @@ fn gather_label_info(
             LowerStmt::Label { time, ref label } => {
                 match labels.entry(label.clone()) {
                     Entry::Vacant(e) => {
+                        if let Some(debug_info_labels) = &mut debug_info_labels {
+                            debug_info_labels.push(debug_info::Label {
+                                offset, time,
+                                name: label.to_string(),
+                                span: label.span.into(),
+                            })
+                        }
                         e.insert(RawLabelInfo { time, offset });
                     },
                     Entry::Occupied(e) => {
                         return Err(emitter.emit(error!{
-                            message("duplicate label '{}'", label),
+                            message("duplicate label '{label}'"),
                             secondary(e.key(), "originally defined here"),
                             primary(label, "redefined here"),
                         }));
@@ -356,6 +380,12 @@ fn gather_label_info(
         }
         Ok(())
     }).collect_with_recovery()?;
+
+    if let Some(debug_info) = debug_info {
+        debug_info.instrs(debug_info_instrs.unwrap());
+        debug_info.labels(debug_info_labels.unwrap());
+        debug_info.end_offset(offset);
+    }
 
     Ok(LabelInfoverse { labels, stmt_offsets })
 }
@@ -384,7 +414,7 @@ fn encode_labels(
                             _ => unreachable!(),
                         },
                         None => return Err(emitter.emit(error!{
-                            message("undefined label '{}'", label),
+                            message("undefined label '{label}'"),
                             primary(arg, "there is no label by this name"),
                         })),
                     },
@@ -395,6 +425,14 @@ fn encode_labels(
         } // if let LowerStmt::Instr { .. }
         Ok(())
     }).collect_with_recovery()
+}
+
+fn labels_to_debug_info(labels: &IndexMap<Sp<Ident>, RawLabelInfo>) -> Vec<debug_info::Label> {
+    labels.iter().map(|(ident, &RawLabelInfo { time, offset })| {
+        let name = ident.to_string();
+        let span = ident.span.into();
+        debug_info::Label { time, offset, name, span }
+    }).collect()
 }
 
 /// Replaces special args like Labels and TimeOf with dummy values.
@@ -567,7 +605,7 @@ fn encode_args(
                             return Err(emitter.emit(error!(
                                 message("string argument too large for buffer"),
                                 primary(arg, "requires {} bytes", encoded.len()),
-                                note("this argument is written to a {}-byte buffer", len),
+                                note("this argument is written to a {len}-byte buffer"),
                             )))
                         }
                         encoded.0.resize(len, b'\0');

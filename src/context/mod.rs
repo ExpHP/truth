@@ -63,9 +63,6 @@ pub struct CompilerContext<'ctx> {
     /// The initial set of ribs for name resolution, containing names from mapfiles and meta.
     pub initial_ribs: Vec<Rib>,
 
-    /// The location where any data behind a `&'ctx` reference is *actually* stored.
-    _scope: &'ctx Scope,
-
     /// [`CompilerContext::next_node_id`] is usually more convenient but this is public for
     /// when you can't call that.
     pub unused_node_ids: UnusedIds<NodeId>,
@@ -73,6 +70,12 @@ pub struct CompilerContext<'ctx> {
 
     /// Maintains names of difficulty flags.
     pub diff_flag_defs: DiffFlagDefs,
+
+    /// Records intricate details about the compilation process to be emitted for e.g. a debugger.
+    pub debug_info: crate::debug_info::DebugInfo,
+
+    /// The location where any data behind a `&'ctx` reference is *actually* stored.
+    _scope: &'ctx Scope,
 
     // The lifetime would *probably* eventually have to become invariant if we added arenas (as we
     // may eventually have AST nodes inside a struct inside a RefCell), so let's force this constraint now.
@@ -90,9 +93,10 @@ impl<'ctx> CompilerContext<'ctx> {
             consts: Default::default(),
             initial_ribs: Default::default(),
             diff_flag_defs: Default::default(),
-            _scope: scope,
+            debug_info: Default::default(),
             unused_node_ids: UnusedIds::new(),
             unused_loop_ids: UnusedIds::new(),
+            _scope: scope,
             _make_invariant: Default::default(),
         };
         ctx.init_special_defs();
