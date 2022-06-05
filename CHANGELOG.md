@@ -10,6 +10,12 @@
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
 
+# Version 0.5.1
+
+Version 0.5.1 adds a new `--output-debug-info JSONFILE` flag to all `compile` subcommands.  This file can be used by debuggers to relate source-level concepts (e.g. function names and variable names) to runtime concepts (e.g. registers and const values).
+
+Perfect name resolution of locals in a debugger might not be possible yet as truth currently does not explicitly construct the tree used for name resolution (it is only implicitly constructed), so scope information is not yet available.
+
 # Version 0.5.0
 
 Version 0.5.0 is a major release of the compiler containing many of the language additions that were found useful in alpha implementations of truecl.  While `truecl` is still not officially released, these additions and improvements are available in all languages.
