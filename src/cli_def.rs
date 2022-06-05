@@ -114,29 +114,30 @@ pub mod anm_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (common_options, output, fmt_config) = cli::parse_args(version, args, CmdSpec {
             program: "truanm decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
+            options: (cli::common_decompile_options(), cli::output(), cli::fmt_config()),
         });
 
         wrap_decompile_to_stdout(fmt_config, output, |truth| {
-            decompile(truth, game, input.as_ref(), mapfiles, &decompile_options)
+            decompile(truth, &common_options)
         });
     }
 
     pub(super) fn decompile(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        mapfile_args: Vec<PathBuf>,
-        decompile_options: &DecompileOptions,
+        common_options: &CommonDecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
+        let &CommonDecompileOptions {
+            game, ref in_path, ref mapfile_args, ref decompile_options
+        } = common_options;
+
         let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".anmm");
-        load_mapfiles(truth, game, &[LanguageKey::Anm], mapfile_args)?;
+        load_mapfiles(truth, game, &[LanguageKey::Anm], &mapfile_args)?;
 
         let mut truth = truth.validate_defs()?;
-        let anm = truth.read_anm(game, path, false)?;
+        let anm = truth.read_anm(game, in_path, false)?;
         truth.decompile_anm(game, &anm, decompile_options)
     }
 }
@@ -172,31 +173,27 @@ pub mod anm_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (script_path, game, output, mapfiles, image_sources, output_thecl_defs) = cli::parse_args(version, args, CmdSpec {
+        let (common_options, image_sources, output_thecl_defs) = cli::parse_args(version, args, CmdSpec {
             program: "truanm compile",
             usage_args: "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
-            options: (
-                cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfiles(), cli::image_sources(),
-                cli::output_thecl_defs(),
-            ),
+            options: (cli::common_compile_options(), cli::image_sources(), cli::output_thecl_defs()),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &script_path, &output, &image_sources, mapfiles, output_thecl_defs));
+        wrap_exit_code(|truth| run(truth, &common_options, &image_sources, output_thecl_defs));
     }
 
     pub(super) fn run(
         truth: &mut Truth,
-        game: Game,
-        script_path: &Path,
-        outpath: &Path,
+        common_options: &CommonCompileOptions,
         cli_image_source_paths: &[PathBuf],
-        mapfile_args: Vec<PathBuf>,
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
+        let &CommonCompileOptions {
+            ref in_path, ref out_path, game, ref mapfile_args,
+        } = common_options;
         load_mapfiles(truth, game, &[LanguageKey::Anm], mapfile_args)?;
 
-        let ast = truth.read_script(&script_path)?;
+        let ast = truth.read_script(&in_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         let mut truth = truth.validate_defs()?;
         let mut compiled = truth.compile_anm(game, &ast)?;
@@ -212,7 +209,7 @@ pub mod anm_compile {
         }
 
         let compiled = truth.finalize_anm(game, compiled)?;
-        truth.write_anm(game, &outpath, &compiled)?;
+        truth.write_anm(game, &out_path, &compiled)?;
 
         if let Some(outpath) = output_thecl_defs {
             truth.fs().write(&outpath, compiled.generate_thecl_defs()?)?
@@ -251,31 +248,32 @@ pub mod ecl_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfiles, game) = cli::parse_args(version, args, CmdSpec {
+        let common_options = cli::parse_args(version, args, CmdSpec {
             program: "truecl compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfiles(), cli::game()),
+            options: cli::common_compile_options(),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles));
+        wrap_exit_code(|truth| run(truth, &common_options));
     }
 
     pub fn run(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        outpath: &Path,
-        mapfile_args: Vec<PathBuf>,
+        common_options: &CommonCompileOptions,
     ) -> Result<(), ErrorReported> {
+        let &CommonCompileOptions {
+            ref in_path, ref out_path, game, ref mapfile_args,
+        } = common_options;
+
         load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], mapfile_args)?;
 
-        let ast = truth.read_script(&path)?;
+        let ast = truth.read_script(&in_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
         let mut truth = truth.validate_defs()?;
         let ecl = truth.compile_ecl(game, &ast)?;
-        truth.write_ecl(game, outpath, &ecl)?;
+        truth.write_ecl(game, out_path, &ecl)?;
         Ok(())
     }
 }
@@ -284,29 +282,30 @@ pub mod ecl_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (common_options, output, fmt_config) = cli::parse_args(version, args, CmdSpec {
             program: "truecl decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
+            options: (cli::common_decompile_options(), cli::output(), cli::fmt_config()),
         });
 
         wrap_decompile_to_stdout(fmt_config, output, |truth| {
-            decompile(truth, game, input.as_ref(), mapfiles, &decompile_options)
+            decompile(truth, &common_options)
         });
     }
 
     pub(super) fn decompile(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        mapfile_args: Vec<PathBuf>,
-        decompile_options: &DecompileOptions,
+        common_options: &CommonDecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
+        let &CommonDecompileOptions {
+            game, ref in_path, ref mapfile_args, ref decompile_options
+        } = common_options;
+
         let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".eclm");
-        load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], mapfile_args)?;
+        load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], &mapfile_args)?;
 
         let mut truth = truth.validate_defs()?;
-        let anm = truth.read_ecl(game, path)?;
+        let anm = truth.read_ecl(game, in_path)?;
         truth.decompile_ecl(game, &anm, decompile_options)
     }
 }
@@ -349,7 +348,7 @@ pub mod anm_benchmark {
             ),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, mapfiles, &decompile_options))
+        wrap_exit_code(|truth| run(truth, game, &anm_path, &script_path, &output, &mapfiles, &decompile_options))
     }
 
     fn run(
@@ -357,13 +356,25 @@ pub mod anm_benchmark {
         game: Game,
         anm_path: &Path,
         script_path: &Path,
-        outpath: &Path,
-        mapfile_args: Vec<PathBuf>,
+        out_path: &Path,
+        mapfile_args: &[PathBuf],
         decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
         let image_source_paths = [anm_path.to_owned()];
+        let common_decompile_options = CommonDecompileOptions {
+            game,
+            in_path: anm_path.to_owned(),
+            mapfile_args: mapfile_args.to_vec(),
+            decompile_options: decompile_options.clone(),
+        };
+        let common_compile_options = CommonCompileOptions {
+            game,
+            in_path: script_path.to_owned(),
+            out_path: out_path.to_owned(),
+            mapfile_args: mapfile_args.to_vec(),
+        };
         loop {
-            let ast = super::anm_decompile::decompile(truth, game, anm_path, mapfile_args.clone(), &decompile_options)?;
+            let ast = super::anm_decompile::decompile(truth, &common_decompile_options)?;
 
             let fmt_config = crate::fmt::Config::new().max_columns(100);
             let mut script_out_utf8 = vec![];
@@ -373,7 +384,7 @@ pub mod anm_benchmark {
 
             truth.fs().write(script_path, &script_out_utf8)?;
 
-            super::anm_compile::run(truth, game, script_path, outpath, &image_source_paths, mapfile_args.clone(), None)?;
+            super::anm_compile::run(truth, &common_compile_options, &image_source_paths, None)?;
         }
     }
 }
@@ -391,7 +402,7 @@ pub mod ecl_benchmark {
             ),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &ecl_path, &script_path, &output, mapfiles, &decompile_options))
+        wrap_exit_code(|truth| run(truth, game, &ecl_path, &script_path, &output, &mapfiles, &decompile_options))
     }
 
     fn run(
@@ -399,12 +410,24 @@ pub mod ecl_benchmark {
         game: Game,
         ecl_path: &Path,
         script_path: &Path,
-        outpath: &Path,
-        mapfile_args: Vec<PathBuf>,
+        out_path: &Path,
+        mapfile_args: &[PathBuf],
         decompile_options: &DecompileOptions,
     ) -> Result<(), ErrorReported> {
+        let common_decompile_options = CommonDecompileOptions {
+            game,
+            in_path: ecl_path.to_owned(),
+            mapfile_args: mapfile_args.to_vec(),
+            decompile_options: decompile_options.clone(),
+        };
+        let common_compile_options = CommonCompileOptions {
+            game,
+            in_path: script_path.to_owned(),
+            out_path: out_path.to_owned(),
+            mapfile_args: mapfile_args.to_vec(),
+        };
         loop {
-            let ast = super::ecl_decompile::decompile(truth, game, ecl_path, mapfile_args.clone(), &decompile_options)?;
+            let ast = super::ecl_decompile::decompile(truth, &common_decompile_options)?;
 
             let fmt_config = crate::fmt::Config::new().max_columns(100);
             let mut script_out_utf8 = vec![];
@@ -414,7 +437,7 @@ pub mod ecl_benchmark {
 
             truth.fs().write(script_path, &script_out_utf8)?;
 
-            super::ecl_compile::run(truth, game, script_path, outpath, mapfile_args.clone())?;
+            super::ecl_compile::run(truth, &common_compile_options)?;
         }
     }
 }
@@ -423,31 +446,32 @@ pub mod std_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfiles, game) = cli::parse_args(version, args, CmdSpec {
+        let common_options = cli::parse_args(version, args, CmdSpec {
             program: "trustd compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfiles(), cli::game()),
+            options: cli::common_compile_options(),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles));
+        wrap_exit_code(|truth| run(truth, &common_options));
     }
 
     fn run(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        outpath: &Path,
-        mapfile_args: Vec<PathBuf>,
+        common_options: &CommonCompileOptions,
     ) -> Result<(), ErrorReported> {
+        let &CommonCompileOptions {
+            ref in_path, ref out_path, game, ref mapfile_args,
+        } = common_options;
+
         load_mapfiles(truth, game, &[LanguageKey::Std], mapfile_args)?;
 
-        let ast = truth.read_script(&path)?;
+        let ast = truth.read_script(&in_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
         let mut truth = truth.validate_defs()?;
         let std = truth.compile_std(game, &ast)?;
-        truth.write_std(game, outpath, &std)?;
+        truth.write_std(game, out_path, &std)?;
         Ok(())
     }
 }
@@ -456,28 +480,29 @@ pub mod std_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, fmt_config, mapfiles, game, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (common_options, output, fmt_config) = cli::parse_args(version, args, CmdSpec {
             program: "trustd decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::decompile_options()),
+            options: (cli::common_decompile_options(), cli::output(), cli::fmt_config()),
         });
         wrap_decompile_to_stdout(fmt_config, output, |truth| {
-            decompile(truth, game, &input, mapfiles, &decompile_options)
+            decompile(truth, &common_options)
         })
     }
 
     fn decompile(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        mapfile_args: Vec<PathBuf>,
-        decompile_options: &DecompileOptions,
+        common_options: &CommonDecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
+        let &CommonDecompileOptions {
+            game, ref in_path, ref mapfile_args, ref decompile_options
+        } = common_options;
+
         let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".stdm");
-        load_mapfiles(truth, game, &[LanguageKey::Std], mapfile_args)?;
+        load_mapfiles(truth, game, &[LanguageKey::Std], &mapfile_args)?;
 
         let mut truth = truth.validate_defs()?;
-        let std = truth.read_std(game, path)?;
+        let std = truth.read_std(game, in_path)?;
         truth.decompile_std(game, &std, decompile_options)
     }
 }
@@ -512,24 +537,25 @@ pub mod msg_compile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, mapfiles, game, msg_mode) = cli::parse_args(version, args, CmdSpec {
+        let (common_options, msg_mode) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg compile",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::mapfiles(), cli::game(), cli::msg_mode()),
+            options: (cli::common_compile_options(), cli::msg_mode()),
         });
 
-        wrap_exit_code(|truth| run(truth, game, &input, &output, mapfiles, msg_mode));
+        wrap_exit_code(|truth| run(truth, &common_options, msg_mode));
     }
 
     fn run(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        outpath: &Path,
-        mapfile_args: Vec<PathBuf>,
+        common_options: &CommonCompileOptions,
         msg_mode: MsgMode,
     ) -> Result<(), ErrorReported> {
-        let ast = truth.read_script(&path)?;
+        let &CommonCompileOptions {
+            ref in_path, ref out_path, game, ref mapfile_args,
+        } = common_options;
+
+        let ast = truth.read_script(&in_path)?;
         truth.expect_no_image_sources(&ast)?;
 
         match msg_mode {
@@ -539,12 +565,12 @@ pub mod msg_compile {
 
                 let mut truth = truth.validate_defs()?;
                 let msg = truth.compile_msg(game, LanguageKey::Msg, &ast)?;
-                truth.write_msg(game, LanguageKey::Msg, outpath, &msg)?;
+                truth.write_msg(game, LanguageKey::Msg, out_path, &msg)?;
             },
             MsgMode::Mission => {
                 let mut truth = truth.validate_defs()?;
                 let msg = truth.compile_mission(game, &ast)?;
-                truth.write_mission(game, outpath, &msg)?;
+                truth.write_mission(game, out_path, &msg)?;
             },
             MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
         }
@@ -556,36 +582,37 @@ pub mod msg_decompile {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, output, fmt_config, mapfiles, game, msg_mode, decompile_options) = cli::parse_args(version, args, CmdSpec {
+        let (common_options, output, fmt_config, msg_mode) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg decompile",
             usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::output(), cli::fmt_config(), cli::mapfiles(), cli::game(), cli::msg_mode(), cli::decompile_options()),
+            options: (cli::common_decompile_options(), cli::output(), cli::fmt_config(), cli::msg_mode()),
         });
         wrap_decompile_to_stdout(fmt_config, output, |truth| {
-            decompile(truth, game, &input, mapfiles, msg_mode, &decompile_options)
+            decompile(truth, &common_options, msg_mode)
         })
     }
 
     fn decompile(
         truth: &mut Truth,
-        game: Game,
-        path: &Path,
-        mapfile_args: Vec<PathBuf>,
+        common_options: &CommonDecompileOptions,
         msg_mode: MsgMode,
-        decompile_options: &DecompileOptions,
     ) -> Result<ScriptFile, ErrorReported> {
+        let &CommonDecompileOptions {
+            game, ref in_path, ref mapfile_args, ref decompile_options
+        } = common_options;
+
         match msg_mode {
             MsgMode::Stage => {
                 let mapfile_args = add_env_mapfile_for_decomp(mapfile_args, ".msgm");
-                load_mapfiles(truth, game, &[LanguageKey::Msg], mapfile_args)?;
+                load_mapfiles(truth, game, &[LanguageKey::Msg], &mapfile_args)?;
 
                 let mut truth = truth.validate_defs()?;
-                let msg = truth.read_msg(game, LanguageKey::Msg, path)?;
+                let msg = truth.read_msg(game, LanguageKey::Msg, in_path)?;
                 truth.decompile_msg(game, LanguageKey::Msg, &msg, decompile_options)
             },
             MsgMode::Mission => {
                 let mut truth = truth.validate_defs()?;
-                let msg = truth.read_mission(game, path)?;
+                let msg = truth.read_mission(game, in_path)?;
                 truth.decompile_mission(game, &msg)
             },
             MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
@@ -597,9 +624,10 @@ pub mod msg_decompile {
 
 /// Implements the automatic searching of the environment during decompilation.
 fn add_env_mapfile_for_decomp(
-    mut mapfile_args: Vec<PathBuf>,
+    mapfile_args: &[PathBuf],
     mapfile_extension: &'static str,
 ) -> Vec<PathBuf> {
+    let mut mapfile_args = mapfile_args.to_vec();
     if let Some(env_mapfile) = crate::Mapfile::decomp_map_file_from_env(mapfile_extension) {
         mapfile_args.insert(0, env_mapfile);
     }
@@ -613,7 +641,7 @@ fn load_mapfiles(
     // this takes multiple languages (rather than expecting multiple calls) so that all core
     // mapfiles can be loaded before any CLI args
     core_mapfile_languages: &[LanguageKey],
-    mapfile_args: Vec<PathBuf>,
+    mapfile_args: &[PathBuf],
 ) -> Result<(), ErrorReported> {
     for &language in core_mapfile_languages {
         let core_mapfile = crate::core_mapfiles::core_mapfile(truth.ctx().emitter, game, language);
@@ -621,7 +649,7 @@ fn load_mapfiles(
     }
 
     for path in mapfile_args {
-        truth.load_mapfile(&path, game)?;
+        truth.load_mapfile(path, game)?;
     }
     Ok(())
 }
@@ -663,11 +691,41 @@ fn wrap_decompile_to_stdout(
 
 // =============================================================================
 
-use cli::{CmdSpec, Subcommands, SubcommandSpec, MsgMode};
+use cli::{CmdSpec, Subcommands, SubcommandSpec, MsgMode, CommonCompileOptions, CommonDecompileOptions};
 
 mod cli {
     use super::*;
     use getopts::{Options, Matches};
+
+    /// Options shared by all 'compile' commands. This struct exists to help reduce the tedium of adding a new option.
+    pub struct CommonCompileOptions {
+        pub game: Game,
+        pub in_path: PathBuf,
+        pub out_path: PathBuf,
+        pub mapfile_args: Vec<PathBuf>,
+    }
+
+    /// Options shared by all 'decompile' commands. This struct exists to help reduce the tedium of adding a new option.
+    pub struct CommonDecompileOptions {
+        pub game: Game,
+        pub in_path: PathBuf,
+        pub mapfile_args: Vec<PathBuf>,
+        pub decompile_options: DecompileOptions,
+    }
+
+    pub fn common_compile_options() -> impl CliArg<Value=CommonCompileOptions> {
+        game().zip(required_output()).zip(input()).zip(mapfiles())
+            .and_then(|(((game, out_path), in_path), mapfile_args)| {
+                Ok(CommonCompileOptions { game, out_path, in_path, mapfile_args })
+            })
+    }
+
+    pub fn common_decompile_options() -> impl CliArg<Value=CommonDecompileOptions> {
+        game().zip(input()).zip(mapfiles()).zip(decompile_options())
+            .and_then(|(((game, in_path), mapfile_args), decompile_options)| {
+                Ok(CommonDecompileOptions { game, in_path, mapfile_args, decompile_options })
+            })
+    }
 
     pub fn mapfiles() -> impl CliArg<Value=Vec<PathBuf>> {
         opts::MultiOpt(opts::Opt {
