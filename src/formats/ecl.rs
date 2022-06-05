@@ -216,7 +216,7 @@ fn compile(
             ast::Item::ConstVar { .. } => {},
             ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
 
-            ast::Item::Timeline { code, .. } => {
+            ast::Item::Timeline { code, ident, .. } => {
                 let timeline_index = timeline_indices_in_ast_order.next().unwrap();
 
                 let def_id = None;
@@ -225,14 +225,10 @@ fn compile(
                 assert!(compiled_timelines[timeline_index].is_none());
                 compiled_timelines[timeline_index] = Some(instrs);
 
-                if do_debug_info {
-                    let lowering_info = lowering_info.unwrap();
+                if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
-                        exported_as: debug_info::ScriptType::Timeline {
-                            binary_file_id: panic!("FIXME binary_file_id"),
-                            index: timeline_index as _,
-                        },
-                        name: "".to_string(),
+                        exported_as: debug_info::ScriptType::Timeline { index: timeline_index },
+                        name: ident.as_ref().map(|x| x.to_string()),
                         name_span: Span::NULL.into(),
                     };
                     ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
@@ -268,14 +264,10 @@ fn compile(
                 });
                 subs.insert(ident.value.as_raw().clone(), instrs);
 
-                if do_debug_info {
-                    let lowering_info = lowering_info.unwrap();
+                if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
-                        exported_as: debug_info::ScriptType::Sub {
-                            binary_file_id: panic!("FIXME binary_file_id"),
-                            index: sub_index as _,
-                        },
-                        name: ident.to_string(),
+                        exported_as: debug_info::ScriptType::EclSub { index: sub_index },
+                        name: Some(ident.to_string()),
                         name_span: ident.span.into(),
                     };
                     ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });

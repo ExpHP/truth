@@ -1,4 +1,3 @@
-use std::collections::{HashMap};
 use indexmap::IndexMap;
 
 use super::{
@@ -432,14 +431,6 @@ fn encode_labels(
         } // if let LowerStmt::Instr { .. }
         Ok(())
     }).collect_with_recovery()
-}
-
-fn labels_to_debug_info(labels: &IndexMap<Sp<Ident>, RawLabelInfo>) -> Vec<debug_info::Label> {
-    labels.iter().map(|(ident, &RawLabelInfo { time, offset })| {
-        let name = ident.to_string();
-        let span = ident.span.into();
-        debug_info::Label { time, offset, name, span }
-    }).collect()
 }
 
 /// Replaces special args like Labels and TimeOf with dummy values.
