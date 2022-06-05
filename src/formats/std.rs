@@ -358,14 +358,10 @@ fn compile_std(
         (vec![], None) // dummy instructions so we can call lowerer.finish before returning
     });
 
-    if do_debug_info {
-        let lowering_info = lowering_info.unwrap();
+    if let Some(lowering_info) = lowering_info {
         let export_info = debug_info::ScriptExportInfo {
-            exported_as: debug_info::ScriptType::Script {
-                binary_file_id: panic!("FIXME binary_file_id"),
-                index: 0,
-            },
-            name: main_ident.to_string(),
+            exported_as: debug_info::ScriptType::StdScript,
+            name: Some(main_ident.to_string()),
             name_span: main_ident.span.into(),
         };
         ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });

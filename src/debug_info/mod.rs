@@ -85,7 +85,7 @@ pub struct ScriptLoweringInfo {
 #[serde(rename_all = "kebab-case")]
 pub struct ScriptExportInfo {
     pub exported_as: ScriptType,
-    pub name: String,
+    pub name: Option<String>,
     pub name_span: Span,
 }
 
@@ -111,9 +111,11 @@ pub struct ScriptOffsetInfo {
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "type")]
 pub enum ScriptType {
-    Timeline { binary_file_id: i32, index: i32 },
-    Script { binary_file_id: i32, index: i32 },
-    Sub { binary_file_id: i32, index: i32 },
+    Timeline { index: usize },
+    AnmScript { index: usize },
+    MsgScript { indices: Vec<usize> },
+    StdScript,
+    EclSub { index: usize },
 }
 
 #[derive(serde::Serialize)]

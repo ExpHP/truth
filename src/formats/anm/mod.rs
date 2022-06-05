@@ -1017,11 +1017,8 @@ fn compile(
             if do_debug_info {
                 let lowering_info = lowering_info.unwrap();
                 let export_info = debug_info::ScriptExportInfo {
-                    exported_as: debug_info::ScriptType::Script {
-                        binary_file_id: panic!("FIXME binary_file_id"),
-                        index: script_index as _,
-                    },
-                    name: name.to_string(),
+                    exported_as: debug_info::ScriptType::AnmScript { index: script_index },
+                    name: Some(name.to_string()),
                     name_span: name.span.into(),
                 };
                 ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });

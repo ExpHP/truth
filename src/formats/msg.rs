@@ -332,6 +332,8 @@ fn compile(
     let sparse_table: SparseScriptTable = {
         SparseScriptTable::from_fields(meta).map_err(|e| ctx.emitter.emit(e))?
     };
+    let dense_table = sparse_table.densify();
+    let script_table_indices_by_name = get_script_table_indices_by_name(&dense_table);
 
     let mut errors = ErrorFlag::new();
     let mut lowerer = crate::llir::Lowerer::new(hooks);
@@ -342,17 +344,16 @@ fn compile(
         let (instrs, lowering_info) = lowerer.lower_sub(&code.0, None, ctx, do_debug_info)?;
         scripts.insert(name.value.clone(), instrs);
 
-        if do_debug_info {
-            let lowering_info = lowering_info.unwrap();
-            let export_info = debug_info::ScriptExportInfo {
-                exported_as: debug_info::ScriptType::Script {
-                    binary_file_id: panic!("FIXME binary_file_id"),
-                    index: panic!("MSG script index"),
-                },
-                name: name.to_string(),
-                name_span: name.span.into(),
-            };
-            ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+        if let Some(lowering_info) = lowering_info {
+            // (this can be None in cases where the table has a typo; these generate errors later)
+            if let Some(indices) = script_table_indices_by_name.get(&name.value) {
+                let export_info = debug_info::ScriptExportInfo {
+                    exported_as: debug_info::ScriptType::MsgScript { indices: indices.clone() },
+                    name: Some(name.to_string()),
+                    name_span: name.span.into(),
+                };
+                ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+            }
         }
         Ok(())
     }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
@@ -393,7 +394,7 @@ fn compile(
     }
 
     Ok(MsgFile {
-        dense_table: sparse_table.densify(),
+        dense_table,
         scripts,
         /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
@@ -409,6 +410,18 @@ fn unsupported(span: &crate::pos::Span) -> Diagnostic {
 
 fn sparse_table_implicit_len(table: &IndexMap<Sp<u32>, ScriptTableEntry>) -> u32 {
     table.keys().copied().max().map_or(0, |max| max.value + 1)
+}
+
+fn get_script_table_indices_by_name(
+    dense_table: &[ScriptTableEntry]
+) -> BTreeMap<Ident, Vec<usize>> {
+    let mut out = BTreeMap::<_, Vec<_>>::new();
+    for (index, entry) in dense_table.iter().enumerate() {
+        if let ScriptTableOffset::Name(ident) = &entry.script.value {
+            out.entry(ident.clone()).or_default().push(index);
+        }
+    }
+    out
 }
 
 // =============================================================================
