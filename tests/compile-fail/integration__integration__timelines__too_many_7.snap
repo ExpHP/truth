@@ -1,0 +1,7 @@
+---
+source: tests/integration/timelines.rs
+expression: stderr
+---
+error: while writing '<output>':too many timelines! (max allowed in this game is 15)
+
+

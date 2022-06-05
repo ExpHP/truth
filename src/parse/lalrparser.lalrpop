@@ -194,8 +194,8 @@ ItemAnmScript: ast::Item = {
 };
 
 ItemTimeline: ast::Item = {
-    <keyword:TokenSpan<"timeline">> <number:Sp<LitIntSigned>> <code:Block>
-        => ast::Item::Timeline { keyword, number, code },
+    <keyword:TokenSpan<"timeline">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>?> <code:Block>
+        => ast::Item::Timeline { keyword, number, ident, code },
 };
 
 ItemMeta: ast::Item = {

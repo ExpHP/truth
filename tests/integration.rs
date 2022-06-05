@@ -24,6 +24,7 @@ mod integration {
     mod std_features;
     mod strings;
     mod time_label_formatting;
+    mod timelines;
     mod timeline_arg0;
     mod type_check;
 }

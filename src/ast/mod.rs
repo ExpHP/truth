@@ -40,7 +40,8 @@ pub enum Item {
     },
     Timeline {
         keyword: TokenSpan,
-        number: Sp<raw::LangInt>,
+        number: Option<Sp<raw::LangInt>>,
+        ident: Option<Sp<Ident>>,
         code: Block,
     },
     Meta {
@@ -1023,7 +1024,7 @@ macro_rules! generate_visitor_stuff {
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
-                Item::Timeline { keyword: _, number: _, code } => {
+                Item::Timeline { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { keyword: _, fields } => {

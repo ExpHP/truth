@@ -1,0 +1,13 @@
+---
+source: tests/integration/timelines.rs
+expression: stderr
+---
+error: duplicate timeline for index 0
+  ┌─ <input>:3:10
+  │
+2 │ timeline 0 { ins_10(100); }
+  │          - previously defined here
+3 │ timeline 0 { ins_10(200); }
+  │          ^ redefined here
+
+

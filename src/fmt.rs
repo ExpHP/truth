@@ -584,10 +584,16 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
-            ast::Item::Timeline { keyword: _, number, code } => {
+            ast::Item::Timeline { keyword: _, number, ident, code } => {
                 out.fmt("timeline ")?;
+                if let Some(number) = number {
+                    out.fmt((number, " "))?;
+                }
+                if let Some(ident) = ident {
+                    out.fmt((ident, " "))?;
+                }
                 out.state.time_stack.push(0);
-                out.fmt((number, " ", code))?;
+                out.fmt(code)?;
                 out.state.time_stack.pop();
                 out.next_line()
             },

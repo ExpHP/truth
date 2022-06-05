@@ -1,0 +1,11 @@
+---
+source: tests/integration/timelines.rs
+expression: stderr
+---
+error: missing timeline(s) for index 1, 2
+  ┌─ <input>:3:10
+  │
+3 │ timeline 4 { }
+  │          ^ defining this timeline requires all lesser indices
+
+

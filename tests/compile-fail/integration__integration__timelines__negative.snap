@@ -1,0 +1,17 @@
+---
+source: tests/integration/timelines.rs
+expression: stderr
+---
+error: negative timeline indices are forbidden
+  ┌─ <input>:2:10
+  │
+2 │ timeline -1 { }
+  │          ^^
+
+error: negative timeline indices are forbidden
+  ┌─ <input>:3:10
+  │
+3 │ timeline -2 { }
+  │          ^^
+
+

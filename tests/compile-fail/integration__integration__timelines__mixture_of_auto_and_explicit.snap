@@ -1,0 +1,15 @@
+---
+source: tests/integration/timelines.rs
+expression: stderr
+---
+warning: mixture of explicit and automatic timeline indices
+  ┌─ <input>:2:10
+  │
+2 │ timeline 2 { ins_10(300); }
+  │          ^ explicit index
+3 │ timeline { ins_10(100); }
+  │ -------- implicitly has index 0
+4 │ timeline { ins_10(200); }
+  │ -------- implicitly has index 1
+
+

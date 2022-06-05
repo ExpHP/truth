@@ -1,6 +1,7 @@
 use indexmap::{IndexMap};
 use enum_map::{EnumMap};
 use arrayvec::ArrayVec;
+use std::collections::{HashSet, BTreeMap};
 
 use crate::raw;
 use crate::ast;
@@ -74,7 +75,8 @@ fn decompile(
     for (index, instrs) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Timeline {
             keyword: sp!(()),
-            number: sp!(index as i32),
+            number: None,
+            ident: Some(sp!(ident!("timeline{index}"))),
             code: ast::Block({
                 timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
             }),
@@ -188,9 +190,13 @@ fn compile(
     // Compilation pass
     let emitter = ctx.emitter;
     let emit = |e| emitter.emit(e);
-    let mut errors = ErrorFlag::new(); // delay returns for panic bombs
     let mut subs = IndexMap::new();
-    let mut timelines = vec![];
+    let mut timeline_indices_in_ast_order = get_and_validate_timeline_indices(&ast.items, emitter)?.into_iter();
+    let mut compiled_timelines = vec![None; timeline_indices_in_ast_order.len()];  // to be filled later
+
+    // From this point onwards we must be careful about early exits from the function.
+    // Use an ErrorFlag to delay returns for panic bombs.
+    let mut errors = ErrorFlag::new();
     let mut ecl_lowerer = llir::Lowerer::new(&*format.ecl_hooks).with_export_info(sub_format, &sub_info);
     let mut timeline_lowerer = llir::Lowerer::new(&*format.timeline_hooks);
 
@@ -209,8 +215,13 @@ fn compile(
             ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
 
             ast::Item::Timeline { code, .. } => {
-                let instrs = timeline_lowerer.lower_sub(&code.0, None, ctx)?;
-                timelines.push(instrs)
+                let timeline_index = timeline_indices_in_ast_order.next().unwrap();
+
+                let def_id = None;
+                let instrs = timeline_lowerer.lower_sub(&code.0, def_id, ctx)?;
+
+                assert!(compiled_timelines[timeline_index].is_none());
+                compiled_timelines[timeline_index] = Some(instrs);
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
@@ -236,7 +247,7 @@ fn compile(
 
                 let instrs = ecl_lowerer.lower_sub(&code.0, Some(def_id), ctx).unwrap_or_else(|e| {
                     errors.set(e);
-                    vec![]
+                    vec![]  // dummy instrs so that we can still insert an item into 'subs' and get the right indices
                 });
                 subs.insert(ident.value.as_raw().clone(), instrs);
             }
@@ -247,11 +258,18 @@ fn compile(
         Ok(())
     }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
 
+    assert_eq!(timeline_indices_in_ast_order.next(), None);
+
     ecl_lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
     timeline_lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
     errors.into_result(())?;
 
-    Ok(OldeEclFile { subs, timelines, binary_filename: None })
+    Ok(OldeEclFile {
+        subs,
+        // each index of compiled_timelines should have been set exactly once
+        timelines: compiled_timelines.into_iter().map(|opt| opt.unwrap()).collect(),
+        binary_filename: None,
+    })
 }
 
 fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<IndexMap<Ident, Sp<ResIdent>>, ErrorReported> {
@@ -278,6 +296,112 @@ fn gather_sub_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<In
         }
     }
     Ok(script_ids)
+}
+
+/// Computes indices for timelines without indices, and reports warnings and errors about bad index usage.
+///
+/// The output `vec` will be a permutation of the indices `0..vec.len()` describing the index in the output ECL
+/// file for each timeline in the AST.
+fn get_and_validate_timeline_indices(
+    items: &[Sp<ast::Item>],
+    emitter: &impl Emitter,
+) -> Result<Vec<usize>, ErrorReported> {
+    let mut next_auto_number = 0;
+    let mut explicit_spans = vec![];
+    let mut auto_spans = vec![];
+    let mut names = HashSet::new();
+    let mut timeline_indices = vec![];
+    let mut ast_spans_by_timeline = BTreeMap::<usize, Vec<Span>>::new();  // spans for redeclaration checks
+    let mut errors = ErrorFlag::new();
+
+    for item in items {
+        match &item.value {
+            &ast::Item::Timeline { number, ref ident, keyword, .. } => {
+                if let Some(ident) = ident {
+                    if let Some(existing_ident) = names.replace(ident) {
+                        emitter.emit(warning!(
+                            message("timeline '{ident}' already defined"),
+                            primary(ident, "redefined here"),
+                            secondary(existing_ident, "previously defined here"),
+                        )).ignore();
+                    }
+                }
+
+                let ast_span = number.map(|x| x.span).unwrap_or(keyword.span);
+                match number {
+                    Some(_) => explicit_spans.push(ast_span),
+                    None => auto_spans.push(ast_span),
+                }
+
+                let timeline_index = match number {
+                    Some(number) if number < 0 => {
+                        errors.set(emitter.emit(error!(
+                            message("negative timeline indices are forbidden"),
+                            primary(number, "")
+                        )));
+                        continue;
+                    },
+                    Some(number) => number.value as usize,
+                    None => {
+                        next_auto_number += 1;
+                        next_auto_number - 1
+                    },
+                };
+
+                timeline_indices.push(timeline_index);
+                ast_spans_by_timeline.entry(timeline_index).or_default().push(ast_span);
+            },
+            _ => {},  // not timeline
+        }
+    }
+
+    if !explicit_spans.is_empty() && !auto_spans.is_empty() {
+        let mut diag = warning!(
+            message("mixture of explicit and automatic timeline indices"),
+            primary(explicit_spans.iter().next().unwrap(), "explicit index"),
+        );
+        for (index, &span) in auto_spans.iter().enumerate() {
+            diag.secondary(span, format!("implicitly has index {index}"));
+        }
+        emitter.emit(diag).ignore();
+    }
+
+    let num_unique_timeline_indices = ast_spans_by_timeline.len();
+    let expected_unique_timeline_count = ast_spans_by_timeline.keys().copied().next_back().map_or(0, |max| max + 1);
+
+    if num_unique_timeline_indices != expected_unique_timeline_count as usize {
+        let missing_string = {
+            (0..expected_unique_timeline_count).filter(|index| !ast_spans_by_timeline.contains_key(index))
+                .map(|index| index.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let max_index_span = ast_spans_by_timeline.values().next_back().unwrap()[0];
+        errors.set(emitter.emit(error!(
+            message("missing timeline(s) for index {missing_string}"),
+            primary(max_index_span, "defining this timeline requires all lesser indices"),
+        )));
+    }
+
+    for timeline_index in 0..expected_unique_timeline_count {
+        match ast_spans_by_timeline.get(&timeline_index).map_or(0, |x| x.len()) {
+            0 => {},  // already handled by "missing timeline" check above
+            1 => {},
+            _ => {
+                let ast_spans = &ast_spans_by_timeline[&timeline_index];
+                let first_span = ast_spans[0];
+                for &redefinition_span in &ast_spans[1..] {
+                    errors.set(emitter.emit(error!(
+                        message("duplicate timeline for index {timeline_index}"),
+                        primary(redefinition_span, "redefined here"),
+                        secondary(first_span, "previously defined here")
+                    )));
+                }
+            }
+        }
+    }
+
+    errors.into_result(timeline_indices)
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
@@ -389,9 +513,10 @@ fn write_olde_ecl(
         w.write_u32(magic)?;
     }
 
-    if ecl.timelines.len() > format.timeline_array_kind().max_timelines() {
+    let max_timelines = format.timeline_array_kind().max_timelines();
+    if ecl.timelines.len() > max_timelines {
         // FIXME: NEEDSTEST for each game
-        return Err(emitter.emit(error!("too many timelines! (max allowed in this game is {})", ecl.timelines.len())));
+        return Err(emitter.emit(error!("too many timelines! (max allowed in this game is {max_timelines})")));
     }
 
     match format.timeline_array_kind() {
