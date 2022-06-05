@@ -1021,7 +1021,7 @@ fn compile(
                     name: Some(name.to_string()),
                     name_span: name.span.into(),
                 };
-                ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+                ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
             }
 
             entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });

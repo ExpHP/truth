@@ -72,7 +72,7 @@ pub struct CompilerContext<'ctx> {
     pub diff_flag_defs: DiffFlagDefs,
 
     /// Records intricate details about the compilation process to be emitted for e.g. a debugger.
-    pub debug_info: crate::debug_info::DebugInfo,
+    pub script_debug_info: Vec<crate::debug_info::Script>,
 
     /// The location where any data behind a `&'ctx` reference is *actually* stored.
     _scope: &'ctx Scope,
@@ -93,7 +93,7 @@ impl<'ctx> CompilerContext<'ctx> {
             consts: Default::default(),
             initial_ribs: Default::default(),
             diff_flag_defs: Default::default(),
-            debug_info: Default::default(),
+            script_debug_info: Default::default(),
             unused_node_ids: UnusedIds::new(),
             unused_loop_ids: UnusedIds::new(),
             _scope: scope,

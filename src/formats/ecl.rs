@@ -231,7 +231,7 @@ fn compile(
                         name: ident.as_ref().map(|x| x.to_string()),
                         name_span: Span::NULL.into(),
                     };
-                    ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+                    ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
                 }
             },
 
@@ -270,7 +270,7 @@ fn compile(
                         name: Some(ident.to_string()),
                         name_span: ident.span.into(),
                     };
-                    ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+                    ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
                 }
             }
 

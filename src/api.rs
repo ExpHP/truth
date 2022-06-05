@@ -7,6 +7,7 @@ use crate::diagnostic::{RootEmitter, IntoDiagnostics};
 use crate::error::ErrorReported;
 use crate::context::{CompilerContext, Scope};
 use crate::llir::DecompileOptions;
+use crate::debug_info;
 
 /// Front-end API of `truth`, for direct use by `truth`'s various entry point functions, as well
 /// as by unit tests.
@@ -291,6 +292,19 @@ impl TruthWithValidatedDefs<'_, '_> {
     }
     pub fn write_ecl(&mut self, game: Game, outpath: &Path, middle: &crate::EclFile) -> Result<(), ErrorReported> {
         crate::EclFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
+    }
+
+    pub fn prepare_and_write_debug_info(&mut self, outpath: &Path) -> Result<(), ErrorReported> {
+        let file = std::io::BufWriter::new(self.fs().create_raw(outpath)?);
+
+        let debug_info = debug_info::DebugInfo {
+            version: debug_info::Version::default(),
+            source_files: self.ctx.emitter.files.debug_info(),
+            exported_scripts: self.ctx.script_debug_info.clone(),  // FIXME this clone might be expensive?
+            consts: self.ctx.consts.debug_info(&self.ctx.defs),
+        };
+        serde_json::to_writer_pretty(file, &debug_info)
+            .map_err(|e| self.ctx.emitter.emit(error!("while writing file '{}': {e}", self.fs().display_path(outpath))))
     }
 }
 

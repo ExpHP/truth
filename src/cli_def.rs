@@ -189,7 +189,7 @@ pub mod anm_compile {
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_args,
+            ref in_path, ref out_path, game, ref mapfile_args, ref debug_info_path,
         } = common_options;
         load_mapfiles(truth, game, &[LanguageKey::Anm], mapfile_args)?;
 
@@ -213,6 +213,10 @@ pub mod anm_compile {
 
         if let Some(outpath) = output_thecl_defs {
             truth.fs().write(&outpath, compiled.generate_thecl_defs()?)?
+        }
+
+        if let Some(debug_info_path) = debug_info_path {
+            truth.prepare_and_write_debug_info(debug_info_path)?;
         }
 
         Ok(())
@@ -262,7 +266,7 @@ pub mod ecl_compile {
         common_options: &CommonCompileOptions,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_args,
+            ref in_path, ref out_path, game, ref mapfile_args, ref debug_info_path,
         } = common_options;
 
         load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], mapfile_args)?;
@@ -274,6 +278,9 @@ pub mod ecl_compile {
         let mut truth = truth.validate_defs()?;
         let ecl = truth.compile_ecl(game, &ast)?;
         truth.write_ecl(game, out_path, &ecl)?;
+        if let Some(debug_info_path) = debug_info_path {
+            truth.prepare_and_write_debug_info(debug_info_path)?;
+        }
         Ok(())
     }
 }
@@ -372,6 +379,7 @@ pub mod anm_benchmark {
             in_path: script_path.to_owned(),
             out_path: out_path.to_owned(),
             mapfile_args: mapfile_args.to_vec(),
+            debug_info_path: None,
         };
         loop {
             let ast = super::anm_decompile::decompile(truth, &common_decompile_options)?;
@@ -425,6 +433,7 @@ pub mod ecl_benchmark {
             in_path: script_path.to_owned(),
             out_path: out_path.to_owned(),
             mapfile_args: mapfile_args.to_vec(),
+            debug_info_path: None,
         };
         loop {
             let ast = super::ecl_decompile::decompile(truth, &common_decompile_options)?;
@@ -460,7 +469,7 @@ pub mod std_compile {
         common_options: &CommonCompileOptions,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_args,
+            ref in_path, ref out_path, game, ref mapfile_args, ref debug_info_path,
         } = common_options;
 
         load_mapfiles(truth, game, &[LanguageKey::Std], mapfile_args)?;
@@ -472,6 +481,9 @@ pub mod std_compile {
         let mut truth = truth.validate_defs()?;
         let std = truth.compile_std(game, &ast)?;
         truth.write_std(game, out_path, &std)?;
+        if let Some(debug_info_path) = debug_info_path {
+            truth.prepare_and_write_debug_info(debug_info_path)?;
+        }
         Ok(())
     }
 }
@@ -552,7 +564,7 @@ pub mod msg_compile {
         msg_mode: MsgMode,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_args,
+            ref in_path, ref out_path, game, ref mapfile_args, ref debug_info_path,
         } = common_options;
 
         let ast = truth.read_script(&in_path)?;
@@ -562,17 +574,26 @@ pub mod msg_compile {
             MsgMode::Stage => {
                 load_mapfiles(truth, game, &[LanguageKey::Msg], mapfile_args)?;
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
+            },
+            MsgMode::Mission => {},
+            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
+        }
 
-                let mut truth = truth.validate_defs()?;
+        let mut truth = truth.validate_defs()?;
+
+        match msg_mode {
+            MsgMode::Stage => {
                 let msg = truth.compile_msg(game, LanguageKey::Msg, &ast)?;
                 truth.write_msg(game, LanguageKey::Msg, out_path, &msg)?;
             },
             MsgMode::Mission => {
-                let mut truth = truth.validate_defs()?;
                 let msg = truth.compile_mission(game, &ast)?;
                 truth.write_mission(game, out_path, &msg)?;
             },
-            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
+            MsgMode::Ending => unreachable!(),
+        }
+        if let Some(debug_info_path) = debug_info_path {
+            truth.prepare_and_write_debug_info(debug_info_path)?;
         }
         Ok(())
     }
@@ -703,6 +724,7 @@ mod cli {
         pub in_path: PathBuf,
         pub out_path: PathBuf,
         pub mapfile_args: Vec<PathBuf>,
+        pub debug_info_path: Option<PathBuf>,
     }
 
     /// Options shared by all 'decompile' commands. This struct exists to help reduce the tedium of adding a new option.
@@ -714,9 +736,9 @@ mod cli {
     }
 
     pub fn common_compile_options() -> impl CliArg<Value=CommonCompileOptions> {
-        game().zip(required_output()).zip(input()).zip(mapfiles())
-            .and_then(|(((game, out_path), in_path), mapfile_args)| {
-                Ok(CommonCompileOptions { game, out_path, in_path, mapfile_args })
+        game().zip(required_output()).zip(input()).zip(mapfiles()).zip(debug_info())
+            .and_then(|((((game, out_path), in_path), mapfile_args), debug_info_path)| {
+                Ok(CommonCompileOptions { game, out_path, in_path, mapfile_args, debug_info_path })
             })
     }
 
@@ -761,6 +783,13 @@ mod cli {
             short: "g", long: "game", metavar: "GAME",
             help: "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.",
         }).and_then(|s| s.parse())
+    }
+
+    pub fn debug_info() -> impl CliArg<Value=Option<PathBuf>> {
+        opts::Opt {
+            short: "", long: "output-debug-info", metavar: "JSONFILE",
+            help: "write debug-info for a debugger to JSONFILE",
+        }.map(|opt| opt.map(Into::into))
     }
 
     pub fn fmt_config() -> impl CliArg<Value=crate::fmt::Config> {

@@ -7,6 +7,7 @@ use codespan_reporting::{files as cs_files};
 
 use crate::pos::{FileId, Span, BytePos};
 use crate::diagnostic::Diagnostic;
+use crate::debug_info;
 
 /// An implementation of [`codespan_reporting::files::Files`] for `truth`.
 ///
@@ -14,11 +15,20 @@ use crate::diagnostic::Diagnostic;
 /// in diagnostic error messages.
 #[derive(Debug, Clone)]
 pub struct Files {
-    inner: RefCell<cs_files::SimpleFiles<String, Rc<str>>>,
+    inner: RefCell<FilesImpl>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FilesImpl {
+    files: cs_files::SimpleFiles<String, Rc<str>>,
+    max_file_id: FileId,
 }
 
 impl Files {
-    pub fn new() -> Self { Files { inner: RefCell::new(cs_files::SimpleFiles::new()) } }
+    pub fn new() -> Self { Files { inner: RefCell::new(FilesImpl {
+        files: cs_files::SimpleFiles::new(),
+        max_file_id: None,
+    }) } }
 
     /// Add a piece of source text to the database, and give it a name (usually a filepath)
     /// which will appear in error messages.  Also validate the source as UTF-8.
@@ -29,7 +39,9 @@ impl Files {
         let utf8_cow = prepare_diagnostic_text_source(source);
         let rc_source: Rc<str> = utf8_cow[..].into();
 
-        let file_id = Self::shift_file_id(self.inner.borrow_mut().add(name.to_owned(), rc_source.clone()));
+        let mut inner = self.inner.borrow_mut();
+        let file_id = Self::shift_file_id(inner.files.add(name.to_owned(), rc_source.clone()));
+        inner.max_file_id = file_id;
 
         // the cow is borrowed iff the input was valid UTF-8
         if let Cow::Owned(_) = utf8_cow {
@@ -54,6 +66,20 @@ impl Files {
     fn shift_file_id(file_id: usize) -> FileId {
         NonZeroU32::new(file_id as u32 + 1)
     }
+
+    fn file_ids(&self) -> impl Iterator<Item=FileId> {
+        let max_file_id = self.inner.borrow().max_file_id.map_or(0, |x| x.get());
+        (1..=max_file_id).map(|x| Some(NonZeroU32::new(x).unwrap()))
+    }
+
+    pub fn debug_info(&self) -> Vec<debug_info::SourceFile> {
+        self.file_ids().map(|file_id| {
+            debug_info::SourceFile {
+                id: file_id.map_or(0, |x| x.get() as i32),
+                name: cs_files::Files::name(self, file_id).unwrap(),
+            }
+        }).collect()
+    }
 }
 
 /// This implementation provides source text that has been lossily modified to be valid UTF-8,
@@ -65,18 +91,18 @@ impl<'a> cs_files::Files<'a> for Files {
 
     // Just delegate everything
     fn name(&self, file_id: FileId) -> Result<String, cs_files::Error> {
-        self.inner.borrow().name(Self::unshift_file_id(file_id)?)
+        self.inner.borrow().files.name(Self::unshift_file_id(file_id)?)
     }
 
     fn source(&self, file_id: FileId) -> Result<Rc<str>, cs_files::Error> {
-        Ok(self.inner.borrow().get(Self::unshift_file_id(file_id)?)?.source().clone())
+        Ok(self.inner.borrow().files.get(Self::unshift_file_id(file_id)?)?.source().clone())
     }
 
     fn line_index(&self, file_id: FileId, byte_index: usize) -> Result<usize, cs_files::Error> {
-        self.inner.borrow().line_index(Self::unshift_file_id(file_id)?, byte_index)
+        self.inner.borrow().files.line_index(Self::unshift_file_id(file_id)?, byte_index)
     }
     fn line_range(&self, file_id: FileId, line_index: usize) -> Result<std::ops::Range<usize>, cs_files::Error> {
-        self.inner.borrow().line_range(Self::unshift_file_id(file_id)?, line_index)
+        self.inner.borrow().files.line_range(Self::unshift_file_id(file_id)?, line_index)
     }
 }
 

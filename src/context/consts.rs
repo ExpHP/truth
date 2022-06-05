@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use crate::ast;
 use crate::error::{ErrorReported};
@@ -7,6 +7,7 @@ use crate::pos::{Sp, Span};
 use crate::resolve::{DefId, ConstId, Resolutions};
 use crate::context::defs::{self, Defs};
 use crate::value::ScalarValue;
+use crate::debug_info;
 
 /// Orchestrates the evaluation of all `const` variables, and caches their values.
 ///
@@ -18,7 +19,7 @@ use crate::value::ScalarValue;
 pub struct Consts {
     deferred_ids: Vec<ConstId>,
     deferred_equality_checks: Vec<EqualityCheck>,
-    values: HashMap<ConstId, ScalarValue>,
+    values: IndexMap<ConstId, ScalarValue>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +105,16 @@ impl Consts {
             }
         }
         Ok(())
+    }
+
+    pub fn debug_info(&self, defs: &Defs) -> Vec<debug_info::Const> {
+        self.values.iter().map(|(const_id, value)| {
+            debug_info::Const {
+                name: defs.var_name(const_id.def_id).to_string(),
+                name_span: defs.var_decl_span(const_id.def_id).map(Into::into),
+                value: value.clone().into(),
+            }
+        }).collect()
     }
 }
 
