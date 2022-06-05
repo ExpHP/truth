@@ -364,7 +364,7 @@ fn compile_std(
             name: Some(main_ident.to_string()),
             name_span: main_ident.span.into(),
         };
-        ctx.debug_info.exported_scripts.push(debug_info::Script { export_info, lowering_info });
+        ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
     }
 
     lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));

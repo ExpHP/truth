@@ -13,7 +13,6 @@ pub struct DebugInfo {
     /// `debug-info` version.  This is incremented when breaking changes are made.
     pub version: Version,
     pub source_files: Vec<SourceFile>,
-    pub binary_files: Vec<BinaryFile>,
     pub exported_scripts: Vec<Script>,
     /// Global `const`s.
     pub consts: Vec<Const>,
@@ -123,7 +122,7 @@ pub enum ScriptType {
 #[serde(rename_all = "kebab-case")]
 pub struct Const {
     pub name: String,
-    pub name_span: Span,
+    pub name_span: Option<Span>,
     pub value: Value,
 }
 
@@ -174,6 +173,16 @@ pub enum Value {
     Int(raw::LangInt),
     Float(raw::LangFloat),
     String(String),
+}
+
+impl From<crate::value::ScalarValue> for Value {
+    fn from(value: crate::value::ScalarValue) -> Value {
+        match value {
+            crate::value::ScalarValue::Int(x) => Value::Int(x),
+            crate::value::ScalarValue::Float(x) => Value::Float(x),
+            crate::value::ScalarValue::String(x) => Value::String(x),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
