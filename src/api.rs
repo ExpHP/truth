@@ -303,7 +303,7 @@ impl TruthWithValidatedDefs<'_, '_> {
             exported_scripts: self.ctx.script_debug_info.clone(),  // FIXME this clone might be expensive?
             consts: self.ctx.consts.debug_info(&self.ctx.defs),
         };
-        serde_json::to_writer_pretty(file, &debug_info)
+        serde_json::to_writer(file, &debug_info)
             .map_err(|e| self.ctx.emitter.emit(error!("while writing file '{}': {e}", self.fs().display_path(outpath))))
     }
 }

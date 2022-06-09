@@ -79,8 +79,8 @@ impl SingleSubLowerer<'_, '_> {
 
 
                 ast::StmtKind::Expr(expr) => match &expr.value {
-                    ast::Expr::Call(call) => self.lower_call_stmt(&mut th06_anm_end_span, stmt.span, stmt_data, call)?,
-                    _ => return Err(self.unsupported(&stmt.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
+                    ast::Expr::Call(call) => self.lower_call_stmt(&mut th06_anm_end_span, expr.span, stmt_data, call)?,
+                    _ => return Err(self.unsupported(&expr.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
                 }, // match expr
 
                 ast::StmtKind::Label(ident) => {
