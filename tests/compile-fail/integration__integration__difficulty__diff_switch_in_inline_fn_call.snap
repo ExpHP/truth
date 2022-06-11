@@ -14,6 +14,6 @@ error: feature not supported by format
    ┌─ <input>:12:5
    │
 12 │     foo(2:3:4:5);
-   │     ^^^^^^^^^^^^^ call to inline func not supported by format
+   │     ^^^^^^^^^^^^ call to inline func not supported by format
 
 

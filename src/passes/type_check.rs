@@ -635,6 +635,7 @@ impl ExprTypeChecker<'_, '_> {
             => self.require_numeric(arg_ty, op.span, arg_span),
 
             | token![unop !]
+            | token![unop ~]
             => self.require_int(arg_ty, op.span, arg_span),
 
             | token![unop sin]
@@ -664,6 +665,7 @@ impl ast::Expr {
         match op {
             token![unop -] => compute_arg_ty(),
             token![unop !] => ScalarType::Int,
+            token![unop ~] => ScalarType::Int,
 
             token![unop sin] |
             token![unop cos] |

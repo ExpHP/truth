@@ -687,6 +687,7 @@ string_enum! {
     pub enum UnOpKind {
         #[strum(serialize = "!")] Not,
         #[strum(serialize = "-")] Neg,
+        #[strum(serialize = "~")] BitNot,
         #[strum(serialize = "sin")] Sin,
         #[strum(serialize = "cos")] Cos,
         #[strum(serialize = "sqrt")] Sqrt,
@@ -702,6 +703,7 @@ impl UnOpKind {
         match self {
             UnOpKind::Not => OpClass::Logical,
             UnOpKind::Neg => OpClass::Arithmetic,
+            UnOpKind::BitNot => OpClass::Bitwise,
             UnOpKind::Sin => OpClass::FloatMath,
             UnOpKind::Cos => OpClass::FloatMath,
             UnOpKind::Sqrt => OpClass::FloatMath,

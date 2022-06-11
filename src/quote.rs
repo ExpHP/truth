@@ -30,6 +30,7 @@ macro_rules! token {
 
     ($(unop)? !) => { $crate::ast::UnOpKind::Not };
     (  unop   -) => { $crate::ast::UnOpKind::Neg };
+    ($(unop)? ~) => { $crate::ast::UnOpKind::BitNot };
     ($(unop)? sin) => { $crate::ast::UnOpKind::Sin };
     ($(unop)? cos) => { $crate::ast::UnOpKind::Cos };
     ($(unop)? sqrt) => { $crate::ast::UnOpKind::Sqrt };

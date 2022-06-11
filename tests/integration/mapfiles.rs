@@ -222,17 +222,22 @@ source_test!(
     mapfile: r#"!anmmap
 !ins_intrinsics
 999 BinOp(op=">>>"; type="int")
+998 UnOp(op="~"; type="int")
+
 !ins_signatures
 999 SSS
+998 SS
 "#,
     main_body: r#"
     int x = 10;
     int y = 15;
     int z = x >>> (y + 3);
+    int w = ~x;
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_anm(format);
         assert!(ecl.entries[0].scripts[0].instrs.iter().any(|instr| instr.opcode == 999));
+        assert!(ecl.entries[0].scripts[0].instrs.iter().any(|instr| instr.opcode == 998));
     },
 );
 

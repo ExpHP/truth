@@ -572,6 +572,7 @@ impl SingleSubLowerer<'_, '_> {
                     //       we get here, but they can make it here in EoSD ECL.
                     token![unop int] |
                     token![unop float] |
+                    token![~] |
                     token![sin] |
                     token![cos] |
                     token![sqrt] => {

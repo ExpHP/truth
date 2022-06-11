@@ -42,6 +42,7 @@ extern {
         "^" => Token::Caret,
         "|" => Token::Or,
         "&" => Token::And,
+        "~" => Token::Tilde,
         "+=" => Token::PlusEq,
         "-=" => Token::MinusEq,
         "*=" => Token::StarEq,
@@ -569,6 +570,7 @@ OpAssign: ast::AssignOpKind = {
 };
 #[inline] OpLeftUnary: ast::UnOpKind = {
     "-" => token![-],
+    "~" => token![~],
     "!" => token![!],
 };
 

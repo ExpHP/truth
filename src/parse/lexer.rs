@@ -34,6 +34,7 @@ define_token_enum! {
         #[token("^")] Caret,
         #[token("|")] Or,
         #[token("&")] And,
+        #[token("~")] Tilde,
         #[token("+=")] PlusEq,
         #[token("-=")] MinusEq,
         #[token("*=")] StarEq,
