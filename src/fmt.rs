@@ -898,7 +898,7 @@ impl Format for ast::Expr {
                 })
             },
             ast::Expr::UnOp(op, x) => match op.value {
-                token![unop -] | token![!]
+                token![unop -] | token![!] | token![~]
                     => out.fmt_optional_parens(|out| out.fmt((op, x))),
 
                 token![unop $] | token![unop %] |

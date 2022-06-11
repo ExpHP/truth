@@ -48,6 +48,7 @@ impl ast::UnOpKind {
             ScalarValue::Int(x) => match self {
                 token![unop -] => Some(ScalarValue::Int(i32::wrapping_neg(x))),
                 token![unop !] => Some(ScalarValue::Int((x == 0) as i32)),
+                token![unop ~] => Some(ScalarValue::Int(!x)),
                 token![unop sin] |
                 token![unop cos] |
                 token![unop sqrt] => uncaught_type_error(),
@@ -59,7 +60,8 @@ impl ast::UnOpKind {
 
             ScalarValue::Float(x) => match self {
                 token![unop -] => Some(ScalarValue::Float(-x)),
-                token![unop !] => uncaught_type_error(),
+                token![unop !] |
+                token![unop ~] => uncaught_type_error(),
                 token![unop sin] => Some(ScalarValue::Float(x.sin())),
                 token![unop cos] => Some(ScalarValue::Float(x.cos())),
                 token![unop sqrt] => Some(ScalarValue::Float(x.sqrt())),

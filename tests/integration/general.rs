@@ -39,20 +39,23 @@ source_test!(
 );
 
 source_test!(
-    ANM_10, shift_const_eval,
+    ANM_10, bitops_const_eval,
     main_body: r#"
         const int SHL = 0xFFABCD01 << 4;
         const int SAR = 0xFFABCD01 >> 4;
         const int SHR = 0xFFABCD01 >>> 4;
+        const int NOT = ~0xFFABCD01;
         int x = SHL;
         int y = SAR;
         int z = SHR;
+        int w = NOT;
     "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
         assert_eq!(&anm.entries[0].scripts[0].instrs[0].args_blob[4..], &blobify![0xFABCD010u32 as i32][..]);
         assert_eq!(&anm.entries[0].scripts[0].instrs[1].args_blob[4..], &blobify![0xFFFABCD0u32 as i32][..]);
         assert_eq!(&anm.entries[0].scripts[0].instrs[2].args_blob[4..], &blobify![0x0FFABCD0u32 as i32][..]);
+        assert_eq!(&anm.entries[0].scripts[0].instrs[3].args_blob[4..], &blobify![(!0xFFABCD01u32) as i32][..]);
     },
 );
 

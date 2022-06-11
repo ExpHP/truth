@@ -9,6 +9,6 @@ error: scratch registers are disabled in this script
    │                           ^^^^^^^^^^^^^^^^^^^^^^^^^ this fancy expression requires a scratch register
 36 │ 
 37 │         copyVars();
-   │         ^^^^^^^^^^^ this disables scratch registers
+   │         ^^^^^^^^^^ this disables scratch registers
 
 

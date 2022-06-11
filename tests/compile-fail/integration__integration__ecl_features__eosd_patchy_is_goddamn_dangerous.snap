@@ -6,7 +6,7 @@ error: scratch registers are disabled in this entire file
    ┌─ <input>:16:27
    │
  9 │         ins_130(1);  // that one that disables the call stack
-   │         ----------- Patchouli has tainted this entire file
+   │         ---------- Patchouli has tainted this entire file
    ·
 16 │         F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
    │                           ^^^^^^^^^^^^^^^^^^^^^^^^^ this fancy expression requires a scratch register

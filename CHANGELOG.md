@@ -16,6 +16,8 @@ Version 0.5.1 adds a new `--output-debug-info JSONFILE` flag to all `compile` su
 
 Perfect name resolution of locals in a debugger might not be possible yet as truth currently does not explicitly construct the tree used for name resolution (it is only implicitly constructed), so scope information is not yet available.
 
+It also adds a unary `~` (bitwise not) operator, which can be assigned via a user intrinsic.
+
 # Version 0.5.0
 
 Version 0.5.0 is a major release of the compiler containing many of the language additions that were found useful in alpha implementations of truecl.  While `truecl` is still not officially released, these additions and improvements are available in all languages.
