@@ -42,6 +42,7 @@ script functionUnops {
 script unaries {
     int x = -"abc";  //~ ERROR type error
     int z = $("abc");  //~ ERROR type error
+    float y = ~0.4;  //~ ERROR type error
 }
 
 script assign_op {
