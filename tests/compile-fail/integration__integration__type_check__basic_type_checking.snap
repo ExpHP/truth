@@ -88,18 +88,26 @@ error: type error
    │             requires a numeric type
 
 error: type error
-   ┌─ <input>:48:11
+   ┌─ <input>:45:16
    │
-48 │     F0 += I0;
+45 │     float y = ~0.4;
+   │               -^^^ a float
+   │               │ 
+   │               expects an integer
+
+error: type error
+   ┌─ <input>:49:11
+   │
+49 │     F0 += I0;
    │     -- -- ^^ an integer
    │     │  │   
    │     │  same types required by this
    │     a float
 
 error: type error
-   ┌─ <input>:49:11
+   ┌─ <input>:50:11
    │
-49 │     F0 += F1 < 2.0;
+50 │     F0 += F1 < 2.0;
    │     -- -- ^^^^^^^^ an integer
    │     │  │   
    │     │  same types required by this
