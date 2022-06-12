@@ -1041,9 +1041,12 @@ pub struct Signature {
 pub struct SignatureParam {
     pub ty: Sp<VarType>,
     pub ty_color: Option<Sp<TypeColor>>,
-    pub name: Sp<ResIdent>,
+    pub name: Option<Sp<ResIdent>>,
     pub default: Option<Sp<ast::Expr>>,
     pub qualifier: Option<Sp<ast::ParamQualifier>>,
+    /// "Most useful" span for pointing to this parameter in a diagnostic.  Will point to the name if available,
+    /// or something else if there is no name.
+    pub useful_span: Span,
     /// This is `Some(_)` if for any reason, arguments in this position must be compile-time constants.
     ///
     /// (this is distinct from the question of "is the variable declared by this param a compile-time
@@ -1107,14 +1110,12 @@ impl Signature {
         let mut first_optional = None;
         for param in self.params.iter() {
             if param.default.is_some() {
-                first_optional = Some(&param.name);
+                first_optional = Some(param);
             } else if let Some(optional) = first_optional {
-                let opt_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(optional)).expect("func params must have spans");
-                let non_span = ctx.defs.var_decl_span(ctx.resolutions.expect_def(&param.name)).expect("func params must have spans");
                 return Err(ctx.emitter.emit(error!(
                     message("invalid function signature"),
-                    secondary(opt_span, "optional parameter"),
-                    primary(non_span, "non-optional parameter after optional"),
+                    secondary(optional.useful_span, "optional parameter"),
+                    primary(param.useful_span, "non-optional parameter after optional"),
                 )));
             }
         }
@@ -1154,6 +1155,7 @@ fn signature_from_func_ast(return_ty_keyword: Sp<ast::TypeKeyword>, params: &[Sp
             name: ident.clone(),
             qualifier: qualifier.clone(),
             default: None,
+            useful_span: ident.as_ref().map(|ident| ident.span).unwrap_or_else(|| ty_keyword.span),
             // FIXME the match is to remind us to add a new ConstArgReason when inline funcs with 'const' params exist
             const_arg_reason: qualifier.as_ref().map(|q| match q.value { }),
         }).collect(),

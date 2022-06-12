@@ -1,0 +1,16 @@
+---
+source: tests/integration/ecl_features.rs
+expression: stderr
+---
+error: script too complex to compile
+   ┌─ <input>:11:11
+   │
+ 7 │ void foo(float, int a) {
+   │          ----- F0 holds this
+   ·
+11 │     float z;
+   │           ^ no more registers of this type!
+   │
+   = the following registers are unavailable due to explicit use: F1, F2, F3
+
+

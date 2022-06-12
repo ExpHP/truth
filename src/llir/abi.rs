@@ -394,7 +394,10 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
             let ty = sp!(abi_span => var_ty);
             let ty_color = ty_color.map(|x| sp!(abi_span => x));
 
-            Some(defs::SignatureParam { default, name, ty, qualifier, const_arg_reason, ty_color })
+            Some(defs::SignatureParam {
+                default, ty, qualifier, const_arg_reason, ty_color,
+                name: Some(name), useful_span: Span::NULL,
+            })
         }).collect(),
     }
 }

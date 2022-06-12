@@ -520,17 +520,6 @@ impl SingleSubLowerer<'_, '_> {
         unop: &Sp<ast::UnOpKind>,
         b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
-        // `a = -b;` is not a native instruction.  Just treat it as `a = 0 - b;`
-        //
-        // TODO: document that this is not IEEE-754 conformant
-        if unop.value == token![-] {
-            let ty = b.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
-            let zero = sp!(unop.span => ast::Expr::zero(ty));
-            let minus = sp!(unop.span => token![-]);
-            self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, &zero, &minus, b)?;
-            return Ok(());
-        }
-
         let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ctx);
         match self.classify_expr(b)? {
             ExprClass::NeedsElaboration(data_b) => {
@@ -561,26 +550,52 @@ impl SingleSubLowerer<'_, '_> {
 
                 match unop.value {
                     // These are all handled other ways
-                    token![unop $] |
-                    token![unop %] |
-                    token![unop -] => unreachable!(),
+                    | token![unop $]
+                    | token![unop %]
+                    => unreachable!(),
 
-                    // TODO: we *could* polyfill this with some conditional jumps but bleccccch
-                    token![!] => return Err(self.unsupported(&span, "logical not operator")),
-
+                    // Simple boys.
                     // note: in most languages, 'int' and 'float' are replaced with '$' and '%' before
                     //       we get here, but they can make it here in EoSD ECL.
-                    token![unop int] |
-                    token![unop float] |
-                    token![~] |
-                    token![sin] |
-                    token![cos] |
-                    token![sqrt] => {
-                        self.lower_intrinsic(rhs_span, stmt_data, IKind::UnOp(unop.value, ty), "this unary operation", |bld| {
+                    | token![unop int]
+                    | token![unop float]
+                    | token![sin]
+                    | token![cos]
+                    | token![sqrt]
+                    => {
+                        let intrinsic = IKind::UnOp(unop.value, ty);
+                        self.lower_intrinsic(rhs_span, stmt_data, intrinsic, "this unary operation", |bld| {
                             bld.outputs.push(lowered_var);
                             bld.plain_args.push(data_b.lowered);
                         })?;
                     },
+
+                    // These may not be available but can be substituted with something else.
+                    | token![unop -]  // can be `0 - a`  // TODO: document that this is not IEEE-754 conformant
+                    | token![unop ~]  // can be `-1 - a`
+                    => {
+                        let intrinsic = IKind::UnOp(unop.value, ty);
+                        if self.intrinsic_instrs.get_opcode_opt(intrinsic).is_some() {
+                            // The intrinsic exists. Use it.
+                            self.lower_intrinsic(rhs_span, stmt_data, intrinsic, "this unary operation", |bld| {
+                                bld.outputs.push(lowered_var);
+                                bld.plain_args.push(data_b.lowered);
+                            })?;
+                        } else {
+                            // Use fallback.
+                            let ty = b.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
+                            let konst = match unop.value {
+                                token![unop -] => sp!(unop.span => ast::Expr::int_of_ty(0, ty)),
+                                token![unop ~] => sp!(unop.span => ast::Expr::int_of_ty(-1, ty)),
+                                _ => unreachable!(),
+                            };
+                            let minus = sp!(unop.span => token![-]);
+                            self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, &konst, &minus, b)?;
+                        }
+                    }
+
+                    // TODO: we *could* polyfill this with some conditional jumps but bleccccch
+                    token![!] => return Err(self.unsupported(&span, "logical not operator")),
                 }
                 Ok(())
             },
@@ -680,7 +695,7 @@ impl SingleSubLowerer<'_, '_> {
             _ => {
                 let ty = expr.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
                 assert_eq!(ty, ScalarType::Int);
-                let zero = sp!(expr.span => ast::Expr::zero(ty));
+                let zero = sp!(expr.span => ast::Expr::int_of_ty(0, ty));
                 let ne_sign = sp!(expr.span => token![!=]);
                 self.lower_cond_jump_comparison(stmt_span, stmt_data, keyword, expr, &ne_sign, &zero, goto)
             },
@@ -1108,10 +1123,10 @@ pub (in crate::llir::lower) fn assign_registers(
 ) -> Result<Option<debug_info::ScriptRegisterInfo>, ErrorReported> {
     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(hooks.language(), reg));
 
-    let mut local_regs = IdMap::<DefId, (RegId, ScalarType, Span)>::new();
+    let mut local_regs = IdMap::<DefId, RegId>::new();
+    let mut implicitly_used_regs = HashMap::<RegId, (ScalarType, Span)>::new();
     let mut has_used_scratch: Option<Span> = None;
     let mut has_anti_scratch_ins: Option<Span> = None;
-
     let mut debug_info = do_debug_info.then(|| debug_info::ScriptRegisterInfo {
         locals: vec![],
     });
@@ -1123,19 +1138,20 @@ pub (in crate::llir::lower) fn assign_registers(
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     enum UsedName { RegId(RegId), DefId(DefId) }
     struct UsedNameData<'a> { span: Span, note: Option<&'a str> }
+    let mut clashing_names_for_regs = IdMap::<RegId, IdMap<UsedName, UsedNameData>>::new();
 
-    let mut names_used_for_regs = IdMap::<RegId, IdMap<UsedName, UsedNameData>>::new();
+    let explicitly_used_regs = get_explicitly_used_regs(code);
 
-    let used_regs = get_used_regs(code);
-
-    let mut unused_regs = hooks.general_use_regs();
-    for vec in unused_regs.values_mut() {
-        vec.retain(|reg| !used_regs.contains_key(reg));
+    // Start with all scratch regs.
+    let mut remaining_scratch_regs_by_ty = hooks.general_use_regs();
+    // Filter out ones explicitly mentioned by name.
+    for vec in remaining_scratch_regs_by_ty.values_mut() {
+        vec.retain(|reg| !explicitly_used_regs.contains_key(reg));
         vec.reverse();  // since we'll be popping from these lists
     }
 
-    for (&reg, &span) in &used_regs {
-        names_used_for_regs.entry(reg).or_insert_with(Default::default)
+    for (&reg, &span) in &explicitly_used_regs {
+        clashing_names_for_regs.entry(reg).or_insert_with(Default::default)
             .insert(UsedName::RegId(reg), UsedNameData { span, note: None });
     }
 
@@ -1147,26 +1163,31 @@ pub (in crate::llir::lower) fn assign_registers(
         let this_sub_info = &sub_info.exported_subs.subs[&def_id];
 
         for (param_def_id, param_reg, ty, param_span) in this_sub_info.param_registers(sub_info.sub_format) {
-            local_regs.insert(param_def_id, (param_reg, ty.into(), param_span));
-            if let Some(debug_info) = &mut debug_info {
-                debug_info.locals.push(debug_info::Local {
-                    name: ctx.defs.var_name(param_def_id).to_string(),
-                    name_span: param_span.into(),
-                    r#type: ty.into(),
-                    bound_to: param_reg.into(),
-                });
+            // make the register ineligible for scratch.  This only really affects EoSD.
+            implicitly_used_regs.insert(param_reg, (ty.into(), param_span));
+            for vec in remaining_scratch_regs_by_ty.values_mut() {
+                vec.retain(|&scratch_reg| scratch_reg != param_reg);
             }
 
-            names_used_for_regs.entry(param_reg).or_insert_with(Default::default)
-                .insert(UsedName::DefId(param_def_id), UsedNameData { note: param_note.as_deref(), span: param_span });
+            // if the parameter has a name, record it
+            if let Some(param_def_id) = param_def_id {
+                local_regs.insert(param_def_id, param_reg);
+                if let Some(debug_info) = &mut debug_info {
+                    debug_info.locals.push(debug_info::Local {
+                        name: ctx.defs.var_name(param_def_id).to_string(),
+                        name_span: param_span.into(),
+                        r#type: ty.into(),
+                        bound_to: param_reg.into(),
+                    });
+                }
 
-            // make the register ineligible for scratch.  This only really affects EoSD.
-            for vec in unused_regs.values_mut() {
-                vec.retain(|&scratch_reg| scratch_reg != param_reg);
+                clashing_names_for_regs.entry(param_reg).or_insert_with(Default::default)
+                    .insert(UsedName::DefId(param_def_id), UsedNameData { note: param_note.as_deref(), span: param_span });
             }
         }
     }
 
+    // assign scratch registers to all variables defined with RegAlloc
     for stmt in code {
         match &mut stmt.value {
             &mut LowerStmt::RegAlloc { def_id } => {
@@ -1174,12 +1195,13 @@ pub (in crate::llir::lower) fn assign_registers(
 
                 let required_ty = ctx.defs.var_inherent_ty(def_id).as_known_ty().expect("(bug!) untyped in stackless lowerer");
 
-                let reg = unused_regs[required_ty].pop().ok_or_else(|| {
-                    script_too_complex(stmt, hooks, required_ty, &used_regs, &local_regs, &ctx)
+                let reg = remaining_scratch_regs_by_ty[required_ty].pop().ok_or_else(|| {
+                    script_too_complex(stmt, hooks, required_ty, &explicitly_used_regs, &implicitly_used_regs, &ctx)
                 })?;
 
-                assert!(local_regs.insert(def_id, (reg, required_ty, stmt.span)).is_none());
-                assert!(!names_used_for_regs.contains_key(&reg));
+                implicitly_used_regs.insert(reg, (required_ty, stmt.span));
+                assert!(local_regs.insert(def_id, reg).is_none());
+                assert!(!clashing_names_for_regs.contains_key(&reg));
                 if let Some(debug_info) = &mut debug_info {
                     debug_info.locals.push(debug_info::Local {
                         name: ctx.defs.var_name(def_id).to_string(),
@@ -1191,8 +1213,10 @@ pub (in crate::llir::lower) fn assign_registers(
             },
             LowerStmt::RegFree { def_id } => {
                 let inherent_ty = ctx.defs.var_inherent_ty(*def_id).as_known_ty().expect("(bug!) we allocated a reg so it must have a type");
-                let (reg, _, _) = local_regs.remove(&def_id).expect("(bug!) RegFree without RegAlloc!");
-                unused_regs[inherent_ty].push(reg);
+                let reg = local_regs.remove(&def_id).expect("(bug!) RegFree without RegAlloc!");
+                assert!(implicitly_used_regs.remove(&reg).is_some());
+
+                remaining_scratch_regs_by_ty[inherent_ty].push(reg);
             },
             LowerStmt::Instr(instr) => {
                 if let Some(how_bad) = hooks.instr_disables_scratch_regs(instr.opcode) {
@@ -1211,7 +1235,7 @@ pub (in crate::llir::lower) fn assign_registers(
                         // may need to recurse into difficulty switches
                         each_lower_arg(arg, &mut |arg| {
                             if let LowerArg::Local { def_id, storage_ty } = arg.value {
-                                arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&def_id].0, storage_ty));
+                                arg.value = LowerArg::Raw(SimpleArg::from_reg(local_regs[&def_id], storage_ty));
                             }
                         })
                     }
@@ -1234,7 +1258,7 @@ pub (in crate::llir::lower) fn assign_registers(
     // FIXME: This might be too trigger happy and will fire on some innocent code.
     // However, we need SOMETHING to protect the user from overwriting `ARG_A` without realizing that
     // it is already in use.
-    for (reg, used_names) in names_used_for_regs {
+    for (reg, used_names) in clashing_names_for_regs {
         if used_names.len() > 1 {
             let mut diag = warning!("register {} used under multiple names", stringify_reg(reg));
             for (_, UsedNameData { span, note }) in used_names {
@@ -1270,8 +1294,8 @@ fn script_too_complex(
     stmt: &Sp<LowerStmt>,
     hooks: &dyn LanguageHooks,
     required_ty: ScalarType,
-    used_regs: &BTreeMap<RegId, Span>,
-    local_regs: &HashMap<DefId, (RegId, ScalarType, Span)>,
+    explicitly_used_regs: &BTreeMap<RegId, Span>,
+    implicitly_used_regs: &HashMap<RegId, (ScalarType, Span)>,
     ctx: &CompilerContext,
 ) -> ErrorReported {
     let stringify_reg = |reg| crate::fmt::stringify(&ctx.reg_to_ast(hooks.language(), reg));
@@ -1280,14 +1304,14 @@ fn script_too_complex(
         message("script too complex to compile"),
         primary(stmt.span, "no more registers of this type!"),
     );
-    for &(scratch_reg, scratch_ty, scratch_span) in local_regs.values() {
+    for (&scratch_reg, &(scratch_ty, scratch_span)) in implicitly_used_regs {
         if scratch_ty == required_ty {
             error.secondary(scratch_span, format!("{} holds this", stringify_reg(scratch_reg)));
         }
     }
     let regs_of_ty = hooks.general_use_regs()[required_ty].clone();
     let unavailable_strs = regs_of_ty.iter().copied()
-        .filter(|reg| used_regs.contains_key(reg))
+        .filter(|reg| explicitly_used_regs.contains_key(reg))
         .map(stringify_reg)
         .collect::<Vec<_>>();
     if !unavailable_strs.is_empty() {
@@ -1301,7 +1325,7 @@ fn script_too_complex(
 }
 
 // Gather all explicitly-used registers in the source. (so that we can avoid using them for scratch)
-fn get_used_regs(func_body: &[Sp<LowerStmt>]) -> BTreeMap<RegId, Span> {
+fn get_explicitly_used_regs(func_body: &[Sp<LowerStmt>]) -> BTreeMap<RegId, Span> {
     func_body.iter()
         .filter_map(|stmt| match &stmt.value {
             LowerStmt::Instr(LowerInstr { args: LowerArgs::Known(args), .. }) => Some(args),

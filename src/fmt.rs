@@ -639,7 +639,11 @@ impl Format for ast::FuncParam {
         if let Some(qualifier) = qualifier {
             out.fmt((qualifier, " "))?;
         }
-        out.fmt((ty_keyword, " ", ident))
+        out.fmt(ty_keyword)?;
+        if let Some(ident) = ident {
+            out.fmt((" ", ident))?;
+        }
+        Ok(())
     }
 }
 
