@@ -229,7 +229,7 @@ fn elaborate_diff_switches(stmts: Vec<Sp<LowerStmt>>, diff_flag_names: &context:
                     }
                 }
 
-                if switch_props.num_difficulties <= 2 {
+                if switch_props.num_difficulties < 2 {
                     out.push(stmt);  // no difficulty switches
                     continue 'stmt;
                 }

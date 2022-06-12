@@ -148,10 +148,11 @@ source_test!(
     main_body: r#"
     I0 = (2:3:4:5);
     I1 = (2:3:4);
+    I2 = (2:3);
 "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
-        assert_eq!(ecl.subs[0].len(), 7);
+        assert_eq!(ecl.subs[0].len(), 9);
     },
 );
 
