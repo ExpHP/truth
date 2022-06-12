@@ -758,7 +758,7 @@ pub struct OldeExportedSub {
     /// The params that this sub actually has, grouped by type.
     pub params_by_ty: EnumMap<ReadType, ArrayVec<(usize, Sp<ast::FuncParam>), 4>>,
     /// The params that this sub actually has, in their order in the signature.
-    pub params_in_sig: Vec<(DefId, ReadType, Span)>,
+    pub params_in_sig: Vec<(Option<DefId>, ReadType, Span)>,
 }
 
 impl OldeExportedSubs {
@@ -829,14 +829,14 @@ impl OldeExportedSub {
             }
             out.params_by_ty[param_ty].push((param_index, param.clone()));
 
-            let param_def_id = ctx.resolutions.expect_def(&param.ident);
+            let param_def_id = param.ident.as_ref().map(|ident| ctx.resolutions.expect_def(ident));
             out.params_in_sig.push((param_def_id, param_ty, param.span));
         }
         Ok(out)
     }
 
     /// Produces the RegId for each parameter, along with other info needed by the register allocator.
-    pub fn param_registers<'a>(&'a self, sub_format: &'a dyn OldeSubFormat) -> impl IntoIterator<Item=(DefId, RegId, ReadType, Span)> + 'a {
+    pub fn param_registers<'a>(&'a self, sub_format: &'a dyn OldeSubFormat) -> impl IntoIterator<Item=(Option<DefId>, RegId, ReadType, Span)> + 'a {
         let mut offsets = enum_map::enum_map!(_ => 0..);
         self.params_in_sig.iter().map(move |&(def_id, ty, span)| {
             let reg = sub_format.param_reg_id(ty, offsets[ty].next().unwrap());
@@ -885,7 +885,7 @@ impl OldeRaiseSub {
         self.params.iter().map(|&(_, var_ty, ref ident)| sp!(ast::FuncParam {
             qualifier: None,
             ty_keyword: sp!(var_ty.into()),
-            ident: sp!(ResIdent::new_null(ident.clone())),
+            ident: Some(sp!(ResIdent::new_null(ident.clone()))),
         })).collect()
     }
 }

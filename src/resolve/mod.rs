@@ -245,11 +245,13 @@ mod resolve_names {
                         self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::Params);
 
                         for sp_pat!(ast::FuncParam { ty_keyword, ident, qualifier: _ }) in params {
-                            let var_ty = ty_keyword.value.var_ty();
-                            let def_id = self.ctx.define_local(ident.clone(), var_ty);
-                            self.add_to_rib_with_redefinition_check(
-                                Namespace::Vars, RibKind::Params, ident.clone(), def_id,
-                            );
+                            if let Some(ident) = ident {
+                                let var_ty = ty_keyword.value.var_ty();
+                                let def_id = self.ctx.define_local(ident.clone(), var_ty);
+                                self.add_to_rib_with_redefinition_check(
+                                    Namespace::Vars, RibKind::Params, ident.clone(), def_id,
+                                );
+                            }
                         }
 
                         // now resolve the body

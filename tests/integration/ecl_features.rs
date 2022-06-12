@@ -389,6 +389,28 @@ void i_f(int a, float x) {
 "#,
 );
 
+source_test!(
+    ECL_06, eosd_param_alias_no_warning_for_unnamed_param,
+    items: r#"
+void foo(float, int a) {
+    %REG[-10005] = 24.0;
+}
+"#,
+    check_compiled: |_, _| { },
+);
+
+source_test!(
+    ECL_06, eosd_unnamed_param_still_prevents_scratch,
+    items: r#"
+void foo(float, int a) {
+    %REG[-10006] = 1.0;
+    %REG[-10007] = 1.0;
+    %REG[-10008] = 1.0;
+    float z;  //~ ERROR no more registers
+}
+"#,
+);
+
 // -------------
 // decompiling params
 

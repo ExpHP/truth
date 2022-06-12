@@ -235,7 +235,7 @@ SingleFuncQualifier: ast::FuncQualifier = {
 };
 
 FuncParam: ast::FuncParam = {
-    <ty_keyword:Sp<LocalVarTypeKeyword>> <ident:Sp<ResIdent>>
+    <ty_keyword:Sp<LocalVarTypeKeyword>> <ident:Sp<ResIdent>?>
         => ast::FuncParam { ty_keyword, ident, qualifier: None },
 };
 

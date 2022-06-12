@@ -68,7 +68,7 @@ pub struct ItemFunc {
 pub struct FuncParam {
     pub qualifier: Option<Sp<ParamQualifier>>,
     pub ty_keyword: Sp<TypeKeyword>,
-    pub ident: Sp<ResIdent>,
+    pub ident: Option<Sp<ResIdent>>,
 }
 
 string_enum! {
@@ -492,9 +492,9 @@ pub enum IntRadix {
 }
 
 impl Expr {
-    pub fn zero(ty: value::ScalarType) -> Self { match ty {
-        value::ScalarType::Int => 0.into(),
-        value::ScalarType::Float => 0.0.into(),
+    pub fn int_of_ty(value: i32, ty: value::ScalarType) -> Self { match ty {
+        value::ScalarType::Int => value.into(),
+        value::ScalarType::Float => (value as f32).into(),
         value::ScalarType::String => panic!("Expr::zero() called on type String"),
     }}
     pub fn descr(&self) -> &'static str { match self {
@@ -1020,7 +1020,9 @@ macro_rules! generate_visitor_stuff {
                     }
 
                     for sp_pat!(FuncParam { ident, ty_keyword: _, qualifier: _ }) in params {
-                        v.visit_res_ident(ident);
+                        if let Some(ident) = ident {
+                            v.visit_res_ident(ident);
+                        }
                     }
                 },
                 Item::AnmScript { keyword: _, number: _, ident: _, code } => {
