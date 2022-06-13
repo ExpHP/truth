@@ -45,7 +45,7 @@ pub struct Defs {
     global_ribs: GlobalRibs,
 
     /// Intrinsics from mapfiles.
-    user_defined_intrinsics: EnumMap<LanguageKey, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
+    intrinsic_instrs: EnumMap<LanguageKey, Vec<(raw::Opcode, Sp<IntrinsicInstrKind>)>>,
 
     /// Maps enum const names to their enum if they are unique, or to None if they are shared by
     /// multiple enums.
@@ -217,7 +217,7 @@ impl Default for Defs {
                 enum_const_rib: Rib::new(Namespace::Vars, RibKind::EnumConsts),
                 builtin_const_rib: Rib::new(Namespace::Vars, RibKind::BuiltinConsts),
             },
-            user_defined_intrinsics: Default::default(),
+            intrinsic_instrs: Default::default(),
             unique_enums: Default::default(),
             enum_const_dummy_def_id: None,
         }
@@ -708,7 +708,7 @@ impl CompilerContext<'_> {
             // so we can construct a SourceStr
             let kind_source = SourceStr::from_span(kind_str.span, &kind_str);
             let kind = sp!(kind_str.span => IntrinsicInstrKind::parse(kind_source, emitter)?);
-            self.defs.add_user_intrinsic(mapfile.language, opcode as _, kind);
+            self.defs.add_intrinsic_instr(mapfile.language, opcode as _, kind);
             Ok(())
         }).collect_with_recovery::<()>()?;
 
@@ -756,18 +756,18 @@ impl Defs {
 }
 
 impl Defs {
-    /// Add a user-defined intrinsic mapping from a mapfile.
-    pub fn add_user_intrinsic(
+    /// Add an intrinsic mapping from a mapfile.
+    pub fn add_intrinsic_instr(
         &mut self,
         language: LanguageKey,
         opcode: raw::Opcode,
         intrinsic: Sp<IntrinsicInstrKind>,
     ) {
-        self.user_defined_intrinsics[language].push((opcode, intrinsic));
+        self.intrinsic_instrs[language].push((opcode, intrinsic));
     }
 
-    pub fn iter_user_intrinsics(&self, language: LanguageKey) -> impl Iterator<Item=(raw::Opcode, Sp<IntrinsicInstrKind>)> + '_ {
-        self.user_defined_intrinsics[language].iter().copied()
+    pub fn iter_intrinsic_instrs(&self, language: LanguageKey) -> impl Iterator<Item=(raw::Opcode, Sp<IntrinsicInstrKind>)> + '_ {
+        self.intrinsic_instrs[language].iter().copied()
     }
 }
 

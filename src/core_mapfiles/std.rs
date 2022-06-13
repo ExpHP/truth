@@ -1,5 +1,6 @@
 use super::CoreSignatures;
 use crate::Game::{self, *};
+use crate::llir::IntrinsicInstrKind as IKind;
 
 pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
     match game {
@@ -18,12 +19,12 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
 static STD_06: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
-        (Th06, 0, Some("fff")),
-        (Th06, 1, Some("Cff")),
-        (Th06, 2, Some("fff")),
-        (Th06, 3, Some("S__")),
-        (Th06, 4, Some("S__")),
-        (Th06, 5, Some("___")),
+        (Th06, 0, Some(("fff", None))),
+        (Th06, 1, Some(("Cff", None))),
+        (Th06, 2, Some(("fff", None))),
+        (Th06, 3, Some(("S__", None))),
+        (Th06, 4, Some(("S__", None))),
+        (Th06, 5, Some(("___", None))),
     ],
     var: &[],
 };
@@ -31,42 +32,42 @@ static STD_06: &CoreSignatures = &CoreSignatures {
 static STD_07_09: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
-        (Th07, 0, Some("fff")),
-        (Th07, 1, Some("Cff")),
-        (Th07, 2, Some("S__")),
-        (Th07, 3, Some("___")),
-        (Th07, 4, Some("ot_")),
-        (Th07, 5, Some("fff")),
-        (Th07, 6, Some("SS_")),
-        (Th07, 7, Some("fff")),
-        (Th07, 8, Some("SS_")),
-        (Th07, 9, Some("fff")),
-        (Th07, 10, Some("SS_")),
-        (Th07, 11, Some("f__")),
-        (Th07, 12, Some("SS_")),
-        (Th07, 13, Some("C__")),
-        (Th07, 14, Some("fff")),
-        (Th07, 15, Some("fff")),
-        (Th07, 16, Some("fff")),
-        (Th07, 17, Some("fff")),
-        (Th07, 18, Some("S__")),
-        (Th07, 19, Some("fff")),
-        (Th07, 20, Some("fff")),
-        (Th07, 21, Some("fff")),
-        (Th07, 22, Some("fff")),
-        (Th07, 23, Some("S__")),
-        (Th07, 24, Some("fff")),
-        (Th07, 25, Some("fff")),
-        (Th07, 26, Some("fff")),
-        (Th07, 27, Some("fff")),
-        (Th07, 28, Some("S__")),
-        (Th07, 29, Some("S__")),  // anm script
-        (Th07, 30, Some("S__")),  // anm script
-        (Th07, 31, Some("S__")),
+        (Th07, 0, Some(("fff", None))),
+        (Th07, 1, Some(("Cff", None))),
+        (Th07, 2, Some(("S__", None))),
+        (Th07, 3, Some(("___", None))),
+        (Th07, 4, Some(("ot_", Some(IKind::Jmp)))),
+        (Th07, 5, Some(("fff", None))),
+        (Th07, 6, Some(("SS_", None))),
+        (Th07, 7, Some(("fff", None))),
+        (Th07, 8, Some(("SS_", None))),
+        (Th07, 9, Some(("fff", None))),
+        (Th07, 10, Some(("SS_", None))),
+        (Th07, 11, Some(("f__", None))),
+        (Th07, 12, Some(("SS_", None))),
+        (Th07, 13, Some(("C__", None))),
+        (Th07, 14, Some(("fff", None))),
+        (Th07, 15, Some(("fff", None))),
+        (Th07, 16, Some(("fff", None))),
+        (Th07, 17, Some(("fff", None))),
+        (Th07, 18, Some(("S__", None))),
+        (Th07, 19, Some(("fff", None))),
+        (Th07, 20, Some(("fff", None))),
+        (Th07, 21, Some(("fff", None))),
+        (Th07, 22, Some(("fff", None))),
+        (Th07, 23, Some(("S__", None))),
+        (Th07, 24, Some(("fff", None))),
+        (Th07, 25, Some(("fff", None))),
+        (Th07, 26, Some(("fff", None))),
+        (Th07, 27, Some(("fff", None))),
+        (Th07, 28, Some(("S__", None))),
+        (Th07, 29, Some(("S__", None))),  // anm script
+        (Th07, 30, Some(("S__", None))),  // anm script
+        (Th07, 31, Some(("S__", Some(IKind::InterruptLabel)))),
 
-        (Th08, 32, Some("fff")),
-        (Th08, 33, Some("S__")),
-        (Th08, 34, Some("S__")),  // anm script
+        (Th08, 32, Some(("fff", None))),
+        (Th08, 33, Some(("S__", None))),
+        (Th08, 34, Some(("S__", None))),  // anm script
     ],
     var: &[],
 };
@@ -74,34 +75,34 @@ static STD_07_09: &CoreSignatures = &CoreSignatures {
 static STD_095_18: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
-        (Th095, 0, Some("")),
-        (Th095, 1, Some("ot")),
-        (Th095, 2, Some("fff")),
-        (Th095, 3, Some("SSfff")),
-        (Th095, 4, Some("fff")),
-        (Th095, 5, Some("SSfff")),
-        (Th095, 6, Some("fff")),
-        (Th095, 7, Some("f")),
-        (Th095, 8, Some("Cff")),
-        (Th095, 9, Some("SSCff")),
-        (Th095, 10, Some("SSfffffffff")),
-        (Th095, 11, Some("SSfffffffff")),
-        (Th095, 12, Some("S")),
-        (Th095, 13, Some("C")),
-        (Th095, 14, Some("SS")),  // SN
+        (Th095, 0, Some(("", None))),
+        (Th095, 1, Some(("ot", Some(IKind::Jmp)))),
+        (Th095, 2, Some(("fff", None))),
+        (Th095, 3, Some(("SSfff", None))),
+        (Th095, 4, Some(("fff", None))),
+        (Th095, 5, Some(("SSfff", None))),
+        (Th095, 6, Some(("fff", None))),
+        (Th095, 7, Some(("f", None))),
+        (Th095, 8, Some(("Cff", None))),
+        (Th095, 9, Some(("SSCff", None))),
+        (Th095, 10, Some(("SSfffffffff", None))),
+        (Th095, 11, Some(("SSfffffffff", None))),
+        (Th095, 12, Some(("S", None))),
+        (Th095, 13, Some(("C", None))),
+        (Th095, 14, Some(("SS", None))),  // SN
         // 15 appears to be a nop (i.e. it's not in the jumptable).
         //    However, no game ever uses it
 
-        (Th11, 16, Some("S")),
-        (Th11, 17, Some("S")),
+        (Th11, 16, Some(("S", Some(IKind::InterruptLabel)))),
+        (Th11, 17, Some(("S", None))),
 
-        (Th12, 18, Some("SSfff")),
+        (Th12, 18, Some(("SSfff", None))),
 
-        (Th14, 14, Some("SSS")),  // SNS. 'layer' argument added
-        (Th14, 19, Some("S")),
-        (Th14, 20, Some("f")),
+        (Th14, 14, Some(("SSS", None))),  // SNS. 'layer' argument added
+        (Th14, 19, Some(("S", None))),
+        (Th14, 20, Some(("f", None))),
 
-        (Th17, 21, Some("SSf")),
+        (Th17, 21, Some(("SSf", None))),
     ],
     var: &[],
 };

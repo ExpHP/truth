@@ -632,10 +632,6 @@ impl LanguageHooks for MsgHooks {
 
     fn has_registers(&self) -> bool { false }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
-        vec![]  // msg is vapid
-    }
-
     fn instr_format(&self) -> &dyn InstrFormat { self }
 }
 

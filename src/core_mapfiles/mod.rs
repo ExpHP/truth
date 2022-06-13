@@ -4,6 +4,7 @@ use crate::game::{Game, LanguageKey};
 use crate::mapfile::Mapfile;
 use crate::error::ErrorReported;
 use crate::diagnostic::RootEmitter;
+use crate::llir::IntrinsicInstrKind;
 
 mod anm;
 mod ecl;
@@ -58,7 +59,7 @@ struct CoreSignatures {
     /// When converted to a mapfile, the program will run down this list and apply each item
     /// from the current game or earlier.  The presence of these "minimum game" fields allows
     /// a single [`CoreSignatures`] to be easily applied to an entire range of games.
-    ins: &'static [(Game, raw::Opcode, Option<&'static str>)],
+    ins: &'static [(Game, raw::Opcode, Option<(&'static str, Option<IntrinsicInstrKind>)>)],
 
     /// Like [`Self::ins`] but for registers.
     var: &'static [(Game, raw::Register, Option<&'static str>)],
@@ -80,9 +81,12 @@ impl CoreSignatures {
             parent.apply_to_mapfile(game, mapfile);
         }
 
-        for &(min_game, opcode, siggy_str) in self.ins {
+        for &(min_game, opcode, data) in self.ins {
+            let siggy_str = data.map(|(x, _)| sp!(x));
+            let intrinsic_str = data.and_then(|(_, opt)| opt.map(|x| sp!(x)));
             if min_game <= game {
-                insert_or_remove(&mut mapfile.ins_signatures, opcode as _, siggy_str.map(|x| sp!(x)));
+                insert_or_remove(&mut mapfile.ins_signatures, opcode as _, siggy_str);
+                insert_or_remove(&mut mapfile.ins_intrinsics, opcode as _, intrinsic_str);
             }
         }
 
@@ -103,16 +107,16 @@ fn check_core_mapfile_invariants(mapfile: &Mapfile) {
     }
 }
 
-fn insert_or_remove<K, V>(map: &mut Vec<(K, Sp<V::Owned>)>, key: K, value: Option<Sp<&V>>)
+fn insert_or_remove<K, V>(map: &mut Vec<(K, Sp<String>)>, key: K, value: Option<Sp<V>>)
 where
     K: Ord + Eq,
-    V: ToOwned + ?Sized,
+    V: ToString,
 {
     match (value, map.binary_search_by_key(&&key, |(item_key, _)| item_key)) {
         (None, Ok(index)) => { map.remove(index); },
         (None, Err(_)) => {},
-        (Some(value), Ok(index)) => map[index] = (key, value.sp_map(ToOwned::to_owned)),
-        (Some(value), Err(index)) => map.insert(index, (key, value.sp_map(ToOwned::to_owned))),
+        (Some(value), Ok(index)) => map[index] = (key, value.sp_map(|x| x.to_string())),
+        (Some(value), Err(index)) => map.insert(index, (key, value.sp_map(|x| x.to_string()))),
     }
 }
 

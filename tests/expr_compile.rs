@@ -33,6 +33,11 @@ const OTHER_OPCODE: u16 = 100;
 // Note: In these tests, instructions with opcodes < 100 are reserved for specially recognized instructions
 //       and instructions named in the mapfile.  Use opcodes >= 100 for arbitrary instructions in the text.
 fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
+    use truth::ast::AssignOpKind as A;
+    use truth::ast::BinOpKind as B;
+    use truth::ast::UnOpKind as U;
+    use truth::llir::IntrinsicInstrKind as I;
+
     let mut lines = vec![];
     lines.push(format!("!anmmap"));
     lines.push(format!("!gvar_types"));
@@ -63,29 +68,42 @@ fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
         format!("{}", OTHER_OPCODE),
         format!("{}", OTHER_OPCODE + 1),
     ];
+    let mut ins_intrinsics_lines = vec![
+        format!("{} {}", JUMP_OPCODE, I::Jmp),
+        format!("{} {}", COUNT_JUMP_OPCODE, I::CountJmp),
+        format!("{} {}", SINE_OPCODE, I::UnOp(U::Sin, Ty::Float)),
+        format!("{} {}", COSINE_OPCODE, I::UnOp(U::Cos, Ty::Float)),
+        format!("{} {}", LT_FLOAT_OPCODE, I::BinOp(ast::BinOpKind::Lt, Ty::Float)),
+    ];
 
     let mut oper_opcodes = ASSIGN_OPS_OPCODE..;
-    for _ in 0..6 {
+    for op in vec![A::Assign, A::Add, A::Sub, A::Mul, A::Div, A::Rem] {
         let s_opcode = oper_opcodes.next().unwrap();
         let f_opcode = oper_opcodes.next().unwrap();
-        ins_signatures_lines.push(format!("{} SS", s_opcode));
-        ins_signatures_lines.push(format!("{} ff", f_opcode));
+        ins_signatures_lines.push(format!("{s_opcode} SS"));
+        ins_signatures_lines.push(format!("{f_opcode} ff"));
+        ins_intrinsics_lines.push(format!("{s_opcode} {}", I::AssignOp(op, Ty::Int)));
+        ins_intrinsics_lines.push(format!("{f_opcode} {}", I::AssignOp(op, Ty::Float)));
     }
 
     let mut oper_opcodes = BINARY_OPS_OPCODE..;
-    for _ in 0..5 {
+    for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
         let s_opcode = oper_opcodes.next().unwrap();
         let f_opcode = oper_opcodes.next().unwrap();
-        ins_signatures_lines.push(format!("{} SSS", s_opcode));
-        ins_signatures_lines.push(format!("{} fff", f_opcode));
+        ins_signatures_lines.push(format!("{s_opcode} SSS"));
+        ins_signatures_lines.push(format!("{f_opcode} fff"));
+        ins_intrinsics_lines.push(format!("{s_opcode} {}", I::BinOp(op, Ty::Int)));
+        ins_intrinsics_lines.push(format!("{f_opcode} {}", I::BinOp(op, Ty::Float)));
     }
 
     let mut oper_opcodes = COND_JUMPS_OPCODE..;
-    for _ in 0..6 {
+    for op in vec![B::Eq, B::Ne, B::Lt, B::Le, B::Gt, B::Ge] {
         let s_opcode = oper_opcodes.next().unwrap();
         let f_opcode = oper_opcodes.next().unwrap();
-        ins_signatures_lines.push(format!("{} SSot", s_opcode));
-        ins_signatures_lines.push(format!("{} ffot", f_opcode));
+        ins_signatures_lines.push(format!("{s_opcode} SSot"));
+        ins_signatures_lines.push(format!("{f_opcode} ffot"));
+        ins_intrinsics_lines.push(format!("{s_opcode} {}", I::CondJmp(op, Ty::Int)));
+        ins_intrinsics_lines.push(format!("{f_opcode} {}", I::CondJmp(op, Ty::Float)));
     }
 
     let mut unused_opcodes = OTHER_OPCODE + 2..;
@@ -94,8 +112,8 @@ fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
             for siggy_chars in permutations_with_replacement(&["S", "f"], siggy_len) {
                 let siggy = siggy_chars.join("");
                 let opcode = unused_opcodes.next().unwrap();
-                ins_signatures_lines.push(format!("{} {}", opcode, siggy));
-                ins_names_lines.push(format!("{} {}_{}", opcode, base, siggy));
+                ins_signatures_lines.push(format!("{opcode} {siggy}"));
+                ins_names_lines.push(format!("{opcode} {base}_{siggy}"));
             }
         }
     }
@@ -104,6 +122,8 @@ fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
     lines.extend(ins_names_lines);
     lines.push(format!("!ins_signatures"));
     lines.extend(ins_signatures_lines);
+    lines.push(format!("!ins_intrinsics"));
+    lines.extend(ins_intrinsics_lines);
     truth.apply_mapfile_str(&lines.join("\n"), truth::Game::Th10)
         .unwrap_or_else(|_| panic!("{}", truth.get_captured_diagnostics().unwrap()));
 }
@@ -125,18 +145,8 @@ fn permutations_with_replacement<T: Clone>(items: &[T], count: usize) -> Vec<Vec
 }
 
 fn make_language(vars: &[Var]) -> impl llir::LanguageHooks {
-    use llir::IntrinsicInstrKind as I;
-
     let mut format = llir::TestLanguage::default();
     format.language = truth::LanguageKey::Anm;
-    format.intrinsic_opcode_pairs.push((I::Jmp, JUMP_OPCODE));
-    format.intrinsic_opcode_pairs.push((I::CountJmp, COUNT_JUMP_OPCODE));
-    format.intrinsic_opcode_pairs.push((I::UnOp(ast::UnOpKind::Sin, Ty::Float), SINE_OPCODE));
-    format.intrinsic_opcode_pairs.push((I::UnOp(ast::UnOpKind::Cos, Ty::Float), COSINE_OPCODE));
-    I::register_assign_ops(&mut format.intrinsic_opcode_pairs, ASSIGN_OPS_OPCODE);
-    I::register_binary_ops(&mut format.intrinsic_opcode_pairs, BINARY_OPS_OPCODE);
-    I::register_cond_jumps(&mut format.intrinsic_opcode_pairs, COND_JUMPS_OPCODE);
-    format.intrinsic_opcode_pairs.push((I::BinOp(ast::BinOpKind::Lt, Ty::Float), LT_FLOAT_OPCODE));
 
     format.general_use_int_regs = vars.iter().filter(|x| x.ty == Some(Ty::Int) && x.scratch).map(|x| x.reg).collect();
     format.general_use_float_regs = vars.iter().filter(|x| x.ty == Some(Ty::Float) && x.scratch).map(|x| x.reg).collect();

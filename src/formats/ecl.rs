@@ -977,66 +977,6 @@ impl LanguageHooks for OldeEclHooks {
         Some(crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE)
     }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
-        use llir::IntrinsicInstrKind as I;
-
-        match self.game {
-            Game::Th06 => {
-                let mut out = vec![
-                    (I::Jmp, 2),
-                    (I::CountJmp, 3),
-                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Int), 4),
-                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 5),
-                    (I::CondJmp2A(ScalarType::Int), 27),
-                    (I::CondJmp2A(ScalarType::Float), 28),
-                    (I::CallEosd, 35),
-                    // (I::Return, 36),
-                ];
-                I::register_binary_ops_of_type(&mut out, 13, ScalarType::Int);
-                I::register_binary_ops_of_type(&mut out, 20, ScalarType::Float);
-                I::register_eosd_ecl_comp_ops(&mut out, 29, |op| I::CondJmp2B(op));
-                // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
-                out
-            },
-            Game::Th07 => {
-                let mut out = vec![
-                    (I::Jmp, 2),
-                    (I::CountJmp, 3),
-                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Int), 4),
-                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 5),
-                    (I::UnOp(ast::UnOpKind::Sin, ScalarType::Float), 24),
-                    (I::UnOp(ast::UnOpKind::Cos, ScalarType::Float), 25),
-                    (I::CallReg, 41),
-                    // (I::Return, 42),
-                ];
-                I::register_binary_ops_of_type(&mut out, 12, ScalarType::Int);
-                I::register_binary_ops_of_type(&mut out, 19, ScalarType::Float);
-                I::register_cond_jumps(&mut out, 28);
-                // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
-                out
-            },
-            Game::Th08 | Game::Th09 => {
-                let mut out = vec![
-                    (I::Jmp, 4),
-                    (I::CountJmp, 5),
-                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Int), 6),
-                    (I::AssignOp(ast::AssignOpKind::Assign, ScalarType::Float), 7),
-                    (I::UnOp(ast::UnOpKind::Sin, ScalarType::Float), 32),
-                    (I::UnOp(ast::UnOpKind::Cos, ScalarType::Float), 33),
-                    (I::CallReg, 52),
-                    // (I::Return, 53),
-                ];
-                I::register_binary_ops_of_type(&mut out, 20, ScalarType::Int);
-                I::register_binary_ops_of_type(&mut out, 25, ScalarType::Float);
-                I::register_cond_jumps(&mut out, 40);
-                // I::register_olde_ecl_comp_ops(&mut out, 37, |op| I::CondCall(op, ScalarType::Int));
-                out
-            },
-            Game::Th095 => vec![],
-            _ => unreachable!(),
-        }
-    }
-
     // offsets are written as relative in these files
     fn encode_label(&self, current_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
         let relative = dest_offset as i64 - current_offset as i64;
@@ -1190,10 +1130,6 @@ impl LanguageHooks for TimelineHooks {
     fn language(&self) -> LanguageKey { LanguageKey::Timeline }
 
     fn has_registers(&self) -> bool { false }
-
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
-        vec![]
-    }
 
     fn instr_format(&self) -> &dyn InstrFormat { &*self.format }
 }
