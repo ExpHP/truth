@@ -270,8 +270,6 @@ pub trait LanguageHooks {
 
     fn has_registers(&self) -> bool;
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)>;
-
     // ---------------------------------------------------
     // Special purpose functions only overridden by a few formats
 
@@ -411,7 +409,6 @@ pub enum ReadInstr {
 #[derive(Debug, Clone)]
 pub struct TestLanguage {
     pub language: LanguageKey,
-    pub intrinsic_opcode_pairs: Vec<(IntrinsicInstrKind, raw::Opcode)>,
     pub general_use_int_regs: Vec<RegId>,
     pub general_use_float_regs: Vec<RegId>,
     /// For simulating the existence of an instruction like ANM `ins_509`
@@ -422,7 +419,6 @@ impl Default for TestLanguage {
     fn default() -> Self {
         TestLanguage {
             language: LanguageKey::Dummy,
-            intrinsic_opcode_pairs: Default::default(),
             general_use_int_regs: Default::default(),
             general_use_float_regs: Default::default(),
             anti_scratch_opcode: None,
@@ -432,10 +428,6 @@ impl Default for TestLanguage {
 
 impl LanguageHooks for TestLanguage {
     fn language(&self) -> LanguageKey { self.language }
-
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
-        self.intrinsic_opcode_pairs.clone()
-    }
 
     fn instr_disables_scratch_regs(&self, opcode: raw::Opcode) -> Option<HowBadIsIt> {
         (self.anti_scratch_opcode == Some(opcode)).then(|| HowBadIsIt::OhItsJustThisOneFunction)

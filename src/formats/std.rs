@@ -612,7 +612,7 @@ fn write_terminal_instance(f: &mut BinWriter) -> WriteResult {
 
 fn game_format(game: Game) -> Box<dyn FileFormat> {
     if Game::Th095 <= game {
-        let hooks = StdHooks10 { game };
+        let hooks = StdHooks10;
         Box::new(FileFormat10 { hooks })
     } else {
         let has_strips = match game {
@@ -621,7 +621,7 @@ fn game_format(game: Game) -> Box<dyn FileFormat> {
             _ => unreachable!(),
         };
 
-        let hooks = StdHooks06 { game };
+        let hooks = StdHooks06;
         Box::new(FileFormat06 { has_strips, hooks })
     }
 }
@@ -725,24 +725,13 @@ impl FileFormat for FileFormat10 {
     fn has_strips(&self) -> bool { false }
 }
 
-pub struct StdHooks06 { game: Game }
-pub struct StdHooks10 { game: Game }
+struct StdHooks06;
+struct StdHooks10;
 
 impl LanguageHooks for StdHooks06 {
     fn language(&self) -> LanguageKey { LanguageKey::Std }
 
     fn has_registers(&self) -> bool { false }
-
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, raw::Opcode)> {
-        if Game::Th07 <= self.game && self.game <= Game::Th09 {
-            vec![
-                (llir::IntrinsicInstrKind::Jmp, 4),
-                (llir::IntrinsicInstrKind::InterruptLabel, 31),
-            ]
-        } else {
-            vec![]  // lul
-        }
-    }
 
     fn encode_label(&self, _cur: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
         assert_eq!(dest_offset % 20, 0);
@@ -792,16 +781,6 @@ impl LanguageHooks for StdHooks10 {
     fn language(&self) -> LanguageKey { LanguageKey::Std }
 
     fn has_registers(&self) -> bool { false }
-
-    fn intrinsic_opcode_pairs(&self) -> Vec<(llir::IntrinsicInstrKind, u16)> {
-        let mut out = vec![(llir::IntrinsicInstrKind::Jmp, 1)];
-
-        // TH095 and TH10 are missing this
-        if Game::Th11 <= self.game {
-            out.push((llir::IntrinsicInstrKind::InterruptLabel, 16));
-        }
-        out
-    }
 
     fn instr_format(&self) -> &dyn InstrFormat { self }
 }

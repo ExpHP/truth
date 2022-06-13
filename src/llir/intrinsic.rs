@@ -26,13 +26,8 @@ impl IntrinsicInstrs {
     ///
     /// This will perform verification of the signatures for each intrinsic.
     pub fn from_format_and_mapfiles(instr_format: &dyn LanguageHooks, defs: &context::Defs, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
-        let native_pairs = instr_format.intrinsic_opcode_pairs();
-        let iter_pairs = || {
-            native_pairs.iter().copied()
-                .map(|(intrinsic, opcode)| (opcode, sp!(intrinsic))) // dummy spans for builtin defs
-                .chain(defs.iter_user_intrinsics(instr_format.language()))
-        };
-        // duplicates can be crazy so we iterate twice instead of making one map from the other
+        let iter_pairs = || defs.iter_intrinsic_instrs(instr_format.language());
+        // duplicates can be many-to-many so we iterate twice instead of making one map from the other
         let opcode_intrinsics = iter_pairs().collect::<IndexMap<_, _>>();
         let intrinsic_opcodes = iter_pairs().map(|(k, v)| (v.value, k)).collect::<IndexMap<_, _>>();
 

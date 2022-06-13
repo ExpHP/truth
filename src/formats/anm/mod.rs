@@ -15,7 +15,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
-use crate::llir::{self, RawInstr, InstrFormat, LanguageHooks, IntrinsicInstrKind, DecompileOptions, HowBadIsIt};
+use crate::llir::{self, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
@@ -1224,13 +1224,6 @@ impl LanguageHooks for AnmHooks06 {
 
     fn has_registers(&self) -> bool { false }
 
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
-        vec![
-            (IntrinsicInstrKind::Jmp, 5),
-            (IntrinsicInstrKind::InterruptLabel, 22),
-        ]
-    }
-
     fn is_th06_anm_terminating_instr(&self, opcode: raw::Opcode) -> bool {
         // This is the check that TH06 ANM uses to know when to stop searching for interrupt labels.
         // Basically, the first `delete` or `static` marks the end of the script.
@@ -1244,62 +1237,6 @@ impl LanguageHooks for AnmHooks07 {
     fn language(&self) -> LanguageKey { LanguageKey::Anm }
 
     fn has_registers(&self) -> bool { true }
-
-    fn intrinsic_opcode_pairs(&self) -> Vec<(IntrinsicInstrKind, raw::Opcode)> {
-        use IntrinsicInstrKind as I;
-
-        match self.version {
-            Version::V0 => unreachable!(),
-            Version::V2 | Version::V3 => {
-                let mut out = vec![
-                    (I::Jmp, 4),
-                    (I::CountJmp, 5),
-                    (I::InterruptLabel, 21),
-                    (I::UnOp(token![sin], ScalarType::Float), 61),
-                    (I::UnOp(token![cos], ScalarType::Float), 62),
-                    // (I::UnOp(Un::Tan, ScalarType::Float), 63),
-                    // (I::UnOp(Un::Acos, ScalarType::Float), 64),
-                    // (I::UnOp(Un::Atan, ScalarType::Float), 65),
-                ];
-                I::register_assign_ops(&mut out, 37);
-                I::register_binary_ops(&mut out, 49);
-                I::register_cond_jumps(&mut out, 67);
-                out
-            },
-            Version::V4 | Version::V7 => {
-                let mut out = vec![
-                    (I::Jmp, 4),
-                    (I::CountJmp, 5),
-                    (I::InterruptLabel, 64),
-                    (I::UnOp(token![sin], ScalarType::Float), 42),
-                    (I::UnOp(token![cos], ScalarType::Float), 43),
-                    // (I::UnOp(Un::Tan, ScalarType::Float), 44),
-                    // (I::UnOp(Un::Acos, ScalarType::Float), 45),
-                    // (I::UnOp(Un::Atan, ScalarType::Float), 46),
-                ];
-                I::register_assign_ops(&mut out, 6);
-                I::register_binary_ops(&mut out, 18);
-                I::register_cond_jumps(&mut out, 28);
-                out
-            },
-            Version::V8 => {
-                let mut out = vec![
-                    (I::Jmp, 200),
-                    (I::CountJmp, 201),
-                    (I::InterruptLabel, 5),
-                    (I::UnOp(token![sin], ScalarType::Float), 124),
-                    (I::UnOp(token![cos], ScalarType::Float), 125),
-                    // (I::UnOp(Un::Tan, ScalarType::Float), 126),
-                    // (I::UnOp(Un::Acos, ScalarType::Float), 127),
-                    // (I::UnOp(Un::Atan, ScalarType::Float), 128),
-                ];
-                I::register_assign_ops(&mut out, 100);
-                I::register_binary_ops(&mut out, 112);
-                I::register_cond_jumps(&mut out, 202);
-                out
-            },
-        }
-    }
 
     fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
         use RegId as R;
