@@ -243,10 +243,13 @@ source_test!(
 
 source_test!(
     ANM_10, intrinsic_with_novel_abi,
+    compile_args: &["--no-builtin-mapfiles"],  // only use intrinsics defined in this test
     mapfile: r#"!anmmap
 !ins_signatures
+95  SS
 99  Sto   # no game has a CountJmp signature like this!!
 !ins_intrinsics
+95  AssignOp(op="="; type="int")
 99  CountJmp()
 "#,
     main_body: r#"
@@ -259,18 +262,11 @@ blah:
         // should decompile to a `do { } while (--$I0)` loop!
         assert!(decompiled.contains("while (--"));
     },
-    // NOTE: This test depends somewhat riskily on the fact that, currently, the last
-    //       opcode assigned to an intrinsic takes priority during compilation.
-    //       (so the recompile step also uses opcode 99 instead of 5 and hence the
-    //       final binary matches)
-    //
-    //       This behavior of truth is incidental/not (yet) specified and the test
-    //       could be made more robust with the addition of a --no-default-intrinsics
-    //       flag to guarantee that the opcode 5 pairing is completely forgotten.
 );
 
 source_test!(
     ANM_10, intrinsic_float_op_like_eosd_ecl,
+    compile_args: &["--no-builtin-mapfiles"],  // only use intrinsics defined in this test
     mapfile: r#"!anmmap
 !ins_signatures
 99  Sff   # EoSD ECL writes output regs as integers
@@ -284,8 +280,6 @@ source_test!(
         // The raw ins_ used $REG but the decompiled op should use %REG syntax
         assert!(decompiled.contains("%REG[10] = %REG[20] + 3.5"));
     },
-    // NOTE: This test depends somewhat riskily on the fact that, currently, the last
-    //       opcode assigned to an intrinsic takes priority during compilation.
 );
 
 source_test!(

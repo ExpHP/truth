@@ -12,7 +12,8 @@
 * **Debug info.** The `--output-debug-info JSONFILE` flag has been added to all `compile` subcommands.  This file can be used by debuggers to relate source-level concepts (e.g. function names and variable names) to runtime concepts (e.g. registers and const values).
 
   Perfect name resolution of locals in a debugger might not be possible yet as truth currently does not explicitly construct the tree used for name resolution (it is only implicitly constructed), so scope information is not yet available.
-* **Bitwise negation.** The unary `~` (bitwise not) operator has been added.  No language natively provides it, but even when unavailable, it can be used (and will compile as `-1 - x`).  
+* **Bitwise negation.** The unary `~` (bitwise not) operator has been added.  No language natively provides it, but even when unavailable, it can be used (and will compile as `-1 - x`).
+* **`--no-builtin-mapfiles`** option for both compilation and decompilation.  This will disable the core mapfiles which provide the builtin signatures and intrinsic mappings for all games, which can be useful if you are trying to design a comprehensive mapfile from scratch.
 
 ## Other bugfixes
 
