@@ -7,6 +7,7 @@ use crate::integration_impl::{expected, formats::*};
 
 source_test!(
     ANM_10, unary_neg_bitnot_intrinsic_preferred_over_fallback,
+    compile_args: &["--no-builtin-mapfiles"],  // only use intrinsics defined in this test
     mapfile: r#"!anmmap
 !ins_intrinsics
 1000 UnOp(op="-"; type="int")
@@ -31,13 +32,12 @@ source_test!(
         assert_eq!(anm.entries[0].scripts[0].instrs[1].opcode, 2000);
         assert_eq!(anm.entries[0].scripts[0].instrs[1].args_blob[4..], blobify![10000]);
     },
-    // NOTE: This test depends somewhat riskily on the fact that, currently, the last
-    //       opcode assigned to an intrinsic takes priority during compilation.
 );
 
 
 source_test!(
     ANM_10, unary_neg_bitnot_fallbacks,
+    compile_args: &["--no-builtin-mapfiles"],  // only use intrinsics defined in this test
     mapfile: r#"!anmmap
 !ins_intrinsics
 1500 BinOp(op="-"; type="int")
@@ -57,18 +57,13 @@ source_test!(
         assert_eq!(anm.entries[0].scripts[0].instrs[1].opcode, 1500);
         assert_eq!(anm.entries[0].scripts[0].instrs[1].args_blob[4..], blobify![-1, 10000]);
     },
-    // NOTE: This test depends somewhat riskily on the fact that, currently, the last
-    //       opcode assigned to an intrinsic takes priority during compilation.
 );
 
-// // FIXME: implement --no-default-intrinsics
-// source_test!(
-//     ANM_10, unary_neg_fallbacks_unavailable,
-//     compile_options: ["--no-default-intrinsics"],
-//     mapfile: r#"!anmmap
-//     "#,
-//     main_body: r#"
-//     int a = -$I0;  //~ ERROR unsupported
-//     float x = -%F0;  //~ ERROR unsupported
-// "#,
-// );
+source_test!(
+    ANM_10, unary_neg_fallbacks_unavailable,
+    compile_args: &["--no-builtin-mapfiles"],  // only use intrinsics defined in this test
+    main_body: r#"
+    int a = -$I0;  //~ ERROR not supported
+    float x = -%F0;  //~ ERROR not supported
+"#,
+);
