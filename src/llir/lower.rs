@@ -111,6 +111,12 @@ impl LowerArg {
     }
 }
 
+impl From<ScalarValue> for LowerArg {
+    fn from(value: ScalarValue) -> Self {
+        LowerArg::Raw(value.into())
+    }
+}
+
 /// Type that provides methods to lower function bodies to instructions.
 ///
 /// Ideally, a single `Lowerer` should be used to lower all script bodies of a given language.

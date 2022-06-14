@@ -67,6 +67,7 @@ extern {
         "||" => Token::OrOr,
         "&&" => Token::AndAnd,
         "--" => Token::MinusMinus,
+        "++" => Token::PlusPlus,
         "$" => Token::Cash,
         "#" => Token::Hash,
         "anim" => Token::Anim,

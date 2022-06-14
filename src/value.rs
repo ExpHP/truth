@@ -26,6 +26,12 @@ impl ScalarValue {
         ScalarValue::String(_) => ScalarType::String,
     }}
 
+    pub fn int_of_ty(value: i32, ty: ScalarType) -> Self { match ty {
+        ScalarType::Int => value.into(),
+        ScalarType::Float => (value as f32).into(),
+        ScalarType::String => panic!("ScalarValue::int_of_ty() called on type String"),
+    }}
+
     /// Allows simulating the effect of e.g. `%INT_VAR` or `$FLOAT_VAR` in most games.
     ///
     /// (basically, most games perform typecasts when variables are read as the other type)
@@ -98,6 +104,7 @@ impl From<String> for ScalarValue {
 /// or void-ness as possibilities, see [`VarType`] and [`ExprType`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(enum_map::Enum)]
+#[derive(strum::EnumIter)]
 pub enum ScalarType {
     Int,
     Float,
@@ -105,6 +112,14 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
+    pub fn iter() -> impl ExactSizeIterator<Item=Self> {
+        <Self as strum::IntoEnumIterator>::iter()
+    }
+
+    pub fn iter_numeric() -> impl ExactSizeIterator<Item=Self> {
+        [ScalarType::Int, ScalarType::Float].into_iter()
+    }
+
     /// Textual description, e.g. `"an integer"`.
     pub fn descr(self) -> &'static str {
         match self {

@@ -17,7 +17,7 @@
 
 ## Other bugfixes
 
-* Unary `-` now can be directly provided by an intrinsic. (formerly, it would always fall back to `0 - x`, which is not exactly the same for floats)
+* Unary `-` now can be directly provided by an intrinsic, and will otherwise fall back to `-1 * x`. (formerly, it would always produce `0 - x`, which is not correct for all floats)
 
 # Version 0.5.0
 

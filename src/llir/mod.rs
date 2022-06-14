@@ -132,19 +132,23 @@ impl SimpleArg {
     }
 }
 
+impl From<ScalarValue> for SimpleArg {
+    fn from(value: ScalarValue) -> SimpleArg { SimpleArg { value, is_reg: false } }
+}
+
 impl From<raw::LangInt> for SimpleArg {
-    fn from(x: raw::LangInt) -> SimpleArg { SimpleArg { value: ScalarValue::Int(x), is_reg: false } }
+    fn from(x: raw::LangInt) -> SimpleArg { ScalarValue::Int(x).into() }
 }
 
 impl From<raw::LangFloat> for SimpleArg {
-    fn from(x: raw::LangFloat) -> SimpleArg { SimpleArg { value: ScalarValue::Float(x), is_reg: false } }
+    fn from(x: raw::LangFloat) -> SimpleArg { ScalarValue::Float(x).into() }
 }
 
 impl From<String> for SimpleArg {
-    fn from(x: String) -> SimpleArg { SimpleArg { value: ScalarValue::String(x), is_reg: false } }
+    fn from(x: String) -> SimpleArg { ScalarValue::String(x).into() }
 }
 
-fn unsupported(span: &crate::pos::Span, what: &str) -> Diagnostic {
+fn unsupported(span: crate::pos::Span, what: &str) -> Diagnostic {
     error!(
         message("feature not supported by format"),
         primary(span, "{} not supported by format", what),

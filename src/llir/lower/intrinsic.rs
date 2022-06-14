@@ -1,5 +1,6 @@
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg};
 use crate::ast;
+use crate::raw;
 use crate::llir::{IntrinsicInstrKind};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::error::{ErrorReported};
@@ -21,8 +22,21 @@ impl SingleSubLowerer<'_, '_> {
         descr_if_unsupported: &str,
         declare_args: impl FnOnce(&mut IntrinsicBuilder<'a>),
     ) -> Result<(), ErrorReported> {
-        let (opcode, abi_parts) = self.intrinsic_instrs.get_opcode_and_abi_props(kind, span, descr_if_unsupported)
-            .map_err(|e| self.ctx.emitter.emit(e))?;
+        let opcode = self.intrinsic_instrs.get_opcode_opt(kind)
+            .ok_or_else(|| self.ctx.emitter.emit(self.intrinsic_instrs.missing_intrinsic_error(span, descr_if_unsupported)))?;
+
+        self.lower_intrinsic_by_opcode(span, stmt_data, opcode, declare_args)
+    }
+
+    pub(in crate::llir::lower) fn lower_intrinsic_by_opcode<'a>(
+        &mut self,
+        span: Span,
+        stmt_data: TimeAndDifficulty,
+        opcode: raw::Opcode,
+        declare_args: impl FnOnce(&mut IntrinsicBuilder<'a>),
+    ) -> Result<(), ErrorReported> {
+        let (_, abi_parts) = self.intrinsic_instrs.get_intrinsic_and_props(opcode)
+            .expect("(bug!) how did we get this opcode if it isn't an intrinsic?");
 
         // let the caller provide us with various data appropriate to this intrinsic
         let mut builder = IntrinsicBuilder::default();

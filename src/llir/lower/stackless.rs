@@ -7,7 +7,7 @@ use std::collections::{HashMap, BTreeMap};
 use crate::raw;
 use super::{LowerStmt, LowerInstr, LowerArgs, LowerArg, SimpleArg};
 use crate::diagnostic::Diagnostic;
-use crate::llir::{LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, HowBadIsIt};
+use crate::llir::{LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, HowBadIsIt, intrinsic::alternatives};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
@@ -80,7 +80,7 @@ impl SingleSubLowerer<'_, '_> {
 
                 ast::StmtKind::Expr(expr) => match &expr.value {
                     ast::Expr::Call(call) => self.lower_call_stmt(&mut th06_anm_end_span, expr.span, stmt_data, call)?,
-                    _ => return Err(self.unsupported(&expr.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
+                    _ => return Err(self.unsupported(expr.span, &format!("{} in {}", expr.descr(), stmt.kind.descr()))),
                 }, // match expr
 
                 ast::StmtKind::Label(ident) => {
@@ -98,7 +98,7 @@ impl SingleSubLowerer<'_, '_> {
                 ast::StmtKind::RelTimeLabel { .. } => {},
                 ast::StmtKind::Item { .. } => {},
 
-                _ => return Err(self.unsupported(&stmt.span, stmt.kind.descr())),
+                _ => return Err(self.unsupported(stmt.span, stmt.kind.descr())),
             }
             Ok(())
         }).collect_with_recovery()
@@ -131,7 +131,7 @@ impl SingleSubLowerer<'_, '_> {
                 // exported sub
                 let sub_info = self.sub_info.unwrap();
                 match self.ctx.defs.user_func_qualifier(def_id).expect("isn't user func?") {
-                    Some(sp_pat!(token![inline])) => Err(self.unsupported(&stmt_span, "call to inline func")),
+                    Some(sp_pat!(token![inline])) => Err(self.unsupported(stmt_span, "call to inline func")),
                     Some(sp_pat!(token![const])) => panic!("leftover const func call during lowering"),
                     None => match sub_info.call_reg_info.as_ref() {
                         None => {
@@ -224,7 +224,7 @@ impl SingleSubLowerer<'_, '_> {
 
         if let Some(pop) = pseudo_pop {
             if pop.value != 0 {
-                return Err(self.unsupported(&pop.span, "stack-pop pseudo argument"));
+                return Err(self.unsupported(pop.span, "stack-pop pseudo argument"));
             }
         }
 
@@ -280,7 +280,7 @@ impl SingleSubLowerer<'_, '_> {
         vars: &[Sp<(Sp<ast::Var>, Option<Sp<ast::Expr>>)>],
     ) -> Result<(), ErrorReported>{
         if keyword.value == token![var] {
-            return Err(self.unsupported(&keyword.span, "untyped variables"));
+            return Err(self.unsupported(keyword.span, "untyped variables"));
         }
 
         for pair in vars {
@@ -309,19 +309,8 @@ impl SingleSubLowerer<'_, '_> {
         let data_rhs = match self.classify_expr(rhs)? {
             // a = <atom>;
             // a += <atom>;
-            ExprClass::Simple(SimpleExpr { lowered: lowered_rhs, ty: ty_rhs }) => {
-                let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
-                assert_eq!(ty_var, ty_rhs, "already type-checked");
-
-                self.lower_intrinsic(
-                    span, stmt_data,
-                    IKind::AssignOp(assign_op.value, ty_var), "update assignment with this operation",
-                    |bld| {
-                        bld.outputs.push(lowered_var);
-                        bld.plain_args.push(lowered_rhs);
-                    },
-                )?;
-                return Ok(());
+            ExprClass::Simple(simple_rhs) => {
+                return self.lower_assign_op_intrinsic(span, stmt_data, var, assign_op, simple_rhs);
             },
             ExprClass::NeedsElaboration(data) => data,
         };
@@ -363,7 +352,7 @@ impl SingleSubLowerer<'_, '_> {
                 match assign_op.value {
                     // a = <big expr>;
                     // if none of the other branches handled it yet, we can't do it
-                    ast::AssignOpKind::Assign => Err(self.unsupported(&rhs.span, "this expression")),
+                    ast::AssignOpKind::Assign => Err(self.unsupported(rhs.span, "this expression")),
 
                     // a += <expr>;
                     // split out to: `tmp = <expr>;  a += tmp;`
@@ -376,6 +365,41 @@ impl SingleSubLowerer<'_, '_> {
                 }
             },
         }
+    }
+
+    /// Lowers `a = <atom>;`  or  `a *= <atom>;`
+    fn lower_assign_op_intrinsic(
+        &mut self,
+        span: Span,
+        stmt_data: TimeAndDifficulty,
+        var: &Sp<ast::Var>,
+        assign_op: &Sp<ast::AssignOpKind>,
+        rhs: SimpleExpr,
+    ) -> Result<(), ErrorReported> {
+        let SimpleExpr { lowered: lowered_rhs, ty: ty_rhs } = rhs;
+        let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
+        assert_eq!(ty_var, ty_rhs, "already type-checked");
+
+        match self.intrinsic_instrs.alternatives().assign_ops.get(&(assign_op.value, ty_var)) {
+            None => return Err(self.unsupported(span, "update assignment with this operation")),
+
+            Some(&alternatives::AssignOp::Intrinsic { opcode }) => {
+                self.lower_intrinsic_by_opcode(span, stmt_data, opcode, |bld| {
+                    bld.outputs.push(lowered_var);
+                    bld.plain_args.push(lowered_rhs);
+                })?;
+            },
+
+            Some(&alternatives::AssignOp::ViaBinOp { opcode }) => {
+                self.lower_intrinsic_by_opcode(span, stmt_data, opcode, |bld| {
+                    bld.outputs.push(lowered_var.clone());
+                    bld.plain_args.push(lowered_var);
+                    bld.plain_args.push(lowered_rhs);
+                })?;
+            },
+        }
+
+        Ok(())
     }
 
     // NOTE:  It feels silly that this needs to exist in lowering code, but there's no avoiding it.
@@ -521,6 +545,7 @@ impl SingleSubLowerer<'_, '_> {
         b: &Sp<ast::Expr>,
     ) -> Result<(), ErrorReported> {
         let ty_rhs = ast::Expr::unop_ty(unop.value, b, self.ctx);
+
         match self.classify_expr(b)? {
             ExprClass::NeedsElaboration(data_b) => {
                 // Unary operations can reuse their destination register as long as it's the same type.
@@ -546,60 +571,43 @@ impl SingleSubLowerer<'_, '_> {
             ExprClass::Simple(data_b) => {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ty_rhs, "already type-checked");
-                let ty = data_b.ty;
 
-                match unop.value {
-                    // These are all handled other ways
-                    | token![unop $]
-                    | token![unop %]
-                    => unreachable!(),
-
-                    // Simple boys.
-                    // note: in most languages, 'int' and 'float' are replaced with '$' and '%' before
-                    //       we get here, but they can make it here in EoSD ECL.
-                    | token![unop int]
-                    | token![unop float]
-                    | token![sin]
-                    | token![cos]
-                    | token![sqrt]
-                    => {
-                        let intrinsic = IKind::UnOp(unop.value, ty);
-                        self.lower_intrinsic(rhs_span, stmt_data, intrinsic, "this unary operation", |bld| {
-                            bld.outputs.push(lowered_var);
-                            bld.plain_args.push(data_b.lowered);
-                        })?;
-                    },
-
-                    // These may not be available but can be substituted with something else.
-                    | token![unop -]  // can be `0 - a`  // TODO: document that this is not IEEE-754 conformant
-                    | token![unop ~]  // can be `-1 - a`
-                    => {
-                        let intrinsic = IKind::UnOp(unop.value, ty);
-                        if self.intrinsic_instrs.get_opcode_opt(intrinsic).is_some() {
-                            // The intrinsic exists. Use it.
-                            self.lower_intrinsic(rhs_span, stmt_data, intrinsic, "this unary operation", |bld| {
-                                bld.outputs.push(lowered_var);
-                                bld.plain_args.push(data_b.lowered);
-                            })?;
-                        } else {
-                            // Use fallback.
-                            let ty = b.compute_ty(self.ctx).as_value_ty().expect("type-checked so not void");
-                            let konst = match unop.value {
-                                token![unop -] => sp!(unop.span => ast::Expr::int_of_ty(0, ty)),
-                                token![unop ~] => sp!(unop.span => ast::Expr::int_of_ty(-1, ty)),
-                                _ => unreachable!(),
-                            };
-                            let minus = sp!(unop.span => token![-]);
-                            self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, &konst, &minus, b)?;
-                        }
-                    }
-
-                    // TODO: we *could* polyfill this with some conditional jumps but bleccccch
-                    token![!] => return Err(self.unsupported(&span, "logical not operator")),
-                }
-                Ok(())
+                self.lower_assign_direct_unop_intrinsic(span, stmt_data, lowered_var, rhs_span, unop, data_b)
             },
         }
+    }
+
+    /// Lowers `a = -<atom>;`
+    fn lower_assign_direct_unop_intrinsic(
+        &mut self,
+        span: Span,
+        stmt_data: TimeAndDifficulty,
+        lowered_var: Sp<LowerArg>,
+        rhs_span: Span,
+        unop: &Sp<ast::UnOpKind>,
+        b: SimpleExpr,
+    ) -> Result<(), ErrorReported> {
+        match self.intrinsic_instrs.alternatives().unops.get(&(unop.value, b.ty)) {
+            None => return Err(self.unsupported(rhs_span, "this unary operation")),
+
+            Some(&alternatives::UnOp::Intrinsic { opcode }) => {
+                self.lower_intrinsic_by_opcode(span, stmt_data, opcode, |bld| {
+                    bld.outputs.push(lowered_var);
+                    bld.plain_args.push(b.lowered);
+                })?;
+            },
+
+            Some(&alternatives::UnOp::ViaConstBinOp { ref a, opcode }) => {
+                let lowered_a = sp!(span => a.clone().into());
+                self.lower_intrinsic_by_opcode(span, stmt_data, opcode, |bld| {
+                    bld.outputs.push(lowered_var);
+                    bld.plain_args.push(lowered_a);
+                    bld.plain_args.push(b.lowered);
+                })?;
+            },
+        }
+
+        Ok(())
     }
 
     fn lower_uncond_jump(&mut self, stmt_span: Span, stmt_data: TimeAndDifficulty, goto: &ast::StmtGoto) -> Result<(), ErrorReported> {
@@ -742,7 +750,7 @@ impl SingleSubLowerer<'_, '_> {
         Ok(())
     }
 
-    // `if (a != b) ...` for simple values
+    /// Lowers `if (<atom> != <atom>) goto label @ time;` and similar
     fn lower_cond_jump_intrinsic(
         &mut self,
         stmt_span: Span,
@@ -755,25 +763,28 @@ impl SingleSubLowerer<'_, '_> {
         assert_eq!(data_a.ty, data_b.ty, "should've been type-checked");
         let ty_arg = data_a.ty;
 
-        // check language capabilities
-        let cmp_jmp_kind = IKind::CondJmp(binop.value, ty_arg);
-        if self.intrinsic_instrs.get_opcode_opt(cmp_jmp_kind).is_some() {
-            // language has single-instruction conditional jumps
-            self.lower_intrinsic(stmt_span, stmt_data, cmp_jmp_kind, "(bug!) you shouldn't see this text", |bld| {
-                bld.jump = Some(goto);
-                bld.plain_args.push(data_a.lowered);
-                bld.plain_args.push(data_b.lowered);
-            })?;
-        } else {
-            // language may have two-instruction conditional jumps
-            self.lower_intrinsic(stmt_span, stmt_data, IKind::CondJmp2A(ty_arg), "conditional jump", |bld| {
-                bld.plain_args.push(data_a.lowered);
-                bld.plain_args.push(data_b.lowered);
-            })?;
-            self.lower_intrinsic(binop.span, stmt_data, IKind::CondJmp2B(binop.value), "conditional jump with this operator", |bld| {
-                bld.jump = Some(goto);
-            })?;
+        match self.intrinsic_instrs.alternatives().cond_jmps.get(&(binop.value, ty_arg)) {
+            None => return Err(self.unsupported(stmt_span, "this conditional jump")),
+
+            Some(&alternatives::CondJmp::Intrinsic { opcode }) => {
+                self.lower_intrinsic_by_opcode(stmt_span, stmt_data, opcode, |bld| {
+                    bld.plain_args.push(data_a.lowered);
+                    bld.plain_args.push(data_b.lowered);
+                    bld.jump = Some(goto);
+                })?;
+            },
+
+            Some(&alternatives::CondJmp::TwoPart { cmp_opcode, jmp_opcode }) => {
+                self.lower_intrinsic_by_opcode(stmt_span, stmt_data, cmp_opcode, |bld| {
+                    bld.plain_args.push(data_a.lowered);
+                    bld.plain_args.push(data_b.lowered);
+                })?;
+                self.lower_intrinsic_by_opcode(stmt_span, stmt_data, jmp_opcode, |bld| {
+                    bld.jump = Some(goto);
+                })?;
+            },
         }
+
         Ok(())
     }
 
@@ -894,7 +905,7 @@ impl SingleSubLowerer<'_, '_> {
         }
     }
 
-    fn unsupported(&self, span: &crate::pos::Span, what: &str) -> ErrorReported {
+    fn unsupported(&self, span: crate::pos::Span, what: &str) -> ErrorReported {
         self.ctx.emitter.emit(super::unsupported(span, what))
     }
 }

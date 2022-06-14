@@ -6,6 +6,6 @@ error: feature not supported by format
    ┌─ <input>:21:13
    │
 21 │         int x = 4;
-   │             ^^^^^ update assignment with this operation not supported in this game
+   │             ^^^^^ update assignment with this operation not supported by format
 
 

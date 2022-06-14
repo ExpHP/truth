@@ -361,6 +361,7 @@ pub type DifficultyLabel = String;
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(strum::EnumIter)]
     pub enum AssignOpKind {
         #[strum(serialize = "=")] Assign,
         #[strum(serialize = "+=")] Add,
@@ -393,6 +394,11 @@ impl AssignOpKind {
             Self::ShiftRightSigned => OpClass::Shift,
             Self::ShiftRightUnsigned => OpClass::Shift,
         }
+    }
+
+    /// Iterate over all assign ops.
+    pub fn iter() -> impl Iterator<Item=AssignOpKind> {
+        <Self as strum::IntoEnumIterator>::iter()
     }
 
     pub fn corresponding_binop(self) -> Option<BinOpKind> {
@@ -631,6 +637,7 @@ pub enum VarName {
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(strum::EnumIter)]
     pub enum BinOpKind {
         #[strum(serialize = "+")] Add,
         #[strum(serialize = "-")] Sub,
@@ -671,6 +678,16 @@ impl BinOpKind {
         self.class() == OpClass::Comparison
     }
 
+    /// Iterate over all binops.
+    pub fn iter() -> impl Iterator<Item=BinOpKind> {
+        <Self as strum::IntoEnumIterator>::iter()
+    }
+
+    /// Iterate over the comparison ops.
+    pub fn iter_comparison() -> impl Iterator<Item=BinOpKind> {
+        Self::iter().filter(|&op| Self::is_comparison(op))
+    }
+
     pub fn negate_comparison(self) -> Option<BinOpKind> { match self {
         token![==] => Some(token![!=]),
         token![!=] => Some(token![==]),
@@ -684,6 +701,7 @@ impl BinOpKind {
 
 string_enum! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(strum::EnumIter)]
     pub enum UnOpKind {
         #[strum(serialize = "!")] Not,
         #[strum(serialize = "-")] Neg,
@@ -712,6 +730,11 @@ impl UnOpKind {
             UnOpKind::EncodeI => OpClass::TySigil,
             UnOpKind::EncodeF => OpClass::TySigil,
         }
+    }
+
+    /// Iterate over all unops.
+    pub fn iter() -> impl Iterator<Item=UnOpKind> {
+        <Self as strum::IntoEnumIterator>::iter()
     }
 
     /// Convert the `%` and `$` operators into var sigils.
