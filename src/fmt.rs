@@ -838,15 +838,6 @@ impl Format for ast::CondBlock {
     }
 }
 
-impl Format for ast::Cond {
-    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        match self {
-            ast::Cond::PreDecrement(var) => out.fmt(("--", var)),
-            ast::Cond::Expr(expr) => out.fmt(expr),
-        }
-    }
-}
-
 impl Format for ast::CallAsyncKind {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         match *self {
@@ -910,6 +901,8 @@ impl Format for ast::Expr {
                 token![sin] | token![cos] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
+            ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op, var } => out.fmt((op, var)),
+            ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Post, op, var } => out.fmt((var, op)),
             ast::Expr::EnumConst { enum_name, ident } => out.fmt((enum_name, ".", ident)),
             ast::Expr::LitInt { value: 0, radix: ast::IntRadix::Bool } => out.fmt("false"),
             ast::Expr::LitInt { value: 1, radix: ast::IntRadix::Bool } => out.fmt("true"),

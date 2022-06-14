@@ -324,13 +324,13 @@ StmtKindPhysical: ast::StmtKind = {
     <chain:CondChain>
         => ast::StmtKind::CondChain(chain),
 
-    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <jump:StmtJumpKind> ";"
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Expr>> ")" <jump:StmtJumpKind> ";"
         => ast::StmtKind::CondJump { keyword, cond, jump },
 
-    <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" ";"
+    <do_keyword:TokenSpan<"do">> <block:StmtOrBlock> <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Expr>> ")" ";"
         => ast::StmtKind::While { do_keyword: Some(do_keyword), while_keyword, cond, block, loop_id: None },
 
-    <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
+    <while_keyword:TokenSpan<"while">> "(" <cond:Sp<Expr>> ")" <block:StmtOrBlock>
         => ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, loop_id: None },
 
     <keyword:TokenSpan<"times">> "(" <clobber:(<Sp<Var>> "=")?> <count:Sp<Expr>> ")" <block:StmtOrBlock>
@@ -421,13 +421,8 @@ CondChainWithoutElse: ast::StmtCondChain = {
 };
 
 CondBlock: ast::CondBlock = {
-    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Cond>> ")" <block:StmtOrBlock>
+    <keyword:Sp<CondKeyword>> "(" <cond:Sp<Expr>> ")" <block:StmtOrBlock>
         => ast::CondBlock { keyword, cond, block },
-};
-
-Cond: ast::Cond = {
-    "--" <var:Sp<Var>> => ast::Cond::PreDecrement(var),
-    <expr:Sp<Expr>> => ast::Cond::Expr(expr),
 };
 
 // block for an 'if', 'while', etc.
@@ -569,6 +564,10 @@ OpAssign: ast::AssignOpKind = {
     ">>=" => token![>>=],
     ">>>=" => token![>>>=],
 };
+OpXcrement: ast::XcrementOpKind = {
+    "++" => token![++],
+    "--" => token![--],
+};
 #[inline] OpLeftUnary: ast::UnOpKind = {
     "-" => token![-],
     "~" => token![~],
@@ -605,6 +604,12 @@ ExprTerm: ast::Expr = {
         => ast::Expr::EnumConst { enum_name, ident },
 
     <v:Sp<Var>> => ast::Expr::Var(v),
+
+    <op:Sp<OpXcrement>> <var:Sp<Var>>
+        => ast::Expr::XcrementOp { var, op, order: ast::XcrementOpOrder::Pre },
+
+    <var:Sp<Var>> <op:Sp<OpXcrement>>
+        => ast::Expr::XcrementOp { var, op, order: ast::XcrementOpOrder::Post },
 
     <value:LitIntUnsigned> => ast::Expr::LitInt { value, radix: ast::IntRadix::Dec },
 

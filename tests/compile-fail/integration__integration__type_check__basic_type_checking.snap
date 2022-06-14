@@ -113,4 +113,20 @@ error: type error
    │     │  same types required by this
    │     a float
 
+error: type error
+   ┌─ <input>:54:15
+   │
+54 │     int a = ++F0;
+   │             --^^ a float
+   │             │  
+   │             expects an integer
+
+error: type error
+   ┌─ <input>:55:15
+   │
+55 │     float x = I0--;
+   │     -----     ^^^^ an integer
+   │     │          
+   │     expects a float
+
 

@@ -136,7 +136,7 @@ pub enum StmtKind {
     /// Conditional goto.  `if (a == b) goto label @ time;`
     CondJump {
         keyword: Sp<CondKeyword>,
-        cond: Sp<Cond>,
+        cond: Sp<Expr>,
         jump: StmtJumpKind,
     },
 
@@ -161,7 +161,7 @@ pub enum StmtKind {
         loop_id: Option<LoopId>,
         while_keyword: TokenSpan,
         do_keyword: Option<TokenSpan>,
-        cond: Sp<Cond>,
+        cond: Sp<Expr>,
         block: Block,
     },
 
@@ -318,21 +318,8 @@ impl StmtCondChain {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CondBlock {
     pub keyword: Sp<CondKeyword>,
-    pub cond: Sp<Cond>,
+    pub cond: Sp<Expr>,
     pub block: Block,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Cond {
-    Expr(Sp<Expr>),
-    /// This is how jmpDec works in register-based languages.
-    ///
-    /// (stack-based ECL instead has a decrement operator that is postdec)
-    PreDecrement(Sp<Var>),
-}
-
-impl From<Sp<Expr>> for Sp<Cond> {
-    fn from(expr: Sp<Expr>) -> Sp<Cond> { sp!(expr.span => Cond::Expr(expr)) }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -460,10 +447,17 @@ pub enum Expr {
         right: Box<Sp<Expr>>,
     },
     BinOp(Box<Sp<Expr>>, Sp<BinOpKind>, Box<Sp<Expr>>),
+    UnOp(Sp<UnOpKind>, Box<Sp<Expr>>),
+    /// `--` or `++`.
+    XcrementOp {
+        op: Sp<XcrementOpKind>,
+        order: XcrementOpOrder,
+        var: Sp<Var>,
+    },
+    Var(Sp<Var>),
     Call(ExprCall),
     /// (a:b:c:d) syntax.  Always has at least two items.  Items aside from the first may be omitted (None).
     DiffSwitch(ds_util::DiffSwitchVec<Sp<Expr>>),
-    UnOp(Sp<UnOpKind>, Box<Sp<Expr>>),
     LitInt {
         value: raw::LangInt,
         /// A hint to the formatter on how it should write the integer.
@@ -480,7 +474,6 @@ pub enum Expr {
         enum_name: Sp<Ident>,
         ident: Sp<ResIdent>,
     },
-    Var(Sp<Var>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -506,9 +499,10 @@ impl Expr {
     pub fn descr(&self) -> &'static str { match self {
         Expr::Ternary { .. } => "ternary",
         Expr::BinOp { .. } => "binary operator",
+        Expr::UnOp { .. } => "unary operator",
+        Expr::XcrementOp { .. } => "in-place operator",
         Expr::Call { .. } => "call expression",
         Expr::DiffSwitch { .. } => "difficulty switch",
-        Expr::UnOp { .. } => "unary operator",
         Expr::LitInt { .. } => "literal integer",
         Expr::LabelProperty { .. } => "label property",
         Expr::LitFloat { .. } => "literal float",
@@ -764,6 +758,33 @@ impl UnOpKind {
     }
 }
 
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(strum::EnumIter)]
+    pub enum XcrementOpKind {
+        #[strum(serialize="++")] Inc,
+        #[strum(serialize="--")] Dec,
+    }
+}
+
+impl XcrementOpKind {
+    /// Iterate over all xcrement ops.
+    pub fn iter() -> impl Iterator<Item=XcrementOpKind> {
+        <Self as strum::IntoEnumIterator>::iter()
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(strum::EnumIter)]
+pub enum XcrementOpOrder { Pre, Post }
+
+impl XcrementOpOrder {
+    /// Iterate over all xcrement orders.
+    pub fn iter() -> impl Iterator<Item=XcrementOpOrder> {
+        <Self as strum::IntoEnumIterator>::iter()
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OpClass {
     Arithmetic,
@@ -1005,10 +1026,13 @@ macro_rules! generate_visitor_stuff {
             /// The default definition simply delegates to [`Self::visit_block`].
             fn visit_root_block(&mut self, e: & $($mut)? Block) { self.visit_block(e) }
             fn visit_block(&mut self, e: & $($mut)? Block) { walk_block(self, e) }
-            fn visit_cond(&mut self, e: & $($mut)? Sp<Cond>) { walk_cond(self, e) }
             fn visit_stmt(&mut self, e: & $($mut)? Sp<Stmt>) { walk_stmt(self, e) }
             fn visit_jump(&mut self, e: & $($mut)? StmtJumpKind) { walk_jump(self, e) }
             fn visit_expr(&mut self, e: & $($mut)? Sp<Expr>) { walk_expr(self, e) }
+            /// Called on expressions that appear in conditions for e.g. `if`/`while`.
+            ///
+            /// The default definition simply delegates to [`Self::visit_expr`].
+            fn visit_cond(&mut self, e: & $($mut)? Sp<Expr>) { self.visit_expr(e) }
             fn visit_var(&mut self, e: & $($mut)? Sp<Var>) { walk_var(self, e) }
             fn visit_callable_name(&mut self, e: & $($mut)? Sp<CallableName>) { walk_callable_name(self, e) }
             fn visit_meta(&mut self, e: & $($mut)? Sp<meta::Meta>) { walk_meta(self, e) }
@@ -1209,15 +1233,6 @@ macro_rules! generate_visitor_stuff {
             }
         }
 
-        fn walk_cond<V>(v: &mut V, e: & $($mut)? Sp<Cond>)
-        where V: ?Sized + $Visit,
-        {
-            match & $($mut)? e.value {
-                Cond::PreDecrement(var) => v.visit_var(var),
-                Cond::Expr(e) => v.visit_expr(e),
-            }
-        }
-
         pub fn walk_expr<V>(v: &mut V, e: & $($mut)? Sp<Expr>)
         where V: ?Sized + $Visit,
         {
@@ -1248,6 +1263,9 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 Expr::UnOp(_op, x) => v.visit_expr(x),
+                Expr::XcrementOp { op: _, order: _, var } => {
+                    v.visit_var(var);
+                },
                 Expr::LitInt { value: _, radix: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
@@ -1301,7 +1319,6 @@ impl_visitable!(Sp<Item>, visit_item);
 impl_visitable!(Sp<Meta>, visit_meta);
 impl_visitable!(Block, visit_root_block);
 impl_visitable!(Sp<Block>, visit_root_block);
-impl_visitable!(Sp<Cond>, visit_cond);
 impl_visitable!(Sp<Stmt>, visit_stmt);
 impl_visitable!(Sp<Expr>, visit_expr);
 

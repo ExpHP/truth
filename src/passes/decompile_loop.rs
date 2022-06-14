@@ -174,7 +174,7 @@ struct CondChainInfo {
 #[derive(Debug, Clone)]
 struct CondBlockInfo {
     keyword: Sp<ast::CondKeyword>,
-    cond: Sp<ast::Cond>,
+    cond: Sp<ast::Expr>,
     if_index: usize,
     // Target label of the conditional jump.
     // NOTE: any block where label_index != end_label_index will have an unconditional jump
@@ -595,7 +595,7 @@ impl JmpInfo {
 #[derive(Debug)]
 enum JmpKind {
     Uncond,
-    Cond { keyword: Sp<ast::CondKeyword>, cond: Sp<ast::Cond> },
+    Cond { keyword: Sp<ast::CondKeyword>, cond: Sp<ast::Expr> },
 }
 
 type ExprBinOpRef<'a> = (&'a Sp<ast::Expr>, Sp<ast::BinOpKind>, &'a Sp<ast::Expr>);
@@ -603,7 +603,7 @@ type ExprBinOpRef<'a> = (&'a Sp<ast::Expr>, Sp<ast::BinOpKind>, &'a Sp<ast::Expr
 impl JmpKind {
     fn as_binop_cond(&self) -> Option<(Sp<ast::CondKeyword>, Sp<ExprBinOpRef<'_>>)> {
         match *self {
-            JmpKind::Cond { keyword, cond: sp_pat!(ast::Cond::Expr(sp_pat!(span => ast::Expr::BinOp(ref a, op, ref b)))) }
+            JmpKind::Cond { keyword, cond: sp_pat!(span => ast::Expr::BinOp(ref a, op, ref b)) }
                 => Some((keyword, sp!(span => (a, op, b)))),
 
             _ => None,

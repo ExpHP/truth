@@ -60,6 +60,13 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, xcrement_in_unsupported_spot,
+    main_body: r#"
+        int x = --I0;  //~ ERROR not supported
+    "#,
+);
+
+source_test!(
     ANM_10, bad_signature_in_mapfile,
     mapfile: r#"!anmmap
 !ins_signatures
