@@ -189,7 +189,7 @@ impl ast::Visit for Visitor<'_, '_> {
         }
     }
 
-    fn visit_cond(&mut self, cond: &Sp<ast::Cond>) {
+    fn visit_cond(&mut self, cond: &Sp<ast::Expr>) {
         if let Err(e) = self.check_cond(cond) {
             self.errors.set(e);
         }
@@ -276,11 +276,8 @@ impl Visitor<'_, '_> {
         }).collect_with_recovery()
     }
 
-    fn check_cond(&self, cond: &Sp<ast::Cond>) -> ImplResult {
-        let ty = match &cond.value {
-            ast::Cond::PreDecrement(var) => self.check_var(var)?,
-            ast::Cond::Expr(expr) => self.check_expr_as_value(expr, expr.span)?,
-        };
+    fn check_cond(&self, cond: &Sp<ast::Expr>) -> ImplResult {
+        let ty = self.check_expr_as_value(cond, cond.span)?;
         self.require_int(ty, cond.span, cond.span)
     }
 
@@ -345,6 +342,14 @@ impl ExprTypeChecker<'_, '_> {
 
                 self.unop_check(op, x_ty, x.span)?;
                 ExprType::Value(ast::Expr::unop_ty(op.value, &x.value, self.ctx))
+            },
+
+            ast::Expr::XcrementOp { order: _, op, ref var }
+            => {
+                let var_ty = self.check_var(var)?;
+
+                self.require_int(var_ty, op.span, var.span)?;
+                ExprType::Value(var_ty)
             },
 
             ast::Expr::Ternary { ref cond, question, ref left, colon, ref right }
@@ -548,6 +553,9 @@ impl ast::Expr {
 
             ast::Expr::UnOp(op, ref x)
             => ExprType::Value(ast::Expr::unop_ty(op.value, &x.value, ctx)),
+
+            ast::Expr::XcrementOp { .. }
+            => ExprType::Value(ScalarType::Int),
 
             ast::Expr::Ternary { ref left, .. }
             => left.compute_ty(ctx),

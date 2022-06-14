@@ -37,11 +37,11 @@ error: type error
    │         a float
 
 error: type error
-   ┌─ <input>:45:9
+   ┌─ <input>:45:11
    │
 45 │     if (--F0) goto label;
-   │         ^^^^ a float
-   │
-   = an integer is required
+   │         --^^ a float
+   │         │  
+   │         expects an integer
 
 

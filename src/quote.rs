@@ -52,6 +52,9 @@ macro_rules! token {
     ($(assignop)? >>=) => { $crate::ast::AssignOpKind::ShiftRightSigned };
     ($(assignop)? >>>=) => { $crate::ast::AssignOpKind::ShiftRightUnsigned };
 
+    ($(xcrementop)? ++) => { $crate::ast::XcrementOpKind::Inc };
+    ($(xcrementop)? --) => { $crate::ast::XcrementOpKind::Dec };
+
     (  ty   int) => { $crate::ast::TypeKeyword::Int };
     (  ty   float) => { $crate::ast::TypeKeyword::Float };
     ($(ty)? string) => { $crate::ast::TypeKeyword::String };
@@ -173,7 +176,7 @@ macro_rules! impl_into_spanned_for_ast {
 //
 // One is provided for every type that we might wrap `Sp<...>` around.
 impl_into_spanned_for_ast!{
-    ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtKind, ast::Cond,
+    ast::Expr, ast::Var, ast::Item, ast::Stmt, ast::StmtKind,
     ast::UnOpKind, ast::BinOpKind, ast::AssignOpKind,
     ast::CondKeyword, ast::TypeKeyword, ast::MetaKeyword,
     crate::ident::Ident,

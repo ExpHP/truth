@@ -227,13 +227,13 @@ impl Desugarer<'_, '_> {
 
                 ast::StmtKind::While { do_keyword: Some(_), while_keyword, cond, block, .. } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
-                    self.desugar_loop_body(diff_label, block, Some((if_keyword, cond.value)))
+                    self.desugar_loop_body(diff_label, block, Some((if_keyword, cond)))
                 },
 
                 ast::StmtKind::While { do_keyword: None, while_keyword, cond, block, .. } => {
                     let if_keyword = sp!(while_keyword.span => token![if]);
                     self.desugar_conditional_region(diff_label, cond.span, if_keyword, cond.clone(), |self_| {
-                        self_.desugar_loop_body(diff_label, block, Some((if_keyword, cond.value)));
+                        self_.desugar_loop_body(diff_label, block, Some((if_keyword, cond)));
                     });
                 },
 
@@ -307,7 +307,7 @@ impl Desugarer<'_, '_> {
         diff_label: Option<&Sp<ast::DiffLabel>>,
         condjmp_span: Span,
         keyword: Sp<ast::CondKeyword>,
-        cond: Sp<ast::Cond>,
+        cond: Sp<ast::Expr>,
         inner: impl FnOnce(&mut Self),
     ) {
         let skip_label = self.ctx.gensym.gensym("@cond#");
@@ -341,7 +341,11 @@ impl Desugarer<'_, '_> {
         };
 
         let keyword = sp!(span => token![if]);
-        let cond = ast::Cond::PreDecrement(clobber.clone());
+        let cond = sp!(clobber.span => ast::Expr::XcrementOp {
+            op: sp!(clobber.span => ast::XcrementOpKind::Dec),
+            order: ast::XcrementOpOrder::Pre,
+            var: clobber.clone(),
+        });
         self.desugar_loop_body(diff_label, block, Some((keyword, cond)));
 
         self.make_label_after_block(diff_label, skip_label);
@@ -395,7 +399,7 @@ impl Desugarer<'_, '_> {
 }
 
 // Distinguishes `if (...) goto` vs `unless (...) goto` vs unconditional `goto`.
-type JumpInfo = Option<(Sp<ast::CondKeyword>, ast::Cond)>;
+type JumpInfo = Option<(Sp<ast::CondKeyword>, Sp<ast::Expr>)>;
 
 #[cfg(test)]
 mod tests {

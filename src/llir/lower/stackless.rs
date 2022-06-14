@@ -622,12 +622,14 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         keyword: &Sp<ast::CondKeyword>,
-        cond: &Sp<ast::Cond>,
+        cond: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported>{
         match &cond.value {
-            ast::Cond::PreDecrement(var) => self.lower_cond_jump_predecrement(stmt_span, stmt_data, keyword, var, goto),
-            ast::Cond::Expr(expr) => self.lower_cond_jump_expr(stmt_span, stmt_data, keyword, expr, goto),
+            ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op: sp_pat![token![--]], var }
+            => self.lower_cond_jump_predecrement(stmt_span, stmt_data, keyword, var, goto),
+
+            _ => self.lower_cond_jump_expr(stmt_span, stmt_data, keyword, cond, goto),
         }
     }
 

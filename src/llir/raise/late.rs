@@ -172,7 +172,7 @@ impl SingleSubRaiser<'_, '_> {
                 let goto = jump.take().unwrap();
                 let var = outputs.next().unwrap();
                 emit_stmt(stmt_cond_goto!(rec_sp!(Span::NULL =>
-                    as kind, if (decvar: #var) goto #(goto.destination) #(goto.time)
+                    as kind, if expr_pre_xcrement!(-- #var) goto #(goto.destination) #(goto.time)
                 )));
             },
 

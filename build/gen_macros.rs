@@ -1,5 +1,3 @@
-
-
 pub fn gen_ast_macros() -> String {
     vec![
         // ==== Macros that can generate either StmtKind or Stmt ====
@@ -50,14 +48,14 @@ pub fn gen_ast_macros() -> String {
             "stmt_cond_goto", &[
                 ("_as_kind", ArgKind::AsKind),
                 ("keyword", ArgKind::Token(&["if", "unless"])),
-                ("cond", ArgKind::Cond),
+                ("cond", ArgKind::Node),
                 ("goto_label", ArgKind::GotoLabel),
                 ("goto_time", ArgKind::GotoTime),
             ],
             FinalCasesType::Stmt { body: r#"
                 $crate::ast::StmtKind::CondJump {
                     keyword: $keyword,
-                    cond: Into::into($cond),
+                    cond: ::core::convert::Into::into($cond),
                     jump: $crate::ast::StmtJumpKind::Goto($crate::ast::StmtGoto {
                         destination: $goto_label,
                         time: $goto_time,
@@ -90,9 +88,9 @@ pub fn gen_ast_macros() -> String {
             ],
             FinalCasesType::Regular(r#"
                 $crate::ast::Expr::BinOp(
-                    Box::new(Into::into($a)),
+                    ::std::boxed::Box::new(::core::convert::Into::into($a)),
                     $op,
-                    Box::new(Into::into($b)),
+                    ::std::boxed::Box::new(::core::convert::Into::into($b)),
                 )
             "#),
         ),
@@ -110,8 +108,36 @@ pub fn gen_ast_macros() -> String {
             FinalCasesType::Regular(r#"
                 $crate::ast::Expr::UnOp(
                     $op,
-                    Box::new(Into::into($b)),
+                    ::std::boxed::Box::new(::core::convert::Into::into($b)),
                 )
+            "#),
+        ),
+
+        gen_ast_macro(
+            "expr_pre_xcrement", &[
+                ("op", ArgKind::Token(&["--", "++"])),
+                ("var", ArgKind::Node),
+            ],
+            FinalCasesType::Regular(r#"
+                $crate::ast::Expr::XcrementOp {
+                    op: $op,
+                    order: $crate::ast::XcrementOpOrder::Pre,
+                    var: ::core::convert::Into::into($var),
+                }
+            "#),
+        ),
+
+        gen_ast_macro(
+            "expr_post_xcrement", &[
+                ("var", ArgKind::Node),
+                ("op", ArgKind::Token(&["--", "++"])),
+            ],
+            FinalCasesType::Regular(r#"
+                $crate::ast::Expr::XcrementOp {
+                    op: $op,
+                    order: $crate::ast::XcrementOpOrder::Post,
+                    var: ::core::convert::Into::into($var),
+                }
             "#),
         ),
     ].iter().map(|s| s.to_string())
@@ -135,7 +161,6 @@ enum ArgKind {
 
     // A bunch of things that require special treatment due to e.g. optional parts or extra syntax
     AsKind,
-    Cond,
     GotoLabel,
     GotoTime,
 }
@@ -193,7 +218,6 @@ impl ArgKind {
         let case = |to_parse: &str, to_save: &str, flag: Option<&str>| make_case(mac, cur_step, next_step, to_parse, to_save, flag);
         let expected = |msg: &str| make_err_case_expected(cur_step, msg);
         let expected_after = |prefix: &str, msg: &str| make_err_case_expected_after(cur_step, prefix, msg);
-        let err = |msg: &str| make_err_case(cur_step, "", msg);
 
         const DUMMY_EXPR: &'static str = r#"unreachable!("unused dummy time")"#;
         match self {
@@ -209,16 +233,6 @@ impl ArgKind {
                 // lets us know to create a StmtKind instead of a Stmt
                 out.push(case(&format!("as kind,"), DUMMY_EXPR, Some("as_kind")));
                 out.push(case(&format!(""), DUMMY_EXPR, Some("")));
-            },
-            ArgKind::Cond => {
-                // NOTE: Sp<Expr> implements Into<Sp<Cond>> so we don't need special snytax for it
-                out.push(case(&format!("(decvar: #($expr:expr))"), "_ast_map!($crate::ast::Cond::PreDecrement, $expr)", None));
-                out.push(case(&format!("(decvar: #$var:ident)"), "_ast_map!($crate::ast::Cond::PreDecrement, $var)", None));
-                out.push(case(&format!("(decvar: $mac:ident!$args:tt)"), "_ast_map!($crate::ast::Cond::PreDecrement, $mac!$args)", None));
-                out.push(case(&format!("#($expr:expr)"), "$expr", None));
-                out.push(case(&format!("#$var:ident"), "$var", None));
-                out.push(case(&format!("$mac:ident!$args:tt"), "$mac!$args", None));
-                out.push(err(&format!("{:?}", format!("conditionals need to be written as 'if <cond>' or 'if (decvar: <var>)', where <var>/<cond> can be {}", MAC_OR_INTERP))));
             },
             ArgKind::Token(tokens) => {
                 out.push(case(&format!("#($expr:expr)"), "$expr", None));
@@ -254,7 +268,6 @@ impl ArgKind {
             // so that inner macro calls are still transparent.
             | ArgKind::Token(_)
             | ArgKind::Node
-            | ArgKind::Cond
             | ArgKind::GotoLabel
                 => (format!("$(${}:tt)*", name), format!("rec_sp!(_span => $(${})*)", name)),
 

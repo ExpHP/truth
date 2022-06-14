@@ -49,6 +49,11 @@ script assign_op {
     F0 += I0;  //~ ERROR type error
     F0 += F1 < 2.0;  //~ ERROR type error
 }
+
+script xcrement_op {
+    int a = ++F0;  //~ ERROR type error
+    float x = I0--;  //~ ERROR type error
+}
     "#,
 );
 

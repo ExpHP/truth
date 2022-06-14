@@ -59,6 +59,7 @@ define_token_enum! {
         #[token("||")] OrOr,
         #[token("&&")] AndAnd,
         #[token("--")] MinusMinus,
+        #[token("++")] PlusPlus,
         #[token("$")] Cash,
         #[token("#")] Hash,
         #[token("anim")] Anim,

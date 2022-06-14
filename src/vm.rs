@@ -468,6 +468,25 @@ impl AstVm {
                 },
             },
 
+            ast::Expr::XcrementOp { op, order, var } => {
+                let old_value = match self.read_var_by_ast(var, resolutions) {
+                    ScalarValue::Float(x) => panic!("type error: {:?}", x),
+                    ScalarValue::String(x) => panic!("type error: {:?}", x),
+                    ScalarValue::Int(value) => value,
+                };
+                let new_value = match op.value {
+                    ast::XcrementOpKind::Inc => i32::wrapping_add(old_value, 1),
+                    ast::XcrementOpKind::Dec => i32::wrapping_add(old_value, -1),
+                };
+                self.write_var_by_ast(var, ScalarValue::Int(new_value), resolutions);
+
+                let out_value = match order {
+                    ast::XcrementOpOrder::Post => old_value,
+                    ast::XcrementOpOrder::Pre => new_value,
+                };
+                out_value.into()
+            },
+
             ast::Expr::DiffSwitch(cases) => {
                 let difficulty = self.difficulty.expect("difficulty not set for VM!");
                 let case = crate::diff_switch_utils::select_diff_switch_case(cases, difficulty);
@@ -497,21 +516,11 @@ impl AstVm {
     }
 
     #[track_caller]
-    pub fn eval_cond(&mut self, cond: &ast::Cond, resolutions: &Resolutions) -> bool {
-        match cond {
-            ast::Cond::PreDecrement(var) => match self.read_var_by_ast(var, resolutions) {
-                ScalarValue::Float(x) => panic!("type error: {:?}", x),
-                ScalarValue::String(x) => panic!("type error: {:?}", x),
-                ScalarValue::Int(value) => {
-                    self.write_var_by_ast(var, ScalarValue::Int(value - 1), resolutions);
-                    value - 1 != 0
-                },
-            },
-            ast::Cond::Expr(expr) => match self.eval(expr, resolutions) {
-                ScalarValue::Float(x) => panic!("type error: {:?}", x),
-                ScalarValue::String(x) => panic!("type error: {:?}", x),
-                ScalarValue::Int(value) => value != 0,
-            },
+    pub fn eval_cond(&mut self, cond: &ast::Expr, resolutions: &Resolutions) -> bool {
+        match self.eval(cond, resolutions) {
+            ScalarValue::Float(x) => panic!("type error: {:?}", x),
+            ScalarValue::String(x) => panic!("type error: {:?}", x),
+            ScalarValue::Int(value) => value != 0,
         }
     }
 
