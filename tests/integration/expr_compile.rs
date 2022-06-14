@@ -34,28 +34,34 @@ source_test!(
     },
 );
 
-
 source_test!(
     ANM_10, unary_neg_bitnot_fallbacks,
     compile_args: &["--no-builtin-mapfiles"],  // only use intrinsics defined in this test
     mapfile: r#"!anmmap
 !ins_intrinsics
-1500 BinOp(op="-"; type="int")
+1500 BinOp(op="*"; type="int")
+1501 BinOp(op="*"; type="float")
+1600 BinOp(op="-"; type="int")
 
 !ins_signatures
 1500 SSS
+1501 fff
+1600 SSS
     "#,
     main_body: r#"
     int a = -$I0;
+    float x = -%F0;
     int b = ~$I0;
 "#,
     check_compiled: |output, format| {
         let anm = output.read_anm(format);
 
         assert_eq!(anm.entries[0].scripts[0].instrs[0].opcode, 1500);
-        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob[4..], blobify![0, 10000]);
-        assert_eq!(anm.entries[0].scripts[0].instrs[1].opcode, 1500);
-        assert_eq!(anm.entries[0].scripts[0].instrs[1].args_blob[4..], blobify![-1, 10000]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[0].args_blob[4..], blobify![-1, 10000]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[1].opcode, 1501);
+        assert_eq!(anm.entries[0].scripts[0].instrs[1].args_blob[4..], blobify![-1.0, 10004.0]);
+        assert_eq!(anm.entries[0].scripts[0].instrs[2].opcode, 1600);
+        assert_eq!(anm.entries[0].scripts[0].instrs[2].args_blob[4..], blobify![-1, 10000]);
     },
 );
 

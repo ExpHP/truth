@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 use core::fmt;
+use std::collections::HashMap;
 
 use crate::raw;
 use crate::ast;
@@ -11,7 +12,7 @@ use crate::llir::{LanguageHooks, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::pos::{Span, Sp, SourceStr};
 use crate::parse::abi::{abi_ast, AttributeDeserializer};
-use crate::value::{ScalarType};
+use crate::value::{ScalarType, ScalarValue};
 
 /// Maps opcodes to and from intrinsics.
 #[derive(Debug, Default)] // Default is used by --no-intrinsics
@@ -19,6 +20,7 @@ pub struct IntrinsicInstrs {
     intrinsic_opcodes: IndexMap<IntrinsicInstrKind, raw::Opcode>,
     intrinsic_abi_props: IndexMap<IntrinsicInstrKind, IntrinsicInstrAbiParts>,
     opcode_intrinsics: IndexMap<raw::Opcode, Sp<IntrinsicInstrKind>>,
+    alternatives: AlternativesInfo,
 }
 
 impl IntrinsicInstrs {
@@ -36,7 +38,7 @@ impl IntrinsicInstrs {
                 .map(|(&opcode, &kind)| {
                     let (abi, abi_loc) = defs.ins_abi(instr_format.language(), opcode)
                         .ok_or_else(|| emitter.as_sized().emit(error!(
-                            message("opcode {} is an intrinsic but has no signature", opcode),
+                            message("opcode {opcode} is an intrinsic but has no signature"),
                             primary(kind, "defined as an intrinsic here"),
                         )))?;
                     let abi_props = IntrinsicInstrAbiParts::from_abi(kind, abi, abi_loc)
@@ -45,17 +47,15 @@ impl IntrinsicInstrs {
                 })
                 .collect_with_recovery()?
         };
-        Ok(IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes, intrinsic_abi_props })
+        let alternatives = alternatives::discover_alternatives(&intrinsic_opcodes);
+        Ok(IntrinsicInstrs { opcode_intrinsics, intrinsic_opcodes, intrinsic_abi_props, alternatives })
     }
 
-    pub(crate) fn get_opcode_and_abi_props(&self, intrinsic: IntrinsicInstrKind, span: Span, descr: &str) -> Result<(raw::Opcode, &IntrinsicInstrAbiParts), Diagnostic> {
-        match self.intrinsic_opcodes.get(&intrinsic) {
-            Some(&opcode) => Ok((opcode, &self.intrinsic_abi_props[&intrinsic])),
-            None => Err(error!(
-                message("feature not supported by format"),
-                primary(span, "{} not supported in this game", descr),
-            )),
-        }
+    pub(crate) fn missing_intrinsic_error(&self, span: Span, descr: &str) -> Diagnostic {
+        error!(
+            message("feature not supported by format"),
+            primary(span, "{descr} not supported in this game"),
+        )
     }
 
     pub(crate) fn get_opcode_opt(&self, intrinsic: IntrinsicInstrKind) -> Option<raw::Opcode> {
@@ -65,6 +65,10 @@ impl IntrinsicInstrs {
     pub(crate) fn get_intrinsic_and_props(&self, opcode: raw::Opcode) -> Option<(IntrinsicInstrKind, &IntrinsicInstrAbiParts)> {
         self.opcode_intrinsics.get(&opcode)
             .map(|&kind| (kind.value, &self.intrinsic_abi_props[&kind.value]))
+    }
+
+    pub(crate) fn alternatives(&self) -> &AlternativesInfo {
+        &self.alternatives
     }
 }
 
@@ -164,76 +168,6 @@ impl IntrinsicInstrKind {
         }
 
         Impl(*self)
-    }
-}
-
-impl IntrinsicInstrKind {
-    /// Add intrinsic pairs for binary operations in `a = b op c` form in their canonical order,
-    /// which is `+, -, *, /, %`, with each operator having an int version and a float version.
-    pub fn register_binary_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-        use ast::BinOpKind as B;
-
-        let mut opcode = start;
-        for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
-            for ty in vec![ScalarType::Int, ScalarType::Float] {
-                pairs.push((IntrinsicInstrKind::BinOp(op, ty), opcode));
-                opcode += 1;
-            }
-        }
-    }
-
-    /// Like [`Self::register_binary_ops`] but instead of alternating int/float pairs it's just one type.
-    pub fn register_binary_ops_of_type(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode, ty: ScalarType) {
-        use ast::BinOpKind as B;
-
-        let mut opcode = start;
-        for op in vec![B::Add, B::Sub, B::Mul, B::Div, B::Rem] {
-            pairs.push((IntrinsicInstrKind::BinOp(op, ty), opcode));
-            opcode += 1;
-        }
-    }
-
-    /// Add intrinsic pairs for assign ops in their cannonical order: `=, +=, -=, *=, /=, %=`,
-    /// with each operator having an int version and a float version.
-    pub fn register_assign_ops(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-        use ast::AssignOpKind as As;
-
-        let mut opcode = start;
-        for op in vec![As::Assign, As::Add, As::Sub, As::Mul, As::Div, As::Rem] {
-            for ty in vec![ScalarType::Int, ScalarType::Float] {
-                pairs.push((IntrinsicInstrKind::AssignOp(op, ty), opcode));
-                opcode += 1;
-            }
-        }
-    }
-
-    /// Add intrinsic pairs for conditional jumps in their cannonical order: `==, !=, <, <=, >, >=`,
-    /// with each operator having an int version and a float version.
-    pub fn register_cond_jumps(pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>, start: raw::Opcode) {
-        use ast::BinOpKind as B;
-
-        let mut opcode = start;
-        for op in vec![B::Eq, B::Ne, B::Lt, B::Le, B::Gt, B::Ge] {
-            for ty in vec![ScalarType::Int, ScalarType::Float] {
-                pairs.push((IntrinsicInstrKind::CondJmp(op, ty), opcode));
-                opcode += 1;
-            }
-        }
-    }
-
-    /// Register a sequence of six comparison based ops in the order used by EoSD ECL: `<, <=, ==, >, >=, !=`
-    pub fn register_eosd_ecl_comp_ops(
-        pairs: &mut Vec<(IntrinsicInstrKind, raw::Opcode)>,
-        start: raw::Opcode,
-        kind_fn: impl Fn(ast::BinOpKind) -> IntrinsicInstrKind,
-    ) {
-        use ast::BinOpKind as B;
-
-        let mut opcode = start;
-        for op in vec![B::Lt, B::Le, B::Eq, B::Gt, B::Ge, B::Ne] {
-            pairs.push((kind_fn(op), opcode));
-            opcode += 1;
-        }
     }
 }
 
@@ -565,5 +499,122 @@ impl std::fmt::Display for IntrinsicInstrKind {
             IKind::CondJmp2A(ty) => write!(f, r#"{tag}(type="{}")"#, render_ty(ty)),
             IKind::CondJmp2B(op) => write!(f, r#"{tag}(op="{op}")"#),
         }
+    }
+}
+
+// =============================================================================
+
+pub use alternatives::AlternativesInfo;
+pub mod alternatives {
+    use super::*;
+
+    /// Information about syntax that may be compiled multiple different ways depending on which
+    /// intrinsics are available.
+    ///
+    /// (e.g. conditional jumps may require two instructions; unary negation may need to be compiled
+    /// down to multiplication by -1; etc.)
+    #[derive(Debug, Clone, Default)]
+    pub struct AlternativesInfo {
+        pub unops: HashMap<(ast::UnOpKind, ScalarType), UnOp>,
+        pub assign_ops: HashMap<(ast::AssignOpKind, ScalarType), AssignOp>,
+        pub cond_jmps: HashMap<(ast::BinOpKind, ScalarType), CondJmp>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum UnOp {
+        /// The unary intrinsic exists.
+        Intrinsic { opcode: raw::Opcode },
+        /// The operation may compile to `CONST <op> x` instead.
+        ViaConstBinOp { a: ScalarValue, opcode: raw::Opcode },
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum AssignOp {
+        /// An in-place assign op exists.
+        Intrinsic { opcode: raw::Opcode },
+        /// `a += b` may compile to `a = a + b` instead.
+        ViaBinOp { opcode: raw::Opcode },
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum CondJmp {
+        /// A single-instruction conditional jump exists.
+        Intrinsic { opcode: raw::Opcode },
+        /// Individual cmp and jmp instructions exist.
+        TwoPart { cmp_opcode: raw::Opcode, jmp_opcode: raw::Opcode },
+    }
+
+    pub fn discover_alternatives(
+        intrinsic_opcodes: &IndexMap<IntrinsicInstrKind, raw::Opcode>,
+    ) -> AlternativesInfo {
+        use IntrinsicInstrKind as I;
+        use ast::UnOpKind as U;
+        use ast::BinOpKind as B;
+        use ScalarType as Ty;
+
+        let mut unops = HashMap::new();
+        let mut assign_ops = HashMap::new();
+        let mut cond_jmps = HashMap::new();
+
+        // Begin with less preferrable alternatives. They'll get overwritten by later alternatives.
+
+        if let Some(&sub_opcode) = intrinsic_opcodes.get(&I::BinOp(B::Sub, Ty::Int)) {
+            // '~x' can compile to '-1 - x'
+            unops.insert((U::BitNot, Ty::Int), UnOp::ViaConstBinOp {
+                a: ScalarValue::Int(-1),
+                opcode: sub_opcode,
+            });
+        }
+
+        for ty in ScalarType::iter_numeric() {
+            if let Some(&mul_opcode) = intrinsic_opcodes.get(&I::BinOp(B::Mul, ty)) {
+                // '-x' can compile to '-1 * x'
+                unops.insert((U::Neg, ty), UnOp::ViaConstBinOp {
+                    a: ScalarValue::int_of_ty(-1, ty),
+                    opcode: mul_opcode,
+                });
+            }
+        }
+
+        for ty in ScalarType::iter_numeric() {
+            for assign_op in ast::AssignOpKind::iter() {
+                if let Some(binop) = assign_op.corresponding_binop() {
+                    if let Some(&opcode) = intrinsic_opcodes.get(&I::BinOp(binop, ty)) {
+                        // 'a += b' can compile to 'a = a + b'
+                        assign_ops.insert((assign_op, ty), AssignOp::ViaBinOp { opcode });
+                    }
+                }
+            }
+        }
+
+        for ty in ScalarType::iter_numeric() {
+            if let Some(&cmp_opcode) = intrinsic_opcodes.get(&I::CondJmp2A(ty)) {
+                for op in ast::BinOpKind::iter_comparison() {
+                    if let Some(&jmp_opcode) = intrinsic_opcodes.get(&I::CondJmp2B(op)) {
+                        cond_jmps.insert((op, ty), CondJmp::TwoPart { cmp_opcode, jmp_opcode });
+                    }
+                }
+            }
+        }
+
+        // The most preferable: Direct intrinsics for everything
+        for ty in ScalarType::iter_numeric() {
+            for op in ast::UnOpKind::iter() {
+                if let Some(&opcode) = intrinsic_opcodes.get(&I::UnOp(op, ty)) {
+                    unops.insert((op, ty), UnOp::Intrinsic { opcode });
+                }
+            }
+            for op in ast::AssignOpKind::iter() {
+                if let Some(&opcode) = intrinsic_opcodes.get(&I::AssignOp(op, ty)) {
+                    assign_ops.insert((op, ty), AssignOp::Intrinsic { opcode });
+                }
+            }
+            for op in ast::BinOpKind::iter_comparison() {
+                if let Some(&opcode) = intrinsic_opcodes.get(&I::CondJmp(op, ty)) {
+                    cond_jmps.insert((op, ty), CondJmp::Intrinsic { opcode });
+                }
+            }
+        }
+        AlternativesInfo { unops, assign_ops, cond_jmps }
     }
 }
