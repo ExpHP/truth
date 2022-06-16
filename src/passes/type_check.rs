@@ -428,7 +428,13 @@ impl ExprTypeChecker<'_, '_> {
             );
             match self.ctx.var_reg_from_ast(&var.name) {
                 Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
-                Ok((_lang, reg)) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
+                Ok((lang, reg)) => err.note(
+                    if self.ctx.defs.reg_inherent_ty(lang, reg).is_some() {
+                        format!("{reg} is explicitly untyped in your mapfile")
+                    } else {
+                        format!("consider adding {reg} to !gvar_types in your mapfile")
+                    }
+                ),
             };
             self.emit(err)
         })

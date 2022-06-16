@@ -518,19 +518,19 @@ impl Defs {
     pub fn var_inherent_ty(&self, def_id: DefId) -> VarType {
         match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { language, reg, .. }, .. } => {
-                self.reg_inherent_ty(language, reg)
+                self.reg_inherent_ty(language, reg).unwrap_or_else(|| VarType::Untyped)
             },
             VarData { ty, .. } => ty.expect("not alias"),
         }
     }
 
     /// Get the inherent type of a register.
-    pub fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> VarType {
+    pub fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> Option<VarType> {
         match self.regs.get(&(language, reg)) {
-            Some(&RegData { ty }) => ty,
+            Some(&RegData { ty }) => Some(ty),
             // This is a register whose type is not in any mapfile.
             // This is actually fine, and is expected for stack registers.
-            None => VarType::Untyped,
+            None => None,
         }
     }
 
@@ -691,6 +691,7 @@ impl CompilerContext<'_> {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
+                "?" => VarType::Untyped,
                 _ => {
                     emitter.emit(warning!(
                         message("ignoring invalid variable type '{}' for gvar {}", value, reg),
@@ -826,7 +827,7 @@ impl CompilerContext<'_> {
     /// Panics if there is `REG` syntax and `language` is `None`; this should be caught in an earlier pass.
     pub fn var_inherent_ty_from_ast(&self, var: &ast::Var) -> VarType {
         match var.name {
-            ast::VarName::Reg { reg, language } => self.defs.reg_inherent_ty(language.expect("must run assign_languages pass!"), reg),
+            ast::VarName::Reg { reg, language } => self.defs.reg_inherent_ty(language.expect("must run assign_languages pass!"), reg).unwrap_or_else(|| VarType::Untyped),
             ast::VarName::Normal { ref ident, .. } => self.defs.var_inherent_ty(self.resolutions.expect_def(ident)),
         }
     }
