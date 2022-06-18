@@ -846,7 +846,7 @@ impl TypeKeyword {
             TypeKeyword::Int => value::ScalarType::Int.into(),
             TypeKeyword::Float => value::ScalarType::Float.into(),
             TypeKeyword::String => value::ScalarType::String.into(),
-            TypeKeyword::Var => value::VarType::Untyped,
+            TypeKeyword::Var => value::VarType::Untyped { explicit: false },
             TypeKeyword::Void => unreachable!("void var"),
         }
     }
@@ -874,7 +874,7 @@ impl From<value::ScalarType> for TypeKeyword {
 impl From<value::VarType> for TypeKeyword {
     fn from(ty: value::VarType) -> Self { match ty {
         value::VarType::Typed(ty) => ty.into(),
-        value::VarType::Untyped => Self::Var,
+        value::VarType::Untyped { .. } => Self::Var,
     }}
 }
 

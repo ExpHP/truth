@@ -518,19 +518,19 @@ impl Defs {
     pub fn var_inherent_ty(&self, def_id: DefId) -> VarType {
         match self.vars[&def_id] {
             VarData { kind: VarKind::RegisterAlias { language, reg, .. }, .. } => {
-                self.reg_inherent_ty(language, reg).unwrap_or_else(|| VarType::Untyped)
+                self.reg_inherent_ty(language, reg)
             },
             VarData { ty, .. } => ty.expect("not alias"),
         }
     }
 
     /// Get the inherent type of a register.
-    pub fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> Option<VarType> {
+    pub fn reg_inherent_ty(&self, language: LanguageKey, reg: RegId) -> VarType {
         match self.regs.get(&(language, reg)) {
-            Some(&RegData { ty }) => Some(ty),
+            Some(&RegData { ty }) => ty,
             // This is a register whose type is not in any mapfile.
             // This is actually fine, and is expected for stack registers.
-            None => None,
+            None => VarType::Untyped { explicit: false },
         }
     }
 
@@ -691,7 +691,7 @@ impl CompilerContext<'_> {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
-                "?" => VarType::Untyped,
+                "?" => VarType::Untyped { explicit: true },
                 _ => {
                     emitter.emit(warning!(
                         message("ignoring invalid variable type '{}' for gvar {}", value, reg),
@@ -827,7 +827,7 @@ impl CompilerContext<'_> {
     /// Panics if there is `REG` syntax and `language` is `None`; this should be caught in an earlier pass.
     pub fn var_inherent_ty_from_ast(&self, var: &ast::Var) -> VarType {
         match var.name {
-            ast::VarName::Reg { reg, language } => self.defs.reg_inherent_ty(language.expect("must run assign_languages pass!"), reg).unwrap_or_else(|| VarType::Untyped),
+            ast::VarName::Reg { reg, language } => self.defs.reg_inherent_ty(language.expect("must run assign_languages pass!"), reg),
             ast::VarName::Normal { ref ident, .. } => self.defs.var_inherent_ty(self.resolutions.expect_def(ident)),
         }
     }
