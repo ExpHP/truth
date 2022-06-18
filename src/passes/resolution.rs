@@ -108,7 +108,7 @@ pub fn aliases_to_raw<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerCon
 pub fn raw_to_aliases<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &CompilerContext<'_>) -> Result<(), ErrorReported> {
     let lookup_alias = |language, reg| {
         let ident = ctx.reg_alias(language, reg)?;
-        Some((ident, ctx.defs.reg_inherent_ty(language, reg).unwrap_or_else(|| VarType::Untyped)))
+        Some((ident, ctx.defs.reg_inherent_ty(language, reg)))
     };
     let mut v = RawRegToAliasesVisitor { lookup_alias };
     ast.visit_mut_with(&mut v);

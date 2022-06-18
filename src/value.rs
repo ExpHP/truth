@@ -129,7 +129,10 @@ impl ScalarType {
 
 /// Inherent type of a variable, which may be untyped. (but is never void)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VarType { Untyped, Typed(ScalarType) }
+pub enum VarType {
+    Untyped { explicit: bool },
+    Typed(ScalarType),
+}
 
 /// The type of an expression, which can be void. (but is never untyped)
 ///
@@ -148,7 +151,7 @@ impl VarType {
     pub fn as_known_ty(self) -> Option<ScalarType> {
         match self {
             VarType::Typed(ty) => Some(ty),
-            VarType::Untyped => None,
+            VarType::Untyped { .. } => None,
         }
     }
 }
