@@ -138,23 +138,50 @@ fn mapfile_args<'a>(mapfiles: impl IntoIterator<Item=&'a TestFile>) -> Vec<Strin
 
 // =============================================================================
 
-lazy_static::lazy_static! {
-    static ref TEMP_FILE_SUBSTS: Vec<(regex::Regex, &'static str)> = {
-        vec![
-            (r#"┌─ .+[/\\]Xx_([^\r\n]+)_xX"#, "┌─ <$1>"),
-            (r#"while writing '[^']+': "#, "while writing '<output>':"),
-            (r#"^(warning|error): .+[/\\]Xx_([^\r\n]+)_xX:"#, r#"$1: <$2>:"#),
-        ].into_iter().map(|(pat, subst)| {
-            (regex::Regex::new(pat).unwrap(), subst)
-        }).collect()
-    };
-}
-
 fn make_output_deterministic(stderr: &str) -> String {
-    TEMP_FILE_SUBSTS.iter().fold(
+    lazy_static::lazy_static! {
+        // General substitutions to make
+        static ref TEMP_FILE_SUBSTS: Vec<(regex::Regex, &'static str)> = {
+            vec![
+                // Temporary file names and line numbers
+                (r#"┌─ .+[/\\]Xx_([^\r\n]+)_xX"#, "┌─ <$1>"),
+                (r#"^(warning|error): .+[/\\]Xx_([^\r\n]+)_xX:"#, r#"$1: <$2>:"#),
+                (r#"while writing '[^']+': "#, "while writing '<output>':"),
+                // OS error strings
+                (r#"^(warning|error): ([^:]+): [^:]+ \(os error \d+\)"#, r#"$1: $2: (os error)"#),
+            ].into_iter().map(|(pat, subst)| {
+                let re = regex::RegexBuilder::new(pat).multi_line(true).build().unwrap();
+                (re, subst)
+            }).collect()
+        };
+
+        // Regexes for eliminating backslashes on windows.
+        static ref PATH_SUBSTS: Vec<regex::Regex> = {
+            vec![
+                // Each of these should be of the form (text_before_path, text_after_path)
+                (r#"^(?:warning|error): "#, r#": .+"#),
+            ].into_iter().map(|(before_path, after_path)| {
+                // construct a pattern with 3 captures (before, path, after), where path does not
+                // contain quotes and contains at least one backslash
+                let pat = format!(r#"({before_path})([^ :"\\]+\\[^ :"]+)({after_path})$"#);
+                regex::RegexBuilder::new(&pat).multi_line(true).build().unwrap()
+            }).collect()
+        };
+    }
+
+    let stderr = TEMP_FILE_SUBSTS.iter().fold(
         stderr.to_string(),
         |stderr, &(ref re, replacement)| re.replace_all(&stderr[..], replacement).into_owned(),
-    )
+    );
+
+    let stderr = PATH_SUBSTS.iter().fold(
+        stderr.to_string(),
+        |stderr, re| re.replace_all(&stderr[..], |captures: &regex::Captures| {
+            format!("{}{}{}", &captures[1], captures[2].replace("\\", "/"), &captures[3])
+        }).into_owned(),
+    );
+
+    stderr
 }
 
 /// Perform a snapshot test of something.

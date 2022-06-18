@@ -2,6 +2,6 @@
 source: tests/integration/mapfiles.rs
 expression: stderr
 ---
-error: while resolving 'this/is/a/bad/path': No such file or directory (os error 2)
+error: while resolving 'this/is/a/bad/path': (os error)
 
 
