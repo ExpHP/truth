@@ -399,7 +399,7 @@ impl ExprTypeChecker<'_, '_> {
         let read_ty = var.ty_sigil;
         match inherent_ty {
             // no restrictions on these
-            | VarType::Untyped
+            | VarType::Untyped { .. }
             | VarType::Typed(ScalarType::Int)
             | VarType::Typed(ScalarType::Float)
             => {},
@@ -427,8 +427,12 @@ impl ExprTypeChecker<'_, '_> {
                 primary(var, "needs a '$' or '%' prefix"),
             );
             match self.ctx.var_reg_from_ast(&var.name) {
-                Err(_) => err.note(format!("consider adding an explicit type to its declaration")),
-                Ok((_lang, reg)) => err.note(format!("consider adding {} to !gvar_types in your mapfile", reg)),
+                Err(_) => { err.note(format!("consider adding an explicit type to its declaration")); },
+                Ok((lang, reg)) => {
+                    if matches!(self.ctx.defs.reg_inherent_ty(lang, reg), VarType::Untyped { explicit: false }) {
+                        err.note(format!("consider adding {reg} to !gvar_types in your mapfile"));
+                    }
+                },
             };
             self.emit(err)
         })

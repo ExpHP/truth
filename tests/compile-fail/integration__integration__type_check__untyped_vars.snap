@@ -1,0 +1,27 @@
+---
+source: tests/integration/type_check.rs
+expression: stderr
+---
+error: variable requires a type prefix
+   ┌─ <input>:10:13
+   │
+10 │         var untyped_local = 2;
+   │             ^^^^^^^^^^^^^ needs a '$' or '%' prefix
+   │
+   = consider adding an explicit type to its declaration
+
+error: variable requires a type prefix
+   ┌─ <input>:11:14
+   │
+11 │         I0 = RAND_RANGE;
+   │              ^^^^^^^^^^ needs a '$' or '%' prefix
+
+error: variable requires a type prefix
+   ┌─ <input>:12:14
+   │
+12 │         I1 = GVAR_WITH_NO_TYPE;
+   │              ^^^^^^^^^^^^^^^^^ needs a '$' or '%' prefix
+   │
+   = consider adding 42069 to !gvar_types in your mapfile
+
+

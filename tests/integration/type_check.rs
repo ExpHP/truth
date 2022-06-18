@@ -65,6 +65,22 @@ source_test!(
     "#,
 );
 
+source_test!(
+    ECL_07, untyped_vars,
+    mapfile: r#"!eclmap
+!gvar_names
+10056 RAND_RANGE
+42069 GVAR_WITH_NO_TYPE
+!gvar_types
+10056 ?
+    "#,
+    main_body: r#"
+        var untyped_local = 2;  //~ ERROR variable requires a type prefix
+        I0 = RAND_RANGE;  //~ ERROR variable requires a type prefix
+        I1 = GVAR_WITH_NO_TYPE;  //~ ERROR variable requires a type prefix
+    "#,
+);
+
 // =========================
 // jumps
 

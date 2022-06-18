@@ -530,7 +530,7 @@ impl Defs {
             Some(&RegData { ty }) => ty,
             // This is a register whose type is not in any mapfile.
             // This is actually fine, and is expected for stack registers.
-            None => VarType::Untyped,
+            None => VarType::Untyped { explicit: false },
         }
     }
 
@@ -691,6 +691,7 @@ impl CompilerContext<'_> {
             let ty = match &value[..] {
                 "%" => VarType::Typed(ScalarType::Float),
                 "$" => VarType::Typed(ScalarType::Int),
+                "?" => VarType::Untyped { explicit: true },
                 _ => {
                     emitter.emit(warning!(
                         message("ignoring invalid variable type '{}' for gvar {}", value, reg),
