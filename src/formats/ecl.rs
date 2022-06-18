@@ -1008,22 +1008,23 @@ impl LanguageHooks for OldeEclHooks {
         match self.game {
             Game::Th06 => enum_map::enum_map!{
                 ScalarType::Int => vec![
-                    R(-10001), R(-10002), R(-10003), R(-10004),
-                    R(-10009), R(-10010), R(-10011), R(-10012)
+                    R(-10001), R(-10002), R(-10003), R(-10004), // I0-I3
+                    R(-10009), R(-10010), R(-10011), R(-10012), // I4-I7
                 ],
                 ScalarType::Float => vec![
-                    R(-10005), R(-10006), R(-10007), R(-10008),
+                    R(-10005), R(-10006), R(-10007), R(-10008), // F0-F3
                 ],
                 ScalarType::String => vec![],
             },
             Game::Th07 => enum_map::enum_map!{
                 ScalarType::Int => vec![
-                    R(10000), R(10001), R(10002), R(10003),
-                    R(10012), R(10013), R(10014), R(10015),
+                    R(10000), R(10001), R(10002), R(10003), // I0-I3
+                    R(10012), R(10013), R(10014), R(10015), // I4-I7
                 ],
                 ScalarType::Float => vec![
-                    R(10004), R(10005), R(10006), R(10007),
-                    R(10008), R(10009), R(10010), R(10011),
+                    R(10004), R(10005), R(10006), R(10007), // F0-F3
+                    R(10008), R(10009), R(10010), R(10011), // F4-F7
+                    R(10072), R(10074),                     // F8-F9
                 ],
                 ScalarType::String => vec![],
             },
@@ -1035,8 +1036,15 @@ impl LanguageHooks for OldeEclHooks {
 
     fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
         // that one that disables the callstack
-        (self.game == Game::Th06 && opcode == 130)
-            .then(|| HowBadIsIt::ItsWaterElf)
+        match (self.game, opcode) {
+            | (Game::Th06, 130)
+            | (Game::Th07, 130)
+            | (Game::Th08, 151)
+            | (Game::Th09, 151)
+            | (Game::Th095, 126)
+            => Some(HowBadIsIt::ItsWaterElf),
+            _ => None
+        }
     }
 
     fn difficulty_register(&self) -> Option<RegId> {
