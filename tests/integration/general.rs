@@ -472,3 +472,9 @@ source_test!(
     "#,
     check_decompiled: |_| { /* just roundtrip */ },
 );
+
+source_test!(
+    ANM_12, decompile_negative_zero,
+    main_body: r#"  ins_11(3.0, -0.0);  "#,
+    check_decompiled: |decompiled| { assert!(decompiled.contains("-0.0")); },
+);
