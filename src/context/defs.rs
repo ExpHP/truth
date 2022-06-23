@@ -9,7 +9,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span, SourceStr};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, ConstId, IdMap, id_map, rib};
+use crate::resolve::{RegId, Namespace, DefId, NodeId, LoopId, ConstId, AliasableId, IdMap, id_map, rib};
 use crate::mapfile::Mapfile;
 use crate::value::{ScalarValue, ScalarType, VarType, ExprType};
 use crate::llir::{InstrAbi, IntrinsicInstrKind};
@@ -611,7 +611,6 @@ impl Defs {
             _ => None,
         }
     }
-
 }
 
 impl CompilerContext<'_> {
@@ -931,6 +930,18 @@ impl CompilerContext<'_> {
             if inherent_ty == VarType::Typed(ScalarType::from(sigil)) {
                 *ty_sigil = None;
             }
+        }
+    }
+
+    /// Get the expression assigned to a const var.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID does not correspond to a variable.
+    pub fn var_aliasable_id(&self, name: &ast::VarName) -> AliasableId {
+        match self.var_reg_from_ast(name) {
+            Ok((_, reg)) => AliasableId::Reg(reg),
+            Err(def_id) => AliasableId::Var(def_id),
         }
     }
 }

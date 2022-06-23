@@ -11,7 +11,7 @@ use crate::llir::{LanguageHooks, IntrinsicInstrKind, IntrinsicInstrs, HowBadIsIt
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, pseudo::PseudoArgData};
-use crate::resolve::{DefId, RegId, NodeId, IdMap};
+use crate::resolve::{DefId, RegId, NodeId, AliasableId, IdMap};
 use crate::value::{ScalarType, ReadType};
 use crate::context::CompilerContext;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
@@ -486,7 +486,7 @@ impl SingleSubLowerer<'_, '_> {
                 //        even prevents some legitimate cases of reuse like reusing `A` in `A = %(I0 + 1) < 1.5`;
                 //        But I'm not 100% sure and I'd rather just wait until we can replace of all of this
                 //        "variable reuse" logic with SSA-based analysis.
-                if data_a.tmp_ty == ty_rhs && data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var) {
+                if data_a.tmp_ty == ty_rhs && data_a.tmp_ty == data_a.read_ty && !expr_uses_var(b, var, self.ctx) {
                     // we can reuse the output variable!
                     let var_as_expr = self.compute_temporary_expr(stmt_data, var, &data_a)?;
                     self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, &var_as_expr, binop, b)?;
@@ -507,7 +507,7 @@ impl SingleSubLowerer<'_, '_> {
         let simple_b = match self.classify_expr(b)? {
             ExprClass::NeedsElaboration(data_b) => {
                 // similar conditions apply...
-                if data_b.tmp_ty == ty_rhs && data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var) {
+                if data_b.tmp_ty == ty_rhs && data_b.tmp_ty == data_b.read_ty && !expr_uses_var(a, var, self.ctx) {
                     // we can reuse the output variable!
                     let var_as_expr = self.compute_temporary_expr(stmt_data, var, &data_b)?;
                     self.lower_assign_direct_binop(span, stmt_data, var, eq_sign, rhs_span, a, binop, &var_as_expr)?;
@@ -905,7 +905,7 @@ impl SingleSubLowerer<'_, '_> {
         Ok(())
     }
 
-    /// Grabs a new unique [`VarId`] and constructs an [`ast::Var`] for assigning a value to it.
+    /// Grabs a new unique [`DefId`] and constructs an [`ast::Var`] for assigning a value to it.
     /// Emits an intrinsic to allocate a register to it.
     ///
     /// Call [`Self::undefine_temporary`] afterwards to clean up.
@@ -1106,23 +1106,26 @@ fn lower_var_to_arg(var: &Sp<ast::Var>, ctx: &CompilerContext) -> Result<(Sp<Low
     Ok((sp!(var.span => arg), read_ty))
 }
 
-fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var) -> bool {
+fn expr_uses_var(ast: &Sp<ast::Expr>, var: &ast::Var, ctx: &CompilerContext) -> bool {
     use ast::Visit;
 
-    struct Visitor<'a> {
-        var: &'a ast::Var,
+    struct Visitor<'a, 'ctx> {
+        ctx: &'a CompilerContext<'ctx>,
+        aliasable_id: AliasableId,
         found: bool,
     }
 
-    impl Visit for Visitor<'_> {
+    impl Visit for Visitor<'_, '_> {
         fn visit_var(&mut self, var: &Sp<ast::Var>) {
-            if self.var.name == var.name {
+            let aliasable_id = self.ctx.var_aliasable_id(&var.name);
+            if self.aliasable_id == aliasable_id {
                 self.found = true;
             }
         }
     }
 
-    let mut v = Visitor { var, found: false };
+    let aliasable_id = ctx.var_aliasable_id(&var.name);
+    let mut v = Visitor { aliasable_id, ctx, found: false };
     v.visit_expr(ast);
     v.found
 }

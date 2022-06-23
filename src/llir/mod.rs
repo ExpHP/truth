@@ -151,7 +151,7 @@ impl From<String> for SimpleArg {
 fn unsupported(span: crate::pos::Span, what: &str) -> Diagnostic {
     error!(
         message("feature not supported by format"),
-        primary(span, "{} not supported by format", what),
+        primary(span, "{what} not supported by format"),
     )
 }
 

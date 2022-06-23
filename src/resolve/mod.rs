@@ -93,6 +93,14 @@ newtype_id! {
     pub struct RegId(pub raw::Register);
 }
 
+/// Represents a location to store data.  Two vars alias if they have the same [`AliasableId`].
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AliasableId {
+    Reg(RegId),
+    /// Typically a local or a temporary.
+    Var(DefId),
+}
+
 /// Identifies a scope in which a set of names are visible.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
 struct ScopeId(

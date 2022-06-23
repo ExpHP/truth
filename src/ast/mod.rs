@@ -617,7 +617,7 @@ pub enum VarName {
         ident: ResIdent,
         /// This field is `None` until initialized by [`crate::passes::assign_languages`] (after which it may still be `None`).
         ///
-        /// It is only here so that name resolution can consider instruction aliases; nothing else should ever need it,
+        /// It is only here so that name resolution can consider register aliases; nothing else should ever need it,
         /// as all useful information can be found through the resolved [`DefId`].
         language_if_reg: Option<LanguageKey>,
     },
