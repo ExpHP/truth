@@ -70,7 +70,7 @@ fn load_mapfile(truth: &mut Truth, vars: &[Var]) {
     ];
     let mut ins_intrinsics_lines = vec![
         format!("{} {}", JUMP_OPCODE, I::Jmp),
-        format!("{} {}", COUNT_JUMP_OPCODE, I::CountJmp),
+        format!("{} {}", COUNT_JUMP_OPCODE, I::CountJmp(B::Ne)),
         format!("{} {}", SINE_OPCODE, I::UnOp(U::Sin, Ty::Float)),
         format!("{} {}", COSINE_OPCODE, I::UnOp(U::Cos, Ty::Float)),
         format!("{} {}", LT_FLOAT_OPCODE, I::BinOp(ast::BinOpKind::Lt, Ty::Float)),

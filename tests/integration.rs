@@ -12,6 +12,7 @@ mod integration {
     mod anm_consts;
     mod anm_features;
     mod bits_2_bits;
+    mod count_jmps;
     mod decompile_block;
     mod difficulty;
     mod ecl_features;

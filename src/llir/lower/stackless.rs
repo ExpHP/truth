@@ -625,20 +625,45 @@ impl SingleSubLowerer<'_, '_> {
         cond: &Sp<ast::Expr>,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported>{
-        match &cond.value {
-            ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op: sp_pat![token![--]], var }
-            => self.lower_cond_jump_predecrement(stmt_span, stmt_data, keyword, var, goto),
-
-            _ => self.lower_cond_jump_expr(stmt_span, stmt_data, keyword, cond, goto),
+        if let Some((var, kind)) = alternatives::CountJmpKind::of_cond(cond) {
+            self.lower_count_jump_or_bust(stmt_span, stmt_data, keyword, var, kind, goto)
+        } else {
+            self.lower_cond_jump_non_count(stmt_span, stmt_data, keyword, cond, goto)
         }
     }
 
-    fn lower_cond_jump_predecrement(
+    fn lower_count_jump_or_bust(
         &mut self,
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         keyword: &Sp<ast::CondKeyword>,
         var: &Sp<ast::Var>,
+        count_jmp_kind: alternatives::CountJmpKind,
+        goto: &ast::StmtGoto,
+    ) -> Result<(), ErrorReported>{
+        let alternatives = self.intrinsic_instrs.alternatives();
+        match alternatives.count_jmps.get(&count_jmp_kind) {
+            None => {
+                let mut diag = self.intrinsic_instrs.missing_intrinsic_error(stmt_span, "decrement jump of this form");
+                if let Some(existing_kind) = alternatives.preferred_count_jmp {
+                    let suggestion = existing_kind.render_suggestion(var);
+                    diag.note(format!("this language supports a different form of decrement jump; try '{keyword} ({suggestion})'"));
+                }
+                return Err(self.ctx.emitter.emit(diag));
+            },
+            Some(&alternatives::CountJmp::Intrinsic { opcode }) => {
+                self.lower_count_jump_intrinsic(stmt_span, stmt_data, keyword, var, opcode, goto)
+            }
+        }
+    }
+
+    fn lower_count_jump_intrinsic(
+        &mut self,
+        stmt_span: Span,
+        stmt_data: TimeAndDifficulty,
+        keyword: &Sp<ast::CondKeyword>,
+        var: &Sp<ast::Var>,
+        opcode: raw::Opcode,
         goto: &ast::StmtGoto,
     ) -> Result<(), ErrorReported>{
         match keyword.value {
@@ -647,7 +672,7 @@ impl SingleSubLowerer<'_, '_> {
                 let (lowered_var, ty_var) = lower_var_to_arg(var, self.ctx)?;
                 assert_eq!(ty_var, ScalarType::Int, "shoulda been type-checked!");
 
-                self.lower_intrinsic(stmt_span, stmt_data, IKind::CountJmp, "decrement jump", |bld| {
+                self.lower_intrinsic_by_opcode(stmt_span, stmt_data, opcode, |bld| {
                     bld.jump = Some(goto);
                     bld.outputs.push(lowered_var);
                 })
@@ -665,7 +690,7 @@ impl SingleSubLowerer<'_, '_> {
                 let if_keyword = sp!(keyword.span => token![if]);
                 let if_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
 
-                self.lower_cond_jump_predecrement(stmt_span, stmt_data, &if_keyword, var, &if_goto)?;
+                self.lower_count_jump_intrinsic(stmt_span, stmt_data, &if_keyword, var, opcode, &if_goto)?;
                 self.lower_uncond_jump(stmt_span, stmt_data, goto)?;
                 self.out.push(sp!(stmt_span => LowerStmt::Label { time: stmt_data.time, label: skip_label }));
                 Ok(())
@@ -673,7 +698,8 @@ impl SingleSubLowerer<'_, '_> {
         }
     }
 
-    fn lower_cond_jump_expr(
+    /// Lower any conditional jump that doesn't get lowered to a CountJmp.
+    fn lower_cond_jump_non_count(
         &mut self,
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
@@ -698,7 +724,7 @@ impl SingleSubLowerer<'_, '_> {
             // 'unless (!<B>) goto label'
             ast::Expr::UnOp(sp_pat!(op_span => token![!]), b) => {
                 let negated_kw = sp!(*op_span => keyword.negate());
-                self.lower_cond_jump_expr(stmt_span, stmt_data, &negated_kw, b, goto)
+                self.lower_cond_jump_non_count(stmt_span, stmt_data, &negated_kw, b, goto)
             },
 
             // other arbitrary expressions: use `<if|unless> (<expr> != 0)`
@@ -812,8 +838,8 @@ impl SingleSubLowerer<'_, '_> {
         if is_easy_case {
             // 'if (a || b) ...' can just split up into 'if (a) ...' and 'if (b) ...'.
             // Likewise for 'unless (a && b) ...'
-            self.lower_cond_jump_expr(stmt_span, stmt_data, keyword, a, goto)?;
-            self.lower_cond_jump_expr(stmt_span, stmt_data, keyword, b, goto)?;
+            self.lower_cond_jump_non_count(stmt_span, stmt_data, keyword, a, goto)?;
+            self.lower_cond_jump_non_count(stmt_span, stmt_data, keyword, b, goto)?;
             Ok(())
 
         } else {
@@ -829,8 +855,8 @@ impl SingleSubLowerer<'_, '_> {
             let skip_label = sp!(binop.span => self.ctx.gensym.gensym("@unless_predec_skip#"));
             let skip_goto = ast::StmtGoto { time: None, destination: skip_label.clone() };
 
-            self.lower_cond_jump_expr(stmt_span, stmt_data, &negated_kw, a, &skip_goto)?;
-            self.lower_cond_jump_expr(stmt_span, stmt_data, &negated_kw, b, &skip_goto)?;
+            self.lower_cond_jump_non_count(stmt_span, stmt_data, &negated_kw, a, &skip_goto)?;
+            self.lower_cond_jump_non_count(stmt_span, stmt_data, &negated_kw, b, &skip_goto)?;
             self.lower_uncond_jump(stmt_span, stmt_data, goto)?;
             self.out.push(sp!(binop.span => LowerStmt::Label { time: stmt_data.time, label: skip_label }));
             Ok(())

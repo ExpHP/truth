@@ -168,11 +168,20 @@ impl SingleSubRaiser<'_, '_> {
             },
 
 
-            RIKind::Standard(IKind::CountJmp) => {
+            RIKind::Standard(IKind::CountJmp(ast::BinOpKind::Ne)) => {
                 let goto = jump.take().unwrap();
                 let var = outputs.next().unwrap();
                 emit_stmt(stmt_cond_goto!(rec_sp!(Span::NULL =>
                     as kind, if expr_pre_xcrement!(-- #var) goto #(goto.destination) #(goto.time)
+                )));
+            },
+
+
+            RIKind::Standard(IKind::CountJmp(op)) => {
+                let goto = jump.take().unwrap();
+                let var = outputs.next().unwrap();
+                emit_stmt(stmt_cond_goto!(rec_sp!(Span::NULL =>
+                    as kind, if expr_binop!(expr_pre_xcrement!(-- #var) #op #(0)) goto #(goto.destination) #(goto.time)
                 )));
             },
 

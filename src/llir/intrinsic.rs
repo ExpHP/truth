@@ -98,8 +98,9 @@ pub enum IntrinsicInstrKind {
     UnOp(ast::UnOpKind, ScalarType),
 
     /// Like `if (--x) goto label @ t`.
+    /// In some formats it may be `if (--x > 0) goto label @ t` or `if (x-- > 0) goto label @ t`.
     #[strum_discriminants(strum(serialize = "CountJmp"))]
-    CountJmp,
+    CountJmp(ast::BinOpKind),
 
     /// Like `if (a == c) goto label @ t;`
     #[strum_discriminants(strum(serialize = "CondJmp"))]
@@ -386,7 +387,7 @@ impl IntrinsicInstrAbiParts {
                 out.outputs.push(helper.remove_out_arg(&mut encodings, out_ty)?);
                 out.plain_args.push(helper.remove_plain_arg(&mut encodings, arg_ty)?);
             },
-            I::CountJmp => {
+            I::CountJmp(_op) => {
                 out.jump = Some(helper.find_and_remove_jump(&mut encodings)?);
                 out.outputs.push(helper.remove_out_arg(&mut encodings, ScalarType::Int)?);
             },
@@ -444,10 +445,19 @@ fn intrinsic_from_attrs(
         Tag::AssignOp => IKind::AssignOp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
         Tag::BinOp => IKind::BinOp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
         Tag::UnOp => IKind::UnOp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
-        Tag::CountJmp => IKind::CountJmp,
         Tag::CondJmp => IKind::CondJmp(read_op_attr(&mut deserializer)?, read_type_attr(&mut deserializer)?),
         Tag::CondJmp2A => IKind::CondJmp2A(read_type_attr(&mut deserializer)?),
         Tag::CondJmp2B => IKind::CondJmp2B(read_op_attr(&mut deserializer)?),
+        Tag::CountJmp => {
+            let op = read_optional_op_attr(&mut deserializer)?.unwrap_or(ast::BinOpKind::Ne);
+            if !matches!(op, ast::BinOpKind::Ne | ast::BinOpKind::Gt) {
+                return Err(emitter.as_sized().emit(error!(
+                    message("nonsense operator for CountJmp"),
+                    primary(intrinsic_name.span, ""),
+                )))
+            }
+            IKind::CountJmp(op)
+        },
     };
     deserializer.finish()?;
     Ok(out)
@@ -457,12 +467,25 @@ fn read_op_attr<Op: core::str::FromStr>(deserializer: &mut AttributeDeserializer
 where
     <Op as core::str::FromStr>::Err: core::fmt::Display,
 {
-    let string = deserializer.expect_value::<String>("op")?;
-    string.parse::<Op>().map_err(|e| deserializer.emitter().emit(error!(
-        message("{e}"),
-        primary(string.span, ""),
-    )))
+    read_optional_op_attr(deserializer)?.ok_or_else(|| deserializer.error_missing("op"))
 }
+
+fn read_optional_op_attr<Op: core::str::FromStr>(deserializer: &mut AttributeDeserializer) -> Result<Option<Op>, ErrorReported>
+where
+    <Op as core::str::FromStr>::Err: core::fmt::Display,
+{
+    match deserializer.accept_value::<String>("op")? {
+        Some(string) => {
+            let op = string.parse::<Op>().map_err(|e| deserializer.emitter().emit(error!(
+                message("{e}"),
+                primary(string.span, ""),
+            )))?;
+            Ok(Some(op))
+        },
+        None => Ok(None)
+    }
+}
+
 
 fn read_type_attr(deserializer: &mut AttributeDeserializer) -> Result<ScalarType, ErrorReported> {
     let string = deserializer.expect_value::<String>("type")?;
@@ -494,7 +517,10 @@ impl std::fmt::Display for IntrinsicInstrKind {
             IKind::AssignOp(op, ty) => write!(f, r#"{tag}(op="{op}"; type="{}")"#, render_ty(ty)),
             IKind::BinOp(op, ty) => write!(f, r#"{tag}(op="{op}"; type="{}")"#, render_ty(ty)),
             IKind::UnOp(op, ty) => write!(f, r#"{tag}(op="{op}"; type="{}")"#, render_ty(ty)),
-            IKind::CountJmp => write!(f, r#"{tag}()"#),
+            IKind::CountJmp(op) => write!(f, r#"{tag}({})"#, match op {
+                ast::BinOpKind::Ne => format!(""),
+                _ => format!(r#"op="{op}""#),
+            }),
             IKind::CondJmp(op, ty) => write!(f, r#"{tag}(op="{op}"; type="{}")"#, render_ty(ty)),
             IKind::CondJmp2A(ty) => write!(f, r#"{tag}(type="{}")"#, render_ty(ty)),
             IKind::CondJmp2B(op) => write!(f, r#"{tag}(op="{op}")"#),
@@ -518,6 +544,8 @@ pub mod alternatives {
         pub unops: HashMap<(ast::UnOpKind, ScalarType), UnOp>,
         pub assign_ops: HashMap<(ast::AssignOpKind, ScalarType), AssignOp>,
         pub cond_jmps: HashMap<(ast::BinOpKind, ScalarType), CondJmp>,
+        pub preferred_count_jmp: Option<CountJmpKind>,
+        pub count_jmps: HashMap<CountJmpKind, CountJmp>,
     }
 
     #[derive(Debug, Clone)]
@@ -544,6 +572,68 @@ pub mod alternatives {
         TwoPart { cmp_opcode: raw::Opcode, jmp_opcode: raw::Opcode },
     }
 
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub enum CountJmpKind {
+        PredecNeZero,
+        PredecGtZero,
+    }
+
+    impl CountJmpKind {
+        pub fn intrinsic(self) -> IntrinsicInstrKind {
+            use IntrinsicInstrKind as IKind;
+
+            match self {
+                CountJmpKind::PredecNeZero => IKind::CountJmp(ast::BinOpKind::Ne),
+                CountJmpKind::PredecGtZero => IKind::CountJmp(ast::BinOpKind::Gt),
+            }
+        }
+
+        pub fn of_cond(cond: &Sp<ast::Expr>) -> Option<(&Sp<ast::Var>, CountJmpKind)> {
+            match &cond.value {
+                ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op: sp_pat![token![--]], var }
+                => Some((var, CountJmpKind::PredecNeZero)),
+
+                ast::Expr::BinOp(a, op, b) => {
+                    let var = match &a.value {
+                        ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op: sp_pat![token![--]], var } => var,
+                        _ => return None,
+                    };
+                    match (op.value, b.as_const_int()) {
+                        (token![!=], Some(0)) => Some((var, CountJmpKind::PredecNeZero)),
+                        (token![>], Some(0)) => Some((var, CountJmpKind::PredecGtZero)),
+                        _ => None
+                    }
+                },
+
+                _ => None,
+            }
+        }
+    }
+
+    impl CountJmpKind {
+        pub fn render_suggestion<'a>(&self, var: &'a ast::Var) -> impl fmt::Display + 'a {
+            struct DisplayWrapper<'b>(CountJmpKind, &'b ast::Var);
+
+            impl fmt::Display for DisplayWrapper<'_> {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    let &DisplayWrapper(kind, var) = self;
+                    let var_str = crate::fmt::stringify(var);
+                    match kind {
+                        CountJmpKind::PredecNeZero => write!(f, "--{var_str}"),
+                        CountJmpKind::PredecGtZero => write!(f, "--{var_str} > 0"),
+                    }
+                }
+            }
+
+            DisplayWrapper(*self, var)
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum CountJmp {
+        Intrinsic { opcode: raw::Opcode },
+    }
+
     pub fn discover_alternatives(
         intrinsic_opcodes: &IndexMap<IntrinsicInstrKind, raw::Opcode>,
     ) -> AlternativesInfo {
@@ -555,6 +645,8 @@ pub mod alternatives {
         let mut unops = HashMap::new();
         let mut assign_ops = HashMap::new();
         let mut cond_jmps = HashMap::new();
+        let mut count_jmps = HashMap::new();
+        let mut preferred_count_jmp = None;
 
         // Begin with less preferrable alternatives. They'll get overwritten by later alternatives.
 
@@ -615,6 +707,19 @@ pub mod alternatives {
                 }
             }
         }
-        AlternativesInfo { unops, assign_ops, cond_jmps }
+
+        // The most preferable: Direct intrinsics for everything
+        for kind in vec![
+            // in increasing order of preference
+            CountJmpKind::PredecNeZero,
+            CountJmpKind::PredecGtZero,
+        ] {
+            if let Some(&opcode) = intrinsic_opcodes.get(&kind.intrinsic()) {
+                count_jmps.insert(kind, CountJmp::Intrinsic { opcode });
+                preferred_count_jmp = Some(kind);
+            }
+        }
+
+        AlternativesInfo { unops, assign_ops, cond_jmps, count_jmps, preferred_count_jmp }
     }
 }
