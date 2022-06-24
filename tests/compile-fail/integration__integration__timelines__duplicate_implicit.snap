@@ -3,19 +3,19 @@ source: tests/integration/timelines.rs
 expression: stderr
 ---
 warning: mixture of explicit and automatic timeline indices
-  ┌─ <input>:2:10
+  ┌─ <input>:2:8
   │
-2 │ timeline 0 { ins_10(100); }
-  │          ^ explicit index
-3 │ timeline { ins_10(100); }
-  │ -------- implicitly has index 0
+2 │ script 0 foo { ins_10(100); }
+  │        ^ explicit index
+3 │ script bar { ins_10(100); }
+  │        --- implicitly has index 0
 
 error: duplicate timeline for index 0
-  ┌─ <input>:3:1
+  ┌─ <input>:3:8
   │
-2 │ timeline 0 { ins_10(100); }
-  │          - previously defined here
-3 │ timeline { ins_10(100); }
-  │ ^^^^^^^^ redefined here
+2 │ script 0 foo { ins_10(100); }
+  │        - previously defined here
+3 │ script bar { ins_10(100); }
+  │        ^^^ redefined here
 
 

@@ -37,29 +37,45 @@ pub fn assign_res_ids<A: ast::Visitable + ?Sized>(ast: &mut A, ctx: &mut Compile
     Ok(())
 }
 
-/// Assign [`InstrLanguage`]s to called functions and variables in a script parsed from text.
+/// Assigns [`InstrLanguage`]s to called functions and variables in a script parsed from text.
 ///
 /// Basically, there are a number of passes that need to know what language each sub compiles to, and it is not easy
 /// to factor out the logic that decides this in a way reusable by multiple `Visit` impls.  Therefore, places were added
 /// to the AST that store language tags where useful, and this early pass is responsible for filling those tags.
 ///
 /// The logic is:
-/// * Tokens within `script`s and non-`const` functions will be painted with the given [`InstrLanguage`].
-/// * Tokens inside `timeline` items will be painted with [`InstrLanguage::Timeline`] instead.
+/// * Tokens within non-`const` functions will be painted with the given [`InstrLanguage`].
+/// * Tokens inside `script`s will also be painted with this language, but a separate language for these
+///   may be specified using [`AssignLanguagesOptions`] instead of this function.
 /// * Tokens inside `const` exprs and `const` functions will not be painted with any language.
 ///   Any raw syntax (`ins_23`, `REG[10004]`) in these locations will produce errors.
 ///
-/// If called directly on [`ast::Block`] instead of a script file, it is assumed to be the body of a `script` and thus paints
-/// with the specified language.  (this behavior is for use by tests)
+/// If called directly on [`ast::Block`] instead of a script file, it is assumed to be the body of a non-`const`
+/// function and thus paints with the primary language.  (this behavior is for use by tests)
 pub fn assign_languages<A: ast::Visitable + ?Sized>(ast: &mut A, primary_language: LanguageKey, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
-    let mut v = AssignLanguagesVisitor {
-        ctx,
-        primary_language,
-        language_stack: vec![Some(primary_language)],
-        errors: ErrorFlag::new(),
-    };
-    ast.visit_mut_with(&mut v);
-    v.errors.into_result(())
+    AssignLanguagesOptions {
+        funcs: primary_language,
+        scripts: primary_language,
+    }.run(ast, ctx)
+}
+
+/// Keyword-arg struct for running an [`assign_languages`] pass where `script`s have a different language.
+pub struct AssignLanguagesOptions {
+    pub funcs: LanguageKey,
+    pub scripts: LanguageKey,
+}
+
+impl AssignLanguagesOptions {
+    pub fn run<A: ast::Visitable + ?Sized>(self, ast: &mut A, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+        let mut v = AssignLanguagesVisitor {
+            ctx,
+            language_stack: vec![Some(self.funcs)],
+            languages: self,
+            errors: ErrorFlag::new(),
+        };
+        ast.visit_mut_with(&mut v);
+        v.errors.into_result(())
+    }
 }
 
 /// Resolve names in a script parsed from text.
@@ -228,7 +244,7 @@ where
 
 struct AssignLanguagesVisitor<'a, 'ctx> {
     ctx: &'a CompilerContext<'ctx>,
-    primary_language: LanguageKey,
+    languages: AssignLanguagesOptions,
     language_stack: Vec<Option<LanguageKey>>,
     errors: ErrorFlag,
 }
@@ -275,17 +291,19 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
                 assert_eq!(self.language_stack.pop().unwrap(), None, "unbalanced stack usage!");
             },
 
-            | ast::Item::Timeline { .. }
+            | ast::Item::Script { .. }
             => {
-                self.language_stack.push(Some(LanguageKey::Timeline));
+                self.language_stack.push(Some(self.languages.scripts));
                 ast::walk_item_mut(self, item);
-                assert_eq!(self.language_stack.pop().unwrap(), Some(LanguageKey::Timeline), "unbalanced stack usage!");
+                assert_eq!(self.language_stack.pop().unwrap(), Some(self.languages.scripts), "unbalanced stack usage!");
             },
 
-            _ => {
-                self.language_stack.push(Some(self.primary_language));
+            | ast::Item::Func(ast::ItemFunc { qualifier: None, .. })
+            | ast::Item::Func(ast::ItemFunc { qualifier: Some(sp_pat![token![inline]]), .. })
+            => {
+                self.language_stack.push(Some(self.languages.funcs));
                 ast::walk_item_mut(self, item);
-                assert_eq!(self.language_stack.pop().unwrap(), Some(self.primary_language), "unbalanced stack usage!");
+                assert_eq!(self.language_stack.pop().unwrap(), Some(self.languages.funcs), "unbalanced stack usage!");
             },
         }
     }

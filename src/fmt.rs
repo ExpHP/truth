@@ -574,26 +574,13 @@ impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
             ast::Item::Func(func) => out.fmt(func),
-            ast::Item::AnmScript { keyword: _, number, ident, code } => {
+            ast::Item::Script { keyword: _, number, ident, code } => {
                 out.fmt("script ")?;
                 if let Some(number) = number {
                     out.fmt((number, " "))?;
                 }
                 out.state.time_stack.push(0);
                 out.fmt((ident, " ", code))?;
-                out.state.time_stack.pop();
-                out.next_line()
-            },
-            ast::Item::Timeline { keyword: _, number, ident, code } => {
-                out.fmt("timeline ")?;
-                if let Some(number) = number {
-                    out.fmt((number, " "))?;
-                }
-                if let Some(ident) = ident {
-                    out.fmt((ident, " "))?;
-                }
-                out.state.time_stack.push(0);
-                out.fmt(code)?;
                 out.state.time_stack.pop();
                 out.next_line()
             },

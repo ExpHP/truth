@@ -842,7 +842,7 @@ fn decompile(
                 raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
             })?;
 
-            items.push(sp!(ast::Item::AnmScript {
+            items.push(sp!(ast::Item::Script {
                 number: Some(sp!(id)),
                 ident: name.clone(),
                 code: ast::Block(code),
@@ -980,7 +980,7 @@ fn compile(
                 cur_entry = Some(WorkingEntry::from_fields(fields, ctx.emitter).map_err(|e| ctx.emitter.emit(e))?);
                 cur_group = vec![];
             },
-            &ast::Item::AnmScript { number: _, ref ident, ref code, .. } => {
+            &ast::Item::Script { number: _, ref ident, ref code, .. } => {
                 if cur_entry.is_none() { return Err(ctx.emitter.emit(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),
@@ -1135,7 +1135,7 @@ fn gather_script_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
         match &item.value {
-            &ast::Item::AnmScript { number, ref ident, .. } => {
+            &ast::Item::Script { number, ref ident, .. } => {
                 let script_id = number.unwrap_or(sp!(ident.span => next_auto_script));
                 next_auto_script = script_id.value + 1;
 
