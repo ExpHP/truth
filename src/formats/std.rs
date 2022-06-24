@@ -254,17 +254,17 @@ fn decompile_std(
     let mut script = ast::ScriptFile {
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
-        items: vec! [
-            sp!(ast::Item::Meta {
+        items: vec![
+            sp!(ast::Item::Meta(ast::ItemMeta {
                 keyword: sp!(ast::MetaKeyword::Meta),
                 fields: sp!(std.make_meta(format)),
-            }),
-            sp!(ast::Item::Script {
+            })),
+            sp!(ast::Item::Script(ast::ItemScript {
                 number: None,
                 ident: sp!(ident!("main")),
                 code: ast::Block(code),
                 keyword: sp!(()),
-            }),
+            })),
         ],
     };
     crate::passes::postprocess_decompiled(&mut script, ctx, decompile_options)?;
@@ -303,7 +303,7 @@ fn compile_std(
         let (mut found_meta, mut found_main_sub) = (None, None);
         for item in script.items.iter() {
             match &item.value {
-                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], fields: meta } => {
+                ast::Item::Meta(ast::ItemMeta { keyword: sp_pat![kw_span => token![meta]], fields: meta }) => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(emit(error!(
                             message("'meta' supplied multiple times"),
@@ -312,15 +312,15 @@ fn compile_std(
                         )));
                     }
                 },
-                ast::Item::Meta { keyword, .. } => return Err(emit(error!(
+                ast::Item::Meta(ast::ItemMeta { keyword, .. }) => return Err(emit(error!(
                     message("unexpected '{keyword}' in STD file"),
                     primary(keyword, "not valid in STD files"),
                 ))),
-                ast::Item::Script { number: Some(number), .. } => return Err(emit(error!(
+                ast::Item::Script(ast::ItemScript { number: Some(number), .. }) => return Err(emit(error!(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
                 ))),
-                ast::Item::Script { number: None, ident, code, .. } => {
+                ast::Item::Script(ast::ItemScript { number: None, ident, code, .. }) => {
                     if ident != "main" {
                         return Err(emit(error!(
                             message("STD script must be called 'main'"),
@@ -335,7 +335,7 @@ fn compile_std(
                         )));
                     }
                 },
-                ast::Item::ConstVar { .. } => {},
+                ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }

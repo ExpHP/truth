@@ -574,7 +574,7 @@ impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
             ast::Item::Func(func) => out.fmt(func),
-            ast::Item::Script { keyword: _, number, ident, code } => {
+            ast::Item::Script(ast::ItemScript { keyword: _, number, ident, code }) => {
                 out.fmt("script ")?;
                 if let Some(number) = number {
                     out.fmt((number, " "))?;
@@ -584,11 +584,11 @@ impl Format for ast::Item {
                 out.state.time_stack.pop();
                 out.next_line()
             },
-            ast::Item::Meta { keyword, fields } => {
+            ast::Item::Meta(ast::ItemMeta { keyword, fields }) => {
                 out.fmt((keyword, " ", fields))?;
                 out.next_line()
             },
-            ast::Item::ConstVar { ty_keyword, vars } => {
+            ast::Item::ConstVar(ast::ItemConstVar { ty_keyword, vars }) => {
                 out.fmt(("const ", ty_keyword, " "))?;
                 out.fmt_separated(
                     vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),

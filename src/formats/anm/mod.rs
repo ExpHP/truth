@@ -832,22 +832,22 @@ fn decompile(
     let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
 
     for entry in &anm_file.entries {
-        items.push(sp!(ast::Item::Meta {
+        items.push(sp!(ast::Item::Meta(ast::ItemMeta {
             keyword: sp!(ast::MetaKeyword::Entry),
             fields: sp!(entry.make_meta(game)),
-        }));
+        })));
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
             let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
                 raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
             })?;
 
-            items.push(sp!(ast::Item::Script {
+            items.push(sp!(ast::Item::Script(ast::ItemScript {
                 number: Some(sp!(id)),
                 ident: name.clone(),
                 code: ast::Block(code),
                 keyword: sp!(()),
-            }));
+            })));
             Ok(())
         }).collect_with_recovery()?;
     }
@@ -973,14 +973,14 @@ fn compile(
     let mut script_names = vec![];
     for item in &ast.items {
         match &item.value {
-            ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => {
+            ast::Item::Meta(ast::ItemMeta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. }) => {
                 if let Some(prev_entry) = cur_entry.take() {
                     groups.push((prev_entry, cur_group));
                 }
                 cur_entry = Some(WorkingEntry::from_fields(fields, ctx.emitter).map_err(|e| ctx.emitter.emit(e))?);
                 cur_group = vec![];
             },
-            &ast::Item::Script { number: _, ref ident, ref code, .. } => {
+            &ast::Item::Script(ast::ItemScript { number: _, ref ident, ref code, .. }) => {
                 if cur_entry.is_none() { return Err(ctx.emitter.emit(error!(
                     message("orphaned ANM script with no entry"),
                     primary(item, "orphaned script"),
@@ -989,7 +989,7 @@ fn compile(
                 cur_group.push((ident, code));
                 script_names.push(ident);
             },
-            ast::Item::ConstVar { .. } => {},
+            ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
             _ => return Err(ctx.emitter.emit(error!(
                 message("feature not supported by format"),
                 primary(item, "not supported by ANM files"),
@@ -1070,7 +1070,7 @@ fn gather_sprite_id_exprs(
     extra_type_checks: &mut Vec<crate::passes::type_check::ShallowTypeCheck>,
 ) -> Result<Vec<(Sp<ResIdent>, Sp<ast::Expr>)>, ErrorReported> {
     let all_entries = ast.items.iter().filter_map(|item| match &item.value {
-        ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => Some(fields),
+        ast::Item::Meta(ast::ItemMeta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. }) => Some(fields),
         _ => None,
     });
 
@@ -1135,7 +1135,7 @@ fn gather_script_ids(ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result
     let mut script_ids = IndexMap::new();
     for item in &ast.items {
         match &item.value {
-            &ast::Item::Script { number, ref ident, .. } => {
+            &ast::Item::Script(ast::ItemScript { number, ref ident, .. }) => {
                 let script_id = number.unwrap_or(sp!(ident.span => next_auto_script));
                 next_auto_script = script_id.value + 1;
 

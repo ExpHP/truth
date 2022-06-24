@@ -32,20 +32,9 @@ pub struct ScriptFile {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Func(ItemFunc),
-    Script {
-        keyword: TokenSpan,
-        number: Option<Sp<raw::LangInt>>,
-        ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
-        code: Block,
-    },
-    Meta {
-        keyword: Sp<MetaKeyword>,
-        fields: Sp<meta::Fields>,
-    },
-    ConstVar {
-        ty_keyword: Sp<TypeKeyword>,
-        vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
-    },
+    Script(ItemScript),
+    Meta(ItemMeta),
+    ConstVar(ItemConstVar),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +45,27 @@ pub struct ItemFunc {
     pub params: Vec<Sp<FuncParam>>,
     /// `Some` for definitions, `None` for declarations.
     pub code: Option<Block>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemScript {
+    pub keyword: TokenSpan,
+    pub number: Option<Sp<raw::LangInt>>,
+    pub ident: Sp<Ident>,
+    // not `ResIdent` because it doesn't define something in all languages
+    pub code: Block,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemMeta {
+    pub keyword: Sp<MetaKeyword>,
+    pub fields: Sp<meta::Fields>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemConstVar {
+    pub ty_keyword: Sp<TypeKeyword>,
+    pub vars: Vec<Sp<(Sp<Var>, Sp<Expr>)>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,9 +86,9 @@ impl Item {
         Item::Func(ItemFunc { qualifier: Some(sp_pat![token![const]]), .. }) => "const function definition",
         Item::Func(ItemFunc { qualifier: Some(sp_pat![token![inline]]), .. }) => "inline function definition",
         Item::Func(ItemFunc { qualifier: None, .. }) => "exported function definition",
-        Item::Script { .. } => "script",
-        Item::Meta { .. } => "meta",
-        Item::ConstVar { .. } => "const definition",
+        Item::Script(ItemScript { .. }) => "script",
+        Item::Meta(ItemMeta { .. }) => "meta",
+        Item::ConstVar(ItemConstVar { .. }) => "const definition",
     }}
 }
 
@@ -1065,13 +1075,13 @@ macro_rules! generate_visitor_stuff {
                         }
                     }
                 },
-                Item::Script { keyword: _, number: _, ident: _, code } => {
+                Item::Script(ItemScript { keyword: _, number: _, ident: _, code }) => {
                     v.visit_root_block(code);
                 },
-                Item::Meta { keyword: _, fields } => {
+                Item::Meta(ItemMeta { keyword: _, fields }) => {
                     walk_meta_fields(v, fields);
                 },
-                Item::ConstVar { ty_keyword: _, vars } => {
+                Item::ConstVar(ItemConstVar { ty_keyword: _, vars }) => {
                     for sp_pat![(var, expr)] in vars {
                         v.visit_var(var);
                         v.visit_expr(expr);

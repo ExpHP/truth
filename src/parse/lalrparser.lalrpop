@@ -187,25 +187,27 @@ Item: ast::Item = {
     ItemConstVar,
 };
 
-ItemScript: ast::Item = {
+ItemScript: ast::Item = <item:_ItemScript> => ast::Item::Script(item);
+_ItemScript: ast::ItemScript = {
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>>
         <code:Block>
-        => ast::Item::Script { keyword, number, ident, code },
+        => ast::ItemScript { keyword, number, ident, code },
 };
 
-ItemMeta: ast::Item = {
+ItemMeta: ast::Item = <item:_ItemMeta> => ast::Item::Meta(item);
+_ItemMeta: ast::ItemMeta = {
     <keyword:Sp<MetaKeyword>> <fields:Sp<MetaBracedFields>>
-        => ast::Item::Meta { keyword, fields },
+        => ast::ItemMeta { keyword, fields },
 };
 
-ItemConstVar: ast::Item = {
+ItemConstVar: ast::Item = <item:_ItemConstVar> => ast::Item::ConstVar(item);
+_ItemConstVar: ast::ItemConstVar = {
     "const" <ty_keyword:Sp<ConstVarTypeKeyword>> <vars:SeparatedStrict<Sp<ConstDeclarationListItem>, ",">> ";"
-        => ast::Item::ConstVar { ty_keyword, vars },
+        => ast::ItemConstVar { ty_keyword, vars },
 };
 
-ItemFunc: ast::Item = <func:ItemFunc_> => ast::Item::Func(func);
-
-ItemFunc_: ast::ItemFunc = {
+ItemFunc: ast::Item = <item:_ItemFunc> => ast::Item::Func(item);
+_ItemFunc: ast::ItemFunc = {
     <func:ItemFuncHeader> ";" => func,
 
     <func:ItemFuncHeader> <code:Block> => ast::ItemFunc { code: Some(code), ..func },

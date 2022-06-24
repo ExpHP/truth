@@ -270,7 +270,7 @@ mod resolve_names {
                     }
                 },
 
-                | ast::Item::ConstVar { vars, .. }
+                | ast::Item::ConstVar(ast::ItemConstVar { vars, .. })
                 => {
                     self.rib_stacks.enter_new_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "const" });
                     // we don't want to resolve the declaration idents, only the expressions
@@ -280,8 +280,8 @@ mod resolve_names {
                     self.rib_stacks.leave_rib(Namespace::Vars, RibKind::LocalBarrier { of_what: "const" });
                 },
 
-                | ast::Item::Script { .. }
-                | ast::Item::Meta { .. }
+                | ast::Item::Script(ast::ItemScript { .. })
+                | ast::Item::Meta(ast::ItemMeta { .. })
                 => ast::walk_item(self, item),
             }
         }
@@ -480,7 +480,7 @@ mod resolve_names {
                     );
                 },
 
-                ast::Item::ConstVar { ty_keyword, ref vars } => {
+                ast::Item::ConstVar(ast::ItemConstVar { ty_keyword, ref vars }) => {
                     let ty = ty_keyword.value.var_ty().as_known_ty().expect("untyped consts don't parse");
 
                     for sp_pat![(var, expr)] in vars {
@@ -494,8 +494,8 @@ mod resolve_names {
                     }
                 },
 
-                ast::Item::Script { .. } => {}
-                ast::Item::Meta { .. } => {},
+                ast::Item::Script(ast::ItemScript { .. }) => {}
+                ast::Item::Meta(ast::ItemMeta { .. }) => {},
             } // match item.value
         }
 

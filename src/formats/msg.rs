@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use indexmap::IndexMap;
 
 use crate::ast;
 use crate::ast::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
@@ -12,8 +13,6 @@ use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::value::ScalarValue;
 use crate::debug_info;
-
-use indexmap::IndexMap;
 
 // =============================================================================
 
@@ -196,19 +195,19 @@ fn decompile(
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
     let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
-    let mut items = vec![sp!(ast::Item::Meta {
+    let mut items = vec![sp!(ast::Item::Meta(ast::ItemMeta {
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
-    })];
+    }))];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
         let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?;
 
-        Ok(sp!(ast::Item::Script {
+        Ok(sp!(ast::Item::Script(ast::ItemScript {
             number: None,
             ident: sp!(ident.clone()),
             code: ast::Block(code),
             keyword: sp!(()),
-        }))
+        })))
     }).collect_with_recovery::<Vec<_>>()?);
 
     let mut script = ast::ScriptFile {
@@ -291,7 +290,7 @@ fn compile(
         let (mut found_meta, mut script_code) = (None, IndexMap::new());
         for item in ast.items.iter() {
             match &item.value {
-                ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], fields: meta } => {
+                ast::Item::Meta(ast::ItemMeta { keyword: sp_pat![kw_span => token![meta]], fields: meta }) => {
                     if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
                         return Err(emit(error!(
                             message("'meta' supplied multiple times"),
@@ -300,15 +299,15 @@ fn compile(
                         )));
                     }
                 },
-                ast::Item::Meta { keyword, .. } => return Err(emit(error!(
+                ast::Item::Meta(ast::ItemMeta { keyword, .. }) => return Err(emit(error!(
                     message("unexpected '{keyword}' in MSG file"),
                     primary(keyword, "not valid in MSG files"),
                 ))),
-                ast::Item::Script { number: Some(number), .. } => return Err(emit(error!(
+                ast::Item::Script(ast::ItemScript { number: Some(number), .. }) => return Err(emit(error!(
                     message("unexpected numbered script in MSG file"),
                     primary(number, "unexpected number"),
                 ))),
-                ast::Item::Script { number: None, ident, code, .. } => {
+                ast::Item::Script(ast::ItemScript { number: None, ident, code, .. }) => {
                     match script_code.entry(ident.clone()) {
                         indexmap::map::Entry::Vacant(e) => { e.insert(code); },
                         indexmap::map::Entry::Occupied(prev) => return Err(emit(error!(
@@ -318,7 +317,7 @@ fn compile(
                         ))),
                     }
                 },
-                ast::Item::ConstVar { .. } => {},
+                ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }

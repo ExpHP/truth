@@ -74,14 +74,14 @@ fn decompile(
     let mut items = vec![];
     let mut timeline_raiser = llir::Raiser::new(timeline_hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
-        items.push(sp!(ast::Item::Script {
+        items.push(sp!(ast::Item::Script(ast::ItemScript {
             keyword: sp!(()),
             number: None,
             ident: sp!(ident!("timeline{index}")),
             code: ast::Block({
                 timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
             }),
-        }));
+        })));
     }
 
     let mut sub_raiser = llir::Raiser::new(ecl_hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
@@ -208,12 +208,12 @@ fn compile(
     ast.items.iter().map(|item| {
         // eprintln!("{:?}", item);
         match &item.value {
-            ast::Item::Meta { keyword, .. } => return Err(emit(error!(
+            ast::Item::Meta(ast::ItemMeta { keyword, .. }) => return Err(emit(error!(
                 message("unexpected '{keyword}' in old ECL format file"),
                 primary(keyword, "not valid in old format ECL files"),
             ))),
-            ast::Item::ConstVar { .. } => {},
-            ast::Item::Script { code, ident, .. } => {
+            ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
+            ast::Item::Script(ast::ItemScript { code, ident, .. }) => {
                 let timeline_index = timeline_indices_in_ast_order.next().unwrap();
 
                 let def_id = None;
@@ -335,7 +335,7 @@ fn get_and_validate_timeline_indices(
 
     for item in items {
         match &item.value {
-            &ast::Item::Script { number, ref ident, .. } => {
+            &ast::Item::Script(ast::ItemScript { number, ref ident, .. }) => {
                 if let Some(existing_ident) = names.replace(ident) {
                     emitter.emit(warning!(
                         message("timeline '{ident}' already defined"),

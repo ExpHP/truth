@@ -233,10 +233,10 @@ fn decompile<E: Entry>(
 ) -> Result<ast::ScriptFile, ErrorReported> {
     Ok(ast::ScriptFile {
         items: msg.entries.iter().map(|entry| {
-            sp!(ast::Item::Meta {
+            sp!(ast::Item::Meta(ast::ItemMeta {
                 keyword: sp!(ast::MetaKeyword::Entry),
                 fields: sp!(entry.make_meta()),
-            })
+            }))
         }).collect(),
         mapfiles: vec![],
         image_sources: vec![],
@@ -261,10 +261,10 @@ fn compile<E: Entry>(
     let mut entries = vec![];
     ast.items.iter().map(|item| {
         match &item.value {
-            ast::Item::Meta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. } => {
+            ast::Item::Meta(ast::ItemMeta { keyword: sp_pat!(ast::MetaKeyword::Entry), fields, .. }) => {
                 entries.push(E::from_fields(fields).map_err(|e| ctx.emitter.emit(e))?);
             },
-            ast::Item::ConstVar { .. } => {},
+            ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
             _ => return Err(ctx.emitter.emit(error!(
                 message("feature not supported by format"),
                 primary(item, "not supported by mission.msg"),
