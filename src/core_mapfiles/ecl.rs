@@ -821,7 +821,7 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
         (Th095, 2, Some(("S", None))),
         (Th095, 3, Some(("S", None))),
         (Th095, 4, Some(("to", Some(IKind::Jmp)))),
-        (Th095, 5, Some(("toS", Some(IKind::CountJmp)))),
+        (Th095, 5, Some(("toS", Some(IKind::CountJmp(B::Gt))))),
         (Th095, 6, Some(("SS", Some(IKind::AssignOp(A::Assign, Ty::Int))))),
         (Th095, 7, Some(("ff", Some(IKind::AssignOp(A::Assign, Ty::Float))))),
         (Th095, 8, Some(("SS", None))),
