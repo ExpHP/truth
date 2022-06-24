@@ -120,7 +120,7 @@ source_test!(
     fixed("abc\0def");
     "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(&ecl.subs[0][0].args_blob[..4], "abc\0".as_bytes());
         assert_eq!(ecl.subs[0][1].args_blob, "a\0b\0".as_bytes().to_vec());
         assert_eq!(ecl.subs[0][2].args_blob, "abc\0abd\0".as_bytes().to_vec());
@@ -207,7 +207,7 @@ source_test!(
     nulless("abcdefgh");
     "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0][0].args_blob, b"abcdefgh");
     }
 );

@@ -23,6 +23,13 @@ pub fn stringify<T: Format>(value: &T) -> String {
     stringify_with(value, Config::new().max_columns(1000))
 }
 
+// TODO: We've probably used `{:?}` in some places where we should've used this.
+//       Audit the code at some point.
+/// Stringify a string using truth's own string literal syntax.
+pub fn stringify_lit_str(string: &str) -> String {
+    stringify(&ast::LitString::from(string))
+}
+
 /// Write a value to string, for `eprintln` debugging and `insta` tests.
 pub fn stringify_with<T: Format>(value: &T, config: Config) -> String {
     let mut f = Formatter::with_config(vec![], config);

@@ -142,7 +142,7 @@ pub struct Raiser<'a> {
     intrinsic_instrs: IntrinsicInstrs,
     const_names: ConstNames,
     /// Caches information about PCB-style argument registers
-    call_reg_info: Option<crate::ecl::CallRegInfo>,
+    call_reg_info: Option<crate::ecl_06::CallRegInfo>,
 }
 
 impl Drop for Raiser<'_> {
@@ -175,7 +175,7 @@ impl<'a> Raiser<'a> {
     }
 
     /// Supply data for raising subs in this particular format.
-    pub fn set_olde_sub_format(&mut self, sub_format: &dyn crate::ecl::OldeSubFormat) {
+    pub fn set_olde_sub_format(&mut self, sub_format: &dyn crate::ecl_06::OldeSubFormat) {
         self.call_reg_info = sub_format.call_reg_info();
     }
 
@@ -259,7 +259,7 @@ struct SingleSubRaiser<'a, 'ctx> {
     language: LanguageKey,
     ctx: &'a CompilerContext<'ctx>,
     options: &'a DecompileOptions,
-    call_reg_data: Option<&'a crate::ecl::CallRegInfo>,
+    call_reg_data: Option<&'a crate::ecl_06::CallRegInfo>,
 }
 
 impl SingleSubRaiser<'_, '_> {

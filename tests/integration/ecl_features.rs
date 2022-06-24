@@ -153,7 +153,7 @@ source_test!(
         float y = float(F0 + 2.0);
     "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0].len(), 2);
     },
 );
@@ -283,7 +283,7 @@ source_test!(
     i(50);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, blobify![0, 30, 1.0]);
         assert_eq!(ecl.subs.last().unwrap().1[1].args_blob, blobify![1, 40, 1.0]);
         assert_eq!(ecl.subs.last().unwrap().1[2].args_blob, blobify![2, 50, 0.0]);
@@ -297,7 +297,7 @@ source_test!(
     i((20 * 5) + 37);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs.last().unwrap().1[0].args_blob, blobify![2, 137, 0]);
     },
 );
@@ -346,7 +346,7 @@ void f_i(float x, int a) {
 }
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         for index in 0..2 {
             let sub = &ecl.subs[index];
             // what we're checking here is the -10001 and -10005

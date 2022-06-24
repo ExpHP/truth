@@ -12,7 +12,7 @@ source_test!(
     }
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0][0].difficulty, 0xFF);
         assert_eq!(ecl.subs[0][1].difficulty, 0b111);
         assert_eq!(ecl.subs[0][2].difficulty, 0b1100);
@@ -56,7 +56,7 @@ source_test!(
     I0 = 3:4:5:6;
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0].len(), 4);  // one for each difficulty
         assert_eq!(ecl.subs[0][0].args_blob, blobify![-10001, 3]);
         assert_eq!(ecl.subs[0][2].args_blob, blobify![-10001, 5]);
@@ -69,7 +69,7 @@ source_test!(
     I0 = 3::5:;
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0][0].args_blob, blobify![-10001, 3]);
         assert_eq!(ecl.subs[0][0].difficulty, 0b11);
         assert_eq!(ecl.subs[0][1].args_blob, blobify![-10001, 5]);
@@ -83,7 +83,7 @@ source_test!(
     I0 = (3::5:) + (I2:I3::);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0][0].args_blob, blobify![-10001, 3, -10003]);
         assert_eq!(ecl.subs[0][0].difficulty, 0b1);
         assert_eq!(ecl.subs[0][1].args_blob, blobify![-10001, 3, -10004]);
@@ -99,7 +99,7 @@ source_test!(
     I0 = 3::5:I2+3;
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0].len(), 3);  // EN, H, L
     },
 );
@@ -151,7 +151,7 @@ source_test!(
     I2 = (2:3);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0].len(), 9);
     },
 );
@@ -179,7 +179,7 @@ source_test!(
     }
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0].len(), 7);
     },
 );
@@ -380,7 +380,7 @@ source_test!(
     ins_4($REG[-10001], (2 : : 3 : ));
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
 
         assert_eq!(ecl.subs[0].len(), 2);
         assert_eq!(ecl.subs[0][0].difficulty, 0b1111_0011);
@@ -395,7 +395,7 @@ source_test!(
     {"*-F"}: ins_4($REG[-10001], (2 : : 3 : ));
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
 
         assert_eq!(ecl.subs[0].len(), 2);
         assert_eq!(ecl.subs[0][0].difficulty, 0b1101_0011);
@@ -410,7 +410,7 @@ source_test!(
     ins_4($REG[-10001], (2 : : 3 + $REG[-10003] : ));
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
 
         assert_eq!(ecl.subs[0].len(), 3);
         assert_eq!(ecl.subs[0][0].difficulty, 0b1111_0011);
@@ -425,7 +425,7 @@ source_test!(
     {"*-F"}: ins_4($REG[-10001], (2 : : 3 + $REG[-10003] : ));
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
 
         assert_eq!(ecl.subs[0].len(), 3);
         assert_eq!(ecl.subs[0][0].difficulty, 0b1101_0011);

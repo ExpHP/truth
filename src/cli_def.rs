@@ -312,7 +312,7 @@ pub mod ecl_decompile {
         load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], &mapfile_options)?;
 
         let mut truth = truth.validate_defs()?;
-        let anm = truth.read_ecl(game, in_path)?;
+        let anm = truth.read_olde_ecl(game, in_path)?;
         truth.decompile_ecl(game, &anm, decompile_options)
     }
 }
@@ -337,7 +337,7 @@ pub mod ecl_redump {
         outpath: &Path,
     ) -> Result<(), ErrorReported> {
         let mut truth = truth.validate_defs()?;
-        let ecl = truth.read_ecl(game, path)?;
+        let ecl = truth.read_olde_ecl(game, path)?;
         truth.write_ecl(game, outpath, &ecl)
     }
 }
