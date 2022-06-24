@@ -285,7 +285,7 @@ fn _run_randomized_test(truth: &mut Truth, plain_vars: &[Var], text: &str) -> Re
         truth::passes::type_check::run(&block, ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut block, ctx)?;
         truth::passes::resolution::compute_diff_label_masks(&mut block, ctx)?;
-        truth::passes::desugar_blocks::run(&mut block, ctx)?;
+        truth::passes::desugar_blocks::run(&mut block, ctx, truth::LanguageKey::Anm)?;
         block
     };
     assert_eq!(truth.get_captured_diagnostics().unwrap(), "");
@@ -402,7 +402,7 @@ fn expect_not_enough_vars(vars: &[Var], text: &str) {
         truth::passes::resolution::assign_languages(&mut block, truth::LanguageKey::Anm, ctx).unwrap();
         truth::passes::resolution::resolve_names(&block, ctx).unwrap();
         truth::passes::resolution::aliases_to_raw(&mut block, ctx).unwrap();
-        truth::passes::desugar_blocks::run(&mut block, ctx).unwrap();
+        truth::passes::desugar_blocks::run(&mut block, ctx, truth::LanguageKey::Anm).unwrap();
         block
     };
 

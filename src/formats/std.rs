@@ -286,13 +286,14 @@ fn compile_std(
     let script = {
         let mut ast = script.clone();
 
-        crate::passes::resolution::assign_languages(&mut ast, format.language_hooks().language(), ctx)?;
+        let language = format.language_hooks().language();
+        crate::passes::resolution::assign_languages(&mut ast, language, ctx)?;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::validate_difficulty::forbid_difficulty(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
-        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx, language)?;
         ast
     };
 

@@ -962,7 +962,7 @@ fn compile(
         crate::passes::validate_difficulty::forbid_difficulty(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
-        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx, hooks.language())?;
         ast
     };
 

@@ -192,7 +192,7 @@ fn lower_sub_ast_to_instrs(
     let hooks = lowerer.hooks;
     let mut sub_lowerer = SingleSubLowerer {
         out: vec![],
-        intrinsic_instrs: IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
+        intrinsic_instrs: IntrinsicInstrs::from_mapfiles(hooks.language(), &ctx.defs, ctx.emitter)?,
         stmt_data: crate::passes::semantics::time_and_difficulty::run(code, &ctx.emitter)?,
         sub_info: lowerer.sub_info.as_ref(),
         ctx,

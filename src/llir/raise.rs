@@ -165,7 +165,7 @@ impl<'a> Raiser<'a> {
             emitter_for_abi_warnings: emitter,
             // If intrinsic decompilation is disabled, simply pretend that there aren't any intrinsics.
             intrinsic_instrs: match options.intrinsics {
-                true => IntrinsicInstrs::from_format_and_mapfiles(hooks, &ctx.defs, ctx.emitter)?,
+                true => IntrinsicInstrs::from_mapfiles(hooks.language(), &ctx.defs, ctx.emitter)?,
                 false => Default::default(),
             },
             options,

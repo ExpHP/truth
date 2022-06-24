@@ -184,7 +184,7 @@ fn compile(
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
-        crate::passes::desugar_blocks::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx, format.ecl_hooks.language())?;
         ast
     };
 
@@ -1025,6 +1025,17 @@ impl LanguageHooks for OldeEclHooks {
                     R(10004), R(10005), R(10006), R(10007), // F0-F3
                     R(10008), R(10009), R(10010), R(10011), // F4-F7
                     R(10072), R(10074),                     // F8-F9
+                ],
+                ScalarType::String => vec![],
+            },
+            Game::Th08 => enum_map::enum_map!{
+                ScalarType::Int => vec![
+                    R(10000), R(10001), R(10002), R(10003),
+                    R(10012), R(10013), R(10014), R(10015),
+                ],
+                ScalarType::Float => vec![
+                    R(10004), R(10005), R(10006), R(10007),
+                    R(10008), R(10009), R(10010), R(10011),
                 ],
                 ScalarType::String => vec![],
             },

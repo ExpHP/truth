@@ -7,6 +7,8 @@ use crate::ident::Ident;
 use crate::resolve::{DefId, NodeId, LoopId, Resolutions, UnusedIds};
 use crate::value::ScalarType;
 use crate::context::CompilerContext;
+use crate::llir::alternatives;
+use crate::game::LanguageKey;
 use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK;
 
 /// Structured code desugaring.
@@ -15,11 +17,18 @@ use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK;
 /// into a single block.
 ///
 /// This pass is not idempotent, because it inserts [`ast::StmtKind::ScopeEnd`] statements.
-pub fn run<V: ast::Visitable + core::fmt::Debug>(ast: &mut V, ctx: &mut CompilerContext<'_>) -> Result<(), ErrorReported> {
+pub fn run<V: ast::Visitable + core::fmt::Debug>(ast: &mut V, ctx: &mut CompilerContext<'_>, language: LanguageKey) -> Result<(), ErrorReported> {
     insert_scope_ends(ast, ctx)?;
     convert_continue_and_break(ast, ctx)?;
 
-    let mut visitor = Visitor { ctx };
+    let preferred_count_jmp = {
+        // FIXME: this is an avoidable cost, as IntrinsicInstrs will always be constructed later during lowering.
+        //        We could take the IntrinsicInstrs as an argument but then we burden the caller with carrying it around...
+        crate::llir::IntrinsicInstrs::from_mapfiles(language, &ctx.defs, ctx.emitter)?
+            .alternatives().preferred_count_jmp.unwrap_or(alternatives::CountJmpKind::PredecNeZero)
+    };
+
+    let mut visitor = Visitor { ctx, preferred_count_jmp };
     ast.visit_mut_with(&mut visitor);
 
     // FIXME: currently needed because the macros leave out a bunch of NodeIds, but once we get rid of
@@ -189,11 +198,12 @@ impl ast::Stmt {
 
 struct Visitor<'a, 'ctx> {
     ctx: &'a mut CompilerContext<'ctx>,
+    preferred_count_jmp: alternatives::CountJmpKind,
 }
 
 impl VisitMut for Visitor<'_, '_> {
     fn visit_block(&mut self, block: &mut ast::Block) {
-        let mut desugarer = Desugarer { out: vec![], ctx: self.ctx };
+        let mut desugarer = Desugarer { out: vec![], ctx: self.ctx, preferred_count_jmp: self.preferred_count_jmp };
 
         desugarer.desugar_block(None, std::mem::replace(block, ast::Block(vec![])));
         block.0 = desugarer.out;
@@ -207,6 +217,7 @@ impl VisitMut for Visitor<'_, '_> {
 struct Desugarer<'a, 'ctx> {
     out: Vec<Sp<ast::Stmt>>,
     ctx: &'a mut CompilerContext<'ctx>,
+    preferred_count_jmp: alternatives::CountJmpKind,
 }
 
 impl Desugarer<'_, '_> {
@@ -341,11 +352,19 @@ impl Desugarer<'_, '_> {
         };
 
         let keyword = sp!(span => token![if]);
-        let cond = sp!(clobber.span => ast::Expr::XcrementOp {
+        let predecrement_expr = sp!(clobber.span => ast::Expr::XcrementOp {
             op: sp!(clobber.span => ast::XcrementOpKind::Dec),
             order: ast::XcrementOpOrder::Pre,
             var: clobber.clone(),
         });
+        let cond = match self.preferred_count_jmp {
+            alternatives::CountJmpKind::PredecNeZero => predecrement_expr,
+            alternatives::CountJmpKind::PredecGtZero => sp!(clobber.span => ast::Expr::BinOp(
+                Box::new(predecrement_expr),
+                sp!(clobber.span => ast::BinOpKind::Gt),
+                Box::new(sp!(clobber.span => ast::Expr::int_of_ty(0, ScalarType::Int))),
+            ))
+        };
         self.desugar_loop_body(diff_label, block, Some((keyword, cond)));
 
         self.make_label_after_block(diff_label, skip_label);
@@ -434,7 +453,7 @@ mod tests {
             let mut vm_before = AstVm::new().with_max_iterations(1000);
             vm_before.run(&ast.0, &ctx);
 
-            crate::passes::desugar_blocks::run(&mut ast.value, &mut ctx).unwrap();
+            crate::passes::desugar_blocks::run(&mut ast.value, &mut ctx, Dummy).unwrap();
 
             let mut vm_after = AstVm::new().with_max_iterations(1000);
             vm_after.run(&ast.0, &ctx);

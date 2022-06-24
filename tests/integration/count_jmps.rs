@@ -41,7 +41,7 @@ source_test!(
 source_test!(
     FORMAT_WITH_NE_JMP, ne_format_can_compile_times,
     main_body: r#"
-        times(5) { nop(); }
+        times(I2=5) { nop(); }
     "#,
     check_compiled: |_, _| { /* just compile */ },
 );
@@ -49,7 +49,7 @@ source_test!(
 source_test!(
     FORMAT_WITH_GT_JMP, gt_format_can_compile_times,
     main_body: r#"
-        times(5) { nop(); }
+        times(I2=5) { nop(); }
     "#,
     check_compiled: |_, _| { /* just compile */ },
 );

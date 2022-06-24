@@ -8,7 +8,7 @@ use crate::context;
 use crate::ident::Ident;
 use crate::context::defs::{InstrAbiLoc, auto_enum_names, TypeColor};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
-use crate::llir::{LanguageHooks, InstrAbi, ArgEncoding};
+use crate::llir::{LanguageKey, InstrAbi, ArgEncoding};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::pos::{Span, Sp, SourceStr};
 use crate::parse::abi::{abi_ast, AttributeDeserializer};
@@ -27,8 +27,8 @@ impl IntrinsicInstrs {
     /// Build from the builtin intrinsics list of the format, and user mapfiles.
     ///
     /// This will perform verification of the signatures for each intrinsic.
-    pub fn from_format_and_mapfiles(instr_format: &dyn LanguageHooks, defs: &context::Defs, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
-        let iter_pairs = || defs.iter_intrinsic_instrs(instr_format.language());
+    pub fn from_mapfiles(language: LanguageKey, defs: &context::Defs, emitter: &dyn Emitter) -> Result<Self, ErrorReported> {
+        let iter_pairs = || defs.iter_intrinsic_instrs(language);
         // duplicates can be many-to-many so we iterate twice instead of making one map from the other
         let opcode_intrinsics = iter_pairs().collect::<IndexMap<_, _>>();
         let intrinsic_opcodes = iter_pairs().map(|(k, v)| (v.value, k)).collect::<IndexMap<_, _>>();
@@ -36,7 +36,7 @@ impl IntrinsicInstrs {
         let intrinsic_abi_props = {
             opcode_intrinsics.iter()
                 .map(|(&opcode, &kind)| {
-                    let (abi, abi_loc) = defs.ins_abi(instr_format.language(), opcode)
+                    let (abi, abi_loc) = defs.ins_abi(language, opcode)
                         .ok_or_else(|| emitter.as_sized().emit(error!(
                             message("opcode {opcode} is an intrinsic but has no signature"),
                             primary(kind, "defined as an intrinsic here"),
