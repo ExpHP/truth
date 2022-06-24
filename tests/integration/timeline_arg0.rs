@@ -53,7 +53,7 @@ source_test!(
     ECL_06, wrong_lang,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     full_source: r#"
-timeline 0 {
+script timeline {
     eclOnly(0, 3, 3);   //~ ERROR defined in ECL
 }
 

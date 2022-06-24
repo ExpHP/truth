@@ -184,7 +184,7 @@ pub const ECL_06: Format = Format {
     script_head: r#"
 #pragma mapfile "map/any.eclm"
 
-timeline 0 {}
+script timeline0 {}
 "#,
     make_main: |body| format!(r#"
 void sub0() {{
@@ -198,7 +198,7 @@ pub const ECL_06_NO_DEFAULT_MAP: Format = Format {
     cmd: "truecl",
     game: Game::Th06,
     script_head: r#"
-timeline 0 {}
+script timeline0 {}
 "#,
     make_main: |body| format!(r#"
 void sub0() {{
@@ -224,7 +224,7 @@ pub const ECL_TIMELINE_06: Format = Format {
     game: Game::Th06,
     script_head: r#""#,
     make_main: |body| format!(r#"
-timeline 0 {{
+script timeline0 {{
     {}
 }}
 "#, body),
@@ -235,7 +235,7 @@ pub const ECL_TIMELINE_08: Format = Format {
     game: Game::Th08,
     script_head: r#""#,
     make_main: |body| format!(r#"
-timeline 0 {{
+script timeline0 {{
     {}
 }}
 "#, body),

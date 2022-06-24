@@ -203,7 +203,7 @@ fn decompile(
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
         let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?;
 
-        Ok(sp!(ast::Item::AnmScript {
+        Ok(sp!(ast::Item::Script {
             number: None,
             ident: sp!(ident.clone()),
             code: ast::Block(code),
@@ -304,11 +304,11 @@ fn compile(
                     message("unexpected '{keyword}' in MSG file"),
                     primary(keyword, "not valid in MSG files"),
                 ))),
-                ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
+                ast::Item::Script { number: Some(number), .. } => return Err(emit(error!(
                     message("unexpected numbered script in MSG file"),
                     primary(number, "unexpected number"),
                 ))),
-                ast::Item::AnmScript { number: None, ident, code, .. } => {
+                ast::Item::Script { number: None, ident, code, .. } => {
                     match script_code.entry(ident.clone()) {
                         indexmap::map::Entry::Vacant(e) => { e.insert(code); },
                         indexmap::map::Entry::Occupied(prev) => return Err(emit(error!(
@@ -319,7 +319,6 @@ fn compile(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
-                ast::Item::Timeline { .. } => return Err(emit(unsupported(&item.span))),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }

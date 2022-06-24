@@ -9,6 +9,6 @@ error: unexpected token `%`
    │           ^ unexpected token
    │
    = 
-     Expected one of "(", ";", "anim", "case", "default", "ecli", "entry", "mapfile", "script", "timeline" or IDENT
+     Expected one of "(", ";", "anim", "case", "default", "ecli", "entry", "mapfile", "script" or IDENT
 
 

@@ -32,16 +32,10 @@ pub struct ScriptFile {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Func(ItemFunc),
-    AnmScript {
+    Script {
         keyword: TokenSpan,
         number: Option<Sp<raw::LangInt>>,
         ident: Sp<Ident>,  // not `ResIdent` because it doesn't define something in all languages
-        code: Block,
-    },
-    Timeline {
-        keyword: TokenSpan,
-        number: Option<Sp<raw::LangInt>>,
-        ident: Option<Sp<Ident>>,
         code: Block,
     },
     Meta {
@@ -82,8 +76,7 @@ impl Item {
         Item::Func(ItemFunc { qualifier: Some(sp_pat![token![const]]), .. }) => "const function definition",
         Item::Func(ItemFunc { qualifier: Some(sp_pat![token![inline]]), .. }) => "inline function definition",
         Item::Func(ItemFunc { qualifier: None, .. }) => "exported function definition",
-        Item::AnmScript { .. } => "script",
-        Item::Timeline { .. } => "timeline",
+        Item::Script { .. } => "script",
         Item::Meta { .. } => "meta",
         Item::ConstVar { .. } => "const definition",
     }}
@@ -1072,10 +1065,7 @@ macro_rules! generate_visitor_stuff {
                         }
                     }
                 },
-                Item::AnmScript { keyword: _, number: _, ident: _, code } => {
-                    v.visit_root_block(code);
-                },
-                Item::Timeline { keyword: _, number: _, ident: _, code } => {
+                Item::Script { keyword: _, number: _, ident: _, code } => {
                     v.visit_root_block(code);
                 },
                 Item::Meta { keyword: _, fields } => {

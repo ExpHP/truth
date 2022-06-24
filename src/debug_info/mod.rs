@@ -110,7 +110,7 @@ pub struct ScriptOffsetInfo {
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "type")]
 pub enum ScriptType {
-    Timeline { index: usize },
+    SclScript { index: usize },
     AnmScript { index: usize },
     MsgScript { indices: Vec<usize> },
     StdScript,

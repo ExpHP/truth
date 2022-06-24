@@ -2,7 +2,7 @@
 source: tests/integration/time_label_formatting.rs
 expression: decompiled
 ---
-timeline timeline0 {
+script timeline0 {
 }
 
 
