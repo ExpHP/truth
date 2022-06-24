@@ -80,10 +80,10 @@ impl TestFile {
         truth.read_std(format.game, self.as_path()).unwrap()
     }
 
-    pub fn read_ecl(&self, format: &Format) -> truth::EclFile {
+    pub fn read_olde_ecl(&self, format: &Format) -> truth::OldeEclFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
         let mut truth = truth.validate_defs().unwrap();
-        truth.read_ecl(format.game, self.as_path()).unwrap()
+        truth.read_olde_ecl(format.game, self.as_path()).unwrap()
     }
 }

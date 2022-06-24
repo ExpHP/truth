@@ -20,7 +20,7 @@ use crate::debug_info;
 
 // =============================================================================
 
-/// Game-independent representation of an ANM file.
+/// Game-independent representation of an ECL file prior to TH10.
 #[derive(Debug, Clone)]
 pub struct OldeEclFile {
     pub subs: IndexMap<Ident, Vec<RawInstr>>,
@@ -532,7 +532,6 @@ fn write_olde_ecl(
 
     let max_timelines = format.timeline_array_kind().max_timelines();
     if ecl.timelines.len() > max_timelines {
-        // FIXME: NEEDSTEST for each game
         return Err(emitter.emit(error!("too many timelines! (max allowed in this game is {max_timelines})")));
     }
 

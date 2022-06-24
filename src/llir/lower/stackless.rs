@@ -151,7 +151,7 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl::OldeExportedSub,
+        sub: &crate::ecl_06::OldeExportedSub,
     ) -> Result<(), ErrorReported> {
         let int = {
             sub.params_by_ty[ReadType::Int].get(0)
@@ -184,8 +184,8 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl::OldeExportedSub,
-        call_reg_info: &crate::ecl::CallRegInfo,
+        sub: &crate::ecl_06::OldeExportedSub,
+        call_reg_info: &crate::ecl_06::CallRegInfo,
     ) -> Result<(), ErrorReported> {
         // Each argument gets assigned to a special "arg register."
         let mut arg_regs_iter_by_ty = enum_map::enum_map!{

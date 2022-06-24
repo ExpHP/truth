@@ -15,7 +15,7 @@ script bar { ins_10(200); }
 script baz { ins_10(300); }
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].args_blob, blobify![100]);
         assert_eq!(ecl.timelines[1][0].args_blob, blobify![200]);
         assert_eq!(ecl.timelines[2][0].args_blob, blobify![300]);
@@ -31,7 +31,7 @@ script 0 bar { ins_10(100); }
 script 1 baz { ins_10(200); }
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].args_blob, blobify![100]);
         assert_eq!(ecl.timelines[1][0].args_blob, blobify![200]);
         assert_eq!(ecl.timelines[2][0].args_blob, blobify![300]);
@@ -59,7 +59,7 @@ script bar { ins_10(100); }
 script baz { ins_10(200); }
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].args_blob, blobify![100]);
         assert_eq!(ecl.timelines[1][0].args_blob, blobify![200]);
         assert_eq!(ecl.timelines[2][0].args_blob, blobify![300]);

@@ -193,7 +193,7 @@ source_test!(
         ins_61(x);
     "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.subs[0][0].args_blob, blobify![5]);
     },
 );
@@ -292,7 +292,7 @@ source_test!(
         F1 = Q;
     "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(&ecl.subs[0][0].args_blob[4..], &blobify![f32::INFINITY][..]);
         assert_eq!(&ecl.subs[0][1].args_blob[4..], &blobify![f32::INFINITY][..]);
     },
