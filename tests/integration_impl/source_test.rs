@@ -1,6 +1,8 @@
 use super::{Format, TestFile, ProgramResult};
 use super::parse_errors::{self, ExpectedDiagnostic};
+
 use std::ffi::{OsStr, OsString};
+use lazy_static::lazy_static;
 
 /// Generates a test that compiles a source script and maybe also decompiles it.
 ///
@@ -313,17 +315,22 @@ impl SourceTest {
             let args = options.decompile.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
             let result = format.decompile(compiled, &args, decompile_mapfiles);
 
-            if let Some(output) = &result.output {
-                eprintln!("=== DECOMPILE OUTPUT ===");
-                eprintln!("{}", output.read_to_string());
-            }
+            let decompiled_text = match result.output.as_ref() {
+                Some(output) => {
+                    let decompiled_text = make_decompiled_text_deterministic(&output.read_to_string());
+                    eprintln!("=== DECOMPILE OUTPUT ===");
+                    eprintln!("{decompiled_text}");
+                    Some(decompiled_text)
+                },
+                None => None,
+            };
 
             result.check_with_expected(&options.decompile.expected, do_snapshot);
 
             if options.decompile.expected.should_succeed() {
                 let decompiled = result.output.unwrap();
                 if let Some(func) = options.check_decompiled {
-                    func(&decompiled.read_to_string());
+                    func(decompiled_text.as_ref().unwrap());
                 };
                 if !options.skip_recompile {
                     let result = format.compile(&decompiled, &[][..], recompile_mapfiles);
@@ -335,6 +342,16 @@ impl SourceTest {
             }
         }
     }
+}
+
+// Prevent spurious failures due to certain substrings appearing inside randomized filenames.
+fn make_decompiled_text_deterministic(text: &str) -> String {
+    lazy_static!{
+        static ref TEMP_FILENAME_RE: regex::Regex = {
+            regex::RegexBuilder::new(r#"^(#pragma +(?:\w+ +)+)".+(Xx_.+_xX)"#).multi_line(true).build().unwrap()
+        };
+    }
+    TEMP_FILENAME_RE.replace_all(text, r#"$1"$2""#).into()
 }
 
 struct SourceBuilder {
