@@ -573,30 +573,34 @@ impl Format for meta::Fields {
 impl Format for ast::Item {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
         match self {
+            ast::Item::Pragma(pragma) => out.fmt(pragma),
             ast::Item::Func(func) => out.fmt(func),
-            ast::Item::Script(ast::ItemScript { keyword: _, number, ident, code }) => {
-                out.fmt("script ")?;
-                if let Some(number) = number {
-                    out.fmt((number, " "))?;
-                }
-                out.state.time_stack.push(0);
-                out.fmt((ident, " ", code))?;
-                out.state.time_stack.pop();
-                out.next_line()
-            },
-            ast::Item::Meta(ast::ItemMeta { keyword, fields }) => {
-                out.fmt((keyword, " ", fields))?;
-                out.next_line()
-            },
-            ast::Item::ConstVar(ast::ItemConstVar { ty_keyword, vars }) => {
-                out.fmt(("const ", ty_keyword, " "))?;
-                out.fmt_separated(
-                    vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),
-                    |out| out.fmt(", "),
-                )?;
-                out.fmt(";")
-            },
+            ast::Item::Script(script) => out.fmt(script),
+            ast::Item::Meta(meta) => out.fmt(meta),
+            ast::Item::ConstVar(konst) => out.fmt(konst),
         }
+    }
+}
+
+impl Format for ast::ItemPragma {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
+        let ast::ItemPragma { pragma_kw: _, kind, arg } = self;
+        out.fmt(("#pragma ", kind, " ", arg))?;
+        out.next_line()
+    }
+}
+
+impl Format for ast::ItemScript {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
+        let ast::ItemScript { keyword: _, number, ident, code } = self;
+        out.fmt("script ")?;
+        if let Some(number) = number {
+            out.fmt((number, " "))?;
+        }
+        out.state.time_stack.push(0);
+        out.fmt((ident, " ", code))?;
+        out.state.time_stack.pop();
+        out.next_line()
     }
 }
 
@@ -631,6 +635,26 @@ impl Format for ast::FuncParam {
             out.fmt((" ", ident))?;
         }
         Ok(())
+    }
+}
+
+impl Format for ast::ItemMeta {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
+        let ast::ItemMeta { keyword, fields } = self;
+        out.fmt((keyword, " ", fields))?;
+        out.next_line()
+    }
+}
+
+impl Format for ast::ItemConstVar {
+    fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result<()> {
+        let ast::ItemConstVar { ty_keyword, vars } = self;
+        out.fmt(("const ", ty_keyword, " "))?;
+        out.fmt_separated(
+            vars.iter().map(|sp_pat![(var, expr)]| (var, " = ", expr)),
+            |out| out.fmt(", "),
+        )?;
+        out.fmt(";")
     }
 }
 

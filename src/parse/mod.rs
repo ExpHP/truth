@@ -48,15 +48,11 @@ pub type Error<'input> = GenericError<'input, Token<'input>>;
 
 /// Extra state during parsing.
 pub struct State {
-    mapfiles: Vec<Sp<ast::LitString>>,
-    image_sources: Vec<Sp<ast::LitString>>,
+    // we used to track time and pragmas in here, but no longer
 }
 
 impl State {
-    pub fn new() -> State { State {
-        mapfiles: vec![],
-        image_sources: vec![],
-    }}
+    pub fn new() -> State { State {} }
 }
 
 impl<Tok: Display> crate::diagnostic::IntoDiagnostics for GenericError<'_, Tok> {

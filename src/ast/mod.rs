@@ -21,6 +21,10 @@ pub mod pseudo;
 /// because the latter would have an impact on equality tests.
 pub type TokenSpan = Sp<()>;
 
+impl From<Span> for TokenSpan {
+    fn from(span: Span) -> TokenSpan { sp!(span => ()) }
+}
+
 /// Represents a complete script file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScriptFile {
@@ -31,10 +35,18 @@ pub struct ScriptFile {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
+    Pragma(ItemPragma),
     Func(ItemFunc),
     Script(ItemScript),
     Meta(ItemMeta),
     ConstVar(ItemConstVar),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemPragma {
+    pub pragma_kw: TokenSpan,
+    pub kind: Sp<PragmaKindKeyword>,
+    pub arg: Sp<LitString>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,10 +98,19 @@ impl Item {
         Item::Func(ItemFunc { qualifier: Some(sp_pat![token![const]]), .. }) => "const function definition",
         Item::Func(ItemFunc { qualifier: Some(sp_pat![token![inline]]), .. }) => "inline function definition",
         Item::Func(ItemFunc { qualifier: None, .. }) => "exported function definition",
-        Item::Script(ItemScript { .. }) => "script",
-        Item::Meta(ItemMeta { .. }) => "meta",
-        Item::ConstVar(ItemConstVar { .. }) => "const definition",
+        Item::Script { .. } => "script",
+        Item::Meta { .. } => "meta",
+        Item::ConstVar { .. } => "const definition",
+        Item::Pragma { .. } => "const definition",
     }}
+}
+
+string_enum! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum PragmaKindKeyword {
+        #[strum(serialize = "image_source")] ImageSource,
+        #[strum(serialize = "mapfile")] Mapfile,
+    }
 }
 
 string_enum! {
@@ -1087,6 +1108,7 @@ macro_rules! generate_visitor_stuff {
                         v.visit_expr(expr);
                     }
                 },
+                Item::Pragma(ItemPragma { pragma_kw: _, kind: _, arg: _ }) => {},
             }
         }
 

@@ -990,6 +990,7 @@ fn compile(
                 script_names.push(ident);
             },
             ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
+            ast::Item::Pragma(ast::ItemPragma { .. }) => unreachable!("removed beforehand"),
             _ => return Err(ctx.emitter.emit(error!(
                 message("feature not supported by format"),
                 primary(item, "not supported by ANM files"),

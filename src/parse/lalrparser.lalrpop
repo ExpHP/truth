@@ -156,8 +156,22 @@ AnythingInner: crate::parse::AnythingValue = {
 
 ScriptFile: ast::ScriptFile = {
     <items:Items> => {
-        let mapfiles = state.mapfiles.clone();
-        let image_sources = state.image_sources.clone();
+        // FIXME: replace with helper
+        let mut mapfiles = vec![];
+        let mut image_sources = vec![];
+        let items = items.into_iter().filter_map(|item| {
+            match item.value {
+                ast::Item::Pragma(ast::ItemPragma { kind: sp_pat!(ast::PragmaKindKeyword::ImageSource), arg, .. }) => {
+                    image_sources.push(arg);
+                    None
+                },
+                ast::Item::Pragma(ast::ItemPragma { kind: sp_pat!(ast::PragmaKindKeyword::Mapfile), arg, .. }) => {
+                    mapfiles.push(arg);
+                    None
+                },
+                _ => Some(item),
+            }
+        }).collect();
         ast::ScriptFile { items, mapfiles, image_sources }
     }
 };
@@ -166,25 +180,19 @@ Items: Vec<Sp<ast::Item>> = {
     => vec![],
 
     <items:Items> <item:Sp<Item>> => util::push(items, item),
-
-    // FIXME: this syntax likely won't stay.  People might be confused that it is treated
-    //        in a declarative manner, and I don't know what I want our preprocessing solution
-    //        to look like
-    <items:Items> "#" "pragma" "mapfile" <file:Sp<LitString>> => {
-        state.mapfiles.push(file);
-        items
-    },
-    <items:Items> "#" "pragma" "image_source" <file:Sp<LitString>> => {
-        state.image_sources.push(file);
-        items
-    },
 };
 
 Item: ast::Item = {
+    ItemPragma,
     ItemFunc,
     ItemScript,
     ItemMeta,
     ItemConstVar,
+};
+
+ItemPragma: ast::Item = {
+    "#" <pragma_kw:TokenSpan<"pragma">> <kind:Sp<PragmaKindKeyword>> <arg:Sp<LitString>>
+        => ast::Item::Pragma(ast::ItemPragma { pragma_kw, kind, arg }),
 };
 
 ItemScript: ast::Item = <item:_ItemScript> => ast::Item::Script(item);
@@ -222,6 +230,11 @@ ItemFuncHeader: ast::ItemFunc = {
         message("too many function qualifiers"),
         primary(second, "extra qualifier"),
     ).into()),
+};
+
+PragmaKindKeyword: ast::PragmaKindKeyword = {
+    "mapfile" => ast::PragmaKindKeyword::Mapfile,
+    "image_source" => ast::PragmaKindKeyword::ImageSource,
 };
 
 #[inline]

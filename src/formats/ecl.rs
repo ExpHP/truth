@@ -212,6 +212,7 @@ fn compile(
                 message("unexpected '{keyword}' in old ECL format file"),
                 primary(keyword, "not valid in old format ECL files"),
             ))),
+            ast::Item::Pragma(ast::ItemPragma { .. }) => unreachable!("removed beforehand"),
             ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
             ast::Item::Script(ast::ItemScript { code, ident, .. }) => {
                 let timeline_index = timeline_indices_in_ast_order.next().unwrap();

@@ -283,15 +283,16 @@ impl ast::VisitMut for AssignLanguagesVisitor<'_, '_> {
     fn visit_item(&mut self, item: &mut Sp<ast::Item>) {
         match &mut item.value {
             | ast::Item::Func(ast::ItemFunc { qualifier: Some(sp_pat![token![const]]), .. })
-            | ast::Item::ConstVar(ast::ItemConstVar { .. })
-            | ast::Item::Meta(ast::ItemMeta { .. })
+            | ast::Item::ConstVar { .. }
+            | ast::Item::Pragma { .. }
+            | ast::Item::Meta { .. }
             => {
                 self.language_stack.push(None);
                 ast::walk_item_mut(self, item);
                 assert_eq!(self.language_stack.pop().unwrap(), None, "unbalanced stack usage!");
             },
 
-            | ast::Item::Script(ast::ItemScript { .. })
+            | ast::Item::Script { .. }
             => {
                 self.language_stack.push(Some(self.languages.scripts));
                 ast::walk_item_mut(self, item);

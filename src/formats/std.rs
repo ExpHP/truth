@@ -336,6 +336,7 @@ fn compile_std(
                     }
                 },
                 ast::Item::ConstVar(ast::ItemConstVar { .. }) => {},
+                ast::Item::Pragma(ast::ItemPragma { .. }) => unreachable!("removed beforehand"),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }
