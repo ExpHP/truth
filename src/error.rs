@@ -40,6 +40,11 @@ impl ErrorFlag {
         self.errors = Some(e);
     }
 
+    /// If the given flag is in an error state, make this one also an error.
+    pub fn update(&mut self, other: ErrorFlag) {
+        self.errors = self.errors.or(other.errors);
+    }
+
     /// Become an `Ok` if empty, and an `Err` otherwise.
     pub fn into_result<T>(self, value: T) -> Result<T, ErrorReported> {
         match self.errors {

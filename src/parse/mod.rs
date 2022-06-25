@@ -106,7 +106,7 @@ impl Display for DisplayExpected<'_> {
 /// Use that instead.
 #[doc(hidden)]
 pub enum AnythingValue {
-    ScriptFile(ast::ScriptFile),
+    Items(Vec<Sp<ast::Item>>),
     Item(ast::Item),
     Block(ast::Block),
     Stmt(ast::Stmt),
@@ -121,7 +121,7 @@ pub enum AnythingValue {
 #[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AnythingTag {
-    ScriptFile,
+    Items,
     Item,
     Block,
     Stmt,
@@ -158,7 +158,7 @@ macro_rules! impl_parse {
     }
 }
 
-impl_parse!(ast::ScriptFile, ScriptFile);
+impl_parse!(Vec<ast::Item>, Items);
 impl_parse!(ast::Item, Item);
 impl_parse!(ast::Block, Block);
 impl_parse!(ast::Stmt, Stmt);

@@ -25,14 +25,6 @@ impl From<Span> for TokenSpan {
     fn from(span: Span) -> TokenSpan { sp!(span => ()) }
 }
 
-/// Represents a complete script file.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ScriptFile {
-    pub mapfiles: Vec<Sp<LitString>>,
-    pub image_sources: Vec<Sp<LitString>>,
-    pub items: Vec<Sp<Item>>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Pragma(ItemPragma),

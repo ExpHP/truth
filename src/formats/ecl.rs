@@ -139,7 +139,7 @@ fn decompile(
 
 fn compile(
     format: &OldeFileFormat,
-    ast: &ast::ScriptFile,
+    ast: &ast::Unified,
     ctx: &mut CompilerContext,
 ) -> Result<OldeEclFile, ErrorReported> {
     let sub_format = &*game_sub_format(format.game);
