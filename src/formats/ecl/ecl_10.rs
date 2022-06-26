@@ -54,13 +54,49 @@ impl StackEclFile {
 // =============================================================================
 
 fn decompile(
-    _ecl: &StackEclFile,
-    _emitter: &impl Emitter,
-    _game: Game,
-    _ctx: &mut CompilerContext,
-    _decompile_options: &DecompileOptions,
+    ecl: &StackEclFile,
+    emitter: &impl Emitter,
+    game: Game,
+    ctx: &mut CompilerContext,
+    decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
-    todo!()
+    let hooks = game_hooks(game);
+
+    // TODO: define string consts for sub names
+
+    let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
+
+    let mut raiser = llir::Raiser::new(&*hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
+    // raiser.set_olde_sub_format(sub_format);
+
+    // Decompile ECL subs only halfway
+    let mut decompiled_subs = IndexMap::new();
+    for (ident, instrs) in ecl.subs.iter() {
+        decompiled_subs.insert(ident.clone(), {
+            emitter.chain_with(|f| write!(f, "in {}", ident), |emitter| {
+                raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
+            })?
+        });
+    }
+
+    let mut items = vec![];
+    for (ident, stmts) in decompiled_subs{
+        items.push(sp!(ast::Item::Func(ast::ItemFunc {
+            qualifier: None,
+            ty_keyword: sp!(ast::TypeKeyword::Void),
+            ident: sp!(ResIdent::new_null(ident.value.clone())),
+            params: vec![],
+            code: Some(ast::Block(stmts)),
+        })));
+    }
+
+    let mut out = ast::ScriptFile {
+        items,
+        mapfiles: ctx.mapfiles_to_ast(),
+        image_sources: vec![],
+    };
+    crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
+    Ok(out)
 }
 
 // =============================================================================
@@ -277,10 +313,10 @@ fn write(
     let mut sub_offsets = vec![];
     for (sub_index, (name, instrs)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(writer.pos()?);
-        let instrs = emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
+        emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
             write_sub_header(writer)?;
             llir::write_instrs(writer, emitter, instr_format, instrs)
-        });
+        })?;
     }
 
     let end_pos = writer.pos()?;
@@ -361,10 +397,6 @@ impl LanguageHooks for ModernEclHooks {
         todo!()
     }
 
-    fn register_style(&self) -> RegisterEncodingStyle {
-        todo!()
-    }
-
     fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
         todo!()
     }
@@ -374,7 +406,7 @@ impl LanguageHooks for ModernEclHooks {
     }
 
     fn difficulty_register(&self) -> Option<RegId> {
-        todo!()
+        Some(RegId::from(-9959))
     }
 
     fn instr_format(&self) -> &dyn InstrFormat { self }
