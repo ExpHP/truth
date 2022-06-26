@@ -179,6 +179,8 @@ pub fn read_instrs(
     let mut cur_offset = starting_offset;
     let mut instrs = vec![];
 
+    let has_terminal_instr = format.has_terminal_instr();
+
     // this has to be checked in two places (because detecting EoF requires us to make a read attempt,
     // but we don't want to read if we're at end_offset)
     let warn_missing_end_of_script = || {
@@ -190,7 +192,7 @@ pub fn read_instrs(
             match cur_offset.cmp(&end_offset) {
                 std::cmp::Ordering::Less => {},
                 std::cmp::Ordering::Equal => {
-                    if possible_terminal.is_none() {
+                    if has_terminal_instr && possible_terminal.is_none() {
                         warn_missing_end_of_script();
                     }
                     break;
@@ -251,9 +253,12 @@ pub fn write_instrs(
             format.write_instr(f, emitter, instr)
         })?;
     }
-    emitter.chain_with(|f| write!(f, "writing script end marker"), |emitter| {
-        format.write_terminal_instr(f, emitter)
-    })
+    if format.has_terminal_instr() {
+        emitter.chain_with(|f| write!(f, "writing script end marker"), |emitter| {
+            format.write_terminal_instr(f, emitter)
+        })?;
+    }
+    Ok(())
 }
 
 // =============================================================================
@@ -365,6 +370,15 @@ pub trait InstrFormat {
     /// Get the number of bytes in the binary encoding of an instruction's header (before the arguments).
     fn instr_header_size(&self) -> usize;
 
+    /// Returns `true` if there is a dummy instruction at the end of every script.
+    ///
+    /// Only stack ECL lacks terminal instructions.  Where present, these instruction will be stripped
+    /// from decompiled output and inserted on compilation.
+    ///
+    /// (if this returns `false`, [`ReadInstr`] should always return `Instr`, and [`crate::llir::read_instrs`]
+    /// must be provided with an end offset)
+    fn has_terminal_instr(&self) -> bool { true }
+
     /// Read a single script instruction from an input stream, which may be a terminal instruction.
     fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr>;
 
@@ -372,6 +386,8 @@ pub trait InstrFormat {
     fn write_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter, instr: &RawInstr) -> WriteResult;
 
     /// Write a marker that goes after the final instruction in a function or script.
+    ///
+    /// If [`InstrFormat::has_terminal_instr`] returns `false`, this should simply panic.
     fn write_terminal_instr(&self, f: &mut BinWriter, emitter: &dyn Emitter) -> WriteResult;
 
     /// Helper method that returns the total instruction size, including the arguments.

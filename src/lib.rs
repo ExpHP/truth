@@ -41,8 +41,9 @@ pub use formats::anm::{self, AnmFile, WorkingAnmFile};
 pub use formats::msg::{self, MsgFile};
 pub use formats::mission::{self, MissionMsgFile};
 pub use formats::std::{self, StdFile};
-pub use formats::ecl_06::{self, OldeEclFile};
-pub use formats::ecl_10::{self, StackEclFile};
+pub use formats::ecl::{self, EclFile};
+pub use formats::ecl::ecl_06::{OldeEclFile};
+pub use formats::ecl::ecl_10::{StackEclFile};
 mod formats;
 
 mod bitset;

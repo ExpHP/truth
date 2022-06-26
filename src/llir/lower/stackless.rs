@@ -16,6 +16,7 @@ use crate::value::{ScalarType, ReadType};
 use crate::context::CompilerContext;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use crate::debug_info;
+use crate::ecl::ecl_06;
 
 use IntrinsicInstrKind as IKind;
 
@@ -151,7 +152,7 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl_06::OldeExportedSub,
+        sub: &ecl_06::OldeExportedSub,
     ) -> Result<(), ErrorReported> {
         let int = {
             sub.params_by_ty[ReadType::Int].get(0)
@@ -184,8 +185,8 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl_06::OldeExportedSub,
-        call_reg_info: &crate::ecl_06::CallRegInfo,
+        sub: &ecl_06::OldeExportedSub,
+        call_reg_info: &ecl_06::CallRegInfo,
     ) -> Result<(), ErrorReported> {
         // Each argument gets assigned to a special "arg register."
         let mut arg_regs_iter_by_ty = enum_map::enum_map!{

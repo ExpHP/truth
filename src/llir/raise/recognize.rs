@@ -97,7 +97,7 @@ fn recognize_double_instr_intrinsic(
 /// Return value includes number of instructions read.
 fn recognize_reg_call(
     instrs: &[RaiseInstr],
-    call_reg_data: &crate::ecl_06::CallRegInfo,
+    call_reg_data: &crate::ecl::ecl_06::CallRegInfo,
     ctx: &CompilerContext<'_>,
 ) -> Option<(RaiseInstr, usize)> {
     let arg_regs_by_ty = &call_reg_data.arg_regs_by_type;
