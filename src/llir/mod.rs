@@ -214,7 +214,7 @@ pub fn read_instrs(
         let is_maybe_terminal = matches!(instr_kind, ReadInstr::MaybeTerminal(_));
         match instr_kind {
             ReadInstr::EndOfFile => {
-                if possible_terminal.is_none() {
+                if has_terminal_instr && possible_terminal.is_none() {
                     warn_missing_end_of_script();
                 }
                 break;
@@ -480,17 +480,19 @@ mod test_reader {
     use crate::error::ErrorReported;
 
     struct SimpleInstrReader {
+        has_terminal: bool,
         iter: std::cell::RefCell<std::vec::IntoIter<ReadInstr>>
     }
 
     impl SimpleInstrReader {
-        fn new(vec: Vec<ReadInstr>) -> Self {
-            SimpleInstrReader { iter: std::cell::RefCell::new(vec.into_iter()) }
+        fn new(has_terminal: bool, vec: Vec<ReadInstr>) -> Self {
+            SimpleInstrReader { has_terminal, iter: std::cell::RefCell::new(vec.into_iter()) }
         }
     }
 
     impl InstrFormat for SimpleInstrReader {
         fn instr_header_size(&self) -> usize { 0x10 }
+        fn has_terminal_instr(&self) -> bool { self.has_terminal }
         fn read_instr(&self, _: &mut BinReader, _: &dyn Emitter) -> ReadResult<ReadInstr> {
             Ok(self.iter.borrow_mut().next().expect("instr reader tried to read too many instrs!"))
         }
@@ -503,6 +505,7 @@ mod test_reader {
     }
 
     struct TestInput {
+        format_has_terminals: bool,
         instrs: Vec<ReadInstr>,
         end_offset: Option<u64>,
     }
@@ -521,7 +524,7 @@ mod test_reader {
             let result = read_instrs(
                 &mut BinReader::from_reader(ctx.emitter, "unused", std::io::empty()),
                 ctx.emitter,
-                &SimpleInstrReader::new(self.instrs),
+                &SimpleInstrReader::new(self.format_has_terminals, self.instrs),
                 0x100, // starting_offset
                 self.end_offset, // end_offset
             );
@@ -536,6 +539,7 @@ mod test_reader {
     #[test]
     fn terminal() {
         let results = TestInput {
+            format_has_terminals: true,
             instrs: vec![
                 ReadInstr::Instr(simple_instr(0)),
                 ReadInstr::Instr(simple_instr(1)),
@@ -550,6 +554,7 @@ mod test_reader {
     #[test]
     fn maybe_terminal__eof() {
         let results = TestInput {
+            format_has_terminals: true,
             instrs: vec![
                 ReadInstr::Instr(simple_instr(0)),
                 ReadInstr::MaybeTerminal(simple_instr(1)),
@@ -567,6 +572,7 @@ mod test_reader {
     #[test]
     fn maybe_terminal__end_offset() {
         let results = TestInput {
+            format_has_terminals: true,
             instrs: vec![
                 ReadInstr::Instr(simple_instr(0)),
                 ReadInstr::MaybeTerminal(simple_instr(1)),
@@ -584,6 +590,7 @@ mod test_reader {
     #[test]
     fn missing_end_of_script__end_offset() {
         let results = TestInput {
+            format_has_terminals: true,
             instrs: vec![
                 ReadInstr::Instr(simple_instr(0)),
                 ReadInstr::MaybeTerminal(simple_instr(1)),
@@ -599,6 +606,7 @@ mod test_reader {
     #[test]
     fn missing_end_of_script__eof() {
         let results = TestInput {
+            format_has_terminals: true,
             instrs: vec![
                 ReadInstr::Instr(simple_instr(0)),
                 ReadInstr::MaybeTerminal(simple_instr(1)),
@@ -614,6 +622,7 @@ mod test_reader {
     #[test]
     fn invalid_end_of_script() {
         let stderr = TestInput {
+            format_has_terminals: true,
             instrs: vec![
                 ReadInstr::Instr(simple_instr(0)),
                 ReadInstr::MaybeTerminal(simple_instr(1)),
@@ -625,5 +634,34 @@ mod test_reader {
             end_offset: Some(0x134),
         }.run().unwrap_err();
         assert!(stderr.contains("read past"));
+    }
+
+    #[test]
+    fn no_terminal__end_offset() {
+        let results = TestInput {
+            format_has_terminals: false,
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::Instr(simple_instr(1)),
+            ],
+            end_offset: Some(0x120),
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=1).map(simple_instr).collect::<Vec<_>>());
+        assert!(results.warnings.is_empty());
+    }
+
+    #[test]
+    fn no_terminal__eof() {
+        let results = TestInput {
+            format_has_terminals: false,
+            instrs: vec![
+                ReadInstr::Instr(simple_instr(0)),
+                ReadInstr::Instr(simple_instr(1)),
+                ReadInstr::EndOfFile,
+            ],
+            end_offset: None,
+        }.run().unwrap();
+        assert_eq!(results.output, (0..=1).map(simple_instr).collect::<Vec<_>>());
+        assert!(results.warnings.is_empty());
     }
 }

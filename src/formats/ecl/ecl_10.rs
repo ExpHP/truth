@@ -189,11 +189,13 @@ fn read(
     };
 
     let mut subs = IndexMap::new();
-    for (sub_index, window, name) in zip!(0.., sub_offsets.windows(2), sub_names) {
-        let sub_header_offset = window[0];
-        let sub_end_offset = window[1];
-        if sub_end_offset < sub_header_offset {
-            return Err(emitter.emit(error!("sub offsets are not sorted!")));
+    let mut end_offsets = sub_offsets.iter().copied().skip(1);
+    for (sub_index, &sub_header_offset, name) in zip!(0.., &sub_offsets, sub_names) {
+        let sub_end_offset = end_offsets.next();
+        if let Some(sub_end_offset) = sub_end_offset {
+            if sub_end_offset < sub_header_offset {
+                return Err(emitter.emit(error!("sub offsets are not sorted!")));
+            }
         }
 
         let instrs = emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
@@ -201,7 +203,7 @@ fn read(
             read_sub_header(reader, emitter)?;
 
             let sub_start_offset = reader.pos()?;
-            llir::read_instrs(reader, emitter, instr_format, sub_start_offset, Some(sub_end_offset))
+            llir::read_instrs(reader, emitter, instr_format, sub_start_offset, sub_end_offset)
         })?;
 
 
