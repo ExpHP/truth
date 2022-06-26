@@ -497,6 +497,7 @@ fn encode_args(
                 extra_arg: instr.explicit_extra_arg,
                 difficulty: instr.stmt_data.difficulty_mask.mask() as _,
                 // TODO: ECL pseudo-args whose semantics are not yet implemented
+                arg_count: Some(0),  // FIXME: should be None in non-stack ECL
                 pop: 0,
             });
         },
@@ -697,6 +698,7 @@ fn encode_args(
         extra_arg,
         difficulty: instr.stmt_data.difficulty_mask.mask() as _,
         // TODO: ECL pseudo-args whose semantics are not yet implemented
+        arg_count: Some(0),  // FIXME: should be None in non-stack ECL
         pop: 0,
     })
 }
