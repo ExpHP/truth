@@ -18,6 +18,7 @@ use crate::value::{ScalarValue};
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use crate::diff_switch_utils as ds_util;
 use crate::debug_info;
+use crate::ecl::ecl_06;
 
 mod stackless;
 mod intrinsic;
@@ -132,9 +133,9 @@ pub struct Lowerer<'a> {
 }
 
 struct SubInfo<'a> {
-    sub_format: &'a dyn crate::ecl_06::OldeSubFormat,
-    exported_subs: &'a crate::ecl_06::OldeExportedSubs,
-    call_reg_info: Option<crate::ecl_06::CallRegInfo>,
+    sub_format: &'a dyn ecl_06::OldeSubFormat,
+    exported_subs: &'a ecl_06::OldeExportedSubs,
+    call_reg_info: Option<ecl_06::CallRegInfo>,
 }
 
 impl Drop for Lowerer<'_> {
@@ -152,7 +153,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Add information about exported subroutines, in languages that support calls.
-    pub fn with_export_info(mut self, sub_format: &'a dyn crate::ecl_06::OldeSubFormat, exported_subs: &'a crate::ecl_06::OldeExportedSubs) -> Self {
+    pub fn with_export_info(mut self, sub_format: &'a dyn ecl_06::OldeSubFormat, exported_subs: &'a ecl_06::OldeExportedSubs) -> Self {
         let call_reg_info = sub_format.call_reg_info();
         self.sub_info = Some(SubInfo { sub_format, exported_subs, call_reg_info });
         self

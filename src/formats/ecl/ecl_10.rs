@@ -134,7 +134,7 @@ fn read(
     let expected_include_length = reader.pos()? - include_pos;
     if expected_include_length != u64::from(include_length) {
         emitter.emit(warning!("unexpected value of include_length: {include_length:#x}, expected {expected_include_length:#x}")).ignore();
-        reader.seek_to(sub_list_pos);
+        reader.seek_to(sub_list_pos)?;
     }
     assert_eq!(reader.pos()?, sub_list_pos);
 
@@ -153,15 +153,21 @@ fn read(
     };
 
     let mut subs = IndexMap::new();
-    for (window, name) in sub_offsets.windows(2).zip(sub_names) {
-        let sub_offset = window[0];
+    for (sub_index, window, name) in zip!(0.., sub_offsets.windows(2), sub_names) {
+        let sub_header_offset = window[0];
         let sub_end_offset = window[1];
-        if sub_end_offset < sub_offset {
+        if sub_end_offset < sub_header_offset {
             return Err(emitter.emit(error!("sub offsets are not sorted!")));
         }
 
-        reader.seek_to(start_pos + sub_offset)?;
-        let instrs = llir::read_instrs(reader, emitter, instr_format, sub_offset, Some(sub_end_offset))?;
+        let instrs = emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
+            reader.seek_to(start_pos + sub_header_offset)?;
+            read_sub_header(reader, emitter)?;
+
+            let sub_start_offset = reader.pos()?;
+            llir::read_instrs(reader, emitter, instr_format, sub_start_offset, Some(sub_end_offset))
+        })?;
+
 
         if subs.insert(name.clone(), instrs).is_some() {
             emitter.emit({
@@ -209,6 +215,21 @@ fn read_string_list(
     Ok(strings)
 }
 
+fn read_sub_header(
+    reader: &mut BinReader,
+    emitter: &impl Emitter,
+) -> ReadResult<()> {
+    reader.expect_magic(emitter, "ECLH")?;
+    let data = reader.read_u32s(3)?;
+    let expected_data = &[0x10, 0, 0];
+    for (index, data_dword, &expected_dword) in zip!(0.., data, expected_data) {
+        if data_dword != expected_dword {
+            emitter.emit(warning!("unexpected data in sub header dword {index} (value: {data_dword:#x}")).ignore();
+        }
+    }
+    Ok(())
+}
+
 // =============================================================================
 
 fn write(
@@ -254,10 +275,12 @@ fn write(
     write_string_list(writer, emitter, ecl.subs.keys().map(|s| sp!(s.span => s.as_str())))?;
 
     let mut sub_offsets = vec![];
-    for instrs in ecl.subs.values() {
+    for (sub_index, (name, instrs)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(writer.pos()?);
-        writer.write_all(b"ECLH")?;
-        llir::write_instrs(writer, emitter, instr_format, instrs)?;
+        let instrs = emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
+            write_sub_header(writer)?;
+            llir::write_instrs(writer, emitter, instr_format, instrs)
+        });
     }
 
     let end_pos = writer.pos()?;
@@ -301,6 +324,14 @@ fn write_string_list<'a>(
     writer.align_to(num_bytes_written, 4)?;
 
     Ok(())
+}
+
+fn write_sub_header(
+    writer: &mut BinWriter,
+) -> WriteResult<()> {
+    writer.write_all(b"ECLH")?;
+    writer.write_u32(0x10)?;  // offset to data
+    writer.write_u32s(&[0; 2])
 }
 
 // =============================================================================
@@ -350,17 +381,49 @@ impl LanguageHooks for ModernEclHooks {
 }
 
 impl InstrFormat for ModernEclHooks {
-    fn instr_header_size(&self) -> usize { 12 }
+    fn instr_header_size(&self) -> usize { 16 }
+
+    fn has_terminal_instr(&self) -> bool { false }
 
     fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
-        todo!()
+        let time = f.read_i32()?;
+        let opcode = f.read_u16()?;  // i16 according to zero but we always store as u16...
+        let size = usize::from(f.read_u16()?);
+        let param_mask = f.read_u16()?;
+        let difficulty = f.read_u8()?;
+        let arg_count = f.read_u8()?;
+        let pop = f.read_u8()?;
+        for padding_byte_index in 0..3 {
+            let byte = f.read_u8()?;
+            if byte != 0 {
+                emitter.as_sized().emit(warning!("nonzero data in padding byte {padding_byte_index} will be lost (value: {byte:#x})")).ignore();
+            }
+        }
+
+        let args_size = size.checked_sub(self.instr_header_size()).ok_or_else(|| {
+            emitter.as_sized().emit(error!("bad instruction size ({} < {})", size, self.instr_header_size()))
+        })?;
+        let args_blob = f.read_byte_vec(args_size)?;
+
+        Ok(ReadInstr::Instr(RawInstr {
+            time, opcode, param_mask, difficulty, pop, args_blob,
+            extra_arg: None,
+        }))
     }
 
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
-        todo!()
+        f.write_i32(instr.time)?;
+        f.write_u16(instr.opcode)?;
+        f.write_u16(self.instr_size(instr) as _)?;
+        f.write_u16(instr.param_mask)?;
+        f.write_u8(instr.difficulty)?;
+        f.write_u8(0)?; // FIXME arg_count
+        f.write_u8(instr.pop)?;
+        f.write_all(&[0; 3])?;
+        f.write_all(&instr.args_blob)
     }
 
-    fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
-        todo!()
+    fn write_terminal_instr(&self, _: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
+        panic!("stack ECL has no terminal instr")
     }
 }
