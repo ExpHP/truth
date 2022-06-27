@@ -539,11 +539,13 @@ impl LanguageHooks for ModernEclHooks {
     }
 
     // offsets are written as relative in these files
-    fn encode_label(&self, _current_offset: raw::BytePos, _dest_offset: raw::BytePos) -> raw::RawDwordBits {
-        todo!()
+    fn encode_label(&self, current_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
+        let relative = dest_offset as i64 - current_offset as i64;
+        relative as i32 as u32
     }
-    fn decode_label(&self, _current_offset: raw::BytePos, _bits: raw::RawDwordBits) -> raw::BytePos {
-        todo!()
+    fn decode_label(&self, current_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
+        let relative = bits as i32 as i64; // double cast for sign-extension
+        (current_offset as i64 + relative) as u64
     }
 
     fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
