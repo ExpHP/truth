@@ -48,9 +48,9 @@ impl SingleSubLowerer<'_, '_> {
         self.out.push(sp!(span => LowerStmt::Instr(LowerInstr {
             stmt_data,
             opcode,
-            explicit_extra_arg: None,
-            user_param_mask: None,
             args,
+            // since it's an intrinsic there can't possibly be any pseudos
+            explicit_extra_arg: None, user_param_mask: None, user_pop: None, user_arg_count: None,
         })));
         Ok(())
     }

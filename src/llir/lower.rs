@@ -48,6 +48,10 @@ struct LowerInstr {
     explicit_extra_arg: Option<raw::ExtraArg>,
     /// Value provided by user via `@mask=`, which will override the automatically-computed param mask.
     user_param_mask: Option<raw::ParamMask>,
+    /// Value provided by user via `@pop=`, which will override the automatically-computed stack pop.
+    user_pop: Option<raw::StackPop>,
+    /// Value provided by user via `@nargs=`, which will override the automatically-computed arg count.
+    user_arg_count: Option<raw::ArgCount>,
     /// Mask of enabled difficulties.
     // difficulty_mask: u8,
     args: LowerArgs,
@@ -496,9 +500,8 @@ fn encode_args(
                 args_blob: blob.value.clone(),
                 extra_arg: instr.explicit_extra_arg,
                 difficulty: instr.stmt_data.difficulty_mask.mask() as _,
-                // TODO: ECL pseudo-args whose semantics are not yet implemented
-                arg_count: 0,
-                pop: 0,
+                arg_count: instr.user_arg_count.unwrap_or(0),
+                pop: instr.user_pop.unwrap_or(0),
             });
         },
     };
