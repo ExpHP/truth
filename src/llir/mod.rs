@@ -49,15 +49,15 @@ pub struct RawInstr {
     pub pop: raw::StackPop,
     /// Used by ECL timelines.  `None` elsewhere.
     pub extra_arg: Option<raw::ExtraArg>,
-    /// Used by stack ECL.  Read by the `printf` instructions.  `None` in other formats.
-    pub arg_count: Option<raw::ArgCount>,
+    /// Used by stack ECL.  Read by the `printf` instructions.  Zero in other formats.
+    pub arg_count: raw::ArgCount,
 }
 
 impl RawInstr {
     pub const DEFAULTS: RawInstr = RawInstr {
         time: 0, opcode: 0, param_mask: 0, pop: 0,
         args_blob: Vec::new(),
-        extra_arg: None, arg_count: None,
+        extra_arg: None, arg_count: 0,
         difficulty: crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE,
     };
 }

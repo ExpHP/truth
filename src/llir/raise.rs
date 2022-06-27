@@ -95,7 +95,8 @@ struct RaiseInstr {
 
 /// Result of raising an intrinsic's arguments.
 ///
-/// The fields correspond to those on [`IntrinsicInstrAbiParts`].
+/// The fields correspond to those on [`IntrinsicInstrAbiParts`].  The options on this should be
+/// `Some` or `None` based on whether the given intrinsic supports that type of argument.
 #[derive(Debug, Clone, Default)]
 struct RaisedIntrinsicParts {
     pub jump: Option<ast::StmtGoto>,
@@ -104,16 +105,25 @@ struct RaisedIntrinsicParts {
     pub plain_args: Vec<ast::Expr>,
     // additional things used by e.g. the "instruction" intrinsic
     pub opcode: Option<raw::Opcode>,
-    pub pseudo_arg0: Option<ast::Expr>,
-    pub pseudo_mask: Option<raw::ParamMask>,
     pub pseudo_blob: Option<Vec<u8>>,
+    pub pseudos: Option<RaisedIntrinsicPseudos>,
+}
+
+/// Pseudo-arguments that are valid even when not using `@blob`.
+#[derive(Debug, Clone, PartialEq)]
+struct RaisedIntrinsicPseudos {
+    // These are `None` when they are not to be displayed.
+    pub arg0: Option<ast::Expr>,
+    pub param_mask: Option<ast::Expr>,
+    pub pop: Option<ast::Expr>,
+    pub arg_count: Option<ast::Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RaiseIntrinsicKind {
-    /// A raw instruction call.  Uses `opcode`, `plain_args`, and `pseudo_arg0`.
+    /// A raw instruction call.  Uses `opcode`, `plain_args`, and `pseudos`.
     Instruction,
-    /// A raw instruction call of unknown signature.  Uses `opcode` and the `pseudo_*` fields.
+    /// A raw instruction call of unknown signature.  Uses `opcode`, `pseudo_blob` and `pseudos`.
     Blob,
     /// A single-instruction intrinsic.  (or the combination of multiple single-instruction
     /// intrinsics into one that behaves identical to another known intrinsic)

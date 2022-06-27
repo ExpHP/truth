@@ -20,7 +20,7 @@ use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
-use crate::llir::raise::{CannotRaiseIntrinsic, RaisedIntrinsicParts};
+use crate::llir::raise::{CannotRaiseIntrinsic, RaisedIntrinsicParts, RaisedIntrinsicPseudos};
 use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE;
 
 /// Intermediate form of an instruction only used during decompilation.
@@ -35,12 +35,14 @@ use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE;
 struct EarlyRaiseInstr {
     offset: raw::BytePos,
     time: raw::Time,
-    difficulty_mask: raw::DifficultyMask,
     opcode: raw::Opcode,
     args: EarlyRaiseArgs,
+    difficulty_mask: raw::DifficultyMask,
     /// Timeline arg0, only if it should be raised to `@arg0`. (if it should be raised as a standard
     /// argument, it will be in `args`)
     pseudo_arg0: Option<raw::ExtraArg>,
+    pseudo_pop: raw::StackPop,
+    pseudo_arg_count: raw::ArgCount,
 }
 
 #[derive(Debug)]
@@ -80,9 +82,9 @@ pub(in crate::llir::raise) fn early_raise_instrs(
 }
 
 #[derive(Debug, Clone)]
-struct UnknownArgsData {
-    param_mask: raw::ParamMask,
+struct  UnknownArgsData {
     blob: Vec<u8>,
+    param_mask: raw::ParamMask,
 }
 
 fn early_raise_intrinsics(
@@ -113,14 +115,19 @@ fn early_raise_intrinsics(
 
         // blob?
         let raw_args = match &instr.args {
-            EarlyRaiseArgs::Decoded(args) => args,
-            EarlyRaiseArgs::Unknown(UnknownArgsData { param_mask, blob }) => return Ok(make_instr(
+            &EarlyRaiseArgs::Decoded(ref args) => args,
+            &EarlyRaiseArgs::Unknown(UnknownArgsData { param_mask, ref blob }) => return Ok(make_instr(
                 RaiseIntrinsicKind::Blob,
                 RaisedIntrinsicParts {
                     opcode: Some(instr.opcode),
                     pseudo_blob: Some(blob.clone()),
-                    pseudo_mask: Some(param_mask.clone()),
-                    pseudo_arg0: instr.pseudo_arg0.map(|x| (x as i32).into()),
+                    pseudos: Some(RaisedIntrinsicPseudos {
+                        arg0: instr.pseudo_arg0.map(|x| (x as i32).into()),
+                        param_mask: (param_mask != 0).then(|| raise_mask(param_mask)),
+                        // FIXME: would rather have these display based on whether the language supports them.
+                        pop: (instr.pseudo_pop != 0).then(|| raise_pop(instr.pseudo_pop)),
+                        arg_count: (instr.pseudo_arg_count != 0).then(|| raise_nargs(instr.pseudo_arg_count)),
+                    }),
                     ..Default::default()
                 })),
         };
@@ -171,6 +178,30 @@ fn early_raise_intrinsics(
     Ok(out)
 }
 
+fn raise_mask(value: raw::ParamMask) -> ast::Expr {
+    ast::Expr::LitInt {
+        value: value.into(),
+        format: ast::IntFormat {
+            unsigned: true,
+            radix: ast::IntRadix::Bin,
+        },
+    }
+}
+
+fn raise_nargs(value: raw::ArgCount) -> ast::Expr {
+    i32::from(value).into()
+}
+
+fn raise_pop(value: raw::StackPop) -> ast::Expr {
+    ast::Expr::LitInt {
+        value: value.into(),
+        format: ast::IntFormat {
+            unsigned: false,
+            radix: ast::IntRadix::Hex,
+        },
+    }
+}
+
 // =============================================================================
 // Blob-decoding pass.  (RawInstr -> EarlyInstr)
 
@@ -191,6 +222,8 @@ impl Raiser<'_> {
             opcode: instr.opcode,
             difficulty_mask: instr.difficulty,
             pseudo_arg0: instr.extra_arg,
+            pseudo_arg_count: instr.arg_count,
+            pseudo_pop: instr.pop,
             args: EarlyRaiseArgs::Unknown(UnknownArgsData {
                 param_mask: instr.param_mask,
                 blob: instr.args_blob.to_vec(),
@@ -364,6 +397,8 @@ fn decode_args_with_abi(
         opcode: instr.opcode,
         difficulty_mask: instr.difficulty,
         pseudo_arg0,
+        pseudo_pop: instr.pop,
+        pseudo_arg_count: instr.arg_count,
         args: EarlyRaiseArgs::Decoded(args),
     })
 }
@@ -575,7 +610,12 @@ impl AtomRaiser<'_, '_> {
         Ok(RaisedIntrinsicParts {
             opcode: Some(instr.opcode),
             plain_args: raised_args,
-            pseudo_arg0,
+            pseudos: Some(RaisedIntrinsicPseudos {
+                arg0: pseudo_arg0,
+                // TODO: If we wanted to allow corrupt/unexpected values of instr fields to fall back to showing
+                //       a pseudo-arg then these would not be None
+                param_mask: None, pop: None, arg_count: None,
+            }),
             ..Default::default()
         })
     }

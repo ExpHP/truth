@@ -12,6 +12,7 @@ use crate::error::{ErrorReported};
 
 use RaiseIntrinsicKind as RIKind;
 use IntrinsicInstrKind as IKind;
+use crate::llir::raise::RaisedIntrinsicPseudos;
 
 impl SingleSubRaiser<'_, '_> {
     /// The final pass of raising a stmt, which converts our intermediate format into AST statements.
@@ -68,22 +69,14 @@ impl SingleSubRaiser<'_, '_> {
         emit_stmt: &mut dyn FnMut(ast::StmtKind),
     ) -> Result<(), CannotRaiseIntrinsic> {
         let RaisedIntrinsicParts {
-            mut sub_id, mut jump, outputs, plain_args,
-            opcode, pseudo_arg0, pseudo_blob, pseudo_mask,
+            mut sub_id, mut jump, outputs, plain_args, opcode, pseudo_blob, pseudos: instr_pseudos,
         } = instr.parts.clone();
         let mut outputs = outputs.into_iter();
         let mut plain_args = plain_args.into_iter();
 
         match instr.kind {
             RIKind::Instruction => {
-                let mut pseudos = vec![];
-                if let Some(extra_arg) = pseudo_arg0 {
-                    pseudos.push(sp!(ast::PseudoArg {
-                        at_sign: sp!(()), eq_sign: sp!(()),
-                        kind: sp!(token![arg0]),
-                        value: sp!(extra_arg),
-                    }));
-                }
+                let pseudos = self.raise_common_intrinsics(instr_pseudos.unwrap());
 
                 emit_stmt(ast::StmtKind::Expr(sp!(ast::Expr::Call(ast::ExprCall {
                     name: sp!(ast::CallableName::Ins { opcode: opcode.unwrap(), language: Some(self.language) }),
@@ -94,24 +87,7 @@ impl SingleSubRaiser<'_, '_> {
 
 
             RIKind::Blob => {
-                let mut pseudos = vec![];
-
-                let pseudo_mask = pseudo_mask.unwrap();
-                if pseudo_mask != 0 {
-                    pseudos.push(sp!(ast::PseudoArg {
-                        at_sign: sp!(()), eq_sign: sp!(()),
-                        kind: sp!(token![mask]),
-                        value: sp!(ast::Expr::LitInt { value: pseudo_mask as i32, format: ast::IntFormat { unsigned: true, radix: ast::IntRadix::Bin } }),
-                    }));
-                }
-
-                if let Some(extra_arg) = pseudo_arg0 {
-                    pseudos.push(sp!(ast::PseudoArg {
-                        at_sign: sp!(()), eq_sign: sp!(()),
-                        kind: sp!(token![arg0]),
-                        value: sp!(extra_arg),
-                    }));
-                }
+                let mut pseudos = self.raise_common_intrinsics(instr_pseudos.unwrap());
 
                 pseudos.push(sp!(ast::PseudoArg {
                     at_sign: sp!(()), eq_sign: sp!(()),
@@ -248,6 +224,29 @@ impl SingleSubRaiser<'_, '_> {
             },
         }
         Ok(())
+    }
+
+    fn raise_common_intrinsics(&self, pseudos: RaisedIntrinsicPseudos) -> Vec<Sp<ast::PseudoArg>> {
+        let RaisedIntrinsicPseudos { arg0, param_mask, pop, arg_count } = pseudos;
+
+        macro_rules! option_to_pseudo {
+            ($out:expr, $option:expr, $token:expr) => {
+                if let Some(value) = $option {
+                    $out.push(sp!(ast::PseudoArg {
+                        at_sign: sp!(()), eq_sign: sp!(()),
+                        kind: sp!($token),
+                        value: sp!(value),
+                    }));
+                }
+            }
+        }
+
+        let mut out = vec![];
+        option_to_pseudo!(&mut out, param_mask, token![mask]);
+        option_to_pseudo!(&mut out, arg_count, token![nargs]);
+        option_to_pseudo!(&mut out, pop, token![pop]);
+        option_to_pseudo!(&mut out, arg0, token![arg0]);
+        out
     }
 }
 

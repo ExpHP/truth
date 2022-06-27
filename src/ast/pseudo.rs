@@ -12,14 +12,16 @@ pub struct PseudoArgData {
     pub blob: Option<Sp<Vec<u8>>>,
     pub pop: Option<Sp<raw::StackPop>>,
     pub extra_arg: Option<Sp<raw::ExtraArg>>,
+    pub arg_count: Option<Sp<raw::ArgCount>>,
 }
 
 impl PseudoArgData {
     pub fn from_pseudos(pseudos: &[Sp<ast::PseudoArg>]) -> Result<PseudoArgData, Diagnostic> {
         let mut param_mask = None;
+        let mut arg_count = None;
         let mut extra_arg = None;
-        let mut blob = None;
         let mut pop = None;
+        let mut blob = None;
 
         for pseudo in pseudos {
             macro_rules! set_option {
@@ -50,6 +52,7 @@ impl PseudoArgData {
                 ast::PseudoArgKind::Mask => set_option!(param_mask, as_const_int),
                 ast::PseudoArgKind::Pop => set_option!(pop, as_const_int),
                 ast::PseudoArgKind::ExtraArg => set_option!(extra_arg, as_const_int),
+                ast::PseudoArgKind::ArgCount => set_option!(arg_count, as_const_int),
             }
         }
 
@@ -58,6 +61,7 @@ impl PseudoArgData {
             param_mask: param_mask.map(|x| sp!(x.span => x.value as _)),
             pop: pop.map(|x| sp!(x.span => x.value as _)),
             extra_arg: extra_arg.map(|x| sp!(x.span => x.value as _)),
+            arg_count: arg_count.map(|x| sp!(x.span => x.value as _)),
         })
     }
 }
