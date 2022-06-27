@@ -266,7 +266,7 @@ fn diff_switchify_parts(
 
     let mut explicit_plain_args_by_index = vec![vec![]; first_instr.plain_args.len()];  // [arg_index] -> [instr_index] -> arg
     for instr in explicit_instrs {
-        let RaisedIntrinsicParts { jump, sub_id, outputs, plain_args, opcode, pseudo_blob, pseudo_mask, pseudo_arg0 } = instr;
+        let RaisedIntrinsicParts { jump, sub_id, outputs, plain_args, opcode, pseudo_blob, pseudos } = instr;
 
         // things that can't be diff-switchified
         macro_rules! check_eq {
@@ -276,11 +276,8 @@ fn diff_switchify_parts(
         check_eq!(jump, &first_instr.jump);
         check_eq!(sub_id, &first_instr.sub_id);
         check_eq!(opcode, &first_instr.opcode);
+        check_eq!(pseudos, &first_instr.pseudos);
         check_eq!(pseudo_blob, &first_instr.pseudo_blob);
-        check_eq!(pseudo_mask, &first_instr.pseudo_mask);
-        // FIXME: technically arg0 could be decompiled to a diff switch, but I had trouble implementing
-        //        this in a way that wasn't doomed to create bugs for `T(_)` args in the future
-        check_eq!(pseudo_arg0, &first_instr.pseudo_arg0);
 
         check_eq!(plain_args.len(), first_instr.plain_args.len());
         for (arg_index, arg) in plain_args.iter().enumerate() {
@@ -321,9 +318,8 @@ fn diff_switchify_parts(
         sub_id: first_instr.sub_id.clone(),
         outputs: first_instr.outputs.clone(),
         opcode: first_instr.opcode.clone(),
-        pseudo_mask: first_instr.pseudo_mask.clone(),
-        pseudo_arg0: first_instr.pseudo_arg0.clone(),
         pseudo_blob: first_instr.pseudo_blob.clone(),
+        pseudos: first_instr.pseudos.clone(),
         plain_args: compressed_plain_args,
     })
 }

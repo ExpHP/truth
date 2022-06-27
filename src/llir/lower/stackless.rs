@@ -220,13 +220,16 @@ impl SingleSubLowerer<'_, '_> {
         let ast::ExprCall { pseudos, args, .. } = call;
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
-            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask, extra_arg: pseudo_extra_arg,
+            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask,
+            extra_arg: pseudo_extra_arg, arg_count: pseudo_arg_count,
         } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.emitter.emit(e))?;
 
-        if let Some(pop) = pseudo_pop {
-            if pop.value != 0 {
-                return Err(self.unsupported(pop.span, "stack-pop pseudo argument"));
-            }
+        if let Some(_arg_count) = pseudo_arg_count {
+            todo!("user @nargs")
+        }
+
+        if let Some(_pop) = pseudo_pop {
+            todo!("user @pop")
         }
 
         // records temporaries for function arguments

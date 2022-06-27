@@ -440,8 +440,7 @@ impl InstrFormat for ModernEclHooks {
         let args_blob = f.read_byte_vec(args_size)?;
 
         Ok(ReadInstr::Instr(RawInstr {
-            time, opcode, param_mask, difficulty, pop, args_blob,
-            arg_count: Some(arg_count),
+            time, opcode, param_mask, difficulty, pop, args_blob, arg_count,
             extra_arg: None,
         }))
     }
@@ -452,7 +451,7 @@ impl InstrFormat for ModernEclHooks {
         f.write_u16(self.instr_size(instr) as _)?;
         f.write_u16(instr.param_mask)?;
         f.write_u8(instr.difficulty)?;
-        f.write_u8(instr.arg_count.unwrap())?;
+        f.write_u8(instr.arg_count)?;
         f.write_u8(instr.pop)?;
         f.write_all(&[0; 3])?;
         f.write_all(&instr.args_blob)

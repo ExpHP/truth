@@ -829,6 +829,7 @@ string_enum! {
         #[strum(serialize = "pop")] Pop,
         #[strum(serialize = "blob")] Blob,
         #[strum(serialize = "arg0")] ExtraArg,
+        #[strum(serialize = "nargs")] ArgCount,
     }
 }
 
