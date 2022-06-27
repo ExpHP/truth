@@ -566,9 +566,10 @@ impl AtomRaiser<'_, '_> {
             plain_args: raised_args,
             pseudos: Some(RaisedIntrinsicPseudos {
                 arg0: pseudo_arg0,
-                // TODO: If we wanted to allow corrupt/unexpected values of instr fields to fall back to showing
-                //       a pseudo-arg then these would not be None
-                param_mask: None, pop: None, arg_count: None,
+                // FIXME: these should display based on whether they match the values that would be computed for the instruction
+                param_mask: None,
+                pop: (instr.pseudo_pop != 0).then(|| raise_pop(instr.pseudo_pop)),
+                arg_count: (instr.pseudo_arg_count != 0).then(|| raise_nargs(instr.pseudo_arg_count)),
             }),
             ..Default::default()
         })
