@@ -224,14 +224,6 @@ impl SingleSubLowerer<'_, '_> {
             extra_arg: pseudo_extra_arg, arg_count: pseudo_arg_count,
         } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.emitter.emit(e))?;
 
-        if let Some(_arg_count) = pseudo_arg_count {
-            todo!("user @nargs")
-        }
-
-        if let Some(_pop) = pseudo_pop {
-            todo!("user @pop")
-        }
-
         // records temporaries for function arguments
         let mut temp_def_ids = vec![];
 
@@ -265,6 +257,8 @@ impl SingleSubLowerer<'_, '_> {
             opcode: opcode as _,
             user_param_mask: pseudo_param_mask.map(|x| x.value),
             explicit_extra_arg: pseudo_extra_arg.map(|x| x.value),
+            user_pop: pseudo_pop.map(|x| x.value),
+            user_arg_count: pseudo_arg_count.map(|x| x.value),
             args: low_level_args,
         })));
 

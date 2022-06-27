@@ -2,8 +2,7 @@ use crate::ast;
 use crate::io::{BinReader, BinWriter, ReadResult, WriteResult};
 use crate::error::{ErrorReported};
 use crate::game::{Game};
-use crate::ident::{Ident, ResIdent};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
+use crate::llir::{DecompileOptions};
 use crate::context::CompilerContext;
 
 use ecl_06::OldeEclFile;

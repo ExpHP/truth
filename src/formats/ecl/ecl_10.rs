@@ -1,22 +1,20 @@
 use indexmap::{IndexMap};
 use enum_map::{EnumMap};
-use arrayvec::ArrayVec;
-use std::collections::{HashSet, BTreeMap};
 
 use crate::raw;
 use crate::ast;
-use crate::ast::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
-use crate::pos::{Sp, Span};
+use crate::ast::meta::{self, Meta, FromMetaError};
+use crate::pos::{Sp};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult, DEFAULT_ENCODING, Encoded};
 use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
-use crate::value::{ScalarType, ScalarValue, ReadType, VarType};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
-use crate::resolve::{RegId, DefId, IdMap};
+use crate::value::{ScalarType};
+use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
+use crate::resolve::{RegId};
 use crate::context::CompilerContext;
-use crate::context::defs::auto_enum_names;
+// use crate::context::defs::auto_enum_names;
 use crate::debug_info;
 
 // =============================================================================
@@ -205,7 +203,7 @@ fn compile(
                 )));
             },
 
-            ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
+            ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, .. }) => {
                 return Err(emit(error!(
                     message("extern functions are not currently supported"),
                     primary(item, "unsupported extern function"),
@@ -213,10 +211,7 @@ fn compile(
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, params: _, ty_keyword }) => {
-                let sub_index = subs.len();
                 let exported_name = ident.clone();
-
-                let def_id = ctx.resolutions.expect_def(ident);
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     return Err(emit(error!(
@@ -225,7 +220,7 @@ fn compile(
                     )));
                 }
 
-                let (instrs, lowering_info) = lowerer.lower_sub(&code.0, Some(def_id), ctx, do_debug_info)?;
+                let (instrs, lowering_info) = lowerer.lower_sub(&code.0, None, ctx, do_debug_info)?;
                 subs.insert(sp!(exported_name.span => exported_name.value.as_raw().clone()), instrs);
 
                 if let Some(lowering_info) = lowering_info {
@@ -526,13 +521,13 @@ fn write_sub_header(
 
 // =============================================================================
 
-fn game_hooks(game: Game) -> Box<dyn LanguageHooks> {
-    Box::new(ModernEclHooks { game })
+fn game_hooks(_game: Game) -> Box<dyn LanguageHooks> {
+    Box::new(ModernEclHooks)
 }
 
 // =============================================================================
 
-struct ModernEclHooks { game: Game }
+struct ModernEclHooks;
 
 impl LanguageHooks for ModernEclHooks {
     fn language(&self) -> LanguageKey { LanguageKey::Ecl }
@@ -544,19 +539,20 @@ impl LanguageHooks for ModernEclHooks {
     }
 
     // offsets are written as relative in these files
-    fn encode_label(&self, current_offset: raw::BytePos, dest_offset: raw::BytePos) -> raw::RawDwordBits {
+    fn encode_label(&self, _current_offset: raw::BytePos, _dest_offset: raw::BytePos) -> raw::RawDwordBits {
         todo!()
     }
-    fn decode_label(&self, current_offset: raw::BytePos, bits: raw::RawDwordBits) -> raw::BytePos {
+    fn decode_label(&self, _current_offset: raw::BytePos, _bits: raw::RawDwordBits) -> raw::BytePos {
         todo!()
     }
 
     fn general_use_regs(&self) -> EnumMap<ScalarType, Vec<RegId>> {
-        todo!()
+        Default::default()
     }
 
-    fn instr_disables_scratch_regs(&self, opcode: u16) -> Option<HowBadIsIt> {
-        todo!()
+    fn instr_disables_scratch_regs(&self, _opcode: u16) -> Option<HowBadIsIt> {
+        // TODO
+        None
     }
 
     fn difficulty_register(&self) -> Option<RegId> {
