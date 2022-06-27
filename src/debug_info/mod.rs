@@ -114,7 +114,8 @@ pub enum ScriptType {
     AnmScript { index: usize },
     MsgScript { indices: Vec<usize> },
     StdScript,
-    EclSub { index: usize },
+    OldeEclSub { index: usize },
+    NamedEclSub { name: String },
 }
 
 #[derive(serde::Serialize)]

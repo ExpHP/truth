@@ -675,6 +675,7 @@ PseudoArgKind: ast::PseudoArgKind = {
             ("mask", token![mask]),
             ("blob", token![blob]),
             ("arg0", token![arg0]),
+            ("nargs", token![nargs]),
         ];
 
         PAIRS.iter()

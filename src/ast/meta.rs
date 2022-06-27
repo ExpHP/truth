@@ -558,6 +558,8 @@ impl<'m, T: FromMeta<'m>> FromMeta<'m> for indexmap::IndexMap<Sp<Ident>, T> {
     }
 }
 
+pub struct ToMetaArrayAdapter<Ts: Iterator>(pub Ts);
+
 impl<T: ToMeta + ?Sized> ToMeta for &T {
     fn to_meta(&self) -> Meta { ToMeta::to_meta(&**self) }
 }

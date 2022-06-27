@@ -117,21 +117,6 @@ impl WorkingAnmFile {
     }
 }
 
-// impl AnmFile {
-//     /// Take a recently read [`AnmFile`] and turn it into anFinish working on the ANM file, filling in defaults and transcoding image buffer data
-//     /// as necessary.
-//     pub fn make_working(self, fs: &Fs, game: Game, emitter: &impl Emitter) -> Result<AnmFile, ErrorReported> {
-//         Ok(AnmFile {
-//             entries: {
-//                 self.entries.into_iter()
-//                     .map(|entry| finalize_entry(fs, entry, game, emitter))
-//                     .collect::<Result<_, _>>()?
-//             },
-//             binary_filename: self.binary_filename,
-//         })
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub specs: EntrySpecs,
