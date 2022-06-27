@@ -263,7 +263,7 @@ fn compile(
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
-                        exported_as: debug_info::ScriptType::EclSub { index: sub_index },
+                        exported_as: debug_info::ScriptType::OldeEclSub { index: sub_index },
                         name: Some(ident.to_string()),
                         name_span: ident.span.into(),
                     };

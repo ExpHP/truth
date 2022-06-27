@@ -5,6 +5,7 @@ use std::collections::{HashSet, BTreeMap};
 
 use crate::raw;
 use crate::ast;
+use crate::ast::meta::{self, Meta, ToMeta, FromMeta, FromMetaError};
 use crate::pos::{Sp, Span};
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, ReadResult, WriteResult, DEFAULT_ENCODING, Encoded};
 use crate::diagnostic::{Diagnostic, Emitter};
@@ -53,6 +54,36 @@ impl StackEclFile {
 
 // =============================================================================
 
+/// An alternative structure closer to the Meta representation.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct StackEclMeta {
+    anim: Vec<Sp<String>>,
+    ecli: Vec<Sp<String>>,
+}
+
+impl StackEclMeta {
+    fn make_meta(&self) -> meta::Fields {
+        let mut builder = Meta::make_object();
+
+        let remove_spans = |lits: Vec<Sp<String>>| -> Vec<String> {
+            lits.into_iter().map(|s| s.value).collect()
+        };
+        builder.field_default("anim", &remove_spans(self.anim.clone()), &Default::default());
+        builder.field_default("ecli", &remove_spans(self.ecli.clone()), &Default::default());
+        builder.build_fields()
+    }
+
+    fn from_fields(fields: &Sp<meta::Fields>) -> Result<Self, FromMetaError<'_>> {
+        meta::ParseObject::scope(fields, |m| {
+            let anim = m.get_field("anim")?.unwrap_or_default();
+            let ecli = m.get_field("ecli")?.unwrap_or_default();
+            Ok(StackEclMeta { anim, ecli })
+        })
+    }
+}
+
+// =============================================================================
+
 fn decompile(
     ecl: &StackEclFile,
     emitter: &impl Emitter,
@@ -80,7 +111,15 @@ fn decompile(
     }
 
     let mut items = vec![];
-    for (ident, stmts) in decompiled_subs{
+    items.push(sp!(ast::Item::Meta {
+        keyword: sp![token![meta]],
+        fields: sp!(StackEclMeta {
+            anim: ecl.anim_list.clone(),
+            ecli: ecl.ecli_list.clone(),
+        }.make_meta()),
+    }));
+
+    for (ident, stmts) in decompiled_subs {
         items.push(sp!(ast::Item::Func(ast::ItemFunc {
             qualifier: None,
             ty_keyword: sp!(ast::TypeKeyword::Void),
@@ -102,11 +141,124 @@ fn decompile(
 // =============================================================================
 
 fn compile(
-    _game: Game,
-    _ast: &ast::ScriptFile,
-    _ctx: &mut CompilerContext,
+    game: Game,
+    ast: &ast::ScriptFile,
+    ctx: &mut CompilerContext,
 ) -> Result<StackEclFile, ErrorReported> {
-    todo!()
+    let hooks = game_hooks(game);
+
+    let mut ast = ast.clone();
+
+    crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
+    crate::passes::resolution::compute_diff_label_masks(&mut ast, ctx)?;
+
+    // preprocess
+    let ast = {
+        let mut ast = ast;
+        crate::passes::resolution::resolve_names(&ast, ctx)?;
+
+        crate::passes::validate_difficulty::run(&ast, ctx, &*hooks)?;
+        crate::passes::type_check::run(&ast, ctx)?;
+        crate::passes::evaluate_const_vars::run(ctx)?;
+        crate::passes::const_simplify::run(&mut ast, ctx)?;
+        crate::passes::desugar_blocks::run(&mut ast, ctx, hooks.language())?;
+        ast
+    };
+
+    // Compilation pass
+    let emitter = ctx.emitter;
+    let emit = |e| emitter.emit(e);
+    let do_debug_info = true;
+    let mut subs = IndexMap::new();
+
+    // From this point onwards we must be careful about early exits from the function.
+    // Use an ErrorFlag to delay returns for panic bombs.
+    let mut errors = ErrorFlag::new();
+    let mut lowerer = llir::Lowerer::new(&*hooks);
+
+    let mut found_meta = None;
+    ast.items.iter().map(|item| {
+        // eprintln!("{:?}", item);
+        match &item.value {
+            ast::Item::Meta { keyword: sp_pat![kw_span => token![meta]], fields: meta } => {
+                if let Some((prev_kw_span, _)) = found_meta.replace((kw_span, meta)) {
+                    return Err(emit(error!(
+                        message("'meta' supplied multiple times"),
+                        secondary(prev_kw_span, "previously supplied here"),
+                        primary(kw_span, "duplicate 'meta'"),
+                    )));
+                }
+            },
+
+            ast::Item::Meta { keyword, .. } => return Err(emit(error!(
+                message("unexpected '{keyword}' in modern ECL file"),
+                primary(keyword, "not valid in modern ECL files"),
+            ))),
+
+            ast::Item::ConstVar { .. } => {},
+
+            ast::Item::Script { keyword, .. } => {
+                return Err(emit(error!(
+                    message("unexpected 'script' in modern ECL file"),
+                    primary(keyword, "not valid in modern ECL files"),
+                    note("in modern ECL, the entry point is written as 'void main()' rather than a 'script'"),
+                )));
+            },
+
+            ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
+                return Err(emit(error!(
+                    message("extern functions are not currently supported"),
+                    primary(item, "unsupported extern function"),
+                )));
+            },
+
+            ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, params: _, ty_keyword }) => {
+                let sub_index = subs.len();
+                let exported_name = ident.clone();
+
+                let def_id = ctx.resolutions.expect_def(ident);
+
+                if ty_keyword.value != ast::TypeKeyword::Void {
+                    return Err(emit(error!(
+                        message("return types are not supported yet"),
+                        primary(ty_keyword, "unsupported return type"),
+                    )));
+                }
+
+                let (instrs, lowering_info) = lowerer.lower_sub(&code.0, Some(def_id), ctx, do_debug_info)?;
+                subs.insert(sp!(exported_name.span => exported_name.value.as_raw().clone()), instrs);
+
+                if let Some(lowering_info) = lowering_info {
+                    let export_info = debug_info::ScriptExportInfo {
+                        exported_as: debug_info::ScriptType::NamedEclSub { name: exported_name.to_string() },
+                        name: Some(ident.to_string()),
+                        name_span: ident.span.into(),
+                    };
+                    ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
+                }
+            }
+
+            // TODO: support inline and const
+            ast::Item::Func(ast::ItemFunc { qualifier: Some(_), .. }) => return Err(emit(unsupported(&item.span))),
+        } // match item
+        Ok(())
+    }).collect_with_recovery().unwrap_or_else(|e| errors.set(e));
+
+    lowerer.finish(ctx).unwrap_or_else(|e| errors.set(e));
+
+    let meta = {
+        found_meta
+            .map(|(_, meta)| StackEclMeta::from_fields(meta).map_err(|e| ctx.emitter.emit(e)))
+            .transpose()?
+            .unwrap_or_default()
+    };
+
+    Ok(StackEclFile {
+        subs,
+        anim_list: meta.anim,
+        ecli_list: meta.ecli,
+        binary_filename: None,
+    })
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
@@ -181,7 +333,7 @@ fn read(
         read_string_list(reader, emitter, sub_count as usize)?
             .into_iter()
             .map(|string| match Ident::new_user(&string) {
-                Ok(ident) => Ok(sp!(ident)),
+                Ok(ident) => Ok(ident),
                 // FIXME: substitute with a valid identifier and downgrade to a warning
                 Err(_) => Err(emitter.emit(error!("encountered sub with non-identifier name {}", crate::fmt::stringify_lit_str(&string)))),
             })
@@ -207,7 +359,7 @@ fn read(
         })?;
 
 
-        if subs.insert(name.clone(), instrs).is_some() {
+        if subs.insert(sp!(name.clone()), instrs).is_some() {
             emitter.emit({
                 warning!("multiple subs with the name '{name}'! Only one will appear in the output.")
             }).ignore();
