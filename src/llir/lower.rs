@@ -701,8 +701,8 @@ fn encode_args(
         extra_arg,
         difficulty: instr.stmt_data.difficulty_mask.mask() as _,
         // TODO: ECL pseudo-args whose semantics are not yet implemented
-        arg_count: 0,
-        pop: 0,
+        arg_count: instr.user_arg_count.unwrap_or(0),
+        pop: instr.user_pop.unwrap_or(0),
     })
 }
 
