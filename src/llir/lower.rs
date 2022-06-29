@@ -546,28 +546,84 @@ fn encode_args(
     // The remaining args go into the argument byte blob.
     let mut args_blob = std::io::Cursor::new(vec![]);
 
+    let mut param_mask: raw::ParamMask = 0;
+    let mut current_param_mask_bit: raw::ParamMask = 1;
+
     // Important: we put the shortest iterator (args_iter) first in the zip list
     //            to ensure that this loop reads an equal number of items from all iters.
     assert!(args_iter.len() <= arg_encodings_iter.len());
-    for (arg, enc) in zip!(args_iter, arg_encodings_iter.by_ref()) {
+    for enc in arg_encodings_iter.by_ref() {
+        if let ArgEncoding::Padding { size } = enc {
+            match size {
+                1 => args_blob.write_u8(0).expect("Cursor<Vec> failed?!"),
+                4 => args_blob.write_u32(0).expect("Cursor<Vec> failed?!"),
+                _ => unreachable!(),
+            }
+            continue;
+        }
+        let arg = args_iter.next().expect("function arity already checked");
+
+        let arg_bit = match &arg.value {
+            LowerArg::Raw(raw) if raw.is_reg => current_param_mask_bit,
+            LowerArg::Local { .. } => current_param_mask_bit,
+            LowerArg::DiffSwitch { .. } => panic!("should be handled earlier"),
+            _ => 0,
+        };
+        // Verify this arg even applies to the param mask...
+        if enc.contributes_to_param_mask() {
+            if enc.is_always_immediate() && arg_bit != 0 {
+                // Warn if a register is used for an immediate arg
+                emitter.emit(warning!(
+                    message("non-constant expression in immediate argument"),
+                    primary(arg, "non-const expression"),
+                    // FIXME: Find a way to display the resulting value!
+                    // Could eventually be relevant for oversided values too
+                    // note(format!()),
+                )).ignore();
+            } else {
+                param_mask |= arg_bit;
+            }
+            current_param_mask_bit <<= 1;
+        } else if arg_bit != 0 {
+            // Conceptually invalid since adding this to the
+            // param mask would misalign all other mask bits
+            emitter.emit(warning!(
+                message("non-constant expression in non-parameter"),
+                primary(arg, "non-const expression"),
+            )).ignore();
+            // Should be impossible to trigger once padding is
+            // converted to not be optional arguments? Panic?
+        }
+
         match *enc {
             | ArgEncoding::Integer { arg0: true, .. }
+            | ArgEncoding::Padding { .. }
             => unreachable!(),
 
-            | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
-            | ArgEncoding::Padding
-            | ArgEncoding::Integer { size: 4, .. }
+            | ArgEncoding::Integer { size: 4, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => args_blob.write_i32(arg.expect_raw().expect_int()).expect("Cursor<Vec> failed?!"),
 
-            | ArgEncoding::Integer { size: 2, .. }
+            | ArgEncoding::Integer { size: 2, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+
+            | ArgEncoding::Integer { size: 1, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
+            => args_blob.write_i8(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+
+            | ArgEncoding::Integer { size: 4, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
+            => args_blob.write_u32(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+
+            | ArgEncoding::Integer { size: 2, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
+            => args_blob.write_u16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+
+            | ArgEncoding::Integer { size: 1, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
+            => args_blob.write_u8(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::Integer { size, .. }
             => panic!("unexpected integer size: {}", size),
 
-            | ArgEncoding::Float
+            | ArgEncoding::Float { .. }
             => args_blob.write_f32(arg.expect_raw().expect_float()).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::String { size: size_spec, mask, furibug }
@@ -622,9 +678,11 @@ fn encode_args(
         }
     }
 
-    for enc in arg_encodings_iter {
-        assert_eq!(enc, &ArgEncoding::Padding);
-        args_blob.write_u32(0).expect("Cursor<Vec> failed?!");
+    if current_param_mask_bit.trailing_zeros() > raw::ParamMask::BITS as _ {
+        return Err(emitter.emit(error!(
+            message("too many arguments in instruction!"),
+            primary(args[raw::ParamMask::BITS as usize], "too many arguments"),
+        )));
     }
 
     Ok(RawInstr {
@@ -632,7 +690,7 @@ fn encode_args(
         opcode: instr.opcode,
         param_mask: match instr.user_param_mask {
             Some(user_provided_mask) => user_provided_mask,
-            None => compute_param_mask(&args, emitter)?,
+            None => param_mask,
         },
         args_blob: args_blob.into_inner(),
         extra_arg,
@@ -640,28 +698,6 @@ fn encode_args(
         // TODO: ECL pseudo-args whose semantics are not yet implemented
         pop: 0,
     })
-}
-
-fn compute_param_mask(args: &[Sp<LowerArg>], emitter: &impl Emitter) -> Result<raw::ParamMask, ErrorReported> {
-    if args.len() > raw::ParamMask::BITS as _ {
-        return Err(emitter.emit(error!(
-            message("too many arguments in instruction!"),
-            primary(args[raw::ParamMask::BITS as usize], "too many arguments"),
-        )));
-    }
-    let mut mask = 0;
-    for arg in args.iter().rev(){
-        let bit = match &arg.value {
-            LowerArg::Raw(raw) => raw.is_reg as raw::ParamMask,
-            LowerArg::TimeOf { .. } => 0,
-            LowerArg::Label { .. } => 0,
-            LowerArg::Local { .. } => 1,
-            LowerArg::DiffSwitch { .. } => panic!("should be handled earlier"),
-        };
-        mask *= 2;
-        mask += bit;
-    }
-    Ok(mask)
 }
 
 // =============================================================================

@@ -1114,34 +1114,18 @@ impl Signature {
         signature_from_func_ast(ty_keyword, params)
     }
 
-    pub(crate) fn validate(&self, ctx: &CompilerContext) -> Result<(), ErrorReported> {
-        self._check_non_optional_after_optional(ctx)
-    }
-
-    fn _check_non_optional_after_optional(&self, ctx: &CompilerContext) -> Result<(), ErrorReported> {
-        let mut first_optional = None;
-        for param in self.params.iter() {
-            if param.default.is_some() {
-                first_optional = Some(param);
-            } else if let Some(optional) = first_optional {
-                return Err(ctx.emitter.emit(error!(
-                    message("invalid function signature"),
-                    secondary(optional.useful_span, "optional parameter"),
-                    primary(param.useful_span, "non-optional parameter after optional"),
-                )));
-            }
-        }
+    pub(crate) fn validate(&self, _ctx: &CompilerContext) -> Result<(), ErrorReported> {
         Ok(())
     }
 
     /// Minimum number of arguments accepted.
     pub fn min_args(&self) -> usize {
-        self.params.iter().take_while(|param| param.default.is_none()).count()
+        self.params.iter().fold(0, |count, param| count + param.default.is_none() as usize)
     }
 
     /// Maximum number of arguments accepted.
     pub fn max_args(&self) -> usize {
-        self.params.len()
+        self.min_args()
     }
 
     /// Matches arguments at a call site to their corresponding parameters.

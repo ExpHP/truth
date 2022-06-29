@@ -574,7 +574,7 @@ impl ToMeta for f32 {
     fn to_meta(&self) -> Meta { Meta::Scalar(sp!((*self).into())) }
 }
 impl ToMeta for bool {
-    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(ast::Expr::LitInt { value: *self as i32, radix: ast::IntRadix::Bool })) }
+    fn to_meta(&self) -> Meta { Meta::Scalar(sp!(ast::Expr::LitInt { value: *self as i32, format: ast::IntFormat { unsigned: true, radix: ast::IntRadix::Bool } })) }
 }
 impl ToMeta for String {
     fn to_meta(&self) -> Meta { Meta::Scalar(sp!(self.to_owned().into())) }
