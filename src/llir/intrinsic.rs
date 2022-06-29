@@ -295,7 +295,7 @@ impl IntrinsicAbiHelper<'_> {
     fn find_and_remove_sub_id(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<usize, Diagnostic> {
         let data = Self::remove_first_where(arg_encodings, |&(_, enc)| {
             match enc {
-                ArgEncoding::Integer { size: _, ty_color: Some(TypeColor::Enum(enum_name)), arg0: false } => {
+                ArgEncoding::Integer { ty_color: Some(TypeColor::Enum(enum_name)), arg0: false, .. } => {
                     enum_name == &auto_enum_names::ecl_sub()
                 },
                 _ => false,
@@ -314,7 +314,7 @@ impl IntrinsicAbiHelper<'_> {
         };
         match (ty_in_ast, encoding) {
             | (ScalarType::Int, ArgEncoding::Integer { .. })
-            | (ScalarType::Float, ArgEncoding::Float)
+            | (ScalarType::Float, ArgEncoding::Float { .. })
             => Ok((index, abi_parts::OutputArgMode::Natural)),
 
             | (ScalarType::Float, ArgEncoding::Integer { .. })
@@ -332,7 +332,7 @@ impl IntrinsicAbiHelper<'_> {
         };
         match (ty_in_ast, encoding) {
             | (ScalarType::Int, ArgEncoding::Integer { .. })
-            | (ScalarType::Float, ArgEncoding::Float)
+            | (ScalarType::Float, ArgEncoding::Float { .. })
             => Ok(index),
 
             | (_, _)

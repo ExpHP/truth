@@ -226,8 +226,15 @@ fn decode_args_with_abi(
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
         let ref emitter = add_argument_context(emitter, arg_index);
 
-        let param_mask_bit = param_mask % 2 == 1;
-        param_mask /= 2;
+        // TODO: Add a way to fallback to @mask for
+        // "bad" mask bits to allow roundtripping
+        let can_be_param = if enc.contributes_to_param_mask() {
+            let value = !enc.is_immediate() && param_mask & 1 == 1;
+            param_mask >>= 1;
+            value
+        } else {
+            false
+        };
 
         let value = match *enc {
             | ArgEncoding::Integer { arg0: true, .. }
@@ -238,17 +245,16 @@ fn decode_args_with_abi(
                 ScalarValue::Int(extra_arg as _)
             },
 
-            | ArgEncoding::Integer { arg0: false, size: 4, ty_color: _ }
-            | ArgEncoding::Color
+            | ArgEncoding::Integer { arg0: false, size: 4, .. }
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+                ScalarValue::Int(args_blob.read_i32().expect("already checked len") as i32)
             },
 
-            | ArgEncoding::Integer { arg0: false, size: 2, ty_color: _ }
+            | ArgEncoding::Integer { arg0: false, size: 2, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
                 ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
@@ -257,7 +263,7 @@ fn decode_args_with_abi(
             | ArgEncoding::Integer { size, .. }
             => panic!("unexpected integer size: {size}"),
 
-            | ArgEncoding::Float
+            | ArgEncoding::Float { .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
                 ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
@@ -290,9 +296,9 @@ fn decode_args_with_abi(
         };
 
         let is_reg = match reg_style {
-            RegisterEncodingStyle::ByParamMask => param_mask_bit,
+            RegisterEncodingStyle::ByParamMask => can_be_param,
             RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register } => {
-                does_value_look_like_a_register(&value)
+                can_be_param && does_value_look_like_a_register(&value)
             },
         };
 
@@ -516,7 +522,7 @@ impl AtomRaiser<'_, '_> {
         let pseudo_arg0 = match instr.pseudo_arg0 {
             None | Some(0) => None,
             Some(arg0) => {
-                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true };
+                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true, immediate: true, radix: ast::IntRadix::Dec };
                 let expr = self.raise_arg(emitter, &SimpleArg::from(arg0 as i32), &enc, dest_label)?;
                 Some(expr)
             }
@@ -641,6 +647,9 @@ impl AtomRaiser<'_, '_> {
         ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
 
         match enc {
+            | ArgEncoding::Integer { radix, .. } if *radix != ast::IntRadix::Dec
+            => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: *radix }),
+
             | ArgEncoding::Padding
             | ArgEncoding::Integer { ty_color: None, .. }
             => Ok(ast::Expr::from(raw.expect_int())),
@@ -657,10 +666,7 @@ impl AtomRaiser<'_, '_> {
                 ))
             }
 
-            | ArgEncoding::Color
-            => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
-
-            | ArgEncoding::Float
+            | ArgEncoding::Float { .. }
             => Ok(ast::Expr::from(raw.expect_float())),
 
             | ArgEncoding::String { .. }

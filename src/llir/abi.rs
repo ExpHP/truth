@@ -34,13 +34,14 @@ pub struct InstrAbi {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArgEncoding {
     /// `S` or `s` in mapfile. 4-byte or 2-byte integer immediate or register.  Displayed as signed.
+    /// `C` in mapfile. 4-byte integer immediate or register, printed as hex when immediate.
     ///
     /// May be decompiled as an enum or const based on its value.
     ///
     /// The first argument may have `arg0` if it is two bytes large.  This indicates that the argument is
     /// stored in the arg0 header field of the instruction in EoSD and PCB ECL. (which is mapped to the
     /// `@arg0` pseudo-argument in raw instruction syntax)
-    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool },
+    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool, immediate: bool, radix: ast::IntRadix },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
@@ -49,10 +50,8 @@ pub enum ArgEncoding {
     ///
     /// Only exists in pre-StB STD where instructions have fixed sizes.
     Padding,
-    /// `C` in mapfile. 4-byte integer immediate or register, printed as hex when immediate.
-    Color,
     /// `f` in mapfile. Single-precision float.
-    Float,
+    Float { immediate: bool },
     /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or  `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
     /// See [`StringArgSize`] about the size args.
@@ -85,7 +84,7 @@ pub enum StringArgSize {
 }
 
 impl ArgEncoding {
-    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false } }
+    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false, immediate: false, radix: ast::IntRadix::Dec } }
 
     pub fn static_descr(&self) -> &'static str {
         match self {
@@ -95,8 +94,7 @@ impl ArgEncoding {
             Self::JumpOffset => "jump offset",
             Self::JumpTime => "jump time",
             Self::Padding => "padding",
-            Self::Color => "hex integer",
-            Self::Float => "float",
+            Self::Float { .. } => "float",
             Self::String { .. } => "string",
         }
     }
@@ -107,10 +105,10 @@ impl ArgEncoding {
         impl fmt::Display for Impl<'_> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match &self.0 {
-                    Enc::Integer { arg0: true, ty_color, size } => write!(
+                    Enc::Integer { arg0: true, ty_color, size, immediate, radix } => write!(
                         f,
                         "{} (in timeline arg0)",
-                        Enc::Integer { arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
+                        Enc::Integer { radix: *radix, immediate: *immediate, arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
                     ),
                     Enc::Integer { ty_color: Some(en), size: 4, .. } => write!(f, "{}", en.descr()),
                     Enc::Integer { ty_color: Some(en), size, .. } => write!(f, "{size}-byte {}", en.descr()),
@@ -123,6 +121,21 @@ impl ArgEncoding {
         }
 
         Impl(self)
+    }
+
+    pub fn contributes_to_param_mask(&self) -> bool {
+        !matches!(self, Self::Padding)
+    }
+    
+    pub fn is_immediate(&self) -> bool {
+        matches!(self,
+            | Self::String { .. }
+            | Self::JumpOffset
+            | Self::JumpTime
+            | Self::Padding
+            | Self::Integer { immediate: true, .. }
+            | Self::Float { immediate: true, .. }
+        )
     }
 }
 
@@ -194,11 +207,10 @@ impl ArgEncoding {
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
             | ArgEncoding::Padding
-            | ArgEncoding::Color
             | ArgEncoding::Integer { .. }
             => ScalarType::Int,
 
-            | ArgEncoding::Float
+            | ArgEncoding::Float { .. }
             => ScalarType::Float,
 
             | ArgEncoding::String { .. }
@@ -211,6 +223,8 @@ impl ArgEncoding {
 
 fn arg_encoding_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<ArgEncoding, ErrorReported> {
     if let Some(encoding) = int_from_attrs(param, emitter)? {
+        Ok(encoding)
+    } else if let Some(encoding) = float_from_attrs(param, emitter)? {
         Ok(encoding)
     } else if let Some(encoding) = string_from_attrs(param, emitter)? {
         Ok(encoding)
@@ -225,21 +239,24 @@ fn arg_encoding_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Res
 }
 
 fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
-    let (size, default_ty_color) = match param.format_char.value {
+    let (size, default_ty_color, radix) = match param.format_char.value {
         // FIXME: Uu should be unsigned but I'm not sure yet if I want  `i(signed)`, `i(unsigned)`, or `i(sign=1)`
-        'S' => (4u8, None),
-        's' => (2, None),
-        'U' => (4, None),
-        'u' => (2, None),
-        'n' => (4, Some(TypeColor::Enum(auto_enum_names::anm_sprite()))),
-        'N' => (4, Some(TypeColor::Enum(auto_enum_names::anm_script()))),
-        'E' => (4, Some(TypeColor::Enum(auto_enum_names::ecl_sub()))),
+        'S' => (4u8, None, ast::IntRadix::Dec),
+        's' => (2, None, ast::IntRadix::Dec),
+        'U' => (4, None, ast::IntRadix::Dec),
+        'u' => (2, None, ast::IntRadix::Dec),
+        'n' => (4, Some(TypeColor::Enum(auto_enum_names::anm_sprite())), ast::IntRadix::Dec),
+        'N' => (4, Some(TypeColor::Enum(auto_enum_names::anm_script())), ast::IntRadix::Dec),
+        'E' => (4, Some(TypeColor::Enum(auto_enum_names::ecl_sub())), ast::IntRadix::Dec),
+        'C' => (4, None, ast::IntRadix::Hex),
         _ => return Ok(None),  // not an integer
     };
 
     param.clone().deserialize_attributes(emitter, |de| {
         let user_ty_color = de.accept_value("enum")?.map(|ident| TypeColor::Enum(ident.value));
         let arg0 = de.accept_flag("arg0")?;
+        let imm = de.accept_flag("imm")?;
+        let is_hex = de.accept_flag("hex")?;
 
         if let Some(arg0_flag) = arg0 {
             if size != 2 {
@@ -254,8 +271,25 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
             size,
             ty_color: user_ty_color.or(default_ty_color),
             arg0: arg0.is_some(),
+            immediate: imm.is_some(),
+            radix: if is_hex.is_none() { radix } else { ast::IntRadix::Hex },
         }))
     })
+}
+
+fn float_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
+    match param.format_char.value {
+        'f' => param.clone().deserialize_attributes(emitter, |de| {
+            //let user_ty_color = de.accept_value("enum")?.map(|ident| TypeColor::Enum(ident.value));
+            let imm = de.accept_flag("imm")?;
+
+            Ok(Some(ArgEncoding::Float {
+                //ty_color: user_ty_color.or(default_ty_color),
+                immediate: imm.is_some(),
+            }))
+        }),
+        _ => Ok(None)
+    }
 }
 
 fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
@@ -305,10 +339,8 @@ fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Op
 
 fn other_from_attrs(param: &abi_ast::Param, _emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
     match param.format_char.value {
-        'C' => Ok(Some(ArgEncoding::Color)),
         'o' => Ok(Some(ArgEncoding::JumpOffset)),
         't' => Ok(Some(ArgEncoding::JumpTime)),
-        'f' => Ok(Some(ArgEncoding::Float)),
         '_' => Ok(Some(ArgEncoding::Padding)),
         _ => Ok(None),
     }
@@ -362,9 +394,6 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
         return_ty: sp!(value::ExprType::Void),
         params: abi.encodings.iter().enumerate().flat_map(|(index, enc)| {
             let Info { ty, default, reg_ok, ty_color } = match *enc {
-                | ArgEncoding::Color
-                => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: None },
-
                 | ArgEncoding::Integer { arg0: false, ref ty_color, .. }
                 => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: ty_color.clone() },
 
@@ -378,7 +407,7 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
                 | ArgEncoding::Padding
                 => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true, ty_color: None },
 
-                | ArgEncoding::Float
+                | ArgEncoding::Float { .. }
                 => Info { ty: ScalarType::Float, default: None, reg_ok: true, ty_color: None },
 
                 | ArgEncoding::String { .. }
@@ -414,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(Span::NULL, vec![Enc::dword(), Enc::dword(), Enc::Float]).unwrap());
+        assert_eq!(parse("SSf").unwrap(), InstrAbi::from_encodings(Span::NULL, vec![Enc::dword(), Enc::dword(), Enc::Float { immediate: false }]).unwrap());
     }
 
     #[test]
