@@ -640,7 +640,8 @@ fn encode_args(
 
                 // have to append null eagerly to correctly reproduce TH17 Extra files
                 match size_spec {
-                    | StringArgSize::Block { .. }
+                    | StringArgSize::ToBlobEnd { .. }
+                    | StringArgSize::Pascal { .. }
                     | StringArgSize::Fixed { nulless: false, .. }
                     => encoded.0.push(b'\0'),
 
@@ -656,11 +657,12 @@ fn encode_args(
                 }
 
                 match size_spec {
-                    StringArgSize::Block { block_size } => {
+                    StringArgSize::ToBlobEnd { block_size } | StringArgSize::Pascal { block_size } => {
                         if encoded.len() % block_size != 0 {
                             encoded.null_pad(block_size);
                         }
                     },
+
                     StringArgSize::Fixed { len, nulless: _ } => {
                         if encoded.len() > len {
                             return Err(emitter.emit(error!(
@@ -678,6 +680,9 @@ fn encode_args(
                     state.furibug_bytes = Some(encoded.clone());
                 }
 
+                if matches!(size_spec, StringArgSize::Pascal { .. }) {
+                    args_blob.write_u32(encoded.len() as _).expect("Cursor<Vec> failed?!");
+                }
                 args_blob.write_all(&encoded.0).expect("Cursor<Vec> failed?!");
             },
         }
