@@ -47,8 +47,9 @@ pub enum ArgEncoding {
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
     JumpTime,
-    /// `_` in mapfile. Unused 1-byte space.
-    Padding,
+    /// `_` in mapfile. Unused 4-byte space.
+    /// `-` in mapfile. Unused 1-byte space.
+    Padding { size: u8 },
     /// `f` in mapfile. Single-precision float.
     Float { immediate: bool },
     /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or  `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
@@ -93,7 +94,9 @@ impl ArgEncoding {
             Self::Integer { size: _, .. } => "integer",
             Self::JumpOffset => "jump offset",
             Self::JumpTime => "jump time",
-            Self::Padding => "padding",
+            Self::Padding { size: 4 } => "dword padding",
+            Self::Padding { size: 1 } => "byte padding",
+            Self::Padding { size: _ } => "padding",
             Self::Float { .. } => "float",
             Self::String { .. } => "string",
         }
@@ -125,7 +128,7 @@ impl ArgEncoding {
     }
 
     pub fn contributes_to_param_mask(&self) -> bool {
-        !matches!(self, Self::Padding)
+        !matches!(self, Self::Padding { .. })
     }
     
     pub fn is_always_immediate(&self) -> bool {
@@ -133,7 +136,7 @@ impl ArgEncoding {
             | Self::String { .. }
             | Self::JumpOffset
             | Self::JumpTime
-            | Self::Padding
+            | Self::Padding { .. }
             | Self::Integer { immediate: true, .. }
             | Self::Float { immediate: true, .. }
             => true,
@@ -212,7 +215,7 @@ impl ArgEncoding {
         match self {
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
-            | ArgEncoding::Padding
+            | ArgEncoding::Padding { .. }
             | ArgEncoding::Integer { .. }
             => ScalarType::Int,
 
@@ -358,7 +361,8 @@ fn other_from_attrs(param: &abi_ast::Param, _emitter: &dyn Emitter) -> Result<Op
     match param.format_char.value {
         'o' => Ok(Some(ArgEncoding::JumpOffset)),
         't' => Ok(Some(ArgEncoding::JumpTime)),
-        '_' => Ok(Some(ArgEncoding::Padding)),
+        '_' => Ok(Some(ArgEncoding::Padding { size: 4 })),
+        '-' => Ok(Some(ArgEncoding::Padding { size: 1 })),
         _ => Ok(None),
     }
 }
@@ -414,8 +418,8 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
                 | ArgEncoding::JumpTime
                 => Info { ty: ScalarType::Int, default: None, reg_ok: false, ty_color: None },
 
-                | ArgEncoding::Padding
-                => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: true, ty_color: None },
+                | ArgEncoding::Padding { .. }
+                => Info { ty: ScalarType::Int, default: Some(sp!(0.into())), reg_ok: false, ty_color: None },
 
                 | ArgEncoding::Float { .. }
                 => Info { ty: ScalarType::Float, default: None, reg_ok: true, ty_color: None },

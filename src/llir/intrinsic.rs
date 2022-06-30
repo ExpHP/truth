@@ -253,7 +253,7 @@ impl IntrinsicAbiHelper<'_> {
     }
 
     fn find_and_remove_padding(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) {
-        arg_encodings.retain(|(_, enc)| !matches!(*enc, ArgEncoding::Padding));
+        arg_encodings.retain(|(_, enc)| !matches!(*enc, ArgEncoding::Padding { .. }));
     }
 
     fn find_and_remove_jump(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {

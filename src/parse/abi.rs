@@ -124,7 +124,7 @@ pub fn parse_abi(
         }
 
         match next_char {
-            format_char @ sp_pat!('a'..='z' | 'A'..='Z' | '_' | '0'..='9') => {
+            format_char @ sp_pat!('a'..='z' | 'A'..='Z' | '_' | '-' | '0'..='9') => {
                 let next_non_ws = text.chars().filter(|&c| !is_ws(c)).next();
                 let attributes = match next_non_ws {
                     // Type with attributes.

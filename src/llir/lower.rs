@@ -553,8 +553,12 @@ fn encode_args(
     //            to ensure that this loop reads an equal number of items from all iters.
     assert!(args_iter.len() <= arg_encodings_iter.len());
     for enc in arg_encodings_iter.by_ref() {
-        if matches!(enc, ArgEncoding::Padding) {
-            args_blob.write_u8(0).expect("Cursor<Vec> failed?!");
+        if let ArgEncoding::Padding { size } = enc {
+            match size {
+                1 => args_blob.write_u8(0).expect("Cursor<Vec> failed?!"),
+                4 => args_blob.write_u32(0).expect("Cursor<Vec> failed?!"),
+                _ => unreachable!(),
+            }
             continue;
         }
         let arg = args_iter.next().expect("function arity already checked");
@@ -593,7 +597,7 @@ fn encode_args(
 
         match *enc {
             | ArgEncoding::Integer { arg0: true, .. }
-            | ArgEncoding::Padding
+            | ArgEncoding::Padding { .. }
             => unreachable!(),
 
             | ArgEncoding::JumpOffset

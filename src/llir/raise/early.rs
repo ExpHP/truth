@@ -224,6 +224,18 @@ fn decode_args_with_abi(
 
     let reg_style = hooks.register_style();
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
+        // Padding produces values for the sake of verifying the bytes are 0. TODO: Implement!
+        // They're filtered out later on after dealing with @arg0 in the argument-raising pass.
+        if let ArgEncoding::Padding { size } = enc {
+            decrease_len(emitter, &mut remaining_len, *size as usize)?;
+            let raw_value = match size {
+                1 => args_blob.read_u8().expect("already checked len") as i32,
+                4 => args_blob.read_u32().expect("already checked len") as i32,
+                _ => unreachable!(),
+            };
+            args.push(SimpleArg { value: ScalarValue::Int(raw_value), is_reg: false } );
+            continue;
+        }
         let ref emitter = add_argument_context(emitter, arg_index);
 
         // TODO: Add a way to fallback to @mask for
@@ -237,6 +249,9 @@ fn decode_args_with_abi(
         };
 
         let value = match *enc {
+            | ArgEncoding::Padding { .. }
+            => unreachable!(),
+
             | ArgEncoding::Integer { arg0: true, .. }
             => {
                 // a check that non-timeline languages don't have timeline args in their signature
@@ -277,9 +292,6 @@ fn decode_args_with_abi(
                 ScalarValue::Int(args_blob.read_u16().expect("already checked len") as i32)
             },
 
-            // Padding produces values for the sake of verifying the bytes are 0. TODO: Implement!
-            // They're filtered out later on after dealing with @arg0 in the argument-raising pass.
-            | ArgEncoding::Padding
             | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 1)?;
@@ -558,7 +570,7 @@ impl AtomRaiser<'_, '_> {
         //
         // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
         let mut arg_iter = abi.arg_encodings();
-        raised_args.retain(|_| !matches!(arg_iter.next().unwrap(), ArgEncoding::Padding));
+        raised_args.retain(|_| !matches!(arg_iter.next().unwrap(), ArgEncoding::Padding { .. }));
 
         Ok(RaisedIntrinsicParts {
             opcode: Some(instr.opcode),
@@ -667,7 +679,7 @@ impl AtomRaiser<'_, '_> {
             | ArgEncoding::Integer { ty_color: None, format, .. }
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), format: *format }),
 
-            | ArgEncoding::Padding
+            | ArgEncoding::Padding { .. }
             => Ok(ast::Expr::from(raw.expect_int())),
 
             | ArgEncoding::Integer { ty_color: Some(ty_color), format, .. }

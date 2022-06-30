@@ -169,7 +169,7 @@ source_test!(
     ECL_TIMELINE_06, unused_arg0_padding_edge_case,
     mapfile: r#"!eclmap
 !timeline_ins_signatures
-200 s(arg0;enum="MsgScript")S________
+200 s(arg0;enum="MsgScript")S__
 "#,
     // this is an edge case that arose in decompilation where the presence of a timeline
     // arg could make the code that trims padding look at the wrong values
