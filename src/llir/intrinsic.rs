@@ -188,8 +188,6 @@ impl IntrinsicInstrKind {
 #[derive(Debug)]
 pub struct IntrinsicInstrAbiParts {
     pub num_instr_args: usize,
-    /// Number of padding args at the end
-    pub padding: abi_parts::PaddingInfo,
     /// Indices of args that should use the same logic as arguments in `ins_` instruction-call syntax.
     pub plain_args: Vec<usize>,
     /// Indices of args that are known registers.  These show up in intrinsics.
@@ -254,18 +252,8 @@ impl IntrinsicAbiHelper<'_> {
         }
     }
 
-    fn find_and_remove_padding(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<abi_parts::PaddingInfo, Diagnostic> {
-        let mut count = 0;
-        let mut first_index = arg_encodings.len();
-        while let Some(&(index, ArgEncoding::Padding)) = arg_encodings.last() {
-            // assumption that this func always runs first (nothing is deleted before us)
-            assert_eq!(index, arg_encodings.len() - 1);
-
-            arg_encodings.pop();
-            count += 1;
-            first_index = index;
-        }
-        Ok(abi_parts::PaddingInfo { count, index: first_index })
+    fn find_and_remove_padding(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) {
+        arg_encodings.retain(|(_, enc)| !matches!(*enc, ArgEncoding::Padding));
     }
 
     fn find_and_remove_jump(&self, arg_encodings: &mut Vec<(usize, &ArgEncoding)>) -> Result<(usize, abi_parts::JumpArgOrder), Diagnostic> {
@@ -347,13 +335,12 @@ impl IntrinsicInstrAbiParts {
         use IntrinsicInstrKind as I;
 
         let mut encodings = abi.arg_encodings().enumerate().collect::<Vec<_>>();
-        let num_instr_args = encodings.len();
 
         let helper = IntrinsicAbiHelper { intrinsic, abi_loc };
+        helper.find_and_remove_padding(&mut encodings);
 
-        let padding = helper.find_and_remove_padding(&mut encodings)?;
         let mut out = IntrinsicInstrAbiParts {
-            num_instr_args, padding,
+            num_instr_args: encodings.len(),
             plain_args: vec![], outputs: vec![], jump: None, sub_id: None,
         };
 

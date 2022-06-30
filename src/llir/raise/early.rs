@@ -245,19 +245,43 @@ fn decode_args_with_abi(
                 ScalarValue::Int(extra_arg as _)
             },
 
-            | ArgEncoding::Integer { arg0: false, size: 4, .. }
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
-            | ArgEncoding::Padding
+            | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
                 ScalarValue::Int(args_blob.read_i32().expect("already checked len") as i32)
             },
 
-            | ArgEncoding::Integer { arg0: false, size: 2, .. }
+            | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
                 ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 1)?;
+                ScalarValue::Int(args_blob.read_i8().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 4)?;
+                ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 2)?;
+                ScalarValue::Int(args_blob.read_u16().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Padding
+            | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 1)?;
+                ScalarValue::Int(args_blob.read_u8().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { size, .. }
@@ -522,21 +546,17 @@ impl AtomRaiser<'_, '_> {
         let pseudo_arg0 = match instr.pseudo_arg0 {
             None | Some(0) => None,
             Some(arg0) => {
-                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true, immediate: true, radix: ast::IntRadix::Dec };
+                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true, immediate: true, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } };
                 let expr = self.raise_arg(emitter, &SimpleArg::from(arg0 as i32), &enc, dest_label)?;
                 Some(expr)
             }
         };
 
-        // drop early STD padding args from the end as long as they're zero.
+        // drop padding args
         //
         // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
-        for (enc, arg) in abi.arg_encodings().zip(args).rev() {
-            match enc {
-                ArgEncoding::Padding if arg.is_immediate_zero() => raised_args.pop(),
-                _ => break,
-            };
-        }
+        let mut arg_iter = abi.arg_encodings();
+        raised_args.retain(|_| !matches!(arg_iter.next().unwrap(), ArgEncoding::Padding));
 
         Ok(RaisedIntrinsicParts {
             opcode: Some(instr.opcode),
@@ -559,14 +579,9 @@ impl AtomRaiser<'_, '_> {
 
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
         let IntrinsicInstrAbiParts {
-            num_instr_args: _, padding: ref padding_info, outputs: ref outputs_info,
+            num_instr_args: _, outputs: ref outputs_info,
             jump: ref jump_info, plain_args: ref plain_args_info, sub_id: ref sub_id_info,
         } = abi_parts;
-
-        let padding_range = padding_info.index..padding_info.index + padding_info.count;
-        if !args[padding_range].iter().all(|arg| arg.is_immediate_zero()) {
-            return Err(CannotRaiseIntrinsic);  // data in padding
-        }
 
         let mut jump = None;
         if let &Some((index, order)) = jump_info {
@@ -647,14 +662,13 @@ impl AtomRaiser<'_, '_> {
         ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
 
         match enc {
-            | ArgEncoding::Integer { radix, .. } if *radix != ast::IntRadix::Dec
-            => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: *radix }),
+            | ArgEncoding::Integer { ty_color: None, format, .. }
+            => Ok(ast::Expr::LitInt { value: raw.expect_int(), format: *format }),
 
             | ArgEncoding::Padding
-            | ArgEncoding::Integer { ty_color: None, .. }
             => Ok(ast::Expr::from(raw.expect_int())),
 
-            | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
+            | ArgEncoding::Integer { ty_color: Some(ty_color), format, .. }
             => {
                 let lookup_table = match ty_color {
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
@@ -663,6 +677,7 @@ impl AtomRaiser<'_, '_> {
                     &lookup_table,
                     raw.expect_int(),
                     ty_color,
+                    format,
                 ))
             }
 
@@ -687,7 +702,7 @@ impl AtomRaiser<'_, '_> {
 
                 | Err(IllegalOffset) => {
                     emitter.emit(warning!("invalid offset in a jump instruction")).ignore();
-                    Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex })
+                    Ok(ast::Expr::LitInt { value: raw.expect_int(), format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Hex } })
                 },
             },
         }
@@ -735,7 +750,7 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor, format: &ast::IntFormat) -> ast::Expr {
     match names.get(&id) {
         Some(ident) => {
             match ty_color {
@@ -747,7 +762,7 @@ fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_c
                 },
             }
         },
-        None => id.into(),
+        None => ast::Expr::LitInt { value: id, format: *format },
     }
 }
 

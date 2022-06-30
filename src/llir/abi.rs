@@ -33,7 +33,8 @@ pub struct InstrAbi {
 /// [`ScalarType`] tends to be more relevant for variables.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArgEncoding {
-    /// `S` or `s` in mapfile. 4-byte or 2-byte integer immediate or register.  Displayed as signed.
+    /// `S`, `s`, or `c` in mapfile. Integer immediate or register.  Displayed as signed.
+    /// `U`, `u`, or `b` in mapfile. Integer immediate or register.  Displayed as unsigned.
     /// `C` in mapfile. 4-byte integer immediate or register, printed as hex when immediate.
     ///
     /// May be decompiled as an enum or const based on its value.
@@ -41,14 +42,12 @@ pub enum ArgEncoding {
     /// The first argument may have `arg0` if it is two bytes large.  This indicates that the argument is
     /// stored in the arg0 header field of the instruction in EoSD and PCB ECL. (which is mapped to the
     /// `@arg0` pseudo-argument in raw instruction syntax)
-    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool, immediate: bool, radix: ast::IntRadix },
+    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool, immediate: bool, format: ast::IntFormat },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
     JumpTime,
-    /// `_` in mapfile. Unused 4-byte space after script arguments, optionally displayed as integer in text.
-    ///
-    /// Only exists in pre-StB STD where instructions have fixed sizes.
+    /// `_` in mapfile. Unused 1-byte space.
     Padding,
     /// `f` in mapfile. Single-precision float.
     Float { immediate: bool },
@@ -84,10 +83,11 @@ pub enum StringArgSize {
 }
 
 impl ArgEncoding {
-    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false, immediate: false, radix: ast::IntRadix::Dec } }
+    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false, immediate: false, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } } }
 
     pub fn static_descr(&self) -> &'static str {
         match self {
+            Self::Integer { size: 1, .. } => "byte-sized integer",
             Self::Integer { size: 2, .. } => "word-sized integer",
             Self::Integer { size: 4, .. } => "dword integer",
             Self::Integer { size: _, .. } => "integer",
@@ -105,13 +105,14 @@ impl ArgEncoding {
         impl fmt::Display for Impl<'_> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match &self.0 {
-                    Enc::Integer { arg0: true, ty_color, size, immediate, radix } => write!(
+                    Enc::Integer { arg0: true, ty_color, size, immediate, format } => write!(
                         f,
                         "{} (in timeline arg0)",
-                        Enc::Integer { radix: *radix, immediate: *immediate, arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
+                        Enc::Integer { format: *format, immediate: *immediate, arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
                     ),
                     Enc::Integer { ty_color: Some(en), size: 4, .. } => write!(f, "{}", en.descr()),
                     Enc::Integer { ty_color: Some(en), size, .. } => write!(f, "{size}-byte {}", en.descr()),
+                    Enc::Integer { ty_color: None, size: 1, .. } => write!(f, "byte-sized integer"),
                     Enc::Integer { ty_color: None, size: 2, .. } => write!(f, "word-sized integer"),
                     Enc::Integer { ty_color: None, size: 4, .. } => write!(f, "dword integer"),
                     Enc::Integer { ty_color: None, size, .. } => write!(f, "{size}-byte integer"),
@@ -239,16 +240,18 @@ fn arg_encoding_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Res
 }
 
 fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
-    let (size, default_ty_color, radix) = match param.format_char.value {
+    let (size, unsigned, mut hex_radix, default_ty_color) = match param.format_char.value {
         // FIXME: Uu should be unsigned but I'm not sure yet if I want  `i(signed)`, `i(unsigned)`, or `i(sign=1)`
-        'S' => (4u8, None, ast::IntRadix::Dec),
-        's' => (2, None, ast::IntRadix::Dec),
-        'U' => (4, None, ast::IntRadix::Dec),
-        'u' => (2, None, ast::IntRadix::Dec),
-        'n' => (4, Some(TypeColor::Enum(auto_enum_names::anm_sprite())), ast::IntRadix::Dec),
-        'N' => (4, Some(TypeColor::Enum(auto_enum_names::anm_script())), ast::IntRadix::Dec),
-        'E' => (4, Some(TypeColor::Enum(auto_enum_names::ecl_sub())), ast::IntRadix::Dec),
-        'C' => (4, None, ast::IntRadix::Hex),
+        'S' => (4u8, false, false, None),
+        's' => (2u8, false, false, None),
+        'c' => (1u8, false, false, None),
+        'U' => (4u8, true, false, None),
+        'u' => (2u8, true, false, None),
+        'b' => (1u8, true, false, None),
+        'n' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::anm_sprite()))),
+        'N' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::anm_script()))),
+        'E' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::ecl_sub()))),
+        'C' => (4u8, true, true, None),
         _ => return Ok(None),  // not an integer
     };
 
@@ -259,12 +262,16 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
         let is_hex = de.accept_flag("hex")?;
 
         if let Some(arg0_flag) = arg0 {
-            if size != 2 {
+            if (size - 1) >= 2 {
                 return Err(emitter.as_sized().emit(error!(
-                    message("timeline arg0 must be word-sized ('s' or 'u')"),
+                    message("timeline arg0 must be word-sized or less ('s', 'u', 'c', or 'b')"),
                     primary(arg0_flag, ""),
                 )));
             }
+        }
+        
+        if is_hex.is_some() {
+            hex_radix = true;
         }
 
         Ok(Some(ArgEncoding::Integer {
@@ -272,7 +279,10 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
             ty_color: user_ty_color.or(default_ty_color),
             arg0: arg0.is_some(),
             immediate: imm.is_some(),
-            radix: if is_hex.is_none() { radix } else { ast::IntRadix::Hex },
+            format: match hex_radix {
+                false => ast::IntFormat { unsigned: unsigned, radix: ast::IntRadix::Dec },
+                true => ast::IntFormat { unsigned: unsigned, radix: ast::IntRadix::Hex },
+            },
         }))
     })
 }
@@ -364,18 +374,11 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
     }
 
     if encodings.iter().skip(1).any(|c| matches!(c, Enc::Integer { arg0: true, .. })) {
-        return err(format!("'T()' arguments may only appear at the beginning of a signature"));
+        return err(format!("'(arg0)' arguments may only appear at the beginning of a signature"));
     }
 
     if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { size: StringArgSize::Block { .. }, .. })) {
         return err(format!("'z' or 'm' arguments with 'bs=' can only appear at the very end"));
-    }
-
-    let trailing_pad_count = encodings.iter().rev().take_while(|c| matches!(c, Enc::Padding)).count();
-    let total_pad_count = encodings.iter().filter(|c| matches!(c, Enc::Padding)).count();
-    if total_pad_count != trailing_pad_count {
-        // this restriction is required because Padding produces signatures with optional args.
-        return err(format!("non-'_' arguments cannot come after '_' arguments"));
     }
     Ok(())
 }

@@ -611,7 +611,7 @@ ExprTerm: ast::Expr = {
     <var:Sp<Var>> <op:Sp<OpXcrement>>
         => ast::Expr::XcrementOp { var, op, order: ast::XcrementOpOrder::Post },
 
-    <value:LitIntUnsigned> => ast::Expr::LitInt { value, radix: ast::IntRadix::Dec },
+    <value:LitIntUnsigned> => ast::Expr::LitInt { value, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } },
 
     <value:LitFloatUnsigned> => ast::Expr::LitFloat { value },
 

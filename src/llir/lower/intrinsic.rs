@@ -74,7 +74,7 @@ impl IntrinsicBuilder<'_> {
     ) -> Result<Vec<Sp<LowerArg>>, ErrorReported> {
         // full pattern match to fail when new fields are added
         let &IntrinsicInstrAbiParts {
-            num_instr_args, padding: ref padding_info, plain_args: ref plain_args_info,
+            num_instr_args, plain_args: ref plain_args_info,
             outputs: ref outputs_info, jump: ref jump_info, sub_id: sub_id_info,
         } = abi_parts;
         // check that the caller's 'build' closure put all of the right things for this intrinsic
@@ -88,7 +88,6 @@ impl IntrinsicBuilder<'_> {
         let mut out_args = vec![None; num_instr_args];
 
         // padding gets added later during args -> bytes conversion so we don't need to fill it
-        out_args.truncate(padding_info.index);
 
         // fill in all of the options
         if let (Some(goto_ast), &Some(jump_info)) = (self.jump, jump_info) {

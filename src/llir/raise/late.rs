@@ -101,7 +101,7 @@ impl SingleSubRaiser<'_, '_> {
                     pseudos.push(sp!(ast::PseudoArg {
                         at_sign: sp!(()), eq_sign: sp!(()),
                         kind: sp!(token![mask]),
-                        value: sp!(ast::Expr::LitInt { value: pseudo_mask as i32, radix: ast::IntRadix::Bin }),
+                        value: sp!(ast::Expr::LitInt { value: pseudo_mask as i32, format: ast::IntFormat { unsigned: true, radix: ast::IntRadix::Bin } }),
                     }));
                 }
 

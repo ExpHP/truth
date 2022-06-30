@@ -462,7 +462,7 @@ pub enum Expr {
         value: raw::LangInt,
         /// A hint to the formatter on how it should write the integer.
         /// (may not necessarily represent the original radix of a parsed token)
-        radix: IntRadix,
+        format: IntFormat,
     },
     LitFloat { value: raw::LangFloat },
     LitString(LitString),
@@ -476,14 +476,18 @@ pub enum Expr {
     },
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct IntFormat {
+    pub unsigned: bool,
+    pub radix: IntRadix,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntRadix {
     /// Display as decimal.
     Dec,
     /// Display as hexadecimal, with an `0x` prefix.
     Hex,
-    /// Display as potentially negative hexadecimal, with an `0x` prefix.
-    SignedHex,
     /// Display as binary, with an `0b` prefix.
     Bin,
     /// Use `true` and `false` if the value is `1` or `0`.  Otherwise, fall back to decimal.
@@ -848,7 +852,7 @@ string_enum! {
 }
 
 impl From<raw::LangInt> for Expr {
-    fn from(value: raw::LangInt) -> Expr { Expr::LitInt { value, radix: IntRadix::Dec } }
+    fn from(value: raw::LangInt) -> Expr { Expr::LitInt { value, format: IntFormat { unsigned: false, radix: IntRadix::Dec } } }
 }
 impl From<raw::LangFloat> for Expr {
     fn from(value: raw::LangFloat) -> Expr { Expr::LitFloat { value } }
@@ -1266,7 +1270,7 @@ macro_rules! generate_visitor_stuff {
                 Expr::XcrementOp { op: _, order: _, var } => {
                     v.visit_var(var);
                 },
-                Expr::LitInt { value: _, radix: _ } => {},
+                Expr::LitInt { value: _, format: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
                 Expr::LabelProperty { .. } => {},
