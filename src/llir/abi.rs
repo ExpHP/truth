@@ -31,7 +31,7 @@ pub struct InstrAbi {
 ///
 /// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
 /// [`ScalarType`] tends to be more relevant for variables.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgEncoding {
     /// `S`, `s`, or `c` in mapfile. Integer immediate or register.  Displayed as signed.
     /// `U`, `u`, or `b` in mapfile. Integer immediate or register.  Displayed as unsigned.
@@ -66,7 +66,7 @@ pub enum ArgEncoding {
     },
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StringArgSize {
     /// A string arg that uses `len=`.
     ///
@@ -128,15 +128,20 @@ impl ArgEncoding {
         !matches!(self, Self::Padding)
     }
     
-    pub fn is_immediate(&self) -> bool {
-        matches!(self,
+    pub fn is_always_immediate(&self) -> bool {
+        match self {
             | Self::String { .. }
             | Self::JumpOffset
             | Self::JumpTime
             | Self::Padding
             | Self::Integer { immediate: true, .. }
             | Self::Float { immediate: true, .. }
-        )
+            => true,
+
+            | Self::Integer { immediate: false, .. }
+            | Self::Float { immediate: false, .. }
+            => false,
+        }
     }
 }
 
@@ -274,15 +279,17 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
             hex_radix = true;
         }
 
+        let radix = match hex_radix {
+            false => ast::IntRadix::Dec,
+            true => ast::IntRadix::Hex,
+        };
+
         Ok(Some(ArgEncoding::Integer {
             size,
             ty_color: user_ty_color.or(default_ty_color),
             arg0: arg0.is_some(),
             immediate: imm.is_some(),
-            format: match hex_radix {
-                false => ast::IntFormat { unsigned: unsigned, radix: ast::IntRadix::Dec },
-                true => ast::IntFormat { unsigned: unsigned, radix: ast::IntRadix::Hex },
-            },
+            format: ast::IntFormat { unsigned, radix },
         }))
     })
 }

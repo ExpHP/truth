@@ -229,7 +229,7 @@ fn decode_args_with_abi(
         // TODO: Add a way to fallback to @mask for
         // "bad" mask bits to allow roundtripping
         let can_be_param = if enc.contributes_to_param_mask() {
-            let value = !enc.is_immediate() && param_mask & 1 == 1;
+            let value = !enc.is_always_immediate() && param_mask & 1 == 1;
             param_mask >>= 1;
             value
         } else {
@@ -250,7 +250,7 @@ fn decode_args_with_abi(
             | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(args_blob.read_i32().expect("already checked len") as i32)
+                ScalarValue::Int(args_blob.read_i32().expect("already checked len"))
             },
 
             | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
@@ -277,6 +277,8 @@ fn decode_args_with_abi(
                 ScalarValue::Int(args_blob.read_u16().expect("already checked len") as i32)
             },
 
+            // Padding produces values for the sake of verifying the bytes are 0. TODO: Implement!
+            // They're filtered out later on after dealing with @arg0 in the argument-raising pass.
             | ArgEncoding::Padding
             | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
             => {
@@ -677,7 +679,7 @@ impl AtomRaiser<'_, '_> {
                     &lookup_table,
                     raw.expect_int(),
                     ty_color,
-                    format,
+                    *format,
                 ))
             }
 
@@ -750,7 +752,7 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor, format: &ast::IntFormat) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor, format: ast::IntFormat) -> ast::Expr {
     match names.get(&id) {
         Some(ident) => {
             match ty_color {
@@ -762,7 +764,7 @@ fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_c
                 },
             }
         },
-        None => ast::Expr::LitInt { value: id, format: *format },
+        None => ast::Expr::LitInt { value: id, format: format },
     }
 }
 

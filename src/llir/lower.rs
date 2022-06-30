@@ -567,7 +567,7 @@ fn encode_args(
         };
         // Verify this arg even applies to the param mask...
         if enc.contributes_to_param_mask() {
-            if enc.is_immediate() && arg_bit != 0 {
+            if enc.is_always_immediate() && arg_bit != 0 {
                 // Warn if a register is used for an immediate arg
                 emitter.emit(warning!(
                     message("non-constant expression in immediate argument"),

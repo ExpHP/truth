@@ -476,13 +476,13 @@ pub enum Expr {
     },
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct IntFormat {
     pub unsigned: bool,
     pub radix: IntRadix,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IntRadix {
     /// Display as decimal.
     Dec,
