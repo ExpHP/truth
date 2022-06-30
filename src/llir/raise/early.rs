@@ -236,7 +236,7 @@ fn decode_args_with_abi(
     use crate::io::BinRead;
 
     let mut param_mask = instr.param_mask;
-    let mut args_blob = std::io::Cursor::new(&instr.args_blob);
+    let mut blob_reader = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];
     let mut pseudo_arg0 = instr.extra_arg;
     let mut remaining_len = instr.args_blob.len();
@@ -272,13 +272,13 @@ fn decode_args_with_abi(
             | ArgEncoding::Padding
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_u32().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { arg0: false, size: 2, ty_color: _ }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
-                ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_i16().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { size, .. }
@@ -287,18 +287,22 @@ fn decode_args_with_abi(
             | ArgEncoding::Float
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
+                ScalarValue::Float(f32::from_bits(blob_reader.read_u32().expect("already checked len")))
             },
 
             | ArgEncoding::String { size: size_spec, mask, furibug }
             => {
                 let read_len = match size_spec {
-                    StringArgSize::Block { .. } => remaining_len,  // read to end
+                    StringArgSize::ToBlobEnd { .. } => remaining_len,  // read to end
+                    StringArgSize::Pascal { .. } => {
+                        decrease_len(emitter, &mut remaining_len, 4)?;
+                        blob_reader.read_u32().expect("already checked len") as usize
+                    },
                     StringArgSize::Fixed { len, nulless: _ } => len,
                 };
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
+                let mut encoded = Encoded(blob_reader.read_byte_vec(read_len).expect("already checked len"));
                 encoded.apply_xor_mask(mask);
 
                 if let StringArgSize::Fixed { nulless: true, .. } = size_spec {
@@ -326,11 +330,11 @@ fn decode_args_with_abi(
         args.push(SimpleArg { value, is_reg });
     }
 
-    if args_blob.position() != args_blob.get_ref().len() as u64 {
+    if blob_reader.position() != blob_reader.get_ref().len() as u64 {
         emitter.emit(warning!(
             // this could mean the signature is incomplete
             "unexpected leftover bytes in ins_{}! (read {} bytes out of {}!)",
-            instr.opcode, args_blob.position(), args_blob.get_ref().len(),
+            instr.opcode, blob_reader.position(), blob_reader.get_ref().len(),
         )).ignore();
     }
 

@@ -35,6 +35,17 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, abi_string_errors,
+    mapfile: r#"!anmmap
+!ins_signatures
+0 z(len=20;bs=4)   //~ ERROR mutually exclusive
+1 p(len=20)   //~ ERROR not supported by
+2 p   //~ ERROR missing
+"#,
+    main_body: r#""#,
+);
+
+source_test!(
     ANM_10, seqmap_duplicate_key,
     mapfile: r#"!anmmap
 !ins_signatures
