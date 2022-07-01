@@ -26,19 +26,19 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th06, 0, Some(("", None))),
-        (Th06, 1, Some(("ss", None))),
-        (Th06, 2, Some(("ss", None))),  // note: 2nd word is technically an anm sprite
+        (Th06, 1, Some((r#"ss(enum="AnmScript")"#, None))),
+        (Th06, 2, Some((r#"ss(enum="AnmSprite")"#, None))),
         (Th06, 3, Some(("ssz(bs=4)", None))),
         (Th06, 4, Some(("S", None))),
-        (Th06, 5, Some(("ss", None))),
+        (Th06, 5, Some(("sb-", None))),
         (Th06, 6, Some(("", None))),
         (Th06, 7, Some(("S", None))),
         (Th06, 8, Some(("ssz(bs=4)", None))),
-        (Th06, 9, Some(("S", None))),  // arg looks unused
+        (Th06, 9, Some(("_", None))),
         (Th06, 10, Some(("", None))),
         (Th06, 11, Some(("", None))),
         (Th06, 12, Some(("", None))),
-        (Th06, 13, Some(("S", None))),
+        (Th06, 13, Some((r#"b(enum="bool")---"#, None))),
 
         (Th07, 14, Some(("", None))),
 

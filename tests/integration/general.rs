@@ -190,7 +190,7 @@ source_test!(
     ECL_06, const_cast_even_in_eosd,
     main_body: r#"
         const int x = int(2.0 + 3.0);
-        ins_1(x);
+        ins_61(x);
     "#,
     check_compiled: |output, format| {
         let ecl = output.read_ecl(format);
