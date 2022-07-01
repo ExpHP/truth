@@ -18,7 +18,7 @@ use ArgEncoding as Enc;
 /// and how to present them in a decompiled file (e.g. hexadecimal for colors).
 ///
 /// Like in thtk, signatures are derived from strings.  Parse a signature using [`std::str::FromStr`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstrAbi {
     encodings: Vec<ArgEncoding>,
 }
@@ -31,7 +31,7 @@ pub struct InstrAbi {
 ///
 /// By this notion, [`ArgEncoding`] tends to be more relevant for immediate/literal arguments, while
 /// [`ScalarType`] tends to be more relevant for variables.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ArgEncoding {
     /// `S`, `s`, or `c` in mapfile. Integer immediate or register.  Displayed as signed.
     /// `U`, `u`, or `b` in mapfile. Integer immediate or register.  Displayed as unsigned.
@@ -67,7 +67,7 @@ pub enum ArgEncoding {
     },
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum StringArgSize {
     /// A string arg that uses `len=`.
     ///
@@ -270,7 +270,7 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
         let is_hex = de.accept_flag("hex")?;
 
         if let Some(arg0_flag) = arg0 {
-            if (size - 1) >= 2 {
+            if size.wrapping_sub(1) >= 2 {
                 return Err(emitter.as_sized().emit(error!(
                     message("timeline arg0 must be word-sized or less ('s', 'u', 'c', or 'b')"),
                     primary(arg0_flag, ""),

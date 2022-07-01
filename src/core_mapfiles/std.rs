@@ -61,13 +61,13 @@ static STD_07_09: &CoreSignatures = &CoreSignatures {
         (Th07, 26, Some(("fff", None))),
         (Th07, 27, Some(("fff", None))),
         (Th07, 28, Some(("S__", None))),
-        (Th07, 29, Some(("S__", None))),  // anm script
-        (Th07, 30, Some(("S__", None))),  // anm script
+        (Th07, 29, Some(("N__", None))),
+        (Th07, 30, Some(("N__", None))),
         (Th07, 31, Some(("S__", Some(IKind::InterruptLabel)))),
 
         (Th08, 32, Some(("fff", None))),
         (Th08, 33, Some(("S__", None))),
-        (Th08, 34, Some(("S__", None))),  // anm script
+        (Th08, 34, Some(("N__", None))),
     ],
     var: &[],
 };
@@ -89,7 +89,7 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
         (Th095, 11, Some(("SSfffffffff", None))),
         (Th095, 12, Some(("S", None))),
         (Th095, 13, Some(("C", None))),
-        (Th095, 14, Some(("SS", None))),  // SN
+        (Th095, 14, Some(("SN", None))),
         // 15 appears to be a nop (i.e. it's not in the jumptable).
         //    However, no game ever uses it
 
@@ -98,7 +98,7 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
 
         (Th12, 18, Some(("SSfff", None))),
 
-        (Th14, 14, Some(("SSS", None))),  // SNS. 'layer' argument added
+        (Th14, 14, Some(("SNS", None))),  // 'layer' argument added
         (Th14, 19, Some(("S", None))),
         (Th14, 20, Some(("f", None))),
 
