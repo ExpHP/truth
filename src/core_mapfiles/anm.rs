@@ -171,17 +171,21 @@ static ANM_INS_07_09: &'static CoreSignatures = &CoreSignatures {
         (Th07, 81, Some(("f", None))),
 
         // v3
-        // color instructions changed to take 3 dwords
-        (Th08, 9, Some(("SSS", None))),
-        (Th08, 33, Some(("SSSSS", None))),
+        // alpha/color/alphaTime/colorTime instructions changed to take dword variables
+        // alphaTimeLinear not updated
+        (Th08, 8, Some(("C", None))),
+        (Th08, 9, Some(("CCC", None))),
+        (Th08, 16, Some((r#"U(imm;enum="bool")"#, None))),
+        (Th08, 33, Some(("Sb(imm)---CCC", None))),
+        (Th08, 34, Some(("Sb(imm)---C", None))),
         // new instructions
-        (Th08, 82, Some(("S", None))),
-        (Th08, 83, Some(("S", None))),
-        (Th08, 84, Some(("SSS", None))),
-        (Th08, 85, Some(("S", None))),
-        (Th08, 86, Some(("SSSSS", None))),
-        (Th08, 87, Some(("SSS", None))),
-        (Th08, 88, Some(("S", None))),
+        (Th08, 82, Some(("U(imm)", None))),
+        (Th08, 83, Some(("S(imm)", None))),
+        (Th08, 84, Some(("CCC", None))),
+        (Th08, 85, Some(("C", None))),
+        (Th08, 86, Some(("Sb(imm)---CCC", None))),
+        (Th08, 87, Some(("Sb(imm)---C", None))),
+        (Th08, 88, Some((r#"-b(imm;enum="bool")--"#, None))), // zero: -b(imm;enum="BitBool")--
         (Th08, 89, Some(("", None))),
     ],
     var: &[],

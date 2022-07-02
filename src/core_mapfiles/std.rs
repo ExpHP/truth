@@ -66,7 +66,7 @@ static STD_07_09: &CoreSignatures = &CoreSignatures {
         (Th07, 31, Some(("S__", Some(IKind::InterruptLabel)))),
 
         (Th08, 32, Some(("fff", None))),
-        (Th08, 33, Some(("S__", None))),
+        (Th08, 33, Some(("b---__", None))),
         (Th08, 34, Some(("N__", None))),
     ],
     var: &[],
