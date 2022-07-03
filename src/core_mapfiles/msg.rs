@@ -53,10 +53,13 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
         (Th08, 21, Some(("S", None))),
         (Th08, 22, Some(("", None))),
 
+        (Th09, 1, Some(("s--", None))),
         (Th09, 3, Some(("ssm(bs=4;mask=0x77,7,16)", None))),
         (Th09, 8, Some(("", None))),
-        (Th09, 15, Some(("SSS", None))),
+        (Th09, 9, Some(("S", None))), // Can't be marked as padding since unused value is non-zero
+        (Th09, 15, Some(("Snn", None))),
         (Th09, 16, Some(("m(bs=4;mask=0x77,7,16)", None))),
+        (Th09, 17, Some(("Sn", None))),
         (Th09, 19, None),  // removed from jumptable
         (Th09, 20, None),
         (Th09, 21, None),
@@ -64,7 +67,7 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
         (Th09, 23, Some(("S", None))),
         (Th09, 24, Some(("", None))),
         (Th09, 25, Some(("", None))),
-        (Th09, 26, Some(("S", None))),
+        (Th09, 26, Some(("b---", None))),
         // 27 is not in the jumptable; could be a nop, but it's never used
         (Th09, 28, Some(("S", None))),
     ],

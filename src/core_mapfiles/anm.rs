@@ -86,7 +86,7 @@ static ANM_INS_06: &'static CoreSignatures = &CoreSignatures {
 static ANM_INS_07_09: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
-        // v2
+        // v2 (PCB)
         (Th07, 0, Some(("", None))),
         (Th07, 1, Some(("", None))),
         (Th07, 2, Some(("", None))),
@@ -170,7 +170,7 @@ static ANM_INS_07_09: &'static CoreSignatures = &CoreSignatures {
         (Th07, 80, Some(("f", None))),
         (Th07, 81, Some(("f", None))),
 
-        // v3
+        // v3, v3b (IN, PoFV)
         // alpha/color/alphaTime/colorTime instructions changed to take dword variables
         // alphaTimeLinear not updated
         (Th08, 8, Some(("C", None))),
@@ -185,7 +185,7 @@ static ANM_INS_07_09: &'static CoreSignatures = &CoreSignatures {
         (Th08, 85, Some(("C", None))),
         (Th08, 86, Some(("Sb(imm)---CCC", None))),
         (Th08, 87, Some(("Sb(imm)---C", None))),
-        (Th08, 88, Some((r#"-b(imm;enum="bool")--"#, None))), // zero: -b(imm;enum="BitBool")--
+        (Th08, 88, Some(("-b(imm)--", None))),
         (Th08, 89, Some(("", None))),
     ],
     var: &[],
@@ -195,6 +195,7 @@ static ANM_INS_07_09: &'static CoreSignatures = &CoreSignatures {
 static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
+        // v4 (StB)
         (Th095, 0, Some(("", None))),
         (Th095, 1, Some(("", None))),
         (Th095, 2, Some(("", None))),
@@ -246,43 +247,43 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th095, 48, Some(("fff", None))),
         (Th095, 49, Some(("fff", None))),
         (Th095, 50, Some(("ff", None))),
-        (Th095, 51, Some(("S", None))),
-        (Th095, 52, Some(("SSS", None))),
+        (Th095, 51, Some(("C", None))),
+        (Th095, 52, Some(("CCC", None))),
         (Th095, 53, Some(("fff", None))),
         (Th095, 54, Some(("ff", None))),
-        (Th095, 55, Some(("SS", None))),
-        (Th095, 56, Some(("SSfff", None))),
-        (Th095, 57, Some(("SSSSS", None))),
-        (Th095, 58, Some(("SSS", None))),
-        (Th095, 59, Some(("SSfff", None))),
-        (Th095, 60, Some(("SSff", None))),
+        (Th095, 55, Some(("b(imm;hex)---S", None))),
+        (Th095, 56, Some(("Sb(imm)---fff", None))),
+        (Th095, 57, Some(("Sb(imm)---CCC", None))),
+        (Th095, 58, Some(("Sb(imm)---C", None))),
+        (Th095, 59, Some(("Sb(imm)---fff", None))),
+        (Th095, 60, Some(("Sb(imm)---ff", None))),
         (Th095, 61, Some(("", None))),
         (Th095, 62, Some(("", None))),
         (Th095, 63, Some(("", None))),
-        (Th095, 64, Some(("S", Some(IKind::InterruptLabel)))),
-        (Th095, 65, Some(("ss", None))),
-        (Th095, 66, Some(("S", None))),
-        (Th095, 67, Some(("S", None))),
-        (Th095, 68, Some(("S", None))),
+        (Th095, 64, Some(("S(imm)", Some(IKind::InterruptLabel)))),
+        (Th095, 65, Some(("u(imm)u(imm)", None))),
+        (Th095, 66, Some(("U(imm)", None))),
+        (Th095, 67, Some(("U(imm)", None))),
+        (Th095, 68, Some(("b(imm)---", None))),
         (Th095, 69, Some(("", None))),
         (Th095, 70, Some(("f", None))),
         (Th095, 71, Some(("f", None))),
-        (Th095, 72, Some(("S", None))),
-        (Th095, 73, Some(("S", None))),
-        (Th095, 74, Some(("S", None))),
+        (Th095, 72, Some((r#"U(imm;enum="bool")"#, None))), // zero: U(imm;enum="BitBool")
+        (Th095, 73, Some((r#"U(imm;enum="bool")"#, None))), // zero: U(imm;enum="BitBool")
+        (Th095, 74, Some((r#"U(imm;enum="bool")"#, None))), // zero: U(imm;enum="BitBool")
         (Th095, 75, Some(("S", None))),
         (Th095, 76, Some(("SSS", None))),
         (Th095, 77, Some(("S", None))),
         (Th095, 78, Some(("SSSSS", None))),
         (Th095, 79, Some(("SSS", None))),
-        (Th095, 80, Some(("S", None))),
+        (Th095, 80, Some(("b(imm)---", None))),
         (Th095, 81, Some(("", None))),
-        (Th095, 82, Some(("S", None))),
+        (Th095, 82, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th095, 83, Some(("", None))),
         (Th095, 84, Some(("S", None))),
-        (Th095, 85, Some(("S", None))),
-        (Th095, 86, Some(("S", None))),
-        (Th095, 87, Some(("S", None))),
+        (Th095, 85, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th095, 86, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
+        (Th095, 87, Some(("b(imm)---", None))),
 
         (Th10, 88, Some(("N", None))),
         (Th10, 89, Some(("S", None))),
@@ -477,6 +478,7 @@ static ANM_VAR: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[],
     var: &[
+        // v2, v3 (PCB, IN)
         (Th07, 10000, Some("$")),
         (Th07, 10001, Some("$")),
         (Th07, 10002, Some("$")),
@@ -488,9 +490,12 @@ static ANM_VAR: &'static CoreSignatures = &CoreSignatures {
         (Th07, 10008, Some("$")),
         (Th07, 10009, Some("$")),
 
-        (Th095, 10010, Some("%")),
-        (Th095, 10011, Some("%")),
-        (Th095, 10012, Some("%")),
+        // v3b (PoFV)
+        (Th09, 10010, Some("%")),
+        (Th09, 10011, Some("%")),
+        (Th09, 10012, Some("%")),
+
+        // v4 (StB)
         (Th095, 10013, Some("%")),
         (Th095, 10014, Some("%")),
         (Th095, 10015, Some("%")),
