@@ -133,13 +133,6 @@ impl SingleSubRaiser<'_, '_> {
 
             RIKind::Standard(IKind::InterruptLabel) => {
                 let interrupt = plain_args.next().unwrap();
-                let interrupt = sp!(Span::NULL => match interrupt.as_const_int() {
-                    Some(interrupt_id) => interrupt_id,
-                    None => {
-                        assert!(matches!(interrupt, ast::Expr::Var { .. }));
-                        return Err(CannotRaiseIntrinsic);  // register in interrupt label
-                    },
-                });
                 emit_stmt(stmt_interrupt!(rec_sp!(Span::NULL => as kind, #interrupt)));
             },
 
@@ -320,7 +313,7 @@ impl LabelEmitter {
                 emit(make_stmt(ast::StmtKind::AbsTimeLabel(sp!(0))));
                 if time > 0 {
                     emit(make_stmt(ast::StmtKind::RelTimeLabel {
-                        delta: sp!(time),
+                        delta: sp!(time.into()),
                         _absolute_time_comment: Some(time),
                     }));
                 }
@@ -328,7 +321,7 @@ impl LabelEmitter {
                 emit(make_stmt(ast::StmtKind::AbsTimeLabel(sp!(time))));
             } else if prev_time < time {
                 emit(make_stmt(ast::StmtKind::RelTimeLabel {
-                    delta: sp!(time - prev_time),
+                    delta: sp!(time.wrapping_sub(prev_time).into()),
                     _absolute_time_comment: Some(time),
                 }));
             }
