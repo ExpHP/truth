@@ -1,0 +1,11 @@
+---
+source: tests/integration/interrupts.rs
+expression: stderr
+---
+error: const evaluation error in interrupt label
+   ┌─ <input>:29:15
+   │
+29 │     interrupt[I0]:
+   │               ^^ non-const expression
+
+
