@@ -15,7 +15,9 @@
 * **Bitwise negation.** The unary `~` (bitwise not) operator has been added.  No language natively provides it, but even when unavailable, it can be used (and will compile as `-1 - x`).
 * **`--no-builtin-mapfiles`** option for both compilation and decompilation.  This will disable the core mapfiles which provide the builtin signatures and intrinsic mappings for all games, which can be useful if you are trying to design a comprehensive mapfile from scratch.
 
-## Other bugfixes
+## Other changes
+
+* Relative time labels and interrupts now accept expressions, so you can use consts.  Technically this also makes negative relative time labels; whether you choose to write them as `+(-15):` or (gasp) `+-15:` is up to you...
 
 * Unary `-` now can be directly provided by an intrinsic, and will otherwise fall back to `-1 * x`. (formerly, it would always produce `0 - x`, which is not correct for all floats)
 
