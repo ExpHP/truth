@@ -5,7 +5,7 @@ use crate::ast;
 use crate::bitset::BitSet32;
 use crate::pos::Sp;
 use crate::error::{ErrorReported, ErrorFlag};
-use crate::diagnostic::Emitter;
+use crate::diagnostic::{Emitter, Diagnostic};
 use crate::resolve::{NodeId, IdMap, node_id_helpers};
 
 pub const DEFAULT_DIFFICULTY_MASK_BYTE: raw::DifficultyMask = 0xFF;
@@ -68,16 +68,22 @@ impl TimeAndDifficultyHelper {
         (mask != DEFAULT_DIFFICULTY_MASK).then(|| mask)
     }
 
-    pub fn visit_stmt_shallow(&mut self, stmt: &ast::Stmt) {
+    fn visit_stmt_shallow(&mut self, stmt: &ast::Stmt) -> Result<(), Diagnostic> {
         match &stmt.kind {
             &ast::StmtKind::AbsTimeLabel(value) => {
                 *self.time_stack.last_mut().expect("empty time stack?! (bug)") = value.value;
             },
-            &ast::StmtKind::RelTimeLabel { delta, .. } => {
-                *self.time_stack.last_mut().expect("empty time stack?! (bug)") += delta.value;
+            ast::StmtKind::RelTimeLabel { delta, .. } => {
+                let cur_time = self.time_stack.last_mut().expect("empty time stack?! (bug)");
+                let delta = delta.as_const_int().ok_or_else(|| error!(
+                    message("const evaluation error in time label"),
+                    primary(delta, "non-const expression"),
+                ))?;
+                *cur_time = cur_time.wrapping_add(delta);
             },
             _ => {},
         }
+        Ok(())
     }
 
     /// Indicate that we are entering the root block of an item.
@@ -101,15 +107,16 @@ impl TimeAndDifficultyHelper {
     }
 
     /// Set the time and difficulty appropriately for the current statement.
-    pub fn enter_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
+    pub fn enter_stmt(&mut self, stmt: &Sp<ast::Stmt>) -> Result<(), Diagnostic> {
         // time labels should affect their own attributes,
         // so perform a shallow visit before storing data.
-        self.visit_stmt_shallow(stmt);
+        self.visit_stmt_shallow(stmt)?;
 
         if let Some(&sp_pat!(label_span => ast::DiffLabel { mask, .. })) = stmt.diff_label.as_ref() {
             let mask = mask.expect("compute_diff_label_masks pass was not run!");
             self.difficulty_stack.push(sp!(label_span => mask));
         }
+        Ok(())
     }
 
     pub fn exit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
@@ -121,7 +128,9 @@ impl TimeAndDifficultyHelper {
 
 impl ast::Visit for Visitor<'_> {
     fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
-        self.helper.enter_stmt(stmt);
+        if let Err(e) = self.helper.enter_stmt(stmt) {
+            self.errors.set(self.emitter.as_sized().emit(e));
+        }
 
         // record data for this statement
         let data = TimeAndDifficulty {

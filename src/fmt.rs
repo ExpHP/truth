@@ -769,7 +769,6 @@ impl Format for ast::StmtKind {
             },
 
             ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment } => {
-                assert!(delta.value >= 0);
                 if let Some(time) = _absolute_time_comment {
                     out.fmt_label(("+", delta, ": // ", time))?;
                 } else {
