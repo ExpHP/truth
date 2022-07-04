@@ -60,9 +60,16 @@ impl SingleSubLowerer<'_, '_> {
                 },
 
 
-                ast::StmtKind::InterruptLabel(interrupt_id) => {
+                ast::StmtKind::InterruptLabel(interrupt_id_expr) => {
+                    let interrupt_id = interrupt_id_expr.as_const_int().ok_or_else(|| {
+                        // FIXME: can't we unify this with other non-const errors and make this a panic?
+                        self.ctx.emitter.emit(error!(
+                            message("const evaluation error in interrupt label"),
+                            primary(interrupt_id_expr, "non-const expression"),
+                        ))
+                    })?;
                     self.lower_intrinsic(stmt.span, stmt_data, IKind::InterruptLabel, "interrupt label", |bld| {
-                        let lowered_id = interrupt_id.sp_map(|value| LowerArg::Raw(value.into()));
+                        let lowered_id = sp!(interrupt_id_expr.span => LowerArg::Raw(interrupt_id.into()));
                         bld.plain_args.push(lowered_id);
                     })?;
                 },

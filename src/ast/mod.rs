@@ -202,14 +202,14 @@ pub enum StmtKind {
     },
 
     /// An interrupt label: `interrupt[2]:`.
-    InterruptLabel(Sp<raw::LangInt>),
+    InterruptLabel(Sp<Expr>),
 
     /// An absolute time label: `30:` or `-30:`.
     AbsTimeLabel(Sp<raw::LangInt>),
 
     /// A relative time label: `+30:`.  This value cannot be negative.
     RelTimeLabel {
-        delta: Sp<raw::LangInt>,
+        delta: Sp<Expr>,
         // This is used during decompilation ONLY, in order to allow the code formatter to
         // write `//` comments with the total time on these labels without having to perform
         // its own semantic analysis.
@@ -1204,9 +1204,13 @@ macro_rules! generate_visitor_stuff {
                     }
                 },
                 StmtKind::Label(_) => {},
-                StmtKind::InterruptLabel(_) => {},
+                StmtKind::InterruptLabel(expr) => {
+                    v.visit_expr(expr);
+                },
                 StmtKind::AbsTimeLabel { .. } => {},
-                StmtKind::RelTimeLabel { .. } => {},
+                StmtKind::RelTimeLabel { delta, _absolute_time_comment: _ } => {
+                    v.visit_expr(delta);
+                },
                 StmtKind::ScopeEnd(_) => {},
                 StmtKind::NoInstruction => {},
             }

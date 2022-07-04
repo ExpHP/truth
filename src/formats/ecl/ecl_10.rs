@@ -155,10 +155,10 @@ fn compile(
         let mut ast = ast;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
 
-        crate::passes::validate_difficulty::run(&ast, ctx, &*hooks)?;
         crate::passes::type_check::run(&ast, ctx)?;
         crate::passes::evaluate_const_vars::run(ctx)?;
         crate::passes::const_simplify::run(&mut ast, ctx)?;
+        crate::passes::validate_difficulty::run(&ast, ctx, &*hooks)?;
         crate::passes::desugar_blocks::run(&mut ast, ctx, hooks.language())?;
         ast
     };

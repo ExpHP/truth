@@ -303,7 +303,7 @@ StmtKindUnphysical: ast::StmtKind = {
     <name:Sp<Ident>> ":"
         => ast::StmtKind::Label(name),
 
-    <delta:Sp<("+" <LitIntUnsigned>)>> ":"
+    <delta:Sp<("+" <ExprNoColon>)>> ":"
         => ast::StmtKind::RelTimeLabel { delta, _absolute_time_comment: None },
 
     <t:Sp<LitIntSigned>> ":"
@@ -338,7 +338,7 @@ StmtKindPhysical: ast::StmtKind = {
     <e:Sp<ExprNoColon>> ";"
         => ast::StmtKind::Expr(e),
 
-    "interrupt" "[" <arg:Sp<LitIntSigned>> "]" ":"
+    "interrupt" "[" <arg:Sp<Expr>> "]" ":"
         => ast::StmtKind::InterruptLabel(arg),
 
     <block:Block> => ast::StmtKind::Block(block),

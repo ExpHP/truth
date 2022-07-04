@@ -35,7 +35,9 @@ struct Visitor<'a, 'ctx> {
 
 impl Visit for Visitor<'_, '_> {
     fn visit_stmt(&mut self, stmt: &Sp<ast::Stmt>) {
-        self.helper.enter_stmt(stmt);
+        if let Err(e) = self.helper.enter_stmt(stmt) {
+            self.errors.set(self.ctx.emitter.emit(e));
+        }
 
         // check diff labels
         if has_unintuitive_interaction_with_difficulty(&stmt.kind) {
