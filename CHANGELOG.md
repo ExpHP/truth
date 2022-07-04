@@ -17,7 +17,7 @@
 
 ## Other changes
 
-* Relative time labels and interrupts now accept expressions, so you can use consts.  Technically this also makes negative relative time labels; whether you choose to write them as `+(-15):` or (gasp) `+-15:` is up to you...
+* Relative time labels and interrupts now accept expressions, so you can use consts.  Technically this also makes negative relative time labels possible; whether you choose to write them as `+(-15):` or (gasp) `+-15:` is up to you...
 
 * Unary `-` now can be directly provided by an intrinsic, and will otherwise fall back to `-1 * x`. (formerly, it would always produce `0 - x`, which is not correct for all floats)
 
