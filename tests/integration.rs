@@ -20,11 +20,13 @@ mod integration {
     mod expr_compile;
     mod general;
     mod image_sources;
+    mod interrupts;
     mod mapfiles;
     mod msg_features;
     mod pseudo;
     mod std_features;
     mod strings;
+    mod time_label_compilation;
     mod time_label_formatting;
     mod timelines;
     mod timeline_arg0;
