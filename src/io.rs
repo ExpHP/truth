@@ -385,12 +385,30 @@ pub trait BinRead {
         Ok(out)
     }
 
+    /// Read the number of bytes necessary to cause `count_already_read` to be rounded up to a multiple of `block_size`.
+    ///
+    /// So for instance, `reader.align_to(101, 4)` would read 3 bytes (to reach a total of 104), while
+    /// `reader.align_to(104, 4)` would read 0 bytes.
+    fn align_to(&mut self, count_already_read: usize, block_size: usize) -> Result<Vec<u8>, Self::Err> {
+        assert_ne!(block_size, 0);
+        match count_already_read % block_size {
+            0 => Ok(vec![]),
+            r => self.read_byte_vec(block_size - r),
+        }
+    }
+
     fn pos(&mut self) -> Result<u64, Self::Err> {
         self._bin_read_reader().seek(SeekFrom::Current(0)).map_err(|e| self._bin_read_io_error(e))
     }
     fn seek_to(&mut self, offset: u64) -> Result<(), Self::Err> {
         self._bin_read_reader().seek(SeekFrom::Start(offset)).map_err(|e| self._bin_read_io_error(e))?;
         Ok(())
+    }
+    fn file_size(&mut self) -> Result<u64, Self::Err> {
+        let pos = self.pos()?;
+        let size = self._bin_read_reader().seek(SeekFrom::End(0)).map_err(|e| self._bin_read_io_error(e))?;
+        self.seek_to(pos)?;
+        Ok(size)
     }
 }
 
@@ -442,6 +460,18 @@ pub trait BinWrite {
         let mut to_write = s.clone();
         to_write.null_pad(block_size);
         BinWrite::write_all(self, &to_write.0)
+    }
+
+    /// Write zeros as necessary to cause `count_already_written` to be rounded up to a multiple of `block_size`.
+    ///
+    /// So for instance, `writer.align_to(101, 4)` would write 3 bytes (to reach a total of 104), while
+    /// `writer.align_to(104, 4)` would write 0 bytes.
+    fn align_to(&mut self, count_already_written: usize, block_size: usize) -> Result<(), Self::Err> {
+        assert_ne!(block_size, 0);
+        match count_already_written % block_size {
+            0 => Ok(()),
+            r => self.write_all(&vec![0u8; block_size - r]),
+        }
     }
 
     fn write_u32s(&mut self, xs: &[u32]) -> Result<(), Self::Err> {

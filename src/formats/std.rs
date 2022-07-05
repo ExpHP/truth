@@ -259,7 +259,7 @@ fn decompile_std(
                 keyword: sp!(ast::MetaKeyword::Meta),
                 fields: sp!(std.make_meta(format)),
             }),
-            sp!(ast::Item::AnmScript {
+            sp!(ast::Item::Script {
                 number: None,
                 ident: sp!(ident!("main")),
                 code: ast::Block(code),
@@ -316,11 +316,11 @@ fn compile_std(
                     message("unexpected '{keyword}' in STD file"),
                     primary(keyword, "not valid in STD files"),
                 ))),
-                ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
+                ast::Item::Script { number: Some(number), .. } => return Err(emit(error!(
                     message("unexpected numbered script in STD file"),
                     primary(number, "unexpected number"),
                 ))),
-                ast::Item::AnmScript { number: None, ident, code, .. } => {
+                ast::Item::Script { number: None, ident, code, .. } => {
                     if ident != "main" {
                         return Err(emit(error!(
                             message("STD script must be called 'main'"),
@@ -336,7 +336,6 @@ fn compile_std(
                     }
                 },
                 ast::Item::ConstVar { .. } => {},
-                ast::Item::Timeline { .. } => return Err(emit(unsupported(&item.span))),
                 ast::Item::Func { .. } => return Err(emit(unsupported(&item.span))),
             }
         }

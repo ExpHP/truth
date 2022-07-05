@@ -66,7 +66,6 @@ define_token_enum! {
         #[token("ecli")] Ecli,
         #[token("meta")] Meta,
         #[token("sub")] Sub,
-        #[token("timeline")] Timeline,
         #[token("script")] Script,
         #[token("entry")] Entry,
         #[token("var")] Var,

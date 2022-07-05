@@ -16,6 +16,7 @@ use crate::value::{ScalarType, ReadType};
 use crate::context::CompilerContext;
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use crate::debug_info;
+use crate::ecl::ecl_06;
 
 use IntrinsicInstrKind as IKind;
 
@@ -151,7 +152,7 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl::OldeExportedSub,
+        sub: &ecl_06::OldeExportedSub,
     ) -> Result<(), ErrorReported> {
         let int = {
             sub.params_by_ty[ReadType::Int].get(0)
@@ -184,8 +185,8 @@ impl SingleSubLowerer<'_, '_> {
         stmt_span: Span,
         stmt_data: TimeAndDifficulty,
         call: &ast::ExprCall,
-        sub: &crate::ecl::OldeExportedSub,
-        call_reg_info: &crate::ecl::CallRegInfo,
+        sub: &ecl_06::OldeExportedSub,
+        call_reg_info: &ecl_06::CallRegInfo,
     ) -> Result<(), ErrorReported> {
         // Each argument gets assigned to a special "arg register."
         let mut arg_regs_iter_by_ty = enum_map::enum_map!{
@@ -219,14 +220,9 @@ impl SingleSubLowerer<'_, '_> {
         let ast::ExprCall { pseudos, args, .. } = call;
         let PseudoArgData {
             // fully unpack because we need to add errors for anything unsupported
-            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask, extra_arg: pseudo_extra_arg,
+            pop: pseudo_pop, blob: pseudo_blob, param_mask: pseudo_param_mask,
+            extra_arg: pseudo_extra_arg, arg_count: pseudo_arg_count,
         } = PseudoArgData::from_pseudos(pseudos).map_err(|e| self.ctx.emitter.emit(e))?;
-
-        if let Some(pop) = pseudo_pop {
-            if pop.value != 0 {
-                return Err(self.unsupported(pop.span, "stack-pop pseudo argument"));
-            }
-        }
 
         // records temporaries for function arguments
         let mut temp_def_ids = vec![];
@@ -261,6 +257,8 @@ impl SingleSubLowerer<'_, '_> {
             opcode: opcode as _,
             user_param_mask: pseudo_param_mask.map(|x| x.value),
             explicit_extra_arg: pseudo_extra_arg.map(|x| x.value),
+            user_pop: pseudo_pop.map(|x| x.value),
+            user_arg_count: pseudo_arg_count.map(|x| x.value),
             args: low_level_args,
         })));
 

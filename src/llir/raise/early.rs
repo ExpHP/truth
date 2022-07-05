@@ -20,7 +20,7 @@ use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
 use crate::io::{DEFAULT_ENCODING, Encoded};
-use crate::llir::raise::{CannotRaiseIntrinsic, RaisedIntrinsicParts};
+use crate::llir::raise::{CannotRaiseIntrinsic, RaisedIntrinsicParts, RaisedIntrinsicPseudos};
 use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE;
 
 /// Intermediate form of an instruction only used during decompilation.
@@ -35,12 +35,14 @@ use crate::passes::semantics::time_and_difficulty::DEFAULT_DIFFICULTY_MASK_BYTE;
 struct EarlyRaiseInstr {
     offset: raw::BytePos,
     time: raw::Time,
-    difficulty_mask: raw::DifficultyMask,
     opcode: raw::Opcode,
     args: EarlyRaiseArgs,
+    difficulty_mask: raw::DifficultyMask,
     /// Timeline arg0, only if it should be raised to `@arg0`. (if it should be raised as a standard
     /// argument, it will be in `args`)
     pseudo_arg0: Option<raw::ExtraArg>,
+    pseudo_pop: raw::StackPop,
+    pseudo_arg_count: raw::ArgCount,
 }
 
 #[derive(Debug)]
@@ -80,9 +82,9 @@ pub(in crate::llir::raise) fn early_raise_instrs(
 }
 
 #[derive(Debug, Clone)]
-struct UnknownArgsData {
-    param_mask: raw::ParamMask,
+struct  UnknownArgsData {
     blob: Vec<u8>,
+    param_mask: raw::ParamMask,
 }
 
 fn early_raise_intrinsics(
@@ -113,14 +115,19 @@ fn early_raise_intrinsics(
 
         // blob?
         let raw_args = match &instr.args {
-            EarlyRaiseArgs::Decoded(args) => args,
-            EarlyRaiseArgs::Unknown(UnknownArgsData { param_mask, blob }) => return Ok(make_instr(
+            &EarlyRaiseArgs::Decoded(ref args) => args,
+            &EarlyRaiseArgs::Unknown(UnknownArgsData { param_mask, ref blob }) => return Ok(make_instr(
                 RaiseIntrinsicKind::Blob,
                 RaisedIntrinsicParts {
                     opcode: Some(instr.opcode),
                     pseudo_blob: Some(blob.clone()),
-                    pseudo_mask: Some(param_mask.clone()),
-                    pseudo_arg0: instr.pseudo_arg0.map(|x| (x as i32).into()),
+                    pseudos: Some(RaisedIntrinsicPseudos {
+                        arg0: instr.pseudo_arg0.map(|x| (x as i32).into()),
+                        param_mask: (param_mask != 0).then(|| raise_mask(param_mask)),
+                        // FIXME: would rather have these display based on whether the language supports them.
+                        pop: (instr.pseudo_pop != 0).then(|| raise_pop(instr.pseudo_pop)),
+                        arg_count: (instr.pseudo_arg_count != 0).then(|| raise_nargs(instr.pseudo_arg_count)),
+                    }),
                     ..Default::default()
                 })),
         };
@@ -171,6 +178,24 @@ fn early_raise_intrinsics(
     Ok(out)
 }
 
+fn raise_mask(value: raw::ParamMask) -> ast::Expr {
+    ast::Expr::LitInt {
+        value: value.into(),
+        radix: ast::IntRadix::Bin,
+    }
+}
+
+fn raise_nargs(value: raw::ArgCount) -> ast::Expr {
+    i32::from(value).into()
+}
+
+fn raise_pop(value: raw::StackPop) -> ast::Expr {
+    ast::Expr::LitInt {
+        value: value.into(),
+        radix: ast::IntRadix::Hex,
+    }
+}
+
 // =============================================================================
 // Blob-decoding pass.  (RawInstr -> EarlyInstr)
 
@@ -191,6 +216,8 @@ impl Raiser<'_> {
             opcode: instr.opcode,
             difficulty_mask: instr.difficulty,
             pseudo_arg0: instr.extra_arg,
+            pseudo_arg_count: instr.arg_count,
+            pseudo_pop: instr.pop,
             args: EarlyRaiseArgs::Unknown(UnknownArgsData {
                 param_mask: instr.param_mask,
                 blob: instr.args_blob.to_vec(),
@@ -209,7 +236,7 @@ fn decode_args_with_abi(
     use crate::io::BinRead;
 
     let mut param_mask = instr.param_mask;
-    let mut args_blob = std::io::Cursor::new(&instr.args_blob);
+    let mut blob_reader = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];
     let mut pseudo_arg0 = instr.extra_arg;
     let mut remaining_len = instr.args_blob.len();
@@ -271,7 +298,7 @@ fn decode_args_with_abi(
             | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
-                ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_i16().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
@@ -304,18 +331,22 @@ fn decode_args_with_abi(
             | ArgEncoding::Float { .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
+                ScalarValue::Float(f32::from_bits(blob_reader.read_u32().expect("already checked len")))
             },
 
             | ArgEncoding::String { size: size_spec, mask, furibug }
             => {
                 let read_len = match size_spec {
-                    StringArgSize::Block { .. } => remaining_len,  // read to end
+                    StringArgSize::ToBlobEnd { .. } => remaining_len,  // read to end
+                    StringArgSize::Pascal { .. } => {
+                        decrease_len(emitter, &mut remaining_len, 4)?;
+                        blob_reader.read_u32().expect("already checked len") as usize
+                    },
                     StringArgSize::Fixed { len, nulless: _ } => len,
                 };
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
+                let mut encoded = Encoded(blob_reader.read_byte_vec(read_len).expect("already checked len"));
                 encoded.apply_xor_mask(mask);
 
                 if let StringArgSize::Fixed { nulless: true, .. } = size_spec {
@@ -343,11 +374,11 @@ fn decode_args_with_abi(
         args.push(SimpleArg { value, is_reg });
     }
 
-    if args_blob.position() != args_blob.get_ref().len() as u64 {
+    if blob_reader.position() != blob_reader.get_ref().len() as u64 {
         emitter.emit(warning!(
             // this could mean the signature is incomplete
             "unexpected leftover bytes in ins_{}! (read {} bytes out of {}!)",
-            instr.opcode, args_blob.position(), args_blob.get_ref().len(),
+            instr.opcode, blob_reader.position(), blob_reader.get_ref().len(),
         )).ignore();
     }
 
@@ -364,6 +395,8 @@ fn decode_args_with_abi(
         opcode: instr.opcode,
         difficulty_mask: instr.difficulty,
         pseudo_arg0,
+        pseudo_pop: instr.pop,
+        pseudo_arg_count: instr.arg_count,
         args: EarlyRaiseArgs::Decoded(args),
     })
 }
@@ -575,7 +608,13 @@ impl AtomRaiser<'_, '_> {
         Ok(RaisedIntrinsicParts {
             opcode: Some(instr.opcode),
             plain_args: raised_args,
-            pseudo_arg0,
+            pseudos: Some(RaisedIntrinsicPseudos {
+                arg0: pseudo_arg0,
+                // FIXME: these should display based on whether they match the values that would be computed for the instruction
+                param_mask: None,
+                pop: (instr.pseudo_pop != 0).then(|| raise_pop(instr.pseudo_pop)),
+                arg_count: (instr.pseudo_arg_count != 0).then(|| raise_nargs(instr.pseudo_arg_count)),
+            }),
             ..Default::default()
         })
     }

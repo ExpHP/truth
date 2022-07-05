@@ -3,9 +3,9 @@ source: tests/integration/timelines.rs
 expression: stderr
 ---
 error: missing timeline(s) for index 1, 2
-  ┌─ <input>:3:10
+  ┌─ <input>:3:8
   │
-3 │ timeline 4 { }
-  │          ^ defining this timeline requires all lesser indices
+3 │ script 4 bar { }
+  │        ^ defining this timeline requires all lesser indices
 
 

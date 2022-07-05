@@ -71,6 +71,7 @@ macro_rules! token {
     ($(pseudo)? mask) => { $crate::ast::PseudoArgKind::Mask };
     ($(pseudo)? blob) => { $crate::ast::PseudoArgKind::Blob };
     ($(pseudo)? arg0) => { $crate::ast::PseudoArgKind::ExtraArg };
+    ($(pseudo)? nargs) => { $crate::ast::PseudoArgKind::ArgCount };
 
     ($(meta)? meta) => { $crate::ast::MetaKeyword::Meta };
     ($(meta)? entry) => { $crate::ast::MetaKeyword::Entry };

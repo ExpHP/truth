@@ -74,7 +74,6 @@ extern {
         "ecli" => Token::Ecli,
         "meta" => Token::Meta,
         "sub" => Token::Sub,
-        "timeline" => Token::Timeline,
         "script" => Token::Script,
         "entry" => Token::Entry,
         "var" => Token::Var,
@@ -183,21 +182,15 @@ Items: Vec<Sp<ast::Item>> = {
 
 Item: ast::Item = {
     ItemFunc,
-    ItemAnmScript,
+    ItemScript,
     ItemMeta,
     ItemConstVar,
-    ItemTimeline,
 };
 
-ItemAnmScript: ast::Item = {
+ItemScript: ast::Item = {
     <keyword:TokenSpan<"script">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>>
         <code:Block>
-        => ast::Item::AnmScript { keyword, number, ident, code },
-};
-
-ItemTimeline: ast::Item = {
-    <keyword:TokenSpan<"timeline">> <number:Sp<LitIntSigned>?> <ident:Sp<Ident>?> <code:Block>
-        => ast::Item::Timeline { keyword, number, ident, code },
+        => ast::Item::Script { keyword, number, ident, code },
 };
 
 ItemMeta: ast::Item = {
@@ -682,6 +675,7 @@ PseudoArgKind: ast::PseudoArgKind = {
             ("mask", token![mask]),
             ("blob", token![blob]),
             ("arg0", token![arg0]),
+            ("nargs", token![nargs]),
         ];
 
         PAIRS.iter()
@@ -788,7 +782,6 @@ IdentStr: &'input str = {
     <s: "entry"> => s.as_str(),
     <s: "anim"> => s.as_str(),
     <s: "ecli"> => s.as_str(),
-    <s: "timeline"> => s.as_str(),
     <s: "script"> => s.as_str(),
     <s: "default"> => s.as_str(),
     <s: "case"> => s.as_str(),

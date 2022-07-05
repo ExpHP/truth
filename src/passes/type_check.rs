@@ -697,6 +697,7 @@ impl ExprTypeChecker<'_, '_> {
         match kind.value {
             token![pop] |
             token![arg0] |
+            token![nargs] |
             token![mask] => self.require_int(value_ty, kind.span, value_span),
             token![blob] => self.require_string(value_ty, kind.span, value_span),
         }

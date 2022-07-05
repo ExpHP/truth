@@ -53,7 +53,7 @@ source_test!(
     ECL_06, wrong_lang,
     mapfile: TIMELINE_DEBUGGING_ECLMAP,
     full_source: r#"
-timeline 0 {
+script timeline {
     eclOnly(0, 3, 3);   //~ ERROR defined in ECL
 }
 
@@ -75,7 +75,7 @@ source_test!(
     hasMsgArg0(10, 3, 3);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(1));
     },
 );
@@ -87,7 +87,7 @@ source_test!(
     hasMsgArg0(10, 3, 3);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));
     },
 );
@@ -100,7 +100,7 @@ source_test!(
     hasUnusedArg0(@arg0=5, 3, 3);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
         assert_eq!(ecl.timelines[0][1].extra_arg, Some(5));
     },
@@ -122,7 +122,7 @@ source_test!(
     hasMsgArg0(@arg0=10, 5, 3, 3);  //~ WARNING overrides value supplied naturally
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(10));  // i.e. not 5
     },
 );
@@ -142,7 +142,7 @@ source_test!(
     hasUnusedArg0(@blob="FFFFFFFF FFFFFFFF");
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
     },
 );
@@ -195,7 +195,7 @@ source_test!(
     // even though arg0 is required in the signature here, code using @blob should
     // be compiled as if the signature is unknown, so it's allowed to be omitted here as well.
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(0));
     },
 );
@@ -207,7 +207,7 @@ source_test!(
     hasMsgArg0(10 + 5, 3, 3);
 "#,
     check_compiled: |output, format| {
-        let ecl = output.read_ecl(format);
+        let ecl = output.read_olde_ecl(format);
         assert_eq!(ecl.timelines[0][0].extra_arg, Some(15));
     },
 );

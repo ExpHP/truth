@@ -20,7 +20,7 @@ use crate::debug_info;
 
 // =============================================================================
 
-/// Game-independent representation of an ANM file.
+/// Game-independent representation of an ECL file prior to TH10.
 #[derive(Debug, Clone)]
 pub struct OldeEclFile {
     pub subs: IndexMap<Ident, Vec<RawInstr>>,
@@ -74,10 +74,10 @@ fn decompile(
     let mut items = vec![];
     let mut timeline_raiser = llir::Raiser::new(timeline_hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
     for (index, instrs) in ecl.timelines.iter().enumerate() {
-        items.push(sp!(ast::Item::Timeline {
+        items.push(sp!(ast::Item::Script {
             keyword: sp!(()),
             number: None,
-            ident: Some(sp!(ident!("timeline{index}"))),
+            ident: sp!(ident!("timeline{index}")),
             code: ast::Block({
                 timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
             }),
@@ -145,7 +145,10 @@ fn compile(
     let sub_format = &*game_sub_format(format.game);
 
     let mut ast = ast.clone();
-    crate::passes::resolution::assign_languages(&mut ast, LanguageKey::Ecl, ctx)?;
+    crate::passes::resolution::AssignLanguagesOptions {
+        funcs: LanguageKey::Ecl,
+        scripts: LanguageKey::Timeline,
+    }.run(&mut ast, ctx)?;
     crate::passes::resolution::compute_diff_label_masks(&mut ast, ctx)?;
 
     // an early pass to define global constants for sub names
@@ -209,14 +212,8 @@ fn compile(
                 message("unexpected '{keyword}' in old ECL format file"),
                 primary(keyword, "not valid in old format ECL files"),
             ))),
-            ast::Item::AnmScript { number: Some(number), .. } => return Err(emit(error!(
-                message("unexpected numbered script in STD file"),
-                primary(number, "unexpected number"),
-            ))),
             ast::Item::ConstVar { .. } => {},
-            ast::Item::AnmScript { .. } => return Err(emit(unsupported(&item.span))),
-
-            ast::Item::Timeline { code, ident, .. } => {
+            ast::Item::Script { code, ident, .. } => {
                 let timeline_index = timeline_indices_in_ast_order.next().unwrap();
 
                 let def_id = None;
@@ -227,9 +224,9 @@ fn compile(
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
-                        exported_as: debug_info::ScriptType::Timeline { index: timeline_index },
-                        name: ident.as_ref().map(|x| x.to_string()),
-                        name_span: Span::NULL.into(),
+                        exported_as: debug_info::ScriptType::SclScript { index: timeline_index },
+                        name: Some(ident.to_string()),
+                        name_span: ident.span.into(),
                     };
                     ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
                 }
@@ -266,7 +263,7 @@ fn compile(
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
-                        exported_as: debug_info::ScriptType::EclSub { index: sub_index },
+                        exported_as: debug_info::ScriptType::OldeEclSub { index: sub_index },
                         name: Some(ident.to_string()),
                         name_span: ident.span.into(),
                     };
@@ -338,18 +335,16 @@ fn get_and_validate_timeline_indices(
 
     for item in items {
         match &item.value {
-            &ast::Item::Timeline { number, ref ident, keyword, .. } => {
-                if let Some(ident) = ident {
-                    if let Some(existing_ident) = names.replace(ident) {
-                        emitter.emit(warning!(
-                            message("timeline '{ident}' already defined"),
-                            primary(ident, "redefined here"),
-                            secondary(existing_ident, "previously defined here"),
-                        )).ignore();
-                    }
+            &ast::Item::Script { number, ref ident, .. } => {
+                if let Some(existing_ident) = names.replace(ident) {
+                    emitter.emit(warning!(
+                        message("timeline '{ident}' already defined"),
+                        primary(ident, "redefined here"),
+                        secondary(existing_ident, "previously defined here"),
+                    )).ignore();
                 }
 
-                let ast_span = number.map(|x| x.span).unwrap_or(keyword.span);
+                let ast_span = number.map(|x| x.span).unwrap_or(ident.span);
                 match number {
                     Some(_) => explicit_spans.push(ast_span),
                     None => auto_spans.push(ast_span),
@@ -537,7 +532,6 @@ fn write_olde_ecl(
 
     let max_timelines = format.timeline_array_kind().max_timelines();
     if ecl.timelines.len() > max_timelines {
-        // FIXME: NEEDSTEST for each game
         return Err(emitter.emit(error!("too many timelines! (max allowed in this game is {max_timelines})")));
     }
 

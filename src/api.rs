@@ -211,6 +211,12 @@ impl TruthWithValidatedDefs<'_, '_> {
     pub fn compile_ecl(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::EclFile, ErrorReported> {
         crate::EclFile::compile_from_ast(game, ast, &mut self.ctx)
     }
+    pub fn compile_olde_ecl(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::OldeEclFile, ErrorReported> {
+        crate::OldeEclFile::compile_from_ast(game, ast, &mut self.ctx)
+    }
+    pub fn compile_stack_ecl(&mut self, game: Game, ast: &ast::ScriptFile) -> Result<crate::StackEclFile, ErrorReported> {
+        crate::StackEclFile::compile_from_ast(game, ast, &mut self.ctx)
+    }
 
     pub fn decompile_anm(&mut self, game: Game, middle: &crate::AnmFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::AnmFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
@@ -226,6 +232,12 @@ impl TruthWithValidatedDefs<'_, '_> {
     }
     pub fn decompile_ecl(&mut self, game: Game, middle: &crate::EclFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         crate::EclFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
+    }
+    pub fn decompile_olde_ecl(&mut self, game: Game, middle: &crate::OldeEclFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::OldeEclFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
+    }
+    pub fn decompile_stack_ecl(&mut self, game: Game, middle: &crate::StackEclFile, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
+        crate::StackEclFile::decompile_to_ast(middle, game, &mut self.ctx, decompile_options)
     }
 }
 
@@ -272,6 +284,12 @@ impl TruthWithValidatedDefs<'_, '_> {
     pub fn read_ecl(&mut self, game: Game, path: &Path) -> Result<crate::EclFile, ErrorReported> {
         crate::EclFile::read_from_stream(&mut self.fs().open_read(path)?, game)
     }
+    pub fn read_olde_ecl(&mut self, game: Game, path: &Path) -> Result<crate::OldeEclFile, ErrorReported> {
+        crate::OldeEclFile::read_from_stream(&mut self.fs().open_read(path)?, game)
+    }
+    pub fn read_stack_ecl(&mut self, game: Game, path: &Path) -> Result<crate::StackEclFile, ErrorReported> {
+        crate::StackEclFile::read_from_stream(&mut self.fs().open_read(path)?, game)
+    }
 
     /// This can be called after loading all image sources.
     pub fn finalize_anm(&mut self, game: Game, middle: crate::WorkingAnmFile) -> Result<crate::AnmFile, ErrorReported> {
@@ -292,6 +310,12 @@ impl TruthWithValidatedDefs<'_, '_> {
     }
     pub fn write_ecl(&mut self, game: Game, outpath: &Path, middle: &crate::EclFile) -> Result<(), ErrorReported> {
         crate::EclFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
+    }
+    pub fn write_olde_ecl(&mut self, game: Game, outpath: &Path, middle: &crate::OldeEclFile) -> Result<(), ErrorReported> {
+        crate::OldeEclFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
+    }
+    pub fn write_stack_ecl(&mut self, game: Game, outpath: &Path, middle: &crate::StackEclFile) -> Result<(), ErrorReported> {
+        crate::StackEclFile::write_to_stream(middle, &mut self.fs().create_buffered(outpath)?, game)
     }
 
     pub fn prepare_and_write_debug_info(&mut self, outpath: &Path) -> Result<(), ErrorReported> {

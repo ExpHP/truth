@@ -18,6 +18,7 @@ use crate::value::{ScalarValue};
 use crate::passes::semantics::time_and_difficulty::TimeAndDifficulty;
 use crate::diff_switch_utils as ds_util;
 use crate::debug_info;
+use crate::ecl::ecl_06;
 
 mod stackless;
 mod intrinsic;
@@ -47,6 +48,10 @@ struct LowerInstr {
     explicit_extra_arg: Option<raw::ExtraArg>,
     /// Value provided by user via `@mask=`, which will override the automatically-computed param mask.
     user_param_mask: Option<raw::ParamMask>,
+    /// Value provided by user via `@pop=`, which will override the automatically-computed stack pop.
+    user_pop: Option<raw::StackPop>,
+    /// Value provided by user via `@nargs=`, which will override the automatically-computed arg count.
+    user_arg_count: Option<raw::ArgCount>,
     /// Mask of enabled difficulties.
     // difficulty_mask: u8,
     args: LowerArgs,
@@ -132,9 +137,9 @@ pub struct Lowerer<'a> {
 }
 
 struct SubInfo<'a> {
-    sub_format: &'a dyn crate::ecl::OldeSubFormat,
-    exported_subs: &'a crate::ecl::OldeExportedSubs,
-    call_reg_info: Option<crate::ecl::CallRegInfo>,
+    sub_format: &'a dyn ecl_06::OldeSubFormat,
+    exported_subs: &'a ecl_06::OldeExportedSubs,
+    call_reg_info: Option<ecl_06::CallRegInfo>,
 }
 
 impl Drop for Lowerer<'_> {
@@ -152,7 +157,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Add information about exported subroutines, in languages that support calls.
-    pub fn with_export_info(mut self, sub_format: &'a dyn crate::ecl::OldeSubFormat, exported_subs: &'a crate::ecl::OldeExportedSubs) -> Self {
+    pub fn with_export_info(mut self, sub_format: &'a dyn ecl_06::OldeSubFormat, exported_subs: &'a ecl_06::OldeExportedSubs) -> Self {
         let call_reg_info = sub_format.call_reg_info();
         self.sub_info = Some(SubInfo { sub_format, exported_subs, call_reg_info });
         self
@@ -495,8 +500,8 @@ fn encode_args(
                 args_blob: blob.value.clone(),
                 extra_arg: instr.explicit_extra_arg,
                 difficulty: instr.stmt_data.difficulty_mask.mask() as _,
-                // TODO: ECL pseudo-args whose semantics are not yet implemented
-                pop: 0,
+                arg_count: instr.user_arg_count.unwrap_or(0),
+                pop: instr.user_pop.unwrap_or(0),
             });
         },
     };
@@ -635,7 +640,8 @@ fn encode_args(
 
                 // have to append null eagerly to correctly reproduce TH17 Extra files
                 match size_spec {
-                    | StringArgSize::Block { .. }
+                    | StringArgSize::ToBlobEnd { .. }
+                    | StringArgSize::Pascal { .. }
                     | StringArgSize::Fixed { nulless: false, .. }
                     => encoded.0.push(b'\0'),
 
@@ -651,11 +657,12 @@ fn encode_args(
                 }
 
                 match size_spec {
-                    StringArgSize::Block { block_size } => {
+                    StringArgSize::ToBlobEnd { block_size } | StringArgSize::Pascal { block_size } => {
                         if encoded.len() % block_size != 0 {
                             encoded.null_pad(block_size);
                         }
                     },
+
                     StringArgSize::Fixed { len, nulless: _ } => {
                         if encoded.len() > len {
                             return Err(emitter.emit(error!(
@@ -673,6 +680,9 @@ fn encode_args(
                     state.furibug_bytes = Some(encoded.clone());
                 }
 
+                if matches!(size_spec, StringArgSize::Pascal { .. }) {
+                    args_blob.write_u32(encoded.len() as _).expect("Cursor<Vec> failed?!");
+                }
                 args_blob.write_all(&encoded.0).expect("Cursor<Vec> failed?!");
             },
         }
@@ -696,7 +706,8 @@ fn encode_args(
         extra_arg,
         difficulty: instr.stmt_data.difficulty_mask.mask() as _,
         // TODO: ECL pseudo-args whose semantics are not yet implemented
-        pop: 0,
+        arg_count: instr.user_arg_count.unwrap_or(0),
+        pop: instr.user_pop.unwrap_or(0),
     })
 }
 

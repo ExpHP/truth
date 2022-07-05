@@ -52,7 +52,7 @@ pub enum ArgEncoding {
     Padding { size: u8 },
     /// `f` in mapfile. Single-precision float.
     Float { immediate: bool },
-    /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or  `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
+    /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
     /// See [`StringArgSize`] about the size args.
     ///
@@ -79,8 +79,15 @@ pub enum StringArgSize {
     /// A string arg that uses `bs=`.
     ///
     /// A null-terminated string argument which **can only be the final argument**, and
-    /// consists of all remaining bytes. When written, it is padded to a multiple of `bs` bytes.
-    Block { block_size: usize },
+    /// consists of all remaining bytes. When written, a null terminator is appended and it is padded
+    /// to a multiple of `bs` bytes.
+    ToBlobEnd { block_size: usize },
+    /// A string arg that uses the `p` type to be length-prefixed.
+    ///
+    /// This is a Pascal-type string which stores the total length (including null + padding) followed
+    /// by the data.  When written, a null terminator is appended and it is padded to a multiple of
+    /// `bs` bytes.
+    Pascal { block_size: usize },
 }
 
 impl ArgEncoding {
@@ -313,9 +320,13 @@ fn float_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Opt
 }
 
 fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
-    let default_mask = match param.format_char.value {
-        'z' => Some([0,0,0]),
-        'm' => None,
+    struct LenPrefixed(bool); // self-documenting bool
+
+    let (default_mask, is_len_prefixed) = match param.format_char.value {
+        'z' => (Some([0,0,0]), LenPrefixed(false)),
+        'm' => (None, LenPrefixed(false)),
+        'p' => (Some([0,0,0]), LenPrefixed(true)),
+        'P' => (Some([0,0,0]), LenPrefixed(true)),
         _ => return Ok(None),  // not a string
     };
 
@@ -325,19 +336,26 @@ fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Op
         let size = {
             let user_len = de.accept_value::<u32>("len")?;
             let user_bs = de.accept_value::<u32>("bs")?;
-            match (user_len, user_bs) {
-                (None, Some(bs)) => StringArgSize::Block {
+            match (user_len, user_bs, is_len_prefixed) {
+                (None, Some(bs), LenPrefixed(false)) => StringArgSize::ToBlobEnd {
                     block_size: bs.value as _,
                 },
-                (Some(len), None) => StringArgSize::Fixed {
+                (None, Some(bs), LenPrefixed(true)) => StringArgSize::Pascal {
+                    block_size: bs.value as _,
+                },
+                (Some(len), None, LenPrefixed(false)) => StringArgSize::Fixed {
                     len: len.value as _,
                     nulless: de.accept_flag("nulless")?.is_some(),
                 },
-                (None, None) => return Err(emitter.as_sized().emit(error!(
+                (Some(len), None, LenPrefixed(true)) => return Err(emitter.as_sized().emit(error!(
+                    message("'len' attribute is not supported by '{}'", param.format_char),
+                    primary(len, ""),
+                ))),
+                (None, None, _) => return Err(emitter.as_sized().emit(error!(
                     message("missing length attribute ('len' or 'bs') for '{}'", param.format_char),
                     primary(param.format_char, ""),
                 ))),
-                (Some(len), Some(bs)) => return Err(emitter.as_sized().emit(error!(
+                (Some(len), Some(bs), _) => return Err(emitter.as_sized().emit(error!(
                     message("mutually exclusive attributes 'len' and 'bs' in '{}' format", param.format_char),
                     primary(len, ""),
                     primary(bs, ""),
@@ -388,7 +406,7 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
         return err(format!("'(arg0)' arguments may only appear at the beginning of a signature"));
     }
 
-    if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { size: StringArgSize::Block { .. }, .. })) {
+    if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { size: StringArgSize::ToBlobEnd { .. }, .. })) {
         return err(format!("'z' or 'm' arguments with 'bs=' can only appear at the very end"));
     }
     Ok(())
