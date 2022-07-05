@@ -34,9 +34,9 @@ entry {
 "#,
     make_main: |body| format!(r#"
 script script0 {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
 pub const ANM_10: Format = Format {
@@ -81,9 +81,9 @@ meta {
 "#,
     make_main: |body| format!(r#"
 script main {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
 pub const STD_08: Format = Format {
@@ -130,9 +130,9 @@ meta {
 "#,
     make_main: |body| format!(r#"
 script main {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
 pub const MSG_08: Format = Format {
@@ -188,9 +188,9 @@ script timeline0 {}
 "#,
     make_main: |body| format!(r#"
 void sub0() {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
 // FIXME: Maybe default difficulty names shouldn't be in the default mapfile
@@ -202,9 +202,9 @@ script timeline0 {}
 "#,
     make_main: |body| format!(r#"
 void sub0() {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
 pub const ECL_07: Format = Format {
@@ -225,9 +225,9 @@ pub const ECL_TIMELINE_06: Format = Format {
     script_head: r#""#,
     make_main: |body| format!(r#"
 script timeline0 {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
 pub const ECL_TIMELINE_08: Format = Format {
@@ -236,8 +236,23 @@ pub const ECL_TIMELINE_08: Format = Format {
     script_head: r#""#,
     make_main: |body| format!(r#"
 script timeline0 {{
-    {}
+    {body}
 }}
-"#, body),
+"#),
 };
 
+pub const ECL_10: Format = Format {
+    cmd: "truecl",
+    game: Game::Th10,
+    script_head: r#"
+meta {
+    ecli: [],
+    anim: [],
+}
+"#,
+    make_main: |body| format!(r#"
+void main() {{
+    {body}
+}}
+"#),
+};

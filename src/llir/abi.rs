@@ -63,6 +63,7 @@ pub enum ArgEncoding {
     String {
         size: StringArgSize,
         mask: AcceleratingByteMask,
+        ty_color: Option<TypeColor>,
         furibug: bool,
     },
 }
@@ -322,11 +323,11 @@ fn float_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Opt
 fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
     struct LenPrefixed(bool); // self-documenting bool
 
-    let (default_mask, is_len_prefixed) = match param.format_char.value {
-        'z' => (Some([0,0,0]), LenPrefixed(false)),
-        'm' => (None, LenPrefixed(false)),
-        'p' => (Some([0,0,0]), LenPrefixed(true)),
-        'P' => (Some([0,0,0]), LenPrefixed(true)),
+    let (default_mask, is_len_prefixed, default_ty_color) = match param.format_char.value {
+        'z' => (Some([0,0,0]), LenPrefixed(false), None),
+        'm' => (None, LenPrefixed(false), None),
+        'p' => (Some([0,0,0]), LenPrefixed(true), None),
+        'P' => (Some([0,0,0]), LenPrefixed(true), Some(TypeColor::Enum(auto_enum_names::stack_ecl_sub()))),
         _ => return Ok(None),  // not a string
     };
 
@@ -370,6 +371,7 @@ fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Op
                     .map(|[mask, vel, accel]| AcceleratingByteMask { mask, vel, accel })?
             },
             size,
+            ty_color: default_ty_color,
             furibug: furibug.is_some(),
         }))
     })

@@ -340,7 +340,7 @@ fn decode_args_with_abi(
                 ScalarValue::Float(f32::from_bits(blob_reader.read_u32().expect("already checked len")))
             },
 
-            | ArgEncoding::String { size: size_spec, mask, furibug }
+            | ArgEncoding::String { size: size_spec, mask, furibug, ty_color: _ }
             => {
                 let read_len = match size_spec {
                     StringArgSize::ToBlobEnd { .. } => remaining_len,  // read to end
@@ -727,8 +727,13 @@ impl AtomRaiser<'_, '_> {
             | ArgEncoding::Padding { .. }
             => Ok(ast::Expr::from(raw.expect_int())),
 
-            | ArgEncoding::Integer { ty_color: Some(ty_color), format, .. }
+            | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
+            | ArgEncoding::String { ty_color: Some(ty_color), .. }
             => {
+                let int_format = match enc {
+                    &ArgEncoding::Integer { format, .. } => Some(format),
+                    _ => None,
+                };
                 let lookup_table = match ty_color {
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
                 };
@@ -736,9 +741,9 @@ impl AtomRaiser<'_, '_> {
                     &lookup_table,
                     raw.expect_immediate(),
                     ty_color,
-                    Some(*format),
+                    int_format,
                 ))
-            }
+            },
 
             | ArgEncoding::Float { .. }
             => Ok(ast::Expr::from(raw.expect_float())),
@@ -809,7 +814,7 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &ScalarValue, ty_color: &TypeColor, format: Option<ast::IntFormat>) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &ScalarValue, ty_color: &TypeColor, int_format: Option<ast::IntFormat>) -> ast::Expr {
     match names.get(value) {
         Some(ident) => {
             match ty_color {
@@ -828,7 +833,7 @@ fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &S
             // .into() used a default integer format, replace it if applicable
             match expr {
                 ast::Expr::LitInt { value, .. } => {
-                    ast::Expr::LitInt { value, format: format.unwrap() }
+                    ast::Expr::LitInt { value, format: int_format.unwrap() }
                 },
                 _ => expr,
             }

@@ -656,3 +656,20 @@ fn need_tests_for_eosd_reg_that_looks_like_literal() {
 fn need_tests_for_eosd_literal_whose_value_is_a_reg() {
     panic!()
 }
+
+// =============================================================================
+
+source_test!(
+    ECL_10, stack_sub_name_enum,
+    items: r#"
+void blahblah() {}
+    "#,
+    main_body: r#"
+    ins_256(blahblah, 0.0, 0.0, 1, 2, 3);
+    ins_256("other", 0.0, 0.0, 1, 2, 3);
+    "#,
+    check_decompiled: |decompiled| {
+        assert!(decompiled.contains("ins_256(blahblah,"));
+        assert!(decompiled.contains("ins_256(\"other\","));
+    },
+);
