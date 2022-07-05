@@ -83,7 +83,8 @@ pub mod auto_enum_names {
 
     define_auto_enum_names!{
         anm_sprite => "AnmSprite",
-        ecl_sub => "EclSub",
+        olde_ecl_sub => "EclSub",
+        stack_ecl_sub => "EclSubName",
         msg_script => "MsgScript",
         anm_script => "AnmScript",
         color_format => "BitmapColorFormat",
@@ -276,7 +277,7 @@ impl CompilerContext<'_> {
     ///
     /// This alternative to [`Self::define_enum_const`] takes simpler arguments and is designed
     /// for use during decompilation.
-    pub fn define_enum_const_fresh(&mut self, ident: Ident, value: i32, enum_name: Ident) -> ConstId {
+    pub fn define_enum_const_fresh(&mut self, ident: Ident, value: ScalarValue, enum_name: Ident) -> ConstId {
         let res_ident = self.resolutions.attach_fresh_res(ident);
         self.define_enum_const(sp!(res_ident), sp!(value.into()), sp!(enum_name))
     }
@@ -624,8 +625,8 @@ impl CompilerContext<'_> {
         self.define_builtin_const_var(ident!("INF"), f32::INFINITY.into());
         self.define_builtin_const_var(ident!("PI"), core::f32::consts::PI.into());
 
-        self.define_enum_const_fresh(ident!("true"), 1, ident!("bool"));
-        self.define_enum_const_fresh(ident!("false"), 0, ident!("bool"));
+        self.define_enum_const_fresh(ident!("true"), 1.into(), ident!("bool"));
+        self.define_enum_const_fresh(ident!("false"), 0.into(), ident!("bool"));
     }
 
     fn define_enum_const_dummy(&mut self) {

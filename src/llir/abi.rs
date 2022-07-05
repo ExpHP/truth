@@ -265,7 +265,7 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
         'b' => (1u8, true, false, None),
         'n' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::anm_sprite()))),
         'N' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::anm_script()))),
-        'E' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::ecl_sub()))),
+        'E' => (4u8, false, false, Some(TypeColor::Enum(auto_enum_names::olde_ecl_sub()))),
         'C' => (4u8, true, true, None),
         _ => return Ok(None),  // not an integer
     };

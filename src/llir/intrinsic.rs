@@ -284,7 +284,7 @@ impl IntrinsicAbiHelper<'_> {
         let data = Self::remove_first_where(arg_encodings, |&(_, enc)| {
             match enc {
                 ArgEncoding::Integer { ty_color: Some(TypeColor::Enum(enum_name)), arg0: false, .. } => {
-                    enum_name == &auto_enum_names::ecl_sub()
+                    enum_name == &auto_enum_names::olde_ecl_sub()
                 },
                 _ => false,
             }

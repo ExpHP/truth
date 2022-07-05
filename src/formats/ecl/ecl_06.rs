@@ -65,7 +65,7 @@ fn decompile(
 
     for i in 0..ecl.subs.len() {
         let name = ecl.subs.get_index(i).unwrap().0.clone();
-        ctx.define_enum_const_fresh(name, i as _, auto_enum_names::ecl_sub());
+        ctx.define_enum_const_fresh(name, (i as i32).into(), auto_enum_names::olde_ecl_sub());
     }
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
@@ -154,10 +154,10 @@ fn compile(
     // an early pass to define global constants for sub names
     //
     // (these become relevant when using ins_ syntax or instruction aliases, but not call sugar)
-    let sub_ids = gather_sub_ids(&ast, ctx)?;
-    for (index, sub_name) in sub_ids.values().enumerate() {
-        let const_value: Sp<ast::Expr> = sp!(sub_name.span => (index as i32).into());
-        ctx.define_enum_const(sub_name.clone(), const_value, sp!(auto_enum_names::ecl_sub()));
+    let sub_idents = gather_sub_ids(&ast, ctx)?;
+    for (index, ident) in sub_idents.values().enumerate() {
+        let const_value: Sp<ast::Expr> = sp!(ident.span => (index as i32).into());
+        ctx.define_enum_const(ident.clone(), const_value, sp!(auto_enum_names::olde_ecl_sub()));
     }
 
     // preprocess
