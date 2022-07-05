@@ -772,10 +772,46 @@ impl Defs {
 
 // =============================================================================
 
+/// Lookup table for decompiling constant values to enum consts.
 #[derive(Debug, Clone)]
 pub struct ConstNames {
-    pub enums: IdMap<Ident, IdMap<i32, Sp<Ident>>>,
+    pub enums: IdMap<Ident, ScalarValueMap<Sp<Ident>>>,
 }
+
+/// A map with ScalarValue keys, which uses bitwise-identity for floats.
+#[derive(Debug, Clone)]
+pub struct ScalarValueMap<T> {
+    ints: IdMap<i32, T>,
+    strings: IdMap<String, T>,
+    floats: IdMap<u32, T>,
+}
+
+impl<T> ScalarValueMap<T> {
+    pub fn new() -> Self {
+        ScalarValueMap {
+            ints: Default::default(),
+            strings: Default::default(),
+            floats: Default::default(),
+        }
+    }
+
+    pub fn insert(&mut self, key: ScalarValue, value: T) -> Option<T> {
+        match key {
+            ScalarValue::Int(x) => self.ints.insert(x, value),
+            ScalarValue::Float(x) => self.floats.insert(x.to_bits(), value),
+            ScalarValue::String(x) => self.strings.insert(x, value),
+        }
+    }
+
+    pub fn get(&self, key: &ScalarValue) -> Option<&T> {
+        match key {
+            ScalarValue::Int(x) => self.ints.get(x),
+            ScalarValue::Float(x) => self.floats.get(&x.to_bits()),
+            ScalarValue::String(x) => self.strings.get(x),
+        }
+    }
+}
+
 
 impl CompilerContext<'_> {
     /// Get `value -> name` mappings for all enums and automatic consts, for decompilation or
@@ -791,11 +827,11 @@ impl CompilerContext<'_> {
 }
 
 impl EnumData {
-    fn generate_lookup(&self, consts: &context::Consts) -> IdMap<i32, Sp<Ident>> {
-        let mut out = IdMap::default();
+    fn generate_lookup(&self, consts: &context::Consts) -> ScalarValueMap<Sp<Ident>> {
+        let mut out = ScalarValueMap::new();
         for (ident, &const_id) in &self.consts {
             let value = consts.get_cached_value(const_id).expect("evaluate_const_vars has not run! (bug!)");
-            out.insert(value.expect_int(), ident.clone());
+            out.insert(value.clone(), ident.clone());
         }
         out
     }
