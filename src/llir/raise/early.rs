@@ -290,7 +290,7 @@ fn decode_args_with_abi(
                 ScalarValue::Float(f32::from_bits(blob_reader.read_u32().expect("already checked len")))
             },
 
-            | ArgEncoding::String { size: size_spec, mask, furibug }
+            | ArgEncoding::String { size: size_spec, mask, furibug, ty_color: _ }
             => {
                 let read_len = match size_spec {
                     StringArgSize::ToBlobEnd { .. } => remaining_len,  // read to end
@@ -685,6 +685,7 @@ impl AtomRaiser<'_, '_> {
             => Ok(ast::Expr::from(raw.expect_int())),
 
             | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
+            | ArgEncoding::String { ty_color: Some(ty_color), .. }
             => {
                 let lookup_table = match ty_color {
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
@@ -694,7 +695,7 @@ impl AtomRaiser<'_, '_> {
                     raw.expect_immediate(),
                     ty_color,
                 ))
-            }
+            },
 
             | ArgEncoding::Color
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),

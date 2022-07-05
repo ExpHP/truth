@@ -570,12 +570,12 @@ fn encode_args(
             => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
 
             | ArgEncoding::Integer { size, .. }
-            => panic!("unexpected integer size: {}", size),
+            => panic!("unexpected integer size: {size}"),
 
             | ArgEncoding::Float
             => args_blob.write_f32(arg.expect_raw().expect_float()).expect("Cursor<Vec> failed?!"),
 
-            | ArgEncoding::String { size: size_spec, mask, furibug }
+            | ArgEncoding::String { size: size_spec, mask, furibug, ty_color: _ }
             => {
                 let string = arg.expect_raw().expect_string();
 

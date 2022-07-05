@@ -12,7 +12,7 @@ use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::value::{ScalarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
-use crate::resolve::{DefId, RegId};
+use crate::resolve::{RegId};
 use crate::context::CompilerContext;
 use crate::context::defs::auto_enum_names;
 use crate::debug_info;
@@ -165,11 +165,10 @@ fn compile(
     // an early pass to define global constants for sub names
     //
     // (these become relevant when using ins_ syntax or instruction aliases, but not call sugar)
-    let sub_export_names = gather_sub_export_names_from_ast(&ast.items, ctx);
-    for (&sp_pat![ident_span => def_id], export_name) in sub_export_names.iter() {
-        let ident = sp!(ident_span => ctx.defs.func_name(def_id).clone());
+    let sub_export_names = gather_sub_export_names_from_ast(&ast, ctx)?;
+    for (_, (export_name, ident)) in sub_export_names.iter() {
         let const_value: Sp<ast::Expr> = sp!(export_name.span => export_name.value.clone().into());
-        ctx.define_enum_const(ident, const_value, sp!(auto_enum_names::stack_ecl_sub()));
+        ctx.define_enum_const(ident.clone(), const_value, sp!(auto_enum_names::stack_ecl_sub()));
     }
 
     // preprocess
@@ -233,7 +232,7 @@ fn compile(
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, params: _, ty_keyword }) => {
-                let exported_name = &sub_export_names[&ctx.resolutions.expect_def(ident)];
+                let (exported_name, _) = &sub_export_names[ident.as_raw()];
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     return Err(emit(error!(
@@ -278,17 +277,33 @@ fn compile(
     })
 }
 
-fn gather_sub_export_names_from_ast(items: &[Sp<ast::Item>], ctx: &CompilerContext) -> IndexMap<Sp<DefId>, Sp<String>> {
-    items.iter().filter_map(|item| match &item.value {
-        ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(_), ref ident, .. }) => {
-            // in the future, there may be an [[export_name = "foo"]] attribute, but for now it'll
-            // just always be the ident
-            let exported_name = sp!(ident.span => ident.to_string());
-            let def_id = sp!(ident.span => ctx.resolutions.expect_def(ident));
-            Some((def_id, exported_name))
-        },
-        _ => None,
-    }).collect()
+fn gather_sub_export_names_from_ast(ast: &ast::ScriptFile, ctx: &CompilerContext) -> Result<IndexMap<Ident, (Sp<String>, Sp<ResIdent>)>, ErrorReported> {
+    let mut out = IndexMap::new();
+    for item in &ast.items {
+        match &item.value {
+            &ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(_), ref ident, .. }) => {
+                // in the future, there may be an [[export_name = "foo"]] attribute, but for now it'll
+                // just always be the ident
+                let exported_name = sp!(ident.span => ident.to_string());
+
+                match out.entry(ident.as_raw().clone()) {
+                    indexmap::map::Entry::Vacant(e) => {
+                        e.insert((exported_name, ident.clone()));
+                    },
+                    indexmap::map::Entry::Occupied(e) => {
+                        let (_, prev_ident) = e.get();
+                        return Err(ctx.emitter.emit(error!(
+                            message("duplicate function '{ident}'"),
+                            primary(ident, "redefined here"),
+                            secondary(prev_ident, "originally defined here"),
+                        )));
+                    },
+                }
+            },
+            _ => {},
+        }
+    }
+    Ok(out)
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {

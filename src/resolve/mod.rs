@@ -866,9 +866,13 @@ impl Resolutions {
         self.map[ident.expect_res().0.get() as usize]
     }
 
+    #[track_caller]
     pub fn expect_def(&self, ident: &ResIdent) -> DefId {
-        self.try_get_def(ident)
-            .unwrap_or_else(|| panic!("(bug!) name '{ident}' has not yet been resolved!"))
+        // NOTE:: don't use Option::unwrap_or_else, you'll break #[track_caller]
+        match self.try_get_def(ident) {
+            Some(x) => x,
+            None => panic!("(bug!) name '{ident}' has not yet been resolved!"),
+        }
     }
 
     fn synthesize_def_id_from_res_id(res: ResId) -> DefId {
