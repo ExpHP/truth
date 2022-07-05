@@ -13,9 +13,9 @@ use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
-use crate::resolve::{RegId, IdMap};
+use crate::resolve::{RegId};
 use crate::context::{self, Defs, CompilerContext};
-use crate::context::defs::{ConstNames, TypeColor, auto_enum_names};
+use crate::context::defs::{ConstNames, TypeColor, ScalarValueMap, auto_enum_names};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
@@ -622,7 +622,7 @@ impl AtomRaiser<'_, '_> {
 
         let mut sub_id = None;
         if let &Some(index) = sub_id_info {
-            let sub_index = args[index].expect_immediate_int() as _;
+            let sub_index = args[index].expect_immediate();
             // FIXME: This is a bit questionable. We're looking up an enum name (conceptually in the
             //        value namespace) to get an ident for a callable function (conceptually in the
             //        function namespace).  It feels like there is potential for future bugs here...
@@ -691,7 +691,7 @@ impl AtomRaiser<'_, '_> {
                 };
                 Ok(raise_to_possibly_named_constant(
                     &lookup_table,
-                    raw.expect_int(),
+                    raw.expect_immediate(),
                     ty_color,
                 ))
             }
@@ -768,8 +768,8 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor) -> ast::Expr {
-    match names.get(&id) {
+fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &ScalarValue, ty_color: &TypeColor) -> ast::Expr {
+    match names.get(value) {
         Some(ident) => {
             match ty_color {
                 TypeColor::Enum(_) => {
@@ -780,7 +780,7 @@ fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_c
                 },
             }
         },
-        None => id.into(),
+        None => value.clone().into(),
     }
 }
 
