@@ -77,19 +77,19 @@ static MSG_10_18: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
-        (Th10, 1, Some(("S", None))),  // arg is unused
-        (Th10, 2, Some(("S", None))),  // arg is unused
+        (Th10, 1, Some(("_", None))),
+        (Th10, 2, Some(("_", None))),
         (Th10, 3, Some(("", None))),
         (Th10, 4, Some(("", None))),
         (Th10, 5, Some(("", None))),
         (Th10, 6, Some(("", None))),
         (Th10, 7, Some(("", None))),
         (Th10, 8, Some(("", None))),
-        (Th10, 9, Some(("S", None))),
+        (Th10, 9, Some((r#"b(enum="bool")---"#, None))), // zero: b(enum="BitBool")---
         (Th10, 10, Some(("S", None))),
         (Th10, 11, Some(("", None))),
-        (Th10, 12, Some(("S", None))),
-        (Th10, 13, Some(("S", None))),
+        (Th10, 12, Some(("N", None))),
+        (Th10, 13, Some(("N", None))),
         (Th10, 14, Some(("m(bs=4;mask=0x77,7,16)", None))),
         (Th10, 15, Some(("m(bs=4;mask=0x77,7,16)", None))),
         (Th10, 16, Some(("m(bs=4;mask=0x77,7,16)", None))),

@@ -93,6 +93,12 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
         // 15 appears to be a nop (i.e. it's not in the jumptable).
         //    However, no game ever uses it
 
+        (Th10, 3, Some(("SUfff", None))),
+        (Th10, 5, Some(("SUfff", None))),
+        (Th10, 9, Some(("SUCff", None))), // Technically the C arg is split into 4 individual byte reads. But why tho
+        (Th10, 10, Some(("S_fffffffff", None))),
+        (Th10, 11, Some(("S_fffffffff", None))),
+
         (Th11, 16, Some(("S", Some(IKind::InterruptLabel)))),
         (Th11, 17, Some(("S", None))),
 
