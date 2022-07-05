@@ -285,8 +285,11 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th095, 86, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th095, 87, Some(("b(imm)---", None))),
 
+        // v4b (MoF)
+        (Th10, 56, Some(("SU(imm)fff", None))),
+        (Th10, 59, Some(("SU(imm)fff", None))),
         (Th10, 88, Some(("N", None))),
-        (Th10, 89, Some(("S", None))),
+        (Th10, 89, Some((r#"U(imm;enum="bool")"#, None))), // zero: U(imm;enum="BitBool")
         (Th10, 90, Some(("N", None))),
         (Th10, 91, Some(("N", None))),
         (Th10, 92, Some(("N", None))),
@@ -500,6 +503,7 @@ static ANM_VAR: &'static CoreSignatures = &CoreSignatures {
         (Th095, 10014, Some("%")),
         (Th095, 10015, Some("%")),
 
+        // v4b (MoF)
         (Th10, 10016, Some("%")),
         (Th10, 10017, Some("%")),
         (Th10, 10018, Some("%")),
