@@ -240,7 +240,7 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
         'u' => (2, None),
         'n' => (4, Some(TypeColor::Enum(auto_enum_names::anm_sprite()))),
         'N' => (4, Some(TypeColor::Enum(auto_enum_names::anm_script()))),
-        'E' => (4, Some(TypeColor::Enum(auto_enum_names::ecl_sub()))),
+        'E' => (4, Some(TypeColor::Enum(auto_enum_names::olde_ecl_sub()))),
         _ => return Ok(None),  // not an integer
     };
 

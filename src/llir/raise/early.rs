@@ -626,7 +626,7 @@ impl AtomRaiser<'_, '_> {
             // FIXME: This is a bit questionable. We're looking up an enum name (conceptually in the
             //        value namespace) to get an ident for a callable function (conceptually in the
             //        function namespace).  It feels like there is potential for future bugs here...
-            let lookup_table = &self.const_names.enums[&auto_enum_names::ecl_sub()];
+            let lookup_table = &self.const_names.enums[&auto_enum_names::olde_ecl_sub()];
             let name = lookup_table.get(&sub_index).ok_or(CannotRaiseIntrinsic)?;
             sub_id = Some(name.value.clone());
         }
