@@ -5,6 +5,7 @@ use core::fmt;
 use crate::raw;
 use crate::ast;
 use crate::context::{self, CompilerContext};
+use crate::diagnostic::{Diagnostic, IntoDiagnostics};
 use crate::error::{GatherErrorIteratorExt, ErrorReported};
 use crate::pos::{Sp, Span, SourceStr};
 use crate::game::{Game, LanguageKey};
@@ -72,23 +73,23 @@ pub mod auto_enum_names {
     use super::*;
 
     macro_rules! define_auto_enum_names {
-        ($( $const_func_name:ident => $ident_str:literal, )*) => {
+        ($( $const_func_name:ident => ($ident_str:literal, $ty:expr), )*) => {
             $( pub fn $const_func_name() -> Ident { ident!($ident_str) } )*
 
-            pub fn all() -> Vec<Ident> {
-                vec![ $($const_func_name()),* ]
+            pub fn all() -> Vec<(Ident, ScalarType)> {
+                vec![ $(($const_func_name(), $ty)),* ]
             }
         }
     }
 
     define_auto_enum_names!{
-        anm_sprite => "AnmSprite",
-        olde_ecl_sub => "EclSub",
-        stack_ecl_sub => "EclSubName",
-        msg_script => "MsgScript",
-        anm_script => "AnmScript",
-        color_format => "BitmapColorFormat",
-        bool => "bool",
+        anm_sprite => ("AnmSprite", ScalarType::Int),
+        olde_ecl_sub => ("EclSub", ScalarType::Int),
+        stack_ecl_sub => ("EclSubName", ScalarType::String),
+        msg_script => ("MsgScript", ScalarType::Int),
+        anm_script => ("AnmScript", ScalarType::Int),
+        color_format => ("BitmapColorFormat", ScalarType::Int),
+        bool => ("bool", ScalarType::Int),
     }
 }
 
@@ -186,8 +187,12 @@ pub enum FuncKind {
     },
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct EnumData {
+    /// Where was this declared?
+    source: EnumDeclSource,
+    /// For the sake of the type checker, every enum must have a fixed type that is known up front.
+    ty: ScalarType,
     /// Tracks all consts defined for this enum. Later entries in the IndexMap take priority
     /// during decompilation.
     ///
@@ -196,6 +201,12 @@ struct EnumData {
     /// when we have standard enum syntax, the consts will be able to be arbitrary exprs which
     /// require a const evaluation pass.
     consts: IndexMap<Sp<Ident>, ConstId>,
+}
+
+#[derive(Debug, Clone)]
+enum EnumDeclSource {
+    Builtin,
+    User(Span),
 }
 
 // =============================================================================
@@ -209,7 +220,13 @@ impl Default for Defs {
             instrs: Default::default(),
             vars: Default::default(),
             funcs: Default::default(),
-            enums: auto_enum_names::all().into_iter().map(|enum_name| (enum_name, Default::default())).collect(),
+            enums: auto_enum_names::all().into_iter().map(|(enum_name, ty)| {
+                let data = EnumData {
+                    ty, source: EnumDeclSource::Builtin,
+                    consts: Default::default(),
+                };
+                (enum_name, data)
+            }).collect(),
             reg_aliases: Default::default(),
             ins_aliases: Default::default(),
             global_ribs: GlobalRibs {
@@ -283,8 +300,28 @@ impl CompilerContext<'_> {
     }
 
     /// Declare an enum.  This may be done multiple times.
-    pub fn declare_enum(&mut self, ident: Sp<Ident>) {
-        self.defs.enums.entry(ident.value.clone()).or_insert_with(Default::default);
+    pub fn declare_enum(&mut self, ident: Sp<Ident>, ty: ScalarType) -> Result<(), ConflictingEnumTypeError> {
+        use std::collections::hash_map::Entry;
+
+        let source = EnumDeclSource::User(ident.span);
+
+        match self.defs.enums.entry(ident.value.clone()) {
+            Entry::Vacant(e) => {
+                e.insert(EnumData { ty, source, consts: Default::default() });
+            },
+            Entry::Occupied(e) => {
+                let old = e.get();
+                if old.ty != ty {
+                    return Err(ConflictingEnumTypeError {
+                        enum_name: ident.value.clone(),
+                        new: (ty, source),
+                        old: (old.ty, old.source.clone()),
+                    });
+                }
+            },
+        }
+
+        Ok(())
     }
 
     /// Declare an enum const, creating a brand new [`ConstId`].
@@ -299,8 +336,11 @@ impl CompilerContext<'_> {
         let def_id = self.create_new_def_id(&res_ident);
         let const_id = self.consts.defer_evaluation_of(def_id);
 
+        // NOTE: We can't type-check `value` here because it may be defined in terms of other variables,
+        //       and name resolution hasn't been performed yet.  We must simply trust we have the right type.
+        let this_enum_data = self.defs.enums.get_mut(&enum_name.value).expect("enum not defined");
         self.defs.vars.insert(def_id, VarData {
-            ty: Some(VarType::Typed(ScalarType::Int)),
+            ty: Some(VarType::Typed(this_enum_data.ty)),
             kind: VarKind::EnumConst {
                 enum_name: enum_name.clone(),
                 ident: res_ident,
@@ -308,7 +348,6 @@ impl CompilerContext<'_> {
             },
         });
 
-        let this_enum_data = self.defs.enums.get_mut(&enum_name.value).expect("enum not defined");
         if let Some(old_const_id) = this_enum_data.consts.insert(ident.clone(), const_id) {
             // redefinition of this name within this enum
             self.consts.defer_equality_check("enum const", old_const_id, const_id);
@@ -423,6 +462,32 @@ impl CompilerContext<'_> {
     /// Get a fresh loop ID for a newly constructed AST loop or switch in the AST.
     pub fn next_loop_id(&self) -> LoopId {
         self.unused_loop_ids.next()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConflictingEnumTypeError {
+    enum_name: Ident,
+    old: (ScalarType, EnumDeclSource),
+    new: (ScalarType, EnumDeclSource),
+}
+
+impl IntoDiagnostics for ConflictingEnumTypeError {
+    fn into_diagnostics(self) -> Vec<Diagnostic> {
+        match (self.old.1, self.new.1) {
+            (_, EnumDeclSource::Builtin) => unreachable!(),
+
+            (EnumDeclSource::Builtin, EnumDeclSource::User(new_span)) => vec![error!(
+                message("incorrect type for enum {}", self.enum_name),
+                primary(new_span, "declaration with type {}", self.new.0.keyword()),
+                note("the built-in type of enum {} is {}", self.enum_name, self.old.0.keyword()),
+            )],
+            (EnumDeclSource::User(old_span), EnumDeclSource::User(new_span)) => vec![error!(
+                message("conflicting types for enum '{}", self.enum_name),
+                primary(old_span, "declaration with type {}", self.old.0.keyword()),
+                primary(new_span, "declaration with type {}", self.new.0.keyword()),
+            )],
+        }
     }
 }
 
@@ -612,6 +677,15 @@ impl Defs {
             _ => None,
         }
     }
+
+    /// Get the type of an enum.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the enum has not been declared.
+    pub fn enum_ty(&self, enum_name: &Ident) -> ScalarType {
+        self.enums[enum_name].ty
+    }
 }
 
 impl CompilerContext<'_> {
@@ -719,14 +793,15 @@ impl CompilerContext<'_> {
                 .map_err(|e| emitter.emit(e))
         }).collect_with_recovery::<()>()?;
 
-        for (enum_name, enum_pairs) in &mapfile.enums {
-            self.declare_enum(enum_name.clone());
+        mapfile.enums.iter().map(|(enum_name, enum_pairs)| {
+            self.declare_enum(enum_name.clone(), ScalarType::Int).map_err(|e| self.emitter.emit(e))?;
             for &(value, ref const_name) in enum_pairs {
                 let value = sp!(const_name.span => value.into()); // FIXME remind me why the indices don't have spans again?
                 let res_ident = sp!(const_name.span => self.resolutions.attach_fresh_res(const_name.value.clone()));
                 self.define_enum_const(res_ident, value, enum_name.clone());
             }
-        }
+            Ok(())
+        }).collect_with_recovery::<()>()?;
 
         Ok(())
     }
@@ -985,6 +1060,9 @@ impl CompilerContext<'_> {
 
 impl Defs {
     /// Look up an enum const, if it exists.
+    ///
+    /// # Panics
+    /// Panics if the enum does not exist.
     pub fn enum_const_def_id(&self, enum_name: &Ident, ident: &Ident) -> Option<DefId> {
         self.enums[enum_name].consts.get(ident).map(|&const_id| const_id.def_id)
     }
@@ -1032,18 +1110,41 @@ impl CompilerContext<'_> {
     fn validate_param_ty_color(&self, ty_color: &Sp<TypeColor>) -> Result<(), ErrorReported> {
         let TypeColor::Enum(used_name) = &ty_color.value;
 
-        if self.defs.enums.get(used_name).is_none() {
-            // Enum doesn't exist.
+        self.check_enum_exists(sp!(ty_color.span => used_name))
+    }
+
+    pub fn check_enum_exists(&self, used_name: Sp<&Ident>) -> Result<(), ErrorReported> {
+        if self.defs.enums.get(used_name.value).is_none() {
             let mut diag = error!(
                 message("no such enum '{used_name}'"),
-                primary(ty_color, "no such enum"),
+                primary(used_name, "no such enum"),
             );
-            if let Some(suggestion) = self.defs.find_similar_enum_name(used_name) {
-                diag.secondary(ty_color, format!("did you mean `{suggestion}`?"));
+            if let Some(suggestion) = self.defs.find_similar_enum_name(used_name.value) {
+                diag.secondary(used_name, format!("did you mean `{suggestion}`?"));
             }
             return Err(self.emitter.emit(diag));
         }
         Ok(())
+    }
+}
+
+pub struct NoSuchEnumError {
+    used_name: Sp<Ident>,
+    suggestion: Option<Ident>,
+}
+
+impl IntoDiagnostics for NoSuchEnumError {
+    fn into_diagnostics(self) -> Vec<Diagnostic> {
+        let NoSuchEnumError { used_name, suggestion } = self;
+
+        let mut diag = error!(
+            message("no such enum '{used_name}'"),
+            primary(used_name, "no such enum"),
+        );
+        if let Some(suggestion) = suggestion {
+            diag.secondary(used_name, format!("did you mean `{suggestion}`?"));
+        }
+        vec![diag]
     }
 }
 

@@ -77,7 +77,7 @@ impl ScalarValue {
 impl fmt::Display for ScalarValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ScalarValue::String(x) => write!(f, "{}", crate::fmt::stringify(x)),
+            ScalarValue::String(x) => write!(f, "{}", crate::fmt::stringify_lit_str(x)),
             ScalarValue::Float(x) => write!(f, "{}", crate::fmt::stringify(x)),
             ScalarValue::Int(x) => write!(f, "{}", x),
         }
@@ -137,6 +137,8 @@ impl ScalarType {
         }
     }
 
+    pub fn keyword(self) -> ast::TypeKeyword { self.into() }
+
     pub fn sigil(self) -> Option<ast::VarSigil> {
         ast::VarSigil::from_ty(self)
     }
@@ -163,6 +165,8 @@ pub enum ExprType { Void, Value(ScalarType) }
 pub use ast::VarSigil as ReadType;
 
 impl VarType {
+    pub fn keyword(self) -> ast::TypeKeyword { self.into() }
+
     pub fn as_known_ty(self) -> Option<ScalarType> {
         match self {
             VarType::Typed(ty) => Some(ty),
@@ -172,6 +176,8 @@ impl VarType {
 }
 
 impl ExprType {
+    pub fn keyword(self) -> ast::TypeKeyword { self.into() }
+
     pub fn as_value_ty(self) -> Option<ScalarType> {
         match self {
             ExprType::Value(ty) => Some(ty),

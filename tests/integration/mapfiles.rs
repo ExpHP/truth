@@ -326,3 +326,11 @@ source_test!(
 "#,
     check_compiled: |_, _| {}, // just expecting no warnings/errors
 );
+
+source_test!(
+    ECL_10, enum_type_conflicts_with_builtin,
+    mapfile: r#"!eclmap
+!enum(name="EclSubName")  //~ ERROR int
+"#,
+    main_body: "",
+);

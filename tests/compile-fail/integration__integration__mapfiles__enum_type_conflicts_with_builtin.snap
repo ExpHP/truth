@@ -1,0 +1,13 @@
+---
+source: tests/integration/mapfiles.rs
+expression: stderr
+---
+error: incorrect type for enum EclSubName
+  ┌─ <mapfile-1>:2:2
+  │
+2 │ !enum(name="EclSubName")
+  │  ^^^^^^^^^^^^^^^^^^^^^^^ declaration with type int
+  │
+  = the built-in type of enum EclSubName is string
+
+
