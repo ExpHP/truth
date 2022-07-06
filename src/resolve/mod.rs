@@ -502,9 +502,13 @@ mod resolve_names {
         fn resolve_qualified_enum_const(
             &mut self,
             expr_span: Span,
-            enum_name: &Ident,
+            enum_name: &Sp<Ident>,
             ident: &ResIdent,
         ) {
+            if let Err(e) = self.ctx.check_enum_exists(sp!(enum_name.span => enum_name)) {
+                self.errors.set(e);
+                return;
+            }
             match self.ctx.defs.enum_const_def_id(&enum_name, &ident) {
                 Some(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 None => self.errors.set(self.ctx.emitter.emit(error!(

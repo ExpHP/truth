@@ -89,6 +89,13 @@ mod undefined_enum {
         "#,
     );
 
+    source_test!(
+        ANM_12, compile_undefined_in_dot_syntax,
+        main_body: r#"
+            I0 = NotAnEnum.Test;  //~ ERROR no such enum
+        "#,
+    );
+
     // if there's a similar name we should suggest it
     source_test!(
         STD_12, suggestion,
