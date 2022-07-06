@@ -324,8 +324,8 @@ impl ExprTypeChecker<'_, '_> {
             ast::Expr::Var(ref var)
             => ExprType::Value(self.check_var(var)?),
 
-            ast::Expr::EnumConst { .. }
-            => ExprType::Value(ScalarType::Int),
+            ast::Expr::EnumConst { ref enum_name, .. }
+            => ExprType::Value(self.ctx.defs.enum_ty(enum_name)),
 
             ast::Expr::BinOp(ref a, op, ref b)
             => {

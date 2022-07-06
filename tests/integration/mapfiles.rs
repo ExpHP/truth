@@ -35,6 +35,17 @@ source_test!(
 );
 
 source_test!(
+    ANM_10, abi_string_errors,
+    mapfile: r#"!anmmap
+!ins_signatures
+0 z(len=20;bs=4)   //~ ERROR mutually exclusive
+1 p(len=20)   //~ ERROR not supported by
+2 p   //~ ERROR missing
+"#,
+    main_body: r#""#,
+);
+
+source_test!(
     ANM_10, seqmap_duplicate_key,
     mapfile: r#"!anmmap
 !ins_signatures
@@ -314,4 +325,12 @@ source_test!(
     bbb(5, 7);
 "#,
     check_compiled: |_, _| {}, // just expecting no warnings/errors
+);
+
+source_test!(
+    ECL_10, enum_type_conflicts_with_builtin,
+    mapfile: r#"!eclmap
+!enum(name="EclSubName")  //~ ERROR int
+"#,
+    main_body: "",
 );

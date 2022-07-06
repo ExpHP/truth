@@ -14,7 +14,7 @@ use crate::value::{ScalarType};
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
 use crate::resolve::{RegId};
 use crate::context::CompilerContext;
-// use crate::context::defs::auto_enum_names;
+use crate::context::defs::auto_enum_names;
 use crate::debug_info;
 
 // =============================================================================
@@ -22,7 +22,7 @@ use crate::debug_info;
 /// Game-independent representation of an ECL file from TH10 onwards.
 #[derive(Debug, Clone)]
 pub struct StackEclFile {
-    pub subs: IndexMap<Sp<Ident>, Vec<RawInstr>>,
+    pub subs: IndexMap<Sp<String>, Vec<RawInstr>>,
     pub anim_list: Vec<Sp<String>>,
     pub ecli_list: Vec<Sp<String>>,
     /// Filename of a read binary file, for display purposes only.
@@ -91,7 +91,10 @@ fn decompile(
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let hooks = game_hooks(game);
 
-    // TODO: define string consts for sub names
+    let sub_idents = generate_sub_idents_from_ecl_file(ecl, emitter)?;
+    for (sub_name, sub_ident) in &sub_idents {
+        ctx.define_enum_const_fresh(sub_ident.value.clone(), sub_name.value.clone().into(), auto_enum_names::stack_ecl_sub());
+    }
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
 
@@ -100,9 +103,10 @@ fn decompile(
 
     // Decompile ECL subs only halfway
     let mut decompiled_subs = IndexMap::new();
-    for (ident, instrs) in ecl.subs.iter() {
+    for (export_name, instrs) in ecl.subs.iter() {
+        let ident = sub_idents[&export_name.value].clone();
         decompiled_subs.insert(ident.clone(), {
-            emitter.chain_with(|f| write!(f, "in {}", ident), |emitter| {
+            emitter.chain_with(|f| write!(f, "in {ident}"), |emitter| {
                 raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
             })?
         });
@@ -136,6 +140,14 @@ fn decompile(
     Ok(out)
 }
 
+fn generate_sub_idents_from_ecl_file(ecl: &StackEclFile, emitter: &impl Emitter) -> Result<IndexMap<Sp<String>, Sp<Ident>>, ErrorReported> {
+    ecl.subs.keys().map(|string| match Ident::new_user(string) {
+        Ok(ident) => Ok((string.clone(), sp!(string.span => ident))),
+        // FIXME: substitute with a valid identifier and downgrade to a warning
+        Err(_) => Err(emitter.emit(error!("encountered sub with non-identifier name {}", crate::fmt::stringify_lit_str(&string)))),
+    }).collect::<Result<_, _>>()
+}
+
 // =============================================================================
 
 fn compile(
@@ -149,6 +161,15 @@ fn compile(
 
     crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
     crate::passes::resolution::compute_diff_label_masks(&mut ast, ctx)?;
+
+    // an early pass to define global constants for sub names
+    //
+    // (these become relevant when using ins_ syntax or instruction aliases, but not call sugar)
+    let sub_export_names = gather_sub_export_names_from_ast(&ast, ctx)?;
+    for (_, (export_name, ident)) in sub_export_names.iter() {
+        let const_value: Sp<ast::Expr> = sp!(export_name.span => export_name.value.clone().into());
+        ctx.define_enum_const(ident.clone(), const_value, sp!(auto_enum_names::stack_ecl_sub()));
+    }
 
     // preprocess
     let ast = {
@@ -211,7 +232,7 @@ fn compile(
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(code), ref ident, params: _, ty_keyword }) => {
-                let exported_name = ident.clone();
+                let (exported_name, _) = &sub_export_names[ident.as_raw()];
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
                     return Err(emit(error!(
@@ -221,7 +242,7 @@ fn compile(
                 }
 
                 let (instrs, lowering_info) = lowerer.lower_sub(&code.0, None, ctx, do_debug_info)?;
-                subs.insert(sp!(exported_name.span => exported_name.value.as_raw().clone()), instrs);
+                subs.insert(exported_name.clone(), instrs);
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
@@ -254,6 +275,35 @@ fn compile(
         ecli_list: meta.ecli,
         binary_filename: None,
     })
+}
+
+fn gather_sub_export_names_from_ast(ast: &ast::ScriptFile, ctx: &CompilerContext) -> Result<IndexMap<Ident, (Sp<String>, Sp<ResIdent>)>, ErrorReported> {
+    let mut out = IndexMap::new();
+    for item in &ast.items {
+        match &item.value {
+            &ast::Item::Func(ast::ItemFunc { qualifier: None, code: Some(_), ref ident, .. }) => {
+                // in the future, there may be an [[export_name = "foo"]] attribute, but for now it'll
+                // just always be the ident
+                let exported_name = sp!(ident.span => ident.to_string());
+
+                match out.entry(ident.as_raw().clone()) {
+                    indexmap::map::Entry::Vacant(e) => {
+                        e.insert((exported_name, ident.clone()));
+                    },
+                    indexmap::map::Entry::Occupied(e) => {
+                        let (_, prev_ident) = e.get();
+                        return Err(ctx.emitter.emit(error!(
+                            message("duplicate function '{ident}'"),
+                            primary(ident, "redefined here"),
+                            secondary(prev_ident, "originally defined here"),
+                        )));
+                    },
+                }
+            },
+            _ => {},
+        }
+    }
+    Ok(out)
 }
 
 fn unsupported(span: &crate::pos::Span) -> Diagnostic {
@@ -324,16 +374,7 @@ fn read(
     let mut sub_offsets = reader.read_u32s(sub_count as usize)?.into_iter().map(u64::from).collect::<Vec<_>>();
     sub_offsets.push(reader.file_size()?);
 
-    let sub_names = {
-        read_string_list(reader, emitter, sub_count as usize)?
-            .into_iter()
-            .map(|string| match Ident::new_user(&string) {
-                Ok(ident) => Ok(ident),
-                // FIXME: substitute with a valid identifier and downgrade to a warning
-                Err(_) => Err(emitter.emit(error!("encountered sub with non-identifier name {}", crate::fmt::stringify_lit_str(&string)))),
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
+    let sub_names = read_string_list(reader, emitter, sub_count as usize)?;
 
     let mut subs = IndexMap::new();
     let mut end_offsets = sub_offsets.iter().copied().skip(1);
@@ -354,7 +395,7 @@ fn read(
         })?;
 
 
-        if subs.insert(sp!(name.clone()), instrs).is_some() {
+        if subs.insert(name.clone(), instrs).is_some() {
             emitter.emit({
                 warning!("multiple subs with the name '{name}'! Only one will appear in the output.")
             }).ignore();

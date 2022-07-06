@@ -502,9 +502,13 @@ mod resolve_names {
         fn resolve_qualified_enum_const(
             &mut self,
             expr_span: Span,
-            enum_name: &Ident,
+            enum_name: &Sp<Ident>,
             ident: &ResIdent,
         ) {
+            if let Err(e) = self.ctx.check_enum_exists(sp!(enum_name.span => enum_name)) {
+                self.errors.set(e);
+                return;
+            }
             match self.ctx.defs.enum_const_def_id(&enum_name, &ident) {
                 Some(def_id) => self.ctx.resolutions.record_resolution(ident, def_id),
                 None => self.errors.set(self.ctx.emitter.emit(error!(
@@ -866,9 +870,13 @@ impl Resolutions {
         self.map[ident.expect_res().0.get() as usize]
     }
 
+    #[track_caller]
     pub fn expect_def(&self, ident: &ResIdent) -> DefId {
-        self.try_get_def(ident)
-            .unwrap_or_else(|| panic!("(bug!) name '{ident}' has not yet been resolved!"))
+        // NOTE:: don't use Option::unwrap_or_else, you'll break #[track_caller]
+        match self.try_get_def(ident) {
+            Some(x) => x,
+            None => panic!("(bug!) name '{ident}' has not yet been resolved!"),
+        }
     }
 
     fn synthesize_def_id_from_res_id(res: ResId) -> DefId {

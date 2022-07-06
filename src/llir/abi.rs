@@ -53,7 +53,7 @@ pub enum ArgEncoding {
     Color,
     /// `f` in mapfile. Single-precision float.
     Float,
-    /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or  `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
+    /// `z(bs=<int>)`, `m(bs=<int>;mask=<int>,<int>,<int>)`, or `m(len=<int>;mask=<int>,<int>,<int>)` in mapfile.
     ///
     /// See [`StringArgSize`] about the size args.
     ///
@@ -64,6 +64,7 @@ pub enum ArgEncoding {
     String {
         size: StringArgSize,
         mask: AcceleratingByteMask,
+        ty_color: Option<TypeColor>,
         furibug: bool,
     },
 }
@@ -80,8 +81,15 @@ pub enum StringArgSize {
     /// A string arg that uses `bs=`.
     ///
     /// A null-terminated string argument which **can only be the final argument**, and
-    /// consists of all remaining bytes. When written, it is padded to a multiple of `bs` bytes.
-    Block { block_size: usize },
+    /// consists of all remaining bytes. When written, a null terminator is appended and it is padded
+    /// to a multiple of `bs` bytes.
+    ToBlobEnd { block_size: usize },
+    /// A string arg that uses the `p` type to be length-prefixed.
+    ///
+    /// This is a Pascal-type string which stores the total length (including null + padding) followed
+    /// by the data.  When written, a null terminator is appended and it is padded to a multiple of
+    /// `bs` bytes.
+    Pascal { block_size: usize },
 }
 
 impl ArgEncoding {
@@ -233,7 +241,7 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
         'u' => (2, None),
         'n' => (4, Some(TypeColor::Enum(auto_enum_names::anm_sprite()))),
         'N' => (4, Some(TypeColor::Enum(auto_enum_names::anm_script()))),
-        'E' => (4, Some(TypeColor::Enum(auto_enum_names::ecl_sub()))),
+        'E' => (4, Some(TypeColor::Enum(auto_enum_names::olde_ecl_sub()))),
         _ => return Ok(None),  // not an integer
     };
 
@@ -259,9 +267,13 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
 }
 
 fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Option<ArgEncoding>, ErrorReported> {
-    let default_mask = match param.format_char.value {
-        'z' => Some([0,0,0]),
-        'm' => None,
+    struct LenPrefixed(bool); // self-documenting bool
+
+    let (default_mask, is_len_prefixed, default_ty_color) = match param.format_char.value {
+        'z' => (Some([0,0,0]), LenPrefixed(false), None),
+        'm' => (None, LenPrefixed(false), None),
+        'p' => (Some([0,0,0]), LenPrefixed(true), None),
+        'P' => (Some([0,0,0]), LenPrefixed(true), Some(TypeColor::Enum(auto_enum_names::stack_ecl_sub()))),
         _ => return Ok(None),  // not a string
     };
 
@@ -271,19 +283,26 @@ fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Op
         let size = {
             let user_len = de.accept_value::<u32>("len")?;
             let user_bs = de.accept_value::<u32>("bs")?;
-            match (user_len, user_bs) {
-                (None, Some(bs)) => StringArgSize::Block {
+            match (user_len, user_bs, is_len_prefixed) {
+                (None, Some(bs), LenPrefixed(false)) => StringArgSize::ToBlobEnd {
                     block_size: bs.value as _,
                 },
-                (Some(len), None) => StringArgSize::Fixed {
+                (None, Some(bs), LenPrefixed(true)) => StringArgSize::Pascal {
+                    block_size: bs.value as _,
+                },
+                (Some(len), None, LenPrefixed(false)) => StringArgSize::Fixed {
                     len: len.value as _,
                     nulless: de.accept_flag("nulless")?.is_some(),
                 },
-                (None, None) => return Err(emitter.as_sized().emit(error!(
+                (Some(len), None, LenPrefixed(true)) => return Err(emitter.as_sized().emit(error!(
+                    message("'len' attribute is not supported by '{}'", param.format_char),
+                    primary(len, ""),
+                ))),
+                (None, None, _) => return Err(emitter.as_sized().emit(error!(
                     message("missing length attribute ('len' or 'bs') for '{}'", param.format_char),
                     primary(param.format_char, ""),
                 ))),
-                (Some(len), Some(bs)) => return Err(emitter.as_sized().emit(error!(
+                (Some(len), Some(bs), _) => return Err(emitter.as_sized().emit(error!(
                     message("mutually exclusive attributes 'len' and 'bs' in '{}' format", param.format_char),
                     primary(len, ""),
                     primary(bs, ""),
@@ -298,6 +317,7 @@ fn string_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Op
                     .map(|[mask, vel, accel]| AcceleratingByteMask { mask, vel, accel })?
             },
             size,
+            ty_color: default_ty_color,
             furibug: furibug.is_some(),
         }))
     })
@@ -335,7 +355,7 @@ fn validate(abi_span: Span, encodings: &[ArgEncoding]) -> Result<(), Diagnostic>
         return err(format!("'T()' arguments may only appear at the beginning of a signature"));
     }
 
-    if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { size: StringArgSize::Block { .. }, .. })) {
+    if encodings.iter().rev().skip(1).any(|c| matches!(c, Enc::String { size: StringArgSize::ToBlobEnd { .. }, .. })) {
         return err(format!("'z' or 'm' arguments with 'bs=' can only appear at the very end"));
     }
 

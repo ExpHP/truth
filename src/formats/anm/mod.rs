@@ -807,10 +807,10 @@ fn decompile(
 
     let num_scripts: usize = anm_file.entries.iter().map(|entry| entry.scripts.len()).sum();
     for i in 0..num_scripts {
-        ctx.define_enum_const_fresh(auto_script_name(i as _), i as _, auto_enum_names::anm_script());
+        ctx.define_enum_const_fresh(auto_script_name(i as _), (i as i32).into(), auto_enum_names::anm_script());
     }
     for i in all_sprite_ids(anm_file.entries.iter().map(|entry| &entry.sprites)) {
-        ctx.define_enum_const_fresh(auto_sprite_name(i as _), i as _, auto_enum_names::anm_sprite());
+        ctx.define_enum_const_fresh(auto_sprite_name(i as _), (i as i32).into(), auto_enum_names::anm_sprite());
     }
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
@@ -1044,7 +1044,7 @@ fn define_color_format_consts(
     for format in ColorFormat::get_all() {
         let ident = Ident::new_system(format.const_name()).unwrap();
         let value = format as u32 as i32;
-        ctx.define_enum_const_fresh(ident, value, auto_enum_names::color_format());
+        ctx.define_enum_const_fresh(ident, value.into(), auto_enum_names::color_format());
     }
 }
 

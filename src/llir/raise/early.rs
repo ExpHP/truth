@@ -13,9 +13,9 @@ use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
 use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
-use crate::resolve::{RegId, IdMap};
+use crate::resolve::{RegId};
 use crate::context::{self, Defs, CompilerContext};
-use crate::context::defs::{ConstNames, TypeColor, auto_enum_names};
+use crate::context::defs::{ConstNames, TypeColor, ScalarValueMap, auto_enum_names};
 use crate::game::LanguageKey;
 use crate::llir::{ArgEncoding, StringArgSize, InstrAbi, RegisterEncodingStyle};
 use crate::value::{ScalarValue};
@@ -236,7 +236,7 @@ fn decode_args_with_abi(
     use crate::io::BinRead;
 
     let mut param_mask = instr.param_mask;
-    let mut args_blob = std::io::Cursor::new(&instr.args_blob);
+    let mut blob_reader = std::io::Cursor::new(&instr.args_blob);
     let mut args = vec![];
     let mut pseudo_arg0 = instr.extra_arg;
     let mut remaining_len = instr.args_blob.len();
@@ -272,13 +272,13 @@ fn decode_args_with_abi(
             | ArgEncoding::Padding
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_u32().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { arg0: false, size: 2, ty_color: _ }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
-                ScalarValue::Int(args_blob.read_i16().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_i16().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { size, .. }
@@ -287,18 +287,22 @@ fn decode_args_with_abi(
             | ArgEncoding::Float
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Float(f32::from_bits(args_blob.read_u32().expect("already checked len")))
+                ScalarValue::Float(f32::from_bits(blob_reader.read_u32().expect("already checked len")))
             },
 
-            | ArgEncoding::String { size: size_spec, mask, furibug }
+            | ArgEncoding::String { size: size_spec, mask, furibug, ty_color: _ }
             => {
                 let read_len = match size_spec {
-                    StringArgSize::Block { .. } => remaining_len,  // read to end
+                    StringArgSize::ToBlobEnd { .. } => remaining_len,  // read to end
+                    StringArgSize::Pascal { .. } => {
+                        decrease_len(emitter, &mut remaining_len, 4)?;
+                        blob_reader.read_u32().expect("already checked len") as usize
+                    },
                     StringArgSize::Fixed { len, nulless: _ } => len,
                 };
                 decrease_len(emitter, &mut remaining_len, read_len)?;
 
-                let mut encoded = Encoded(args_blob.read_byte_vec(read_len).expect("already checked len"));
+                let mut encoded = Encoded(blob_reader.read_byte_vec(read_len).expect("already checked len"));
                 encoded.apply_xor_mask(mask);
 
                 if let StringArgSize::Fixed { nulless: true, .. } = size_spec {
@@ -326,11 +330,11 @@ fn decode_args_with_abi(
         args.push(SimpleArg { value, is_reg });
     }
 
-    if args_blob.position() != args_blob.get_ref().len() as u64 {
+    if blob_reader.position() != blob_reader.get_ref().len() as u64 {
         emitter.emit(warning!(
             // this could mean the signature is incomplete
             "unexpected leftover bytes in ins_{}! (read {} bytes out of {}!)",
-            instr.opcode, args_blob.position(), args_blob.get_ref().len(),
+            instr.opcode, blob_reader.position(), blob_reader.get_ref().len(),
         )).ignore();
     }
 
@@ -618,11 +622,11 @@ impl AtomRaiser<'_, '_> {
 
         let mut sub_id = None;
         if let &Some(index) = sub_id_info {
-            let sub_index = args[index].expect_immediate_int() as _;
+            let sub_index = args[index].expect_immediate();
             // FIXME: This is a bit questionable. We're looking up an enum name (conceptually in the
             //        value namespace) to get an ident for a callable function (conceptually in the
             //        function namespace).  It feels like there is potential for future bugs here...
-            let lookup_table = &self.const_names.enums[&auto_enum_names::ecl_sub()];
+            let lookup_table = &self.const_names.enums[&auto_enum_names::olde_ecl_sub()];
             let name = lookup_table.get(&sub_index).ok_or(CannotRaiseIntrinsic)?;
             sub_id = Some(name.value.clone());
         }
@@ -681,16 +685,17 @@ impl AtomRaiser<'_, '_> {
             => Ok(ast::Expr::from(raw.expect_int())),
 
             | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
+            | ArgEncoding::String { ty_color: Some(ty_color), .. }
             => {
                 let lookup_table = match ty_color {
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
                 };
                 Ok(raise_to_possibly_named_constant(
                     &lookup_table,
-                    raw.expect_int(),
+                    raw.expect_immediate(),
                     ty_color,
                 ))
-            }
+            },
 
             | ArgEncoding::Color
             => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
@@ -764,8 +769,8 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_color: &TypeColor) -> ast::Expr {
-    match names.get(&id) {
+fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &ScalarValue, ty_color: &TypeColor) -> ast::Expr {
+    match names.get(value) {
         Some(ident) => {
             match ty_color {
                 TypeColor::Enum(_) => {
@@ -776,7 +781,7 @@ fn raise_to_possibly_named_constant(names: &IdMap<i32, Sp<Ident>>, id: i32, ty_c
                 },
             }
         },
-        None => id.into(),
+        None => value.clone().into(),
     }
 }
 
