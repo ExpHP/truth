@@ -181,7 +181,7 @@ fn early_raise_intrinsics(
 fn raise_mask(value: raw::ParamMask) -> ast::Expr {
     ast::Expr::LitInt {
         value: value.into(),
-        radix: ast::IntRadix::Bin,
+        format: ast::IntFormat { unsigned: true, radix: ast::IntRadix::Bin },
     }
 }
 
@@ -192,7 +192,7 @@ fn raise_nargs(value: raw::ArgCount) -> ast::Expr {
 fn raise_pop(value: raw::StackPop) -> ast::Expr {
     ast::Expr::LitInt {
         value: value.into(),
-        radix: ast::IntRadix::Hex,
+        format: ast::IntFormat { unsigned: true, radix: ast::IntRadix::Hex },
     }
 }
 
@@ -256,8 +256,8 @@ fn decode_args_with_abi(
         if let ArgEncoding::Padding { size } = enc {
             decrease_len(emitter, &mut remaining_len, *size as usize)?;
             let raw_value = match size {
-                1 => args_blob.read_u8().expect("already checked len") as i32,
-                4 => args_blob.read_u32().expect("already checked len") as i32,
+                1 => blob_reader.read_u8().expect("already checked len") as i32,
+                4 => blob_reader.read_u32().expect("already checked len") as i32,
                 _ => unreachable!(),
             };
             args.push(SimpleArg { value: ScalarValue::Int(raw_value), is_reg: false } );
@@ -292,7 +292,7 @@ fn decode_args_with_abi(
             | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(args_blob.read_i32().expect("already checked len"))
+                ScalarValue::Int(blob_reader.read_i32().expect("already checked len"))
             },
 
             | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
@@ -304,25 +304,25 @@ fn decode_args_with_abi(
             | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 1)?;
-                ScalarValue::Int(args_blob.read_i8().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_i8().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(args_blob.read_u32().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_u32().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
-                ScalarValue::Int(args_blob.read_u16().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_u16().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 1)?;
-                ScalarValue::Int(args_blob.read_u8().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_u8().expect("already checked len") as i32)
             },
 
             | ArgEncoding::Integer { size, .. }
