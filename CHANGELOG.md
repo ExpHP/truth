@@ -17,6 +17,8 @@
 
 ## Other changes
 
+* The ternary operator `a ? b : c` can now be used in any expression, not just const expressions.
+
 * Relative time labels and interrupts now accept expressions, so you can use consts.  Technically this also makes negative relative time labels possible; whether you choose to write them as `+(-15):` or (gasp) `+-15:` is up to you...
 
 * Unary `-` now can be directly provided by an intrinsic, and will otherwise fall back to `-1 * x`. (formerly, it would always produce `0 - x`, which is not correct for all floats)

@@ -351,6 +351,11 @@ impl SingleSubLowerer<'_, '_> {
                 self.lower_assign_diff_switch(span, stmt_data, &data_rhs.tmp_expr, var, assign_op, cases)
             },
 
+            // a = <expr> + <expr>;
+            (ast::AssignOpKind::Assign, ast::Expr::Ternary { cond, left, right, question, colon, .. }) => {
+                self.lower_assign_direct_ternary(span, stmt_data, var, assign_op, cond, question, left, colon, right)
+            },
+
             // a = <any other expr>;
             // a += <expr>;
             (_, _) => {
@@ -612,6 +617,68 @@ impl SingleSubLowerer<'_, '_> {
             },
         }
 
+        Ok(())
+    }
+
+    /// Lowers `a = <C> ? <A> : <B>;`
+    fn lower_assign_direct_ternary(
+        &mut self,
+        span: Span,
+        stmt_data: TimeAndDifficulty,
+        var: &Sp<ast::Var>,
+        eq_sign: &Sp<ast::AssignOpKind>,
+        cond: &Sp<ast::Expr>,
+        question: &Sp<()>,
+        left: &Sp<ast::Expr>,
+        colon: &Sp<()>,
+        right: &Sp<ast::Expr>,
+    ) -> Result<(), ErrorReported> {
+        // TODO: Add cond_clobber to 'lower_cond_jump_*' functions so that we can do the register optimization.
+        // // Evaluate the first subexpression if necessary.
+        // let mut cond_tmp_def_id = None;
+        // let cond_lowered;
+        // match self.classify_expr(cond)? {
+        //     ExprClass::NeedsElaboration(data_cond) => {
+        //         let cond_var = if data_cond.tmp_ty == data_cond.read_ty && !expr_uses_var(left, var, self.ctx) && !expr_uses_var(right, var, self.ctx) {
+        //             // we can reuse the output variable for the condition!
+        //             var.clone()
+        //         } else {
+        //             // we need a temporary, either due to the type cast or to avoid invalidating the subexpressions
+        //             let (tmp_def_id, tmp_as_var) = self.allocate_temporary(data_cond.tmp_expr.span, data_cond.tmp_ty)?;
+        //             cond_tmp_def_id = Some(tmp_def_id);  // save to be undefined later
+        //             tmp_as_var
+        //         };
+        //         self.compute_temporary_expr(stmt_data, &cond_var, &data_cond)?;
+        //         let (var_lowered, var_read_ty) = lower_var_to_arg(var, self.ctx)?;
+        //         assert_eq!(var_read_ty, data_cond.read_ty);
+        //         cond_lowered = var_lowered;
+        //     },
+        //     ExprClass::Simple(simple) => {
+        //         cond_lowered = simple.lowered;
+        //     },
+        // };
+
+        // compile to:
+        //
+        //        unless (<cond>) goto false_case:
+        //        var = <true_case>;
+        //        goto end;
+        //     false_case:
+        //        var = <false_case>;
+        //     end:
+
+        let false_label = sp!(colon.span.end_span() => self.ctx.gensym.gensym("@ternary_false#"));
+        let end_label = sp!(span.end_span() => self.ctx.gensym.gensym("@ternary_end#"));
+        let unless_keyword = sp!(question.span => token![unless]);
+        let false_goto = ast::StmtGoto { time: None, destination: false_label.clone() };
+        let end_goto = ast::StmtGoto { time: None, destination: end_label.clone() };
+
+        self.lower_cond_jump(question.span, stmt_data, &unless_keyword, cond, &false_goto)?;
+        self.lower_assign_op(span, stmt_data, var, eq_sign, left)?;
+        self.lower_uncond_jump(colon.span, stmt_data, &end_goto)?;
+        self.out.push(sp!(false_label.span => LowerStmt::Label { time: stmt_data.time, label: false_label }));
+        self.lower_assign_op(span, stmt_data, var, eq_sign, right)?;
+        self.out.push(sp!(end_label.span => LowerStmt::Label { time: stmt_data.time, label: end_label }));
         Ok(())
     }
 

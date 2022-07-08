@@ -1063,3 +1063,21 @@ fn trivial_cast() {
         vms.check_no_scratch_of_ty(Ty::Float);
     }
 }
+
+#[test]
+fn ternary() {
+    for _ in 0..10 {
+        let vms = run_randomized_test(SIMPLE_FOUR_VAR_SPEC, r#"{
+            B = A + 2 ? B * 2 : B + 2;
+            foo_S(B);
+            B = A + 2 ? 2 : 3;  // test correctness of reg optimizations
+            foo_S(B);
+            B = B + 2 ? 2 : 3;
+            foo_S(B);
+            B = (B + 2) && (B + 3) ? 2 : 3;
+            foo_S(B);
+        }"#).unwrap();
+
+        vms.check_no_scratch_of_ty(Ty::Float);
+    }
+}
