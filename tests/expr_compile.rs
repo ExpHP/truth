@@ -685,6 +685,15 @@ mod no_scratch {
             }"#);
         }
     }
+
+    #[test]
+    fn ternary() {
+        for _ in 0..5 {
+            check_no_scratch(SIMPLE_FOUR_VAR_SPEC, r#"{
+                A = B ? 2 : 3;
+            }"#);
+        }
+    }
 }
 
 struct CheckBoolVms {
