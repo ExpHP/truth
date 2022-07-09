@@ -99,7 +99,8 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
         (Th10, 10, Some(("S_fffffffff", None))),
         (Th10, 11, Some(("S_fffffffff", None))),
 
-        (Th11, 16, Some(("S", Some(IKind::InterruptLabel)))),
+        (Alcostg, 16, Some(("S(imm)", Some(IKind::InterruptLabel)))),
+
         (Th11, 17, Some(("S", None))),
 
         (Th12, 18, Some(("SSfff", None))),

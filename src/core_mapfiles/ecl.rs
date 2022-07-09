@@ -12,9 +12,9 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         Th07 => ECL_07,
         Th08 | Th09 => ECL_08_09,
         Th095 => ECL_095,
-        Th10 => ECL_10,
+        Th10 | Alcostg => ECL_10_103,
 
-        Alcostg | Th11 | Th12 | Th125 | Th128 |
+        Th11 | Th12 | Th125 | Th128 |
         Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
     }
 }
@@ -1059,7 +1059,7 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
 };
 
 
-static ECL_10: &'static CoreSignatures = &CoreSignatures {
+static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
@@ -1121,6 +1121,9 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 85, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Float))
         (Th10, 86, Some(("fff", None))),
         (Th10, 87, Some(("ffff", None))),
+
+        (Alcostg, 88, Some(("", None))), // Some(IKind::StackUnOp(U::Sqrt, Ty::Float))
+
         (Th10, 256, Some(("P(bs=4)ffSSS", None))),
         (Th10, 257, Some(("P(bs=4)ffSSS", None))),
         (Th10, 258, Some(("S", None))),
@@ -1139,6 +1142,10 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 271, Some(("P(bs=4)fffSSS", None))),
         (Th10, 272, Some(("SN", None))),
         (Th10, 273, Some(("SNf", None))),
+
+        (Alcostg, 274, Some(("SN", None))),
+        (Alcostg, 275, Some(("SS", None))),
+
         (Th10, 280, Some(("ff", None))),
         (Th10, 281, Some(("SSff", None))),
         (Th10, 282, Some(("ff", None))),
@@ -1159,6 +1166,12 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 297, Some(("fff", None))),
         (Th10, 298, Some(("ff", None))),
         (Th10, 299, Some(("ff", None))),
+
+        (Alcostg, 300, Some(("ffffff", None))),
+        (Alcostg, 301, Some(("SSffffff", None))),
+        (Alcostg, 302, Some(("ffffff", None))),
+        (Alcostg, 303, Some(("SSffffff", None))),
+
         (Th10, 320, Some(("ff", None))),
         (Th10, 321, Some(("ff", None))),
         (Th10, 322, Some(("S(hex)", None))),
@@ -1194,8 +1207,8 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 352, Some(("SSS", None))),
         (Th10, 353, Some(("SSSSS", None))),
         (Th10, 354, Some(("SSS", None))),
-        (Th10, 355, Some(("SSSSS", None))),
-        (Th10, 356, Some(("fffff", None))),
+        (Th10, 355, Some(("SSSSS", None))), // alcostg: SS___
+        (Th10, 356, Some(("fffff", None))), // alcostg: ff___
         (Th10, 357, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
         (Th10, 358, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
         (Th10, 359, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
@@ -1207,7 +1220,10 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 365, Some(("", None))),
         (Th10, 366, Some((r#"S(enum="bool")N"#, None))),
         (Th10, 367, Some(("f", None))),
-        (Th10, 368, Some(("SSSS", None))),
+        (Th10, 368, Some(("SSSS", None))), // alcostg: S___
+
+        (Alcostg, 369, Some(("SSSS", None))),
+
         (Th10, 400, Some(("S", None))),
         (Th10, 401, Some(("S", None))),
         (Th10, 402, Some(("SSS", None))),
@@ -1243,8 +1259,17 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 432, Some(("SSSfffSSSSfS(hex)", None))),
         (Th10, 433, Some(("SSffffff", None))),
         (Th10, 434, Some(("SSSfffSSSSfS(hex)", None))),
-        (Th10, 435, Some(("Sffffffff", None))),
-        (Th10, 436, Some(("SSSSSSSSS", None))),
+        (Th10, 435, Some(("Sffffffff", None))), // alcostg: Sf___f___
+        (Th10, 436, Some(("SSSSSSSSS", None))), // alcostg: SS___S___
+
+        (Alcostg, 437, Some(("S", None))),
+        (Alcostg, 438, Some(("SS", None))),
+        (Alcostg, 439, Some(("Sf", None))),
+        (Alcostg, 440, Some(("", None))),
+        (Alcostg, 441, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Alcostg, 442, Some(("S", None))),
+        (Alcostg, 443, Some(("S", None))),
+        (Alcostg, 444, Some(("Sf", None))),
     ],
     var: &[
         (Th10, -10000, Some("$")),
@@ -1298,5 +1323,9 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, -9952, Some("$")),
         (Th10, -9951, Some("$")),
         (Th10, -9950, Some("$")),
+
+        (Alcostg, -9959, None), // Didn't have difficulty
+        (Alcostg, -9949, Some("$")),
+        (Alcostg, -9948, Some("$")),
     ],
 };
