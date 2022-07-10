@@ -1146,6 +1146,9 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Alcostg, 274, Some(("SN", None))),
         (Alcostg, 275, Some(("SS", None))),
 
+        (Th11, 276, Some(("", None))),
+        (Th11, 277, Some(("Sf", None))),
+
         (Th10, 280, Some(("ff", None))),
         (Th10, 281, Some(("SSff", None))),
         (Th10, 282, Some(("ff", None))),
@@ -1171,6 +1174,11 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Alcostg, 301, Some(("SSffffff", None))),
         (Alcostg, 302, Some(("ffffff", None))),
         (Alcostg, 303, Some(("SSffffff", None))),
+
+        (Th11, 304, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th11, 305, Some(("Sffffff", None))),
+        (Th11, 306, Some(("Sffffff", None))),
+        (Th11, 307, Some(("", None))),
 
         (Th10, 320, Some(("ff", None))),
         (Th10, 321, Some(("ff", None))),
@@ -1224,6 +1232,11 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
 
         (Alcostg, 369, Some(("SSSS", None))),
 
+        (Th11, 369, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th11, 370, Some(("S", None))),
+        (Th11, 371, Some(("S", None))),
+        (Th11, 372, Some(("S", None))),
+
         (Th10, 400, Some(("S", None))),
         (Th10, 401, Some(("S", None))),
         (Th10, 402, Some(("SSS", None))),
@@ -1268,8 +1281,23 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Alcostg, 440, Some(("", None))),
         (Alcostg, 441, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
         (Alcostg, 442, Some(("S", None))),
-        (Alcostg, 443, Some(("S", None))),
+        (Alcostg, 443, Some(("S", None))), // S(enum="StdInterrupt")
         (Alcostg, 444, Some(("Sf", None))),
+
+        (Th11, 437, Some(("Sff", None))),
+        (Th11, 438, Some(("Sf", None))),
+        (Th11, 439, Some(("Sff", None))),
+        (Th11, 440, Some(("fC", None))),
+        (Th11, 441, Some(("S", None))), // S(enum="StdInterrupt")
+        (Th11, 442, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th11, 443, Some(("S", None))),
+        (Th11, 444, Some(("S", None))),
+        (Th11, 445, Some(("S", None))),
+        (Th11, 446, Some(("f", None))),
+        (Th11, 447, Some(("f", None))),
+        (Th11, 448, Some(("S", None))),
+        (Th11, 449, Some(("S", None))),
+        (Th11, 450, Some(("S", None))),
     ],
     var: &[
         (Th10, -10000, Some("$")),
@@ -1287,14 +1315,14 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th10, -9988, Some("$")),
         (Th10, -9987, Some("%")),
         (Th10, -9986, Some("$")),
-        (Th10, -9985, Some("$")),
-        (Th10, -9984, Some("$")),
-        (Th10, -9983, Some("$")),
-        (Th10, -9982, Some("$")),
-        (Th10, -9981, Some("%")),
-        (Th10, -9980, Some("%")),
-        (Th10, -9979, Some("%")),
-        (Th10, -9978, Some("%")),
+        (Th10, -9985, Some("$")), // Writable since MoF
+        (Th10, -9984, Some("$")), // Writable since MoF
+        (Th10, -9983, Some("$")), // Writable since MoF
+        (Th10, -9982, Some("$")), // Writable since MoF
+        (Th10, -9981, Some("%")), // Writable since MoF
+        (Th10, -9980, Some("%")), // Writable since MoF
+        (Th10, -9979, Some("%")), // Writable since MoF
+        (Th10, -9978, Some("%")), // Writable since MoF
         (Th10, -9977, Some("%")),
         (Th10, -9976, Some("%")),
         (Th10, -9975, Some("%")),
@@ -1325,7 +1353,25 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th10, -9950, Some("$")),
 
         (Alcostg, -9959, None), // Didn't have difficulty
-        (Alcostg, -9949, Some("$")),
-        (Alcostg, -9948, Some("$")),
+        (Alcostg, -9949, Some("$")), // Writable since SA
+        (Alcostg, -9948, Some("$")), // Writable since SA
+        
+        (Th11, -9959, Some("$")),
+        (Th11, -9947, Some("$")), // Writable since SA
+        (Th11, -9946, Some("$")),
+        (Th11, -9945, Some("$")),
+        (Th11, -9944, Some("%")),
+        (Th11, -9943, Some("$")), // Writable since SA
+        (Th11, -9942, Some("$")), // Writable since SA
+        (Th11, -9941, Some("$")), // Writable since SA
+        (Th11, -9940, Some("$")), // Writable since SA
+        (Th11, -9939, Some("%")), // Writable since SA
+        (Th11, -9938, Some("%")), // Writable since SA
+        (Th11, -9937, Some("%")), // Writable since SA
+        (Th11, -9936, Some("%")), // Writable since SA
+        (Th11, -9935, Some("%")), // Writable since SA
+        (Th11, -9934, Some("%")), // Writable since SA
+        (Th11, -9933, Some("%")), // Writable since SA
+        (Th11, -9932, Some("%")), // Writable since SA
     ],
 };

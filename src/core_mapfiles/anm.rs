@@ -272,10 +272,10 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th095, 73, Some((r#"U(imm;enum="bool")"#, None))), // zero: U(imm;enum="BitBool")
         (Th095, 74, Some((r#"U(imm;enum="bool")"#, None))), // zero: U(imm;enum="BitBool")
         (Th095, 75, Some(("S", None))),
-        (Th095, 76, Some(("SSS", None))),
-        (Th095, 77, Some(("S", None))),
-        (Th095, 78, Some(("SSSSS", None))),
-        (Th095, 79, Some(("SSS", None))),
+        (Th095, 76, Some(("CCC", None))),
+        (Th095, 77, Some(("C", None))),
+        (Th095, 78, Some(("Sb(imm)---CCC", None))),
+        (Th095, 79, Some(("Sb(imm)---C", None))),
         (Th095, 80, Some(("b(imm)---", None))),
         (Th095, 81, Some(("", None))),
         (Th095, 82, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
@@ -285,7 +285,9 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th095, 86, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th095, 87, Some(("b(imm)---", None))),
 
-        // v4b (MoF)
+        // v4b (MoF, alcostg)
+        // For some reason only a few of the interp instructions
+        // were updated to use a 32 bit mode
         (Th10, 56, Some(("SU(imm)fff", None))),
         (Th10, 59, Some(("SU(imm)fff", None))),
         (Th10, 88, Some(("N", None))),
@@ -294,18 +296,19 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th10, 91, Some(("N", None))),
         (Th10, 92, Some(("N", None))),
 
-        (Th11, 93, Some(("SSf", None))),
-        (Th11, 94, Some(("SSf", None))),
+        // v4c (SA)
+        (Th11, 93, Some(("SU(imm)f", None))),
+        (Th11, 94, Some(("SU(imm)f", None))),
         (Th11, 95, Some(("N", None))),
         (Th11, 96, Some(("Nff", None))),
         (Th11, 97, Some(("Nff", None))),
         (Th11, 98, Some(("", None))),
-        (Th11, 99, Some(("S", None))),
+        (Th11, 99, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th11, 100, Some(("Sfffffffff", None))),
         (Th11, 101, Some(("S", None))),
         (Th11, 102, Some(("nS", None))),
-        (Th11, 103, Some(("ff", None))),
 
+        (Th12, 103, Some(("ff", None))),
         (Th12, 104, Some(("fS", None))),
         (Th12, 105, Some(("fS", None))),
         (Th12, 106, Some(("ff", None))),
