@@ -103,7 +103,7 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
 
         (Th11, 17, Some(("S", None))),
 
-        (Th12, 18, Some(("SSfff", None))),
+        (Th12, 18, Some(("SUfff", None))),
 
         (Th14, 14, Some(("SNS", None))),  // 'layer' argument added
         (Th14, 19, Some(("S", None))),

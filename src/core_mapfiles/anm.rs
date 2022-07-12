@@ -306,13 +306,14 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th11, 99, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th11, 100, Some(("Sfffffffff", None))),
         (Th11, 101, Some(("S", None))),
-        (Th11, 102, Some(("nS", None))),
+        (Th11, 102, Some(("nU", None))),
 
+        // v4d (UFO)
         (Th12, 103, Some(("ff", None))),
         (Th12, 104, Some(("fS", None))),
         (Th12, 105, Some(("fS", None))),
         (Th12, 106, Some(("ff", None))),
-        (Th12, 107, Some(("SSff", None))),
+        (Th12, 107, Some(("Sb(imm)---ff", None))),
         (Th12, 108, Some(("ff", None))),
         (Th12, 109, Some(("ff", None))),
         (Th12, 110, Some(("ff", None))),
@@ -506,7 +507,7 @@ static ANM_VAR: &'static CoreSignatures = &CoreSignatures {
         (Th095, 10014, Some("%")),
         (Th095, 10015, Some("%")),
 
-        // v4b (MoF)
+        // v4b (MoF, alcostg)
         (Th10, 10016, Some("%")),
         (Th10, 10017, Some("%")),
         (Th10, 10018, Some("%")),
@@ -514,8 +515,10 @@ static ANM_VAR: &'static CoreSignatures = &CoreSignatures {
         (Th10, 10020, Some("%")),
         (Th10, 10021, Some("%")),
 
+        // v4c (SA)
         (Th11, 10022, Some("$")),
 
+        // v4d (UFO)
         (Th12, 10023, Some("%")),
         (Th12, 10024, Some("%")),
         (Th12, 10025, Some("%")),

@@ -12,9 +12,10 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         Th07 => ECL_07,
         Th08 | Th09 => ECL_08_09,
         Th095 => ECL_095,
-        Th10 | Alcostg => ECL_10_103,
+        Th10 | Alcostg | Th11 => ECL_10_11,
+        Th12 => ECL_12,
 
-        Th11 | Th12 | Th125 | Th128 |
+        Th125 | Th128 |
         Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
     }
 }
@@ -1059,71 +1060,10 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
 };
 
 
-static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
-    inherit: &[],
+static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
+    inherit: &[ECL_10_18_COMMON],
     ins: &[
-        (Th10, 0, Some(("", None))),
-        (Th10, 1, Some(("", None))),
-        (Th10, 10, Some(("", None))), // 
-        // (Th10, 11, Some((r#"P(bs=4)v(rep="G")"#, None))), // Some(IKind::Return)
-        (Th10, 12, Some(("ot", Some(IKind::Jmp)))),
-        (Th10, 13, Some(("ot", None))), // Some(IKind::PopJmp(B::Eq))
-        (Th10, 14, Some(("ot", None))), // Some(IKind::PopJmp(B::Ne))
-        // (Th10, 15, Some((r#"P(bs=4)v(rep="G")"#, None))), // Some(IKind::CallStackAsync)
-        // (Th10, 16, Some((r#"P(bs=4)Sv(rep="G")"#, None))), // Some(IKind::CallStackAsyncId)
-        (Th10, 17, Some(("S", None))),
-        (Th10, 18, Some(("S", None))),
-        (Th10, 19, Some(("S", None))),
-        (Th10, 20, Some(("SS", None))),
-        (Th10, 21, Some(("", None))),
-        // (Th10, 30, Some((r#"p(bs=4)v(rep="g")"#, None))),
-        (Th10, 40, Some(("S", None))), // Some(IKind::FrameEnter)
-        (Th10, 41, Some(("", None))), // Some(IKind::FrameLeave)
-        (Th10, 42, Some(("S", None))), // Some(IKind::Push(Ty::Int))
-        (Th10, 43, Some(("S", None))), // Some(IKind::Pop(Ty::Int))
-        (Th10, 44, Some(("f", None))), // Some(IKind::Push(Ty::Float))
-        (Th10, 45, Some(("f", None))), // Some(IKind::Pop(Ty::Float))
-        (Th10, 50, Some(("", None))), // Some(IKind::StackBinOp(B::Add, Ty::Int))
-        (Th10, 51, Some(("", None))), // Some(IKind::StackBinOp(B::Add, Ty::Float))
-        (Th10, 52, Some(("", None))), // Some(IKind::StackBinOp(B::Sub, Ty::Int))
-        (Th10, 53, Some(("", None))), // Some(IKind::StackBinOp(B::Sub, Ty::Float))
-        (Th10, 54, Some(("", None))), // Some(IKind::StackBinOp(B::Mul, Ty::Int))
-        (Th10, 55, Some(("", None))), // Some(IKind::StackBinOp(B::Mul, Ty::Float))
-        (Th10, 56, Some(("", None))), // Some(IKind::StackBinOp(B::Div, Ty::Int))
-        (Th10, 57, Some(("", None))), // Some(IKind::StackBinOp(B::Div, Ty::Float))
-        (Th10, 58, Some(("", None))), // Some(IKind::StackBinOp(B::Mod, Ty::Int))
-        (Th10, 59, Some(("", None))), // Some(IKind::StackBinCmp(B::Eq, Ty::Int))
-        (Th10, 60, Some(("", None))), // Some(IKind::StackBinCmp(B::Eq, Ty::Float))
-        (Th10, 61, Some(("", None))), // Some(IKind::StackBinCmp(B::Ne, Ty::Int))
-        (Th10, 62, Some(("", None))), // Some(IKind::StackBinCmp(B::Ne, Ty::Float))
-        (Th10, 63, Some(("", None))), // Some(IKind::StackBinCmp(B::Lt, Ty::Int))
-        (Th10, 64, Some(("", None))), // Some(IKind::StackBinCmp(B::Lt, Ty::Float))
-        (Th10, 65, Some(("", None))), // Some(IKind::StackBinCmp(B::Le, Ty::Int))
-        (Th10, 66, Some(("", None))), // Some(IKind::StackBinCmp(B::Le, Ty::Float))
-        (Th10, 67, Some(("", None))), // Some(IKind::StackBinCmp(B::Gt, Ty::Int))
-        (Th10, 68, Some(("", None))), // Some(IKind::StackBinCmp(B::Gt, Ty::Float))
-        (Th10, 69, Some(("", None))), // Some(IKind::StackBinCmp(B::Ge, Ty::Int))
-        (Th10, 70, Some(("", None))), // Some(IKind::StackBinCmp(B::Ge, Ty::Float))
-        (Th10, 71, Some(("", None))), // Some(IKind::StackUnCmp(U::Not, Ty::Int))
-        (Th10, 72, Some(("", None))), // Some(IKind::StackUnCmp(U::Not, Ty::Float))
-        (Th10, 73, Some(("", None))), // Some(IKind::StackBinOp(B::IllogicOr, Ty::Int))
-        (Th10, 74, Some(("", None))), // Some(IKind::StackBinOp(B::IllogicAnd, Ty::Int))
-        (Th10, 75, Some(("", None))), // Some(IKind::StackBinCmp(B::BitXor, Ty::Int))
-        (Th10, 76, Some(("", None))), // Some(IKind::StackBinCmp(B::BitOr, Ty::Int))
-        (Th10, 77, Some(("", None))), // Some(IKind::StackBinCmp(B::BitAnd, Ty::Int))
-        (Th10, 78, Some(("S", None))), // 
-        (Th10, 79, Some(("", None))), // Some(IKind::StackUnOp(U::Sin, Ty::Float))
-        (Th10, 80, Some(("", None))), // Some(IKind::StackUnOp(U::Cos, Ty::Float))
-        (Th10, 81, Some(("ffff", None))),
-        (Th10, 82, Some(("f", None))),
-        (Th10, 83, Some(("S", None))),
-        (Th10, 84, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Int))
-        (Th10, 85, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Float))
-        (Th10, 86, Some(("fff", None))),
-        (Th10, 87, Some(("ffff", None))),
-
-        (Alcostg, 88, Some(("", None))), // Some(IKind::StackUnOp(U::Sqrt, Ty::Float))
-
+        // Section A
         (Th10, 256, Some(("P(bs=4)ffSSS", None))),
         (Th10, 257, Some(("P(bs=4)ffSSS", None))),
         (Th10, 258, Some(("S", None))),
@@ -1149,6 +1089,7 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th11, 276, Some(("", None))),
         (Th11, 277, Some(("Sf", None))),
 
+        // Section B
         (Th10, 280, Some(("ff", None))),
         (Th10, 281, Some(("SSff", None))),
         (Th10, 282, Some(("ff", None))),
@@ -1175,11 +1116,14 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Alcostg, 302, Some(("ffffff", None))),
         (Alcostg, 303, Some(("SSffffff", None))),
 
+        (Th11, 289, Some(("SSfff", None))), // Why is there 1 fewer arg after this?
+        (Th11, 291, Some(("SSfff", None))),
         (Th11, 304, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
         (Th11, 305, Some(("Sffffff", None))),
         (Th11, 306, Some(("Sffffff", None))),
         (Th11, 307, Some(("", None))),
 
+        // Section C
         (Th10, 320, Some(("ff", None))),
         (Th10, 321, Some(("ff", None))),
         (Th10, 322, Some(("S(hex)", None))),
@@ -1202,13 +1146,13 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th10, 339, Some(("", None))),
         (Th10, 340, Some(("", None))),
         (Th10, 341, Some(("SP(bs=4)", None))),
-        (Th10, 342, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
+        (Th10, 342, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
         (Th10, 343, Some(("", None))),
         (Th10, 344, Some(("S", None))),
         (Th10, 345, Some(("", None))),
         (Th10, 346, Some(("f", None))),
         (Th10, 347, Some(("SfC", None))),
-        (Th10, 348, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
+        (Th10, 348, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
         (Th10, 349, Some(("fff", None))),
         (Th10, 350, Some(("fffff", None))),
         (Th10, 351, Some(("fff", None))),
@@ -1217,16 +1161,16 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th10, 354, Some(("SSS", None))),
         (Th10, 355, Some(("SSSSS", None))), // alcostg: SS___
         (Th10, 356, Some(("fffff", None))), // alcostg: ff___
-        (Th10, 357, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 358, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 359, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
+        (Th10, 357, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 358, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 359, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
         (Th10, 360, Some(("S", None))),
         (Th10, 361, Some(("S", None))),
         (Th10, 362, Some(("", None))),
         (Th10, 363, Some(("", None))),
         (Th10, 364, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
         (Th10, 365, Some(("", None))),
-        (Th10, 366, Some((r#"S(enum="bool")N"#, None))),
+        (Th10, 366, Some((r#"S(enum="bool")N"#, None))), // zero: S(enum="BitBool")N
         (Th10, 367, Some(("f", None))),
         (Th10, 368, Some(("SSSS", None))), // alcostg: S___
 
@@ -1237,6 +1181,7 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th11, 371, Some(("S", None))),
         (Th11, 372, Some(("S", None))),
 
+        // Section D
         (Th10, 400, Some(("S", None))),
         (Th10, 401, Some(("S", None))),
         (Th10, 402, Some(("SSS", None))),
@@ -1300,6 +1245,267 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th11, 450, Some(("S", None))),
     ],
     var: &[
+        // This is placed here to avoid putting game-specific
+        // stuff into the "common" definition block
+        (Alcostg, -9959, None), // Didn't have difficulty
+        (Th11, -9959, Some("$")), // Readded difficulty
+    ],
+};
+
+
+static ECL_12: &'static CoreSignatures = &CoreSignatures {
+    inherit: &[ECL_10_18_COMMON],
+    ins: &[
+        // Section A
+        (Th12, 256, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 257, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 258, Some(("S", None))),
+        (Th12, 259, Some(("SN", None))),
+        (Th12, 260, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 261, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 262, Some(("SN", None))),
+        (Th12, 263, Some(("SN", None))),
+        (Th12, 264, Some(("SN", None))),
+        (Th12, 265, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 266, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 267, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 268, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 269, Some(("S", None))),
+        (Th12, 270, Some(("P(bs=4)fffSSS", None))),
+        (Th12, 271, Some(("P(bs=4)fffSSS", None))),
+        (Th12, 272, Some(("SN", None))),
+        (Th12, 273, Some(("SNf", None))),
+        (Th12, 274, Some(("SN", None))),
+        (Th12, 275, Some(("SS", None))),
+        (Th12, 276, Some(("", None))),
+        (Th12, 277, Some(("Sf", None))),
+        (Th12, 278, Some(("Sff", None))),
+        (Th12, 279, Some(("Sff", None))),
+        (Th12, 280, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 281, Some(("SS", None))),
+
+        // Section B
+        (Th12, 300, Some(("ff", None))),
+        (Th12, 301, Some(("SSff", None))),
+        (Th12, 302, Some(("ff", None))),
+        (Th12, 303, Some(("SSff", None))),
+        (Th12, 304, Some(("ff", None))),
+        (Th12, 305, Some(("SSff", None))),
+        (Th12, 306, Some(("ff", None))),
+        (Th12, 307, Some(("SSff", None))),
+        (Th12, 308, Some(("ffff", None))),
+        (Th12, 309, Some(("SSfff", None))),
+        (Th12, 310, Some(("ffff", None))),
+        (Th12, 311, Some(("SSfff", None))),
+        (Th12, 312, Some(("SSf", None))),
+        (Th12, 313, Some(("SSf", None))),
+        (Th12, 314, Some(("", None))),
+        (Th12, 315, Some(("", None))),
+        (Th12, 316, Some(("fff", None))),
+        (Th12, 317, Some(("fff", None))),
+        (Th12, 318, Some(("ff", None))),
+        (Th12, 319, Some(("ff", None))),
+        (Th12, 320, Some(("ffffff", None))),
+        (Th12, 321, Some(("SSfffff", None))), // Again, another pair of removed floats...?
+        (Th12, 322, Some(("ffffff", None))),
+        (Th12, 323, Some(("SSfffff", None))),
+        (Th12, 324, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 325, Some(("Sffffff", None))),
+        (Th12, 326, Some(("Sffffff", None))),
+        (Th12, 327, Some(("", None))),
+
+        // Section C
+        (Th12, 400, Some(("ff", None))),
+        (Th12, 401, Some(("ff", None))),
+        (Th12, 402, Some(("S(hex)", None))),
+        (Th12, 403, Some(("S(hex)", None))),
+        (Th12, 404, Some(("ffff", None))),
+        (Th12, 405, Some(("", None))),
+        (Th12, 406, Some(("", None))),
+        (Th12, 407, Some(("SS", None))),
+        (Th12, 408, Some(("ff", None))),
+        (Th12, 409, Some(("", None))),
+        (Th12, 410, Some(("S", None))),
+        (Th12, 411, Some(("S", None))),
+        (Th12, 412, Some(("S", None))),
+        (Th12, 413, Some(("", None))),
+        (Th12, 414, Some(("SSSP(bs=4)", None))),
+        (Th12, 415, Some(("S", None))),
+        (Th12, 416, Some(("S", None))),
+        (Th12, 417, Some(("SSS", None))),
+        (Th12, 418, Some((r#"S(enum="MsgScript")"#, None))),
+        (Th12, 419, Some(("", None))),
+        (Th12, 420, Some(("", None))),
+        (Th12, 421, Some(("SP(bs=4)", None))),
+        (Th12, 422, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 423, Some(("", None))),
+        (Th12, 424, Some(("S", None))),
+        (Th12, 425, Some(("", None))),
+        (Th12, 426, Some(("f", None))),
+        (Th12, 427, Some(("SfC", None))),
+        (Th12, 428, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 429, Some(("fff", None))),
+        (Th12, 430, Some(("fffff", None))),
+        (Th12, 431, Some(("fff", None))),
+        (Th12, 432, Some(("SSS", None))),
+        (Th12, 433, Some(("SSSSS", None))),
+        (Th12, 434, Some(("SSS", None))),
+        (Th12, 435, Some(("SSSSS", None))),
+        (Th12, 436, Some(("fffff", None))),
+        (Th12, 437, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 438, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 439, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 440, Some(("S", None))),
+        (Th12, 441, Some(("S", None))),
+        (Th12, 442, Some(("", None))),
+        (Th12, 443, Some(("", None))),
+        (Th12, 444, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 445, Some(("", None))),
+        (Th12, 446, Some((r#"S(enum="bool")N"#, None))), // zero: S(enum="BitBool")N
+        (Th12, 447, Some(("f", None))),
+        (Th12, 448, Some(("SSSS", None))),
+        (Th12, 449, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 450, Some(("S", None))),
+        (Th12, 451, Some(("S", None))),
+        (Th12, 452, Some(("S", None))),
+        (Th12, 453, Some(("S", None))),
+        (Th12, 454, Some(("", None))),
+        (Th12, 455, Some(("SS", None))),
+        (Th12, 456, Some(("ffS", None))),
+
+        // Section D
+        (Th12, 500, Some(("S", None))),
+        (Th12, 501, Some(("S", None))),
+        (Th12, 502, Some(("SSS", None))),
+        (Th12, 503, Some(("Sff", None))),
+        (Th12, 504, Some(("Sff", None))),
+        (Th12, 505, Some(("Sff", None))),
+        (Th12, 506, Some(("SSS", None))),
+        (Th12, 507, Some(("SS", None))),
+        (Th12, 508, Some(("SSS", None))),
+        (Th12, 509, Some((r#"SSS(enum="bool")SSSff"#, None))),
+        (Th12, 510, Some(("", None))),
+        (Th12, 511, Some(("SS", None))),
+        // Laser instructions moved, everything else shifted up
+        (Th12, 512, Some(("f", None))),
+        (Th12, 513, Some(("f", None))),
+        (Th12, 514, Some(("Sffffff", None))),
+        (Th12, 515, Some(("Sffffffffff", None))),
+        (Th12, 516, Some(("Sffff", None))),
+        (Th12, 517, Some(("SSSSSSS", None))),
+        (Th12, 518, Some(("SSSSSSSSSSS", None))),
+        (Th12, 519, Some(("SSSSS", None))),
+        // More lasers moved
+        (Th12, 520, Some(("fff", None))),
+        // Even more lasers moved
+        (Th12, 521, Some(("Sffffffff", None))),
+        (Th12, 522, Some(("SSSSSSSSS", None))),
+        (Th12, 523, Some(("Sff", None))),
+        (Th12, 524, Some(("Sf", None))),
+        (Th12, 525, Some(("Sff", None))),
+        (Th12, 526, Some(("fC", None))),
+        (Th12, 527, Some(("S", None))), // S(enum="StdInterrupt")
+        (Th12, 528, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 529, Some(("S", None))),
+        (Th12, 530, Some(("S", None))),
+        (Th12, 531, Some(("S", None))),
+        (Th12, 532, Some(("f", None))),
+        (Th12, 533, Some(("f", None))),
+        // Final laser instruction moved
+        (Th12, 534, Some(("S", None))),
+        (Th12, 535, Some(("S", None))),
+
+        // Section E
+        (Th12, 600, Some(("Sffff", None))),
+        (Th12, 601, Some(("SSSSSS(hex)", None))),
+        (Th12, 602, Some(("S", None))),
+        (Th12, 603, Some(("SS", None))),
+        (Th12, 604, Some(("Sff", None))),
+        (Th12, 605, Some(("Sff", None))),
+        (Th12, 606, Some(("Sf", None))),
+        (Th12, 607, Some(("Sf", None))),
+        (Th12, 608, Some(("Sf", None))),
+        (Th12, 609, Some(("Sf", None))),
+        (Th12, 610, Some(("S", None))),
+        (Th12, 611, Some(("S", None))),
+
+        // Section F
+        (Th12, 700, Some(("S", None))),
+    ],
+    var: &[],
+};
+
+
+static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
+    inherit: &[],
+    ins: &[
+        (Th10, 0, Some(("", None))),
+        (Th10, 1, Some(("", None))),
+        (Th10, 10, Some(("", None))), // 
+        // (Th10, 11, Some((r#"P(bs=4)v(rep="G")"#, None))), // Some(IKind::Return)
+        (Th10, 12, Some(("ot", Some(IKind::Jmp)))),
+        (Th10, 13, Some(("ot", None))), // Some(IKind::PopJmp(B::Eq))
+        (Th10, 14, Some(("ot", None))), // Some(IKind::PopJmp(B::Ne))
+        // (Th10, 15, Some((r#"P(bs=4)v(rep="G")"#, None))), // Some(IKind::CallStackAsync)
+        // (Th10, 16, Some((r#"P(bs=4)Sv(rep="G")"#, None))), // Some(IKind::CallStackAsyncId)
+        (Th10, 17, Some(("S", None))),
+        (Th10, 18, Some(("S", None))),
+        (Th10, 19, Some(("S", None))),
+        (Th10, 20, Some(("SS", None))),
+        (Th10, 21, Some(("", None))),
+        // (Th10, 30, Some((r#"p(bs=4)v(rep="g")"#, None))),
+        (Th10, 40, Some(("S", None))), // Some(IKind::FrameEnter)
+        (Th10, 41, Some(("", None))), // Some(IKind::FrameLeave)
+        (Th10, 42, Some(("S", None))), // Some(IKind::Push(Ty::Int))
+        (Th10, 43, Some(("S", None))), // Some(IKind::Pop(Ty::Int))
+        (Th10, 44, Some(("f", None))), // Some(IKind::Push(Ty::Float))
+        (Th10, 45, Some(("f", None))), // Some(IKind::Pop(Ty::Float))
+        (Th10, 50, Some(("", None))), // Some(IKind::StackBinOp(B::Add, Ty::Int))
+        (Th10, 51, Some(("", None))), // Some(IKind::StackBinOp(B::Add, Ty::Float))
+        (Th10, 52, Some(("", None))), // Some(IKind::StackBinOp(B::Sub, Ty::Int))
+        (Th10, 53, Some(("", None))), // Some(IKind::StackBinOp(B::Sub, Ty::Float))
+        (Th10, 54, Some(("", None))), // Some(IKind::StackBinOp(B::Mul, Ty::Int))
+        (Th10, 55, Some(("", None))), // Some(IKind::StackBinOp(B::Mul, Ty::Float))
+        (Th10, 56, Some(("", None))), // Some(IKind::StackBinOp(B::Div, Ty::Int))
+        (Th10, 57, Some(("", None))), // Some(IKind::StackBinOp(B::Div, Ty::Float))
+        (Th10, 58, Some(("", None))), // Some(IKind::StackBinOp(B::Mod, Ty::Int))
+        (Th10, 59, Some(("", None))), // Some(IKind::StackBinCmp(B::Eq, Ty::Int))
+        (Th10, 60, Some(("", None))), // Some(IKind::StackBinCmp(B::Eq, Ty::Float))
+        (Th10, 61, Some(("", None))), // Some(IKind::StackBinCmp(B::Ne, Ty::Int))
+        (Th10, 62, Some(("", None))), // Some(IKind::StackBinCmp(B::Ne, Ty::Float))
+        (Th10, 63, Some(("", None))), // Some(IKind::StackBinCmp(B::Lt, Ty::Int))
+        (Th10, 64, Some(("", None))), // Some(IKind::StackBinCmp(B::Lt, Ty::Float))
+        (Th10, 65, Some(("", None))), // Some(IKind::StackBinCmp(B::Le, Ty::Int))
+        (Th10, 66, Some(("", None))), // Some(IKind::StackBinCmp(B::Le, Ty::Float))
+        (Th10, 67, Some(("", None))), // Some(IKind::StackBinCmp(B::Gt, Ty::Int))
+        (Th10, 68, Some(("", None))), // Some(IKind::StackBinCmp(B::Gt, Ty::Float))
+        (Th10, 69, Some(("", None))), // Some(IKind::StackBinCmp(B::Ge, Ty::Int))
+        (Th10, 70, Some(("", None))), // Some(IKind::StackBinCmp(B::Ge, Ty::Float))
+        (Th10, 71, Some(("", None))), // Some(IKind::StackUnCmp(U::Not, Ty::Int))
+        (Th10, 72, Some(("", None))), // Some(IKind::StackUnCmp(U::Not, Ty::Float))
+        (Th10, 73, Some(("", None))), // Some(IKind::StackBinOp(B::IllogicOr, Ty::Int))
+        (Th10, 74, Some(("", None))), // Some(IKind::StackBinOp(B::IllogicAnd, Ty::Int))
+        (Th10, 75, Some(("", None))), // Some(IKind::StackBinCmp(B::BitXor, Ty::Int))
+        (Th10, 76, Some(("", None))), // Some(IKind::StackBinCmp(B::BitOr, Ty::Int))
+        (Th10, 77, Some(("", None))), // Some(IKind::StackBinCmp(B::BitAnd, Ty::Int))
+        (Th10, 78, Some(("S", None))), // 
+        (Th10, 79, Some(("", None))), // Some(IKind::StackUnOp(U::Sin, Ty::Float))
+        (Th10, 80, Some(("", None))), // Some(IKind::StackUnOp(U::Cos, Ty::Float))
+        (Th10, 81, Some(("ffff", None))),
+        (Th10, 82, Some(("f", None))),
+        (Th10, 83, Some(("S", None))),
+        (Th10, 84, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Int))
+        (Th10, 85, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Float))
+        (Th10, 86, Some(("fff", None))),
+        (Th10, 87, Some(("ffff", None))),
+
+        (Th12, 87, Some(("fffff", None))), // Changed to not use first arg as input and output
+
+        (Alcostg, 88, Some(("", None))), // Some(IKind::StackUnOp(U::Sqrt, Ty::Float))
+
+        (Th12, 89, Some(("fff", None))),
+    ],
+    var: &[
         (Th10, -10000, Some("$")),
         (Th10, -9999, Some("%")),
         (Th10, -9998, Some("%")),
@@ -1352,11 +1558,9 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th10, -9951, Some("$")),
         (Th10, -9950, Some("$")),
 
-        (Alcostg, -9959, None), // Didn't have difficulty
         (Alcostg, -9949, Some("$")), // Writable since SA
         (Alcostg, -9948, Some("$")), // Writable since SA
-        
-        (Th11, -9959, Some("$")),
+
         (Th11, -9947, Some("$")), // Writable since SA
         (Th11, -9946, Some("$")),
         (Th11, -9945, Some("$")),
@@ -1373,5 +1577,8 @@ static ECL_10_103: &'static CoreSignatures = &CoreSignatures {
         (Th11, -9934, Some("%")), // Writable since SA
         (Th11, -9933, Some("%")), // Writable since SA
         (Th11, -9932, Some("%")), // Writable since SA
+
+        (Th12, -9931, Some("$")),
+        (Th12, -9930, Some("$")),
     ],
 };

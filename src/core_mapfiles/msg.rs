@@ -103,7 +103,8 @@ static MSG_10_18: &CoreSignatures = &CoreSignatures {
 
         // th11 inserts one in the middle :(
         (Th11, 9, Some(("", None))),   // new
-        (Th11, 10, Some(("S", None))), // 10...24 are TH10's 9...23
+        // 10...24 are TH10's 9...23
+        (Th11, 10, Some((r#"b(enum="bool")---"#, None))), // zero: b(enum="BitBool")---
         (Th11, 11, Some(("S", None))),
         (Th11, 12, Some(("", None))),
         (Th11, 13, Some(("S", None))),
