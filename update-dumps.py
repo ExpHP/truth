@@ -5,6 +5,7 @@ import shlex
 import subprocess
 import argparse
 import os
+import re
 import sys
 import time
 import fnmatch
@@ -51,6 +52,7 @@ def main():
     parser.add_argument('--nobuild', action='store_false', dest='build', help='do not build truth')
     parser.add_argument('--noverify', action='store_false', dest='verify', help='do not verify round-tripping (expensive)')
     parser.add_argument('--update-known-bad', action='store_true', help='bless the new list of bad files')
+    parser.add_argument('-k', '--search-pattern', type=str, help='filter the filenames tested to contain a regular expression')
     parser.add_argument('-j', type=int, default=1, help='run this many jobs in parallel')
     args = parser.parse_args()
 
@@ -77,6 +79,12 @@ def main():
     if not args.modes:
         args.modes = list(ALL_MODES)
 
+    if args.search_pattern:
+        file_filter_re = re.compile(args.search_pattern)
+        file_filter_func = lambda filename: file_filter_re.search(filename) is not None
+    else:
+        file_filter_func = lambda filename: True
+
     games = find_all_games(config)
     all_files = []
     badfiles = [] if args.verify else None
@@ -89,11 +97,13 @@ def main():
         if not any(lo <= game <= hi for (lo, hi) in args.game):
             continue
         for filename in os.listdir(config.directories.input.for_game(game)):
-            if get_format(game, filename) in args.formats:
-                all_files.append((game, filename, timelog, badfiles, args.modes, args.optimized, args.decompile_args, config))
+            if not file_filter_func(filename):
+                continue
+            if get_format(game, filename) not in args.formats:
+                continue
+            all_files.append((game, filename, timelog, badfiles, args.modes, args.optimized, args.decompile_args, config))
 
     if args.build:
-
         subprocess.run(['cargo', 'build'] + (['--release'] if args.optimized else []), check=True)
     with ThreadPool(args.j) as p:
         p.starmap(process_file, all_files)
