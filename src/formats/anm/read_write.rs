@@ -261,7 +261,7 @@ fn write_entry(
         let sprite_offset = w.pos()? - entry_pos;
 
         let sprite_id = sprite.id.unwrap_or(*next_auto_sprite_id);
-        *next_auto_sprite_id = sprite_id + 1;
+        *next_auto_sprite_id = sprite_id.wrapping_add(1);
 
         write_sprite(w, sprite_id, sprite)?;
         Ok(sprite_offset)

@@ -1154,7 +1154,7 @@ fn strip_unnecessary_sprite_ids<'a>(entry_sprites: impl IntoIterator<Item=&'a mu
             if actual_id == next_auto_sprite_id {
                 sprite.id = None;
             }
-            next_auto_sprite_id = actual_id + 1;
+            next_auto_sprite_id = actual_id.wrapping_add(1);
         }
     }
 }
@@ -1165,7 +1165,7 @@ fn all_sprite_ids<'a>(entry_sprites: impl IntoIterator<Item=&'a IndexMap<Sp<Iden
     for sprites in entry_sprites {
         for sprite in sprites.values() {
             let actual_id = sprite.id.unwrap_or(next_auto_sprite_id);
-            next_auto_sprite_id = actual_id + 1;
+            next_auto_sprite_id = actual_id.wrapping_add(1);
             out.push(actual_id);
         }
     }

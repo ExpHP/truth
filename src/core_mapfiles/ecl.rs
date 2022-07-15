@@ -629,7 +629,7 @@ static ECL_08_09: &'static CoreSignatures = &CoreSignatures {
         (Th08, 127, Some(("S", None))),
         (Th08, 128, Some(("S(imm)f(imm)f(imm)f(imm)f(imm)", None))), // Argument 1 is unread
         (Th08, 129, Some(("b(imm)---", None))),
-        (Th08, 130, Some((r#"s(imm;enum="EclSub")--"#, None))),
+        (Th08, 130, Some((r#"s(imm;extend;enum="EclSub")--"#, None))),
         (Th08, 131, Some(("S", None))),
         (Th08, 132, Some(("S", None))),
         (Th08, 133, Some(("SSE", None))),
@@ -903,7 +903,7 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
         (Th095, 81, Some(("U(hex)", None))),
         (Th095, 82, Some(("f", None))),
         (Th095, 83, Some(("E(imm)", None))),
-        (Th095, 84, Some(("E(imm)fff", None))),
+        (Th095, 84, Some(("E(imm)ff", None))), // Game engine reads E(imm)fff, but the files are cursed trash
         (Th095, 85, Some(("", None))),
         (Th095, 86, Some(("ssSSffffU(imm;hex)", None))),
         (Th095, 87, Some(("ssSSffffU(imm;hex)", None))),
@@ -1088,6 +1088,7 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
 
         (Th11, 276, Some(("", None))),
         (Th11, 277, Some(("Sf", None))),
+        (Th11, 278, Some(("S", None))), // Not implemented
 
         // Section B
         (Th10, 280, Some(("ff", None))),
@@ -1243,6 +1244,11 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
         (Th11, 448, Some(("S", None))),
         (Th11, 449, Some(("S", None))),
         (Th11, 450, Some(("S", None))),
+
+        // Section E (Didn't exist yet)
+
+        // Section F
+        (Th11, 500, Some(("S", None))), // Not implemented
     ],
     var: &[
         // This is placed here to avoid putting game-specific
@@ -1313,6 +1319,10 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         (Th12, 325, Some(("Sffffff", None))),
         (Th12, 326, Some(("Sffffff", None))),
         (Th12, 327, Some(("", None))),
+        (Th12, 328, Some(("ff", None))),
+        (Th12, 329, Some(("SSff", None))),
+        (Th12, 330, Some(("ff", None))),
+        (Th12, 331, Some(("SSff", None))),
 
         // Section C
         (Th12, 400, Some(("ff", None))),
@@ -1430,7 +1440,7 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         (Th12, 611, Some(("S", None))),
 
         // Section F
-        (Th12, 700, Some(("S", None))),
+        (Th12, 700, Some(("S", None))), // Not implemented
     ],
     var: &[],
 };

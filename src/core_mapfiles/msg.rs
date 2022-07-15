@@ -127,6 +127,7 @@ static MSG_10_18: &CoreSignatures = &CoreSignatures {
         (Th12, 17, Some(("m(bs=4;mask=0x77,7,16;furibug)", None))),
         (Th12, 27, Some(("f", None))), // new
 
+        (Th128, 2, Some(("S", None))), // Argument started being non-zero
         (Th128, 28, Some(("ff", None))),
         (Th128, 29, Some(("S", None))),
         (Th128, 30, Some(("", None))),
@@ -143,6 +144,7 @@ static MSG_10_18: &CoreSignatures = &CoreSignatures {
 
         (Th15, 33, None), // removed
 
+        (Th16, 1, Some(("S", None))), // Argument started being non-zero
         (Th16, 33, Some(("SS", None))), // replaced with something totally different (but unused)
         (Th16, 34, Some(("SS", None))),
         (Th16, 35, Some(("", None))),

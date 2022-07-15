@@ -593,7 +593,7 @@ impl AtomRaiser<'_, '_> {
         let pseudo_arg0 = match instr.pseudo_arg0 {
             None | Some(0) => None,
             Some(arg0) => {
-                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true, immediate: true, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } };
+                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true, immediate: true, extend: false, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } };
                 let expr = self.raise_arg(emitter, &SimpleArg::from(arg0 as i32), &enc, dest_label)?;
                 Some(expr)
             }
