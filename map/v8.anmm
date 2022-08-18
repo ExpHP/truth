@@ -122,6 +122,7 @@
 437 rotationMode
 438 originMode
 439 fadeNearCamera
+440 unflip
 
 # Refer to https://gist.github.com/ExpHP/88bdef8f28f46fe4af6ab2e013b75896#creating-children
 500 scriptNew
