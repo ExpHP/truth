@@ -2,6 +2,7 @@
 
 ## Added
 
+* **Support for TH18.5 100th Black Market.**
 * **`truecl`** (!!!!) is available in **prototype status,** but the way to invoke it is ~~a well guarded secret~~ `truth-core truecl`.  TH06-TH095 are supported.
 * **Function definition syntax for exported subs.**  `void Sub0(int x) {}`
 * **Natural call syntax for exported subs.**  `Sub0(10, 20.4);`
