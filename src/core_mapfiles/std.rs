@@ -11,8 +11,8 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         => STD_07_09,
 
         | Th095 | Th10 | Alcostg | Th11 | Th12 | Th125 | Th128
-        | Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18
-        => STD_095_18
+        | Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185
+        => STD_095_185,
     }
 }
 
@@ -72,7 +72,7 @@ static STD_07_09: &CoreSignatures = &CoreSignatures {
     var: &[],
 };
 
-static STD_095_18: &CoreSignatures = &CoreSignatures {
+static STD_095_185: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th095, 0, Some(("", None))),

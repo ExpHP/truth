@@ -14,8 +14,8 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         Th095 => ECL_095,
         Th10 => ECL_10,
 
-        Alcostg | Th11 | Th12 | Th125 | Th128 |
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
+        Alcostg | Th11 | Th12 | Th125 | Th128 | Th13 |
+        Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 => CoreSignatures::EMPTY,
     }
 }
 
@@ -23,8 +23,8 @@ pub(super) fn timeline_core_signatures(game: Game) -> &'static CoreSignatures {
     match game {
         Th06 | Th07 | Th08 | Th09 | Th095 => TIMELINE,
 
-        Th10 | Alcostg | Th11 | Th12 | Th125 | Th128 |
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
+        Th10 | Alcostg | Th11 | Th12 | Th125 | Th128 | Th13 |
+        Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 => CoreSignatures::EMPTY,
     }
 }
 
