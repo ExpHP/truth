@@ -196,6 +196,7 @@ MSG_GLOBS = {
     '17': 'st0*.msg',
     '18': 'st0*.msg',
     '185': '*.msg',
+    # NEWHU: 185
 }
 
 def get_format(game, path):
