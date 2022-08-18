@@ -5,10 +5,12 @@ import shlex
 import subprocess
 import argparse
 import os
+import re
 import sys
 import time
 import fnmatch
 import warnings
+import tempfile
 try:
     from ruamel.yaml import YAML
 except ImportError:
@@ -50,7 +52,9 @@ def main():
     parser.add_argument('--decompile-arg', dest='decompile_args', action='append', help='supply an argument during decompile commands')
     parser.add_argument('--nobuild', action='store_false', dest='build', help='do not build truth')
     parser.add_argument('--noverify', action='store_false', dest='verify', help='do not verify round-tripping (expensive)')
+    parser.add_argument('--diff', action='store_true', help='display diffs where recompiled files differ')
     parser.add_argument('--update-known-bad', action='store_true', help='bless the new list of bad files')
+    parser.add_argument('-k', '--search-pattern', type=str, help='filter the filenames tested to contain a regular expression')
     parser.add_argument('-j', type=int, default=1, help='run this many jobs in parallel')
     args = parser.parse_args()
 
@@ -67,17 +71,28 @@ def main():
     config = Config.from_path(args.config)
 
     # if custom filters were given then we won't end up iterating over all files
-    badfiles_is_comprehensive = args.verify and not any([args.game, args.formats, args.modes])
+    badfiles_is_comprehensive = bool(all([
+        args.verify,
+        not args.game,
+        not args.formats,
+        not args.modes,
+        not args.search_pattern,
+        not args.decompile_args,
+    ]))
 
     if not args.game:
         args.game = [('06', '99')]
-
     if not args.formats:
         args.formats = list(DEFAULT_FORMATS)
     if not args.modes:
         args.modes = list(ALL_MODES)
 
-    games = find_all_games(config)
+    if args.search_pattern:
+        file_filter_re = re.compile(args.search_pattern)
+        file_filter_func = lambda filename: file_filter_re.search(filename) is not None
+    else:
+        file_filter_func = lambda filename: True
+
     all_files = []
     badfiles = [] if args.verify else None
     timelog = {
@@ -85,15 +100,17 @@ def main():
         for fmt in ALL_FORMATS
         for mode in ['compile', 'decompile']
     }
-    for game in games:
+    for game in find_all_games(config):
         if not any(lo <= game <= hi for (lo, hi) in args.game):
             continue
         for filename in os.listdir(config.directories.input.for_game(game)):
-            if get_format(game, filename) in args.formats:
-                all_files.append((game, filename, timelog, badfiles, args.modes, args.optimized, args.decompile_args, config))
+            if not file_filter_func(filename):
+                continue
+            if get_format(game, filename) not in args.formats:
+                continue
+            all_files.append((game, filename, timelog, badfiles, args, config))
 
     if args.build:
-
         subprocess.run(['cargo', 'build'] + (['--release'] if args.optimized else []), check=True)
     with ThreadPool(args.j) as p:
         p.starmap(process_file, all_files)
@@ -103,25 +120,41 @@ def main():
     if os.path.exists(known_bad_path):
         known_bad = set(x.strip() for x in open(known_bad_path))
     else:
-        update_known_bad = True
         known_bad = set()
 
+    report(badfiles_is_comprehensive, badfiles, timelog, known_bad_path, update_known_bad, known_bad)
+
+def report(
+    badfiles_is_comprehensive,
+    badfiles,
+    timelog,
+    known_bad_path,
+    update_known_bad,
+    known_bad,
+):
+    bad_filenames = None
+    if badfiles is not None:
+        bad_filenames = [fname for (fname, _) in badfiles]
+
     # Report files that did not roundtrip properly.
-    if badfiles:
+    if badfiles:  # falsy results are None (--noverify) or [] (no bad files)
         print()
         print("BAD FILES:")
         regressions = 0
-        for fname in sorted(badfiles):
+        for fname, diff in sorted(badfiles):
             regressions += fname not in known_bad
             print(' ', fname, '' if fname in known_bad else '  (!!!!)')
+            if diff:
+                print(diff)
+                print()
         print('count:', len(badfiles))
         if regressions:
             print('regressions:', regressions)
 
     # Report files that were fixed.
     if badfiles_is_comprehensive:  # (custom filters would cause badfiles to be incomplete)
-        assert badfiles is not None
-        fixedfiles = sorted(set(known_bad) - set(badfiles))
+        assert bad_filenames is not None
+        fixedfiles = sorted(set(known_bad) - set(bad_filenames))
         if fixedfiles:
             print()
             print("FIXED FILES:")
@@ -162,6 +195,7 @@ MSG_GLOBS = {
     '165': 'msg*.msg',
     '17': 'st0*.msg',
     '18': 'st0*.msg',
+    '185': '*.msg',
 }
 
 def get_format(game, path):
@@ -179,58 +213,95 @@ def get_format(game, path):
         return 'mission'
     return None
 
-# ABORT = 0
-def process_file(game, file, timelog, badfiles, modes, optimized, extra_decompile_args, config):
-    # global ABORT
-
+def process_file(game, file, timelog, badfiles, args, config):
     input = config.directories.input.for_game(game) + f'/{file}'
     outspec = config.directories.text_dump.for_game(game) + f'/{file}.spec'
     outfile = config.directories.binary_dump.for_game(game) + f'/{file}'
 
-    bindir = f'target/' + ('release' if optimized else 'debug')
+    bindir = f'target/' + ('release' if args.optimized else 'debug')
 
     format = get_format(game, file)
     if format == 'std':
-        decompile_args = [f'{bindir}/trustd', 'decompile', '-g', game, input, '-o', outspec] + extra_decompile_args
-        compile_args = [f'{bindir}/trustd', 'compile', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/trustd', 'decompile', '-g', game] + args.decompile_args
+        compile_args = [f'{bindir}/trustd', 'compile', '-g', game]
     elif format == 'anm':
-        decompile_args = [f'{bindir}/truanm', 'decompile', '-g', game, input, '-o', outspec] + extra_decompile_args
-        compile_args = [f'{bindir}/truanm', 'compile', '-g', game, outspec, '-i', input, '-o', outfile]
+        decompile_args = [f'{bindir}/truanm', 'decompile', '-g', game] + args.decompile_args
+        compile_args = [f'{bindir}/truanm', 'compile', '-g', game, '-i', input]
     elif format == 'msg':
-        decompile_args = [f'{bindir}/trumsg', 'decompile', '-g', game, input, '-o', outspec] + extra_decompile_args
-        compile_args = [f'{bindir}/trumsg', 'compile', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/trumsg', 'decompile', '-g', game] + args.decompile_args
+        compile_args = [f'{bindir}/trumsg', 'compile', '-g', game]
     elif format == 'mission':
-        decompile_args = [f'{bindir}/trumsg', 'decompile', '--mission', '-g', game, input, '-o', outspec] + extra_decompile_args
-        compile_args = [f'{bindir}/trumsg', 'compile', '--mission', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/trumsg', 'decompile', '--mission', '-g', game] + args.decompile_args
+        compile_args = [f'{bindir}/trumsg', 'compile', '--mission', '-g', game]
     elif format == 'ecl':
-        decompile_args = [f'{bindir}/truecl', 'decompile', '-g', game, input, '-o', outspec] + extra_decompile_args
-        compile_args = [f'{bindir}/truecl', 'compile', '-g', game, outspec, '-o', outfile]
+        decompile_args = [f'{bindir}/truecl', 'decompile', '-g', game] + args.decompile_args
+        compile_args = [f'{bindir}/truecl', 'compile', '-g', game]
     else:
         assert False, file
 
     os.makedirs(os.path.dirname(outspec), exist_ok=True)
     os.makedirs(os.path.dirname(outfile), exist_ok=True)
 
-    # try:
-    if 'decompile' in modes:
-        print(' '.join(map(shlex.quote, decompile_args)))
+    if 'decompile' in args.modes:
         start_time = time.time()
-        subprocess.run(decompile_args, check=True)
+        echo_run(decompile_args + [input, '-o', outspec], check=True)
         timelog[f'{format}-decompile'] += time.time() - start_time
 
-    if 'compile' in modes:
-        print(' '.join(map(shlex.quote, compile_args)))
+    if 'compile' in args.modes:
         start_time = time.time()
-        subprocess.run(compile_args, check=True)
+        echo_run(compile_args + [outspec, '-o', outfile], check=True)
         timelog[f'{format}-compile'] += time.time() - start_time
 
         if badfiles is not None and open(input, 'rb').read() != open(outfile, 'rb').read():
+            diff = None
+            if args.diff:
+                diff = get_diff(decompile_args, compile_args, input, outspec, outfile)
             print('!!!', outspec)
-            badfiles.append(outspec)
+            badfiles.append((outspec, diff))
 
-    # except subprocess.CalledProcessError:
-    #     ABORT = 1
-    #     raise
+def echo_run(args, **kw):
+    print(' '.join(map(shlex.quote, args)))
+    subprocess.run(args, **kw)
+
+
+def get_diff(decompile_args, compile_args, input, outspec, outfile):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # decompile again
+        diff_respec = f'{tmpdir}/recompiled'
+        subprocess.run(decompile_args + [outfile, '-o', diff_respec], check=True)
+
+        diff = get_git_diff_output(outspec, diff_respec)
+        if diff:
+            return diff
+
+        # if decompiling again produced the same result, maybe the bug is in intrinsics or argument decoding.
+        # start over from scratch, with progressively conservative decompilation flags.
+        diff_outspec = f'{tmpdir}/decompiled'
+        diff_outfile = f'{tmpdir}/compiled'
+        for arg_to_add in ['--no-blocks', '--no-intrinsics', '--no-arguments']:
+            if arg_to_add in decompile_args:
+                continue  # pointless to try, and adding the same arg twice might be an error
+
+            subprocess.run(decompile_args + [input, '-o', diff_outspec] + [arg_to_add], check=True)
+            subprocess.run(compile_args + [diff_outspec, '-o', diff_outfile], check=True)
+            subprocess.run(decompile_args + [diff_outfile, '-o', diff_respec] + [arg_to_add], check=True)
+
+            diff = get_git_diff_output(diff_outspec, diff_respec)
+            if diff:
+                return diff
+
+        # we give up, it's something weird in the header data probably, just get the "binary files differ" message
+        diff = get_git_diff_output(input, outfile)
+        assert diff
+        return diff
+
+def get_git_diff_output(a_path, b_path):
+    result = subprocess.run(['git', 'diff', '--no-index', '--color=always', a_path, b_path], text=True, capture_output=True)
+    if result.returncode:
+        return result.stdout
+    else:
+        return None  # files are identical
+
 
 def find_all_games(config):
     input_dirs = config.directories.input
@@ -242,7 +313,7 @@ def find_all_games(config):
 
     suspicious_games = [g for g in games if g not in MSG_GLOBS]
     if suspicious_games:
-        supicious_str = ', '.join(f'{input_dirs.subdir_prefix}')
+        suspicious_str = ', '.join(f'{input_dirs.subdir_prefix}')
         warnings.warn(
             f'unrecognized game numbers: {suspicious_str}\n'
             'Maybe support hasn\'t been added. Make sure all game numbers < 10 are zero-padded!'
@@ -256,7 +327,6 @@ def parse_game(s):
         return a, b
     else:
         return s, s
-
 
 # ------------------------------------------------------
 

@@ -32,9 +32,9 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
             OUT
         },
 
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => {
+        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 => {
             static OUT: &CoreSignatures = &CoreSignatures {
-                inherit: &[ANM_INS_13_18, ANM_VAR],
+                inherit: &[ANM_INS_13_185, ANM_VAR],
                 ins: &[], var: &[],
             };
             OUT
@@ -316,7 +316,7 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
 };
 
 // v8
-static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
+static ANM_INS_13_185: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th13, 0, Some(("", None))),
@@ -464,6 +464,8 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
 
         (Th18, 439, Some(("Sff", None))),  // ...and TH18 demo reused its ID for something else!
         (Th18, 614, Some(("ff", None))),
+
+        (Th185, 440, Some(("", None))),
     ],
     var: &[],
 };
