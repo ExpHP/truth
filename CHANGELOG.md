@@ -2,7 +2,6 @@
 
 ## Added
 
-* **Support for TH18.5 100th Black Market.**
 * **`truecl`** (!!!!) is available in **prototype status,** but the way to invoke it is ~~a well guarded secret~~ `truth-core truecl`.  TH06-TH095 are supported.
 * **Function definition syntax for exported subs.**  `void Sub0(int x) {}`
 * **Natural call syntax for exported subs.**  `Sub0(10, 20.4);`
@@ -10,8 +9,13 @@
 * **Difficulty flags.** `{"ENH"}: ins_10();`
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
-* **Debug info.** The `--output-debug-info JSONFILE` flag has been added to all `compile` subcommands.  This file can be used by debuggers to relate source-level concepts (e.g. function names and variable names) to runtime concepts (e.g. registers and const values).
 
+# Version 0.5.1
+
+## Added
+
+* **Support for TH18.5 100th Black Market.**
+* **Debug info.** The `--output-debug-info JSONFILE` flag has been added to all `compile` subcommands.  This file can be used by debuggers to relate source-level concepts (e.g. function names and variable names) to runtime concepts (e.g. registers and const values).
   Perfect name resolution of locals in a debugger might not be possible yet as truth currently does not explicitly construct the tree used for name resolution (it is only implicitly constructed), so scope information is not yet available.
 * **Bitwise negation.** The unary `~` (bitwise not) operator has been added.  No language natively provides it, but even when unavailable, it can be used (and will compile as `-1 - x`).
 * **`--no-builtin-mapfiles`** option for both compilation and decompilation.  This will disable the core mapfiles which provide the builtin signatures and intrinsic mappings for all games, which can be useful if you are trying to design a comprehensive mapfile from scratch.
@@ -19,9 +23,7 @@
 ## Other changes
 
 * The ternary operator `a ? b : c` can now be used in any expression, not just const expressions.
-
 * Relative time labels and interrupts now accept expressions, so you can use consts.  Technically this also makes negative relative time labels possible; whether you choose to write them as `+(-15):` or (gasp) `+-15:` is up to you...
-
 * Unary `-` now can be directly provided by an intrinsic, and will otherwise fall back to `-1 * x`. (formerly, it would always produce `0 - x`, which is not correct for all floats)
 
 # Version 0.5.0
