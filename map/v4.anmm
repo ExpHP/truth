@@ -95,7 +95,7 @@
 # 83:  v8 ins 422
 84 texCircle
 # 85:  unknown flag
-# 86:  unknown flag
+86 slowdownImmune
 87 randMode
 
 88 scriptNew

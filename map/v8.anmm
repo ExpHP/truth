@@ -114,8 +114,9 @@
 426 scrollY
 427 scrollXTime
 428 scrollYTime
-429 zoomOut  # scales UV coords (selects larger region of image file)
-430 zoomOutTime
+429 scaleUV  # scales UV coords (selects larger region of image file)
+430 scaleUVTime
+432 slowdownImmune
 434 scale2  # stacks multiplicatively with scale
 435 scale2Time
 436 anchorOffset

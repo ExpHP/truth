@@ -160,8 +160,8 @@ static MSG_10_185: &CoreSignatures = &CoreSignatures {
         (Th185, 37, Some(("", None))),
         (Th185, 38, Some(("", None))),
         (Th185, 39, Some(("", None))),
-        (Th185, 40, Some(("", None))), // unused
-        (Th185, 41, Some(("", None))), // unused
+        (Th185, 40, Some(("m(bs=4;mask=0x77,7,16;furibug)", None))), // unused
+        (Th185, 41, Some(("m(bs=4;mask=0x77,7,16;furibug)", None))), // unused
     ],
     var: &[],
 };

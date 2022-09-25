@@ -38,4 +38,9 @@
 33 portraitDarken     # DIFFERENT IN TH143 AND TH165!!!
 34 portraitHighlight
 35 lightsOut
-36 store  # TH18 only
+36 store  # TH18, TH185
+37 infoboxOpen     # TH185
+38 speakerInfobox  # TH185
+39 infoboxClose    # TH185
+# 40    # TH185, unused, draws a title but is buggy
+# 41    # TH185, unused, draws a subtitle but is buggy
