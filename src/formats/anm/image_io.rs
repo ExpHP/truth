@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use indexmap::IndexMap;
+
 use super::{
     AnmFile, Entry, HasData, TextureData, TextureMetadata, TextureFromSource,
     WorkingAnmFile, WorkingEntry, WorkingEntrySpecs,
 };
 
 use crate::io::{Fs};
-use crate::error::{GatherErrorIteratorExt, ErrorReported};
+use crate::error::{ErrorReported};
 use crate::image::ColorFormat;
 
 pub fn apply_directory_image_source(
@@ -136,28 +138,26 @@ pub fn extract(
 
     let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
 
-    anm.entries.iter().map(|entry| {
-        if entry.texture_data.is_none() {
+    let grouped_by_path = get_groups_by(&anm.entries, |entry| entry.path.clone());
+    for (path, entry_indices) in grouped_by_path {
+        let entries = {
+            entry_indices.into_iter()
+                .map(|index| &anm.entries[index])
+                .filter(|entry| entry.texture_data.is_some())
+                .collect::<Vec<_>>()
+        };
+        if entries.is_empty() {
             return Ok(());
         }
 
-        // tarbomb protection
-        let full_path = canonical_out_path.join(&entry.path);
-        let full_path = canonicalize_part_of_path_that_exists(full_path.as_ref()).map_err(|e| {
-            fs.emitter.emit(error!("while resolving '{}': {}", fs.display_path(&full_path), e))
-        })?;
+        let full_path = join_with_tarbomb_prevention(fs, &canonical_out_path, &path)?;
         let display_path = fs.display_path(&full_path);
-        if full_path.strip_prefix(&canonical_out_path).is_err() {
-            return Err(fs.emitter.emit(error!(
-                message("skipping '{}': outside of destination directory", display_path),
-            )));
-        }
 
         if let Some(parent) = full_path.parent() {
             fs.create_dir_all(&parent)?;
         }
 
-        let image = produce_image_from_entry(entry).map_err(|s| {
+        let image = produce_image_from_entries(&entries).map_err(|s| {
             fs.emitter.emit(error!("skipping '{}': {}", display_path, s))
         })?;
 
@@ -166,8 +166,22 @@ pub fn extract(
         })?;
 
         println!("exported '{}'", display_path);
-        Ok(())
-    }).collect_with_recovery()
+    }
+    Ok(())
+}
+
+fn join_with_tarbomb_prevention(fs: &Fs<'_>, a: &Path, b: &impl AsRef<Path>) -> Result<PathBuf, ErrorReported> {
+    let full_path = a.join(b);
+    let full_path = canonicalize_part_of_path_that_exists(full_path.as_ref()).map_err(|e| {
+        fs.emitter.emit(error!("while resolving '{}': {}", fs.display_path(&full_path), e))
+    })?;
+    if full_path.strip_prefix(&a).is_err() {
+        let display_path = fs.display_path(&full_path);
+        return Err(fs.emitter.emit(error!(
+            message("skipping '{}': outside of destination directory", display_path),
+        )));
+    }
+    Ok(full_path)
 }
 
 // based on cargo's normalize_path
@@ -202,31 +216,51 @@ pub fn canonicalize_part_of_path_that_exists(path: &Path) -> Result<PathBuf, std
 
 pub(super) type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
 
-fn produce_image_from_entry(entry: &Entry) -> Result<image::RgbaImage, String> {
+fn produce_image_from_entries(entries: &[&Entry]) -> Result<image::RgbaImage, String> {
     use image::{GenericImage, buffer::ConvertBuffer};
 
-    let texture_data = entry.texture_data.as_ref().expect("produce_image_from_entry called without texture!");
-    let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
-    let content_width = texture_metadata.width as u32;
-    let content_height = texture_metadata.height as u32;
-    let format = texture_metadata.format;
-    let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
-        format!("cannot transcode from unknown color format {}", format)
-    })?;
+    let mut output_width = 0;
+    let mut output_height = 0;
+    for entry in entries {
+        let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
+        output_width = u32::max(output_width, entry.specs.offset_x + texture_metadata.width);
+        output_height = u32::max(output_height, entry.specs.offset_y + texture_metadata.height);
+    }
 
-    let content_argb = cformat.transcode_to_argb_8888(&texture_data.data);
-    let content = BgraImage::from_raw(content_width, content_height, &content_argb[..]).expect("size error?!");
-
-    let offset_x = entry.specs.offset_x;
-    let offset_y = entry.specs.offset_y;
-    let output_width = content_width + offset_x;
-    let output_height = content_height + offset_y;
     let output_init_argb = vec![0xFF; 4 * output_width as usize * output_height as usize];
-    let mut output = BgraImage::from_raw(output_width, output_height, output_init_argb).expect("size error?!");
+    let mut output_image = BgraImage::from_raw(output_width, output_height, output_init_argb).expect("size error?!");
 
-    output.sub_image(offset_x, offset_y, content_width, content_height)
-        .copy_from(&content, 0, 0)
-        .expect("region should definitely be large enough");
+    for entry in entries {
+        let texture_data = entry.texture_data.as_ref().expect("produce_image_from_entry called without texture!");
+        let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
+        let texture_width = texture_metadata.width;
+        let texture_height = texture_metadata.height;
+        let format = texture_metadata.format;
+        let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
+            format!("cannot transcode from unknown color format {}", format)
+        })?;
 
-    Ok(output.convert())
+        let texture_argb = cformat.transcode_to_argb_8888(&texture_data.data);
+        let texture_image = BgraImage::from_raw(texture_width, texture_height, &texture_argb[..]).expect("size error?!");
+
+        let offset_x = entry.specs.offset_x;
+        let offset_y = entry.specs.offset_y;
+
+        output_image.sub_image(offset_x, offset_y, texture_width, texture_height)
+            .copy_from(&texture_image, 0, 0)
+            .expect("region should definitely be large enough");
+    }
+
+    Ok(output_image.convert())
+}
+
+fn get_groups_by<T, K: Eq + core::hash::Hash>(
+    items: &[T],
+    mut key_fn: impl FnMut(&T) -> K,
+) -> IndexMap<K, Vec<usize>> {
+    let mut out = IndexMap::<_, Vec<_>>::default();
+    for (index, item) in items.iter().enumerate() {
+        out.entry(key_fn(item)).or_default().push(index);
+    }
+    out
 }

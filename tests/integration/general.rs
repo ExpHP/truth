@@ -448,3 +448,13 @@ source_test!(
     main_body: r#"  ins_11(3.0, -0.0);  "#,
     check_decompiled: |decompiled| { assert!(decompiled.contains("-0.0")); },
 );
+
+#[test]
+fn extract_image() {
+    todo!("test of image extraction");
+}
+
+#[test]
+fn extract_image_with_stitching() {
+    todo!("test of image extraction with image split across multiple entries");
+}
