@@ -1,17 +1,32 @@
 directories:
+
   # Directory with child directories for all Windows touhou games.
-  # Each directory must contain the output of 'thdat -x' for that game.
   # They must all end in the game number (zero padded if < 10), with a common prefix.
   #   e.g.  th06, th095, th14
   input:
     root: /home/exp/thcrap/decomp
     subdir-prefix: th
+    # Uncomment this and they can be put inside a dedicated subdir of each th folder.
+    # e.g.  "/home/exp/thcrap/decomp/th11/input", "/home/exp/thcrap/decomp/th095/input", etc.
+    #
+    # dir-inside: input
+
   # Output directory for decompilation. Will be created if it does not exist.
   text-dump:
     root: all-dumps
     subdir-prefix: th
+    # dir-inside: src
+
   # Output directory for recompilation. Will be created if it does not exist.
   # Can be same as text-dump.
   binary-dump:
     root: all-dumps
     subdir-prefix: th
+    # dir-inside: bin
+
+  # Output directory for images. Will be created if it does not exist.
+  # Can be same as the others.
+  image-dump:
+    root: all-dumps
+    subdir-prefix: th
+    dir-inside: img

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from multiprocessing.pool import ThreadPool
+from collections import Counter
 import shlex
 import subprocess
 import argparse
@@ -35,7 +36,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Script used to test recompilation of all files in all games.',
     )
-    parser.set_defaults(formats=[], modes=[], game=[], decompile_args=[])
+    parser.set_defaults(formats=[], modes=[], game=[], decompile_args=[], image_sources=['anm'])
     parser.add_argument('-c', '--config', type=str, default=None, help=
         'path to config file. If not provided, will default to reading '
         f'{DEFAULT_CONFIG_FILENAME} from the directory with this script.'
@@ -48,6 +49,11 @@ def main():
     parser.add_argument('--msg', action='append_const', dest='formats', const='msg', help='restrict to msg files. (and any other language flags used)')
     parser.add_argument('--ecl', action='append_const', dest='formats', const='ecl', help='restrict to ecl files. (and any other language flags used)')
     parser.add_argument('--mission', action='append_const', dest='formats', const='mission', help='restrict to mission files. (and any other language flags used)')
+
+    g = parser.add_mutually_exclusive_group()
+    g.add_argument('--images', dest='image_sources', action='store_const', const=['dir'], help="test image extraction and recompilation with '-i image-dir'")
+    g.add_argument('--images-plus-anm', dest='image_sources', action='store_const', const=['dir', 'anm'], help="test image extraction and recompilation with '-i thing.anm -i image-dir'")
+
     parser.add_argument('--debug', action='store_false', dest='optimized', help='use unoptimized builds')
     parser.add_argument('--decompile-arg', dest='decompile_args', action='append', help='supply an argument during decompile commands')
     parser.add_argument('--nobuild', action='store_false', dest='build', help='do not build truth')
@@ -55,6 +61,7 @@ def main():
     parser.add_argument('--diff', action='store_true', help='display diffs where recompiled files differ')
     parser.add_argument('--update-known-bad', action='store_true', help='bless the new list of bad files')
     parser.add_argument('-k', '--search-pattern', type=str, help='filter the filenames tested to contain a regular expression')
+
     parser.add_argument('-j', type=int, default=1, help='run this many jobs in parallel')
     args = parser.parse_args()
 
@@ -70,9 +77,10 @@ def main():
 
     config = Config.from_path(args.config)
 
-    # if custom filters were given then we won't end up iterating over all files
     badfiles_is_comprehensive = bool(all([
+        # we won't find any bad files if we don't check!
         args.verify,
+        # if custom filters were given then we won't end up iterating over all files
         not args.game,
         not args.formats,
         not args.modes,
@@ -95,11 +103,7 @@ def main():
 
     all_files = []
     badfiles = [] if args.verify else None
-    timelog = {
-        f'{fmt}-{mode}': 0.0
-        for fmt in ALL_FORMATS
-        for mode in ['compile', 'decompile']
-    }
+    timelog = Counter()
     for game in find_all_games(config):
         if not any(lo <= game <= hi for (lo, hi) in args.game):
             continue
@@ -218,16 +222,22 @@ def process_file(game, file, timelog, badfiles, args, config):
     input = config.directories.input.for_game(game) + f'/{file}'
     outspec = config.directories.text_dump.for_game(game) + f'/{file}.spec'
     outfile = config.directories.binary_dump.for_game(game) + f'/{file}'
+    outimgdir = config.directories.image_dump.for_game(game)
 
     bindir = f'target/' + ('release' if args.optimized else 'debug')
 
     format = get_format(game, file)
+    extract_args = [f'{bindir}/truanm', 'extract', '-g', game]
     if format == 'std':
         decompile_args = [f'{bindir}/trustd', 'decompile', '-g', game] + args.decompile_args
         compile_args = [f'{bindir}/trustd', 'compile', '-g', game]
     elif format == 'anm':
         decompile_args = [f'{bindir}/truanm', 'decompile', '-g', game] + args.decompile_args
-        compile_args = [f'{bindir}/truanm', 'compile', '-g', game, '-i', input]
+        compile_args = [f'{bindir}/truanm', 'compile', '-g', game]
+        if 'anm' in args.image_sources:
+            compile_args += ['-i', input]
+        if 'dir' in args.image_sources:
+            compile_args += ['-i', outimgdir]
     elif format == 'msg':
         decompile_args = [f'{bindir}/trumsg', 'decompile', '-g', game] + args.decompile_args
         compile_args = [f'{bindir}/trumsg', 'compile', '-g', game]
@@ -242,6 +252,11 @@ def process_file(game, file, timelog, badfiles, args, config):
 
     os.makedirs(os.path.dirname(outspec), exist_ok=True)
     os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    if format == 'anm' and 'dir' in args.image_sources:
+        start_time = time.time()
+        echo_run(extract_args + [input, '-o', outimgdir], check=True, stdout=subprocess.DEVNULL)
+        timelog[f'{format}-extract'] += time.time() - start_time
 
     if 'decompile' in args.modes:
         start_time = time.time()
@@ -357,6 +372,7 @@ class ConfigDirectories(dict):
         self.input = ConfigDirectory(d.pop('input'), self_key=f'{self_key}.input')
         self.text_dump = ConfigDirectory(d.pop('text-dump'), self_key=f'{self_key}.text-dump')
         self.binary_dump = ConfigDirectory(d.pop('binary-dump'), self_key=f'{self_key}.binary-dump')
+        self.image_dump = ConfigDirectory(d.pop('image-dump'), self_key=f'{self_key}.image-dump')
 
         for key in d:
             full_key = f'{self_key}.{key}'
@@ -370,13 +386,20 @@ class ConfigDirectory:
         d = dict(d)
         self.root = d.pop('root')
         self.subdir_prefix = d.pop('subdir-prefix')
+        self.dir_inside = d.pop('dir-inside', None)
+
+        if self.dir_inside == '':
+            self.dir_inside = None
 
         for key in d:
             full_key = f'{self_key}.{key}'
             warnings.warn(f'unrecognized key {repr(full_key)} in config')
 
     def for_game(self, game):
-        return f'{self.root}/{self.subdir_prefix}{game}'
+        path = f'{self.root}/{self.subdir_prefix}{game}'
+        if self.dir_inside is not None:
+            path = f'{path}/{self.dir_inside}'
+        return path
 
 # ------------------------------------------------------
 
