@@ -169,10 +169,7 @@ pub mod anm_extract {
             truth.read_anm(game, path, with_images)
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
-        if anms.len() > 1 {
-            todo!("multiple anm files");
-        }
-        anms[0].extract_images(outdir, &truth.fs())
+        crate::AnmFile::extract_images(&anms, outdir, &truth.fs())
     }
 }
 

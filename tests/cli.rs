@@ -75,7 +75,7 @@ fn anm_extract_no_files() {
         .arg("8")
         .assert()
         .failure()
-        .stderr(pred(|s: &str| s.contains("Usage:")))
+        .stderr(pred(|s: &str| s.contains("Usage: ")))
         .stderr(pred(|s: &str| s.contains("missing required")))
     ;
 }
