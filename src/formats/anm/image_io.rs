@@ -131,6 +131,7 @@ pub fn extract(
     fs: &Fs<'_>,
     anms: &[AnmFile],
     out_path: &Path,
+    conflict_debug_dir: Option<&Path>,
 ) -> Result<(), ErrorReported> {
     // call this now to make sure ancestors of out_path don't get implicitly created when
     // we use create_dir_all later
@@ -151,6 +152,7 @@ pub fn extract(
     // An image file may come from multiple entries, even across separate ANM files.
     // Do all entries for a given image at a time.
     let grouped_by_path = get_groups_by(all_entries, |entry| entry.entry.path.clone());
+    let mut mismatch_tracker = MismatchedPixelTracker::new(conflict_debug_dir);
     for (path, entries) in grouped_by_path {
         if entries.is_empty() {
             return Ok(());
@@ -163,8 +165,8 @@ pub fn extract(
             fs.create_dir_all(&parent)?;
         }
 
-        let image = produce_image_from_entries(&entries, fs.emitter).map_err(|s| {
-            fs.emitter.emit(error!("skipping '{}': {}", display_path, s))
+        let image = fs.emitter.chain_with(|f| write!(f, "while extracting '{display_path}'"), |emitter| {
+            produce_image_from_entries(emitter, &entries, &mut mismatch_tracker)
         })?;
 
         image.save(full_path).map_err(|e| {
@@ -173,6 +175,8 @@ pub fn extract(
 
         println!("exported '{}'", display_path);
     }
+    mismatch_tracker.finish(fs)?;
+
     Ok(())
 }
 
@@ -263,11 +267,12 @@ struct EntryAndLocation<'a> {
     src_anm_path_display: &'a str,
 }
 
-/// Function to produce a single image file, given all of the entries that contain regions of the image.
-fn produce_image_from_entries(
-    entries: &[EntryAndLocation<'_>],
+/// Function to produce a single image, given all of the entries that contain regions of the image.
+fn produce_image_from_entries<'a>(
     emitter: &impl Emitter,
-) -> Result<image::RgbaImage, String> {
+    entries: &[EntryAndLocation<'a>],
+    mismatch_tracker: &mut MismatchedPixelTracker<'a>,
+) -> Result<image::RgbaImage, ErrorReported> {
     use image::buffer::ConvertBuffer;
 
     let mut output_width = 0;
@@ -281,7 +286,7 @@ fn produce_image_from_entries(
     let output_init_argb = vec![0xFF; 4 * output_width as usize * output_height as usize];
     let mut output_image = BgraImage::from_raw(output_width, output_height, output_init_argb).expect("size error?!");
 
-    let mut mismatch_tracker = MismatchedPixelTracker::default();
+    mismatch_tracker.begin_image_path(&entries[0].entry.path);
     for &entry_and_location in entries {
         let EntryAndLocation { entry, .. } = entry_and_location;
         let texture_data = entry.texture_data.as_ref().expect("produce_image_from_entry called without texture!");
@@ -290,20 +295,18 @@ fn produce_image_from_entries(
         let texture_height = texture_metadata.height;
         let format = texture_metadata.format;
         let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
-            format!("cannot transcode from unknown color format {format}")
+            emitter.emit(error!("cannot transcode from unknown color format {format}"))
         })?;
 
         let texture_argb = cformat.transcode_to_argb_8888(&texture_data.data);
         let texture_image = BgraImage::from_raw(texture_width, texture_height, &texture_argb[..]).expect("size error?!");
 
-        let rect = Rectangle::from_entry(entry);
-        mismatch_tracker.visit(entry_and_location, &output_image, &texture_image);
+        mismatch_tracker.visit_entry(entry_and_location, &output_image, &texture_image);
 
-        rectangle_subimage_mut(&mut output_image, &rect)
+        rectangle_subimage_mut(&mut output_image, &Rectangle::from_entry(entry))
             .copy_from(&texture_image, 0, 0)
             .expect("region should definitely be large enough");
     }
-    mismatch_tracker.finish(emitter);
 
     Ok(output_image.convert())
 }
@@ -311,22 +314,40 @@ fn produce_image_from_entries(
 /// Helper for the diagnostic on overlapping, mismatched pixels between multiple entries during image extraction.
 #[derive(Default)]
 struct MismatchedPixelTracker<'a> {
-    prior_entries: Vec<EntryAndLocation<'a>>,
+    prior_entries_for_current_image: Vec<EntryAndLocation<'a>>,
+    current_image_path: Option<String>,
     conflicts: Vec<(EntryAndLocation<'a>, EntryAndLocation<'a>, Rectangle)>,
+    conflict_debug_dir: Option<&'a Path>,
 }
 
 impl<'a> MismatchedPixelTracker<'a> {
-    fn visit(
+    fn new(conflict_debug_dir: Option<&'a Path>) -> Self {
+        MismatchedPixelTracker {
+            current_image_path: None,
+            prior_entries_for_current_image: vec![],
+            conflicts: vec![],
+            conflict_debug_dir,
+        }
+    }
+
+    fn begin_image_path(&mut self, path: &str) {
+        self.current_image_path = Some(path.to_owned());
+        self.prior_entries_for_current_image.clear();
+    }
+
+    fn visit_entry(
         &mut self,
         entry: EntryAndLocation<'a>,
         current_output: &BgraImage,
         texture_image: &BgraImage<&[u8]>,
     ) {
+        assert_eq!(&entry.entry.path[..], self.current_image_path.as_ref().expect("visit_entry called before setting image path"));
+
         // For now, just check the regions that intersect with previous images.
         //
         // Iterate in reverse order so that our warnings will name the thing that was most recently written.
         let new_rectangle = Rectangle::from_entry(entry.entry);
-        for &prior_entry in self.prior_entries.iter().rev() {
+        for &prior_entry in self.prior_entries_for_current_image.iter().rev() {
             if let Some(intersection) = Rectangle::from_entry(prior_entry.entry).intersection(&new_rectangle) {
                 let output_region = rectangle_subimage(current_output, &intersection);
                 if output_region.pixels().map(|(_, _, pixel)| pixel).ne(texture_image.pixels().copied()) {
@@ -335,19 +356,53 @@ impl<'a> MismatchedPixelTracker<'a> {
                 }
             }
         }
-        self.prior_entries.push(entry);
+        self.prior_entries_for_current_image.push(entry);
     }
 
-    fn finish(self, emitter: &impl Emitter) {
-        for (entry_1, entry_2, rect) in self.conflicts {
+    fn finish(mut self, fs: &Fs) -> Result<(), ErrorReported> {
+        let conflicts = self.conflicts.drain(..).collect::<Vec<_>>();
+        for (conflict_index, (entry_1, entry_2, rect)) in conflicts.into_iter().enumerate() {
             let [x1, y1] = rect.start;
             let [x2, y2] = rect.end();
-            emitter.emit(warning!(
-                message("conflicting data for image {} region ({x1}, {y1})..({x2}, {y2})", entry_1.entry.path),
-                note("provided by entry {} in {}", entry_1.entry_index, entry_1.src_anm_path_display),
-                note("provided by entry {} in {}", entry_2.entry_index, entry_2.src_anm_path_display),
-            )).ignore();
+
+            let mut diagnostic = warning!(
+                message("conflicting data for image '{}' region ({x1}, {y1})..({x2}, {y2})", entry_1.entry.path),
+                note("between entry {:02} in '{}'", entry_1.entry_index, entry_1.src_anm_path_display),
+                note("    and entry {:02} in '{}'", entry_2.entry_index, entry_2.src_anm_path_display),
+            );
+
+            if let Some(conflict_debug_dir) = self.conflict_debug_dir {
+                let written_path = self.write_conflicting_images(fs, (entry_1, entry_2), conflict_debug_dir, conflict_index)?;
+                diagnostic.note(format!("conflicting images written to '{}'", fs.display_path(&written_path)));
+            }
+
+            fs.emitter.emit(diagnostic).ignore();
         }
+        Ok(())
+    }
+
+    fn write_conflicting_images(
+        &mut self,
+        fs: &Fs,
+        entries: (EntryAndLocation<'a>, EntryAndLocation<'a>),
+        conflict_debug_dir: &Path,
+        conflict_index: usize,
+    ) -> Result<PathBuf, ErrorReported>  {
+        fs.ensure_dir(conflict_debug_dir)?;
+        let subdir = conflict_debug_dir.join(format!("{conflict_index:02}"));
+        fs.ensure_dir(&subdir)?;
+
+        for (filename, entry) in vec![("a.png", entries.0), ("b.png", entries.1)] {
+            let image = produce_image_from_entries(fs.emitter, &vec![entry], self)?;
+
+            let full_path = subdir.join(filename);
+            let display_path = fs.display_path(&full_path);
+            image.save(full_path).map_err(|e| {
+                fs.emitter.emit(error!("while writing '{display_path}': {e}"))
+            })?;
+        }
+
+        Ok(subdir)
     }
 }
 

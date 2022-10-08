@@ -81,8 +81,8 @@ impl WorkingAnmFile {
 }
 
 impl AnmFile {
-    pub fn extract_images(anms: &[AnmFile], dest: &Path, fs: &Fs<'_>) -> WriteResult {
-        image_io::extract(fs, anms, dest)
+    pub fn extract_images(anms: &[AnmFile], dest: &Path, fs: &Fs<'_>, conflict_debug_dir: Option<&Path>) -> WriteResult {
+        image_io::extract(fs, anms, dest, conflict_debug_dir)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {

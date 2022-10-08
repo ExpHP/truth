@@ -146,14 +146,14 @@ pub mod anm_extract {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (inputs, outdir, game) = cli::parse_args(version, args, CmdSpec {
+        let (inputs, outdir, game, conflict_debug_dir) = cli::parse_args(version, args, CmdSpec {
             program: "truanm extract",
             usage_args: "FILE [FILE...] -g GAME [OPTIONS...]",
-            options: (cli::one_or_more_path_args("FILE"), cli::extract_outdir(), cli::game()),
+            options: (cli::one_or_more_path_args("FILE"), cli::extract_outdir(), cli::game(), cli::extract_conflict_debug_dir()),
         });
 
         wrap_exit_code(|truth| {
-            run(truth, game, &inputs, &outdir)
+            run(truth, game, &inputs, &outdir, conflict_debug_dir.as_deref())
         });
     }
 
@@ -162,6 +162,7 @@ pub mod anm_extract {
         game: Game,
         anm_paths: &[PathBuf],
         outdir: &Path,
+        conflict_debug_dir: Option<&Path>,
     ) -> Result<(), ErrorReported> {
         let mut truth = truth.validate_defs()?;
         let anms = anm_paths.iter().map(|path| {
@@ -169,7 +170,7 @@ pub mod anm_extract {
             truth.read_anm(game, path, with_images)
         }).collect::<Result<Vec<_>, ErrorReported>>()?;
 
-        crate::AnmFile::extract_images(&anms, outdir, &truth.fs())
+        crate::AnmFile::extract_images(&anms, outdir, &truth.fs(), conflict_debug_dir)
     }
 }
 
@@ -782,6 +783,14 @@ mod cli {
             help: "a directory to write images, which will be created if it does not exist. \
             Defaults to the current directory.",
         }.map(|opt| opt.map(Into::into).unwrap_or_else(|| std::env::current_dir().unwrap()))
+    }
+
+    pub fn extract_conflict_debug_dir() -> impl CliArg<Value=Option<PathBuf>> {
+        opts::Opt {
+            short: "", long: "conflict-debug-dir", metavar: "DIR",
+            help: "debugging option for conflicts between images stored in multiple entries. A \
+            directory (which will be created if necessary) to contain the images defined by each conflicting entry.",
+        }.map(|opt| opt.map(Into::into))
     }
 
     pub fn game() -> impl CliArg<Value=Game> {
