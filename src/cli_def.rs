@@ -94,7 +94,7 @@ pub mod text_reformat {
         let (input,) = cli::parse_args(version, argv, CmdSpec {
             program: "truth-core text-reformat",
             usage_args: "FILE [OPTIONS...]",
-            options: (cli::input(),),
+            options: (cli::path_arg("FILE"),),
         });
 
         wrap_exit_code(|truth| run(truth, input));
@@ -146,26 +146,33 @@ pub mod anm_extract {
     use super::*;
 
     pub fn main(version: &str, args: &[String]) -> ! {
-        let (input, outdir, game) = cli::parse_args(version, args, CmdSpec {
+        let (inputs, outdir, game) = cli::parse_args(version, args, CmdSpec {
             program: "truanm extract",
-            usage_args: "FILE -g GAME [OPTIONS...]",
-            options: (cli::input(), cli::extract_outdir(), cli::game()),
+            usage_args: "FILE [FILE...] -g GAME [OPTIONS...]",
+            options: (cli::one_or_more_path_args("FILE"), cli::extract_outdir(), cli::game()),
         });
 
         wrap_exit_code(|truth| {
-            run(truth, game, input.as_ref(), &outdir)
+            run(truth, game, &inputs, &outdir)
         });
     }
 
     pub(super) fn run(
         truth: &mut Truth,
         game: Game,
-        path: &Path,
+        anm_paths: &[PathBuf],
         outdir: &Path,
     ) -> Result<(), ErrorReported> {
         let mut truth = truth.validate_defs()?;
-        let anm = truth.read_anm(game, path, true)?;
-        anm.extract_images(outdir, &truth.fs())
+        let anms = anm_paths.iter().map(|path| {
+            let with_images = true;
+            truth.read_anm(game, path, with_images)
+        }).collect::<Result<Vec<_>, ErrorReported>>()?;
+
+        if anms.len() > 1 {
+            todo!("multiple anm files");
+        }
+        anms[0].extract_images(outdir, &truth.fs())
     }
 }
 
@@ -230,7 +237,7 @@ pub mod anm_redump {
         let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core anm-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::game()),
+            options: (cli::path_arg("FILE"), cli::required_output(), cli::game()),
         });
 
         wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
@@ -324,7 +331,7 @@ pub mod ecl_redump {
         let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core ecl-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::game()),
+            options: (cli::path_arg("FILE"), cli::required_output(), cli::game()),
         });
 
         wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
@@ -526,7 +533,7 @@ pub mod msg_redump {
         let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core msg-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::input(), cli::required_output(), cli::game()),
+            options: (cli::path_arg("FILE"), cli::required_output(), cli::game()),
         });
 
         wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
@@ -745,14 +752,14 @@ mod cli {
     }
 
     pub fn common_compile_options() -> impl CliArg<Value=CommonCompileOptions> {
-        game().zip(required_output()).zip(input()).zip(mapfile_options()).zip(debug_info())
+        game().zip(required_output()).zip(path_arg("FILE")).zip(mapfile_options()).zip(debug_info())
             .and_then(|((((game, out_path), in_path), mapfile_options), debug_info_path)| {
                 Ok(CommonCompileOptions { game, out_path, in_path, mapfile_options, debug_info_path })
             })
     }
 
     pub fn common_decompile_options() -> impl CliArg<Value=CommonDecompileOptions> {
-        game().zip(input()).zip(mapfile_options()).zip(decompile_options())
+        game().zip(path_arg("FILE")).zip(mapfile_options()).zip(decompile_options())
             .and_then(|(((game, in_path), mapfile_options), decompile_options)| {
                 Ok(CommonDecompileOptions { game, in_path, mapfile_options, decompile_options })
             })
@@ -825,7 +832,10 @@ mod cli {
         opts::Positional { metavar: s }.map(Into::into)
     }
 
-    pub fn input() -> impl CliArg<Value=PathBuf> { path_arg("INPUT") }
+    pub fn one_or_more_path_args(metavar: &'static str) -> impl CliArg<Value=Vec<PathBuf>> {
+        opts::PositionalOneOrMore { metavar }
+            .map(|vec| vec.into_iter().map(Into::into).collect())
+    }
 
     pub fn image_sources() -> impl CliArg<Value=Vec<PathBuf>> {
         opts::MultiOpt(opts::Opt {
@@ -974,24 +984,24 @@ mod cli {
     pub trait CliArg {
         type Value;
         fn add_to_options(&self, opts: &mut getopts::Options);
-        /// NOTE: `matches.free` is in reverse order, so you can call `Vec::pop` to extract them.
+        /// **Note to implementors**: `matches.free` is in reverse order, so you can call `Vec::pop` to extract them.
         fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError>;
 
         fn zip<BArg: CliArg>(self, other: BArg) -> Zip<Self, BArg>
-        where
-            Self: Sized,
+            where
+                Self: Sized,
         { Zip(self, other) }
 
         fn map<B, F: Fn(Self::Value) -> B>(self, func: F) -> Map<Self, F>
-        where
-            Self: Sized,
-            F: Fn(Self::Value) -> B,
+            where
+                Self: Sized,
+                F: Fn(Self::Value) -> B,
         { Map(self, func) }
 
         fn and_then<B, F>(self, func: F) -> AndThen<Self, F>
-        where
-            Self: Sized,
-            F: Fn(Self::Value) -> Result<B, ArgError>,
+            where
+                Self: Sized,
+                F: Fn(Self::Value) -> Result<B, ArgError>,
         { AndThen(self, func) }
     }
 
@@ -1204,8 +1214,26 @@ mod cli {
             type Value = String;
             fn add_to_options(&self, _: &mut getopts::Options) {}
             fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
-                matches.free.pop().ok_or_else(|| error!("missing required positional arg {}", self.metavar))
+                matches.free.pop().ok_or_else(|| missing_required_positional(self.metavar))
             }
+        }
+
+        pub struct PositionalOneOrMore {
+            pub metavar: &'static str,
+        }
+        impl CliArg for PositionalOneOrMore {
+            type Value = Vec<String>;
+            fn add_to_options(&self, _: &mut getopts::Options) {}
+            fn extract_value(&self, matches: &mut getopts::Matches) -> Result<Self::Value, ArgError> {
+                if matches.free.is_empty() {
+                    return Err(missing_required_positional(self.metavar));
+                }
+                Ok(matches.free.drain(..).rev().collect())
+            }
+        }
+
+        fn missing_required_positional(metavar: &str) -> ArgError {
+            error!("missing required positional arg {metavar}")
         }
     }
 }

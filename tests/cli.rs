@@ -66,3 +66,16 @@ fn core_version() {
         .success()
     ;
 }
+
+#[test]
+fn anm_extract_no_files() {
+    Command::cargo_bin("truanm").unwrap()
+        .arg("extract")
+        .arg("-g")
+        .arg("8")
+        .assert()
+        .failure()
+        .stderr(pred(|s: &str| s.contains("Usage:")))
+        .stderr(pred(|s: &str| s.contains("missing required")))
+    ;
+}
