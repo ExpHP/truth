@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use image::{GenericImage, GenericImageView};
-use crate::diagnostic::Emitter;
 
 use super::{
     AnmFile, Entry, HasData, TextureData, TextureMetadata, TextureFromSource,
@@ -139,36 +138,52 @@ pub fn extract(
 
     let canonical_out_path = fs.canonicalize(out_path).map_err(|e| fs.emitter.emit(e))?;
 
-    let all_entries = anms.iter().flat_map(|anm| {
+    // Gather entries with textures we can extract.
+    let mut all_entries = vec![];
+    for anm in anms {
         let src_anm_path_display = anm.binary_filename.as_deref().unwrap_or("<unknown>");
-        anm.entries.iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.texture_data.is_some())
-            .map(move |(entry_index, entry)| EntryAndLocation {
-                entry, entry_index, src_anm_path_display,
-            })
-    });
+
+        for (entry_index, entry) in anm.entries.iter().enumerate() {
+            if let Some(texture_data) = &entry.texture_data {
+                let texture_metadata = entry.texture_metadata.as_ref().expect("texture_data implies texture_metadata!");
+                let rectangle = Rectangle {
+                    start: [entry.specs.offset_x, entry.specs.offset_y],
+                    size: [texture_metadata.width, texture_metadata.height],
+                };
+
+                let format = texture_metadata.format;
+                if let Some(color_format) = ColorFormat::from_format_num(format) {
+                    all_entries.push(EntryForExtraction {
+                        entry, texture_data, rectangle,
+                        color_format, src_anm_path_display, entry_index,
+                    })
+                } else {
+                    fs.emitter.emit(warning!(
+                        "{src_anm_path_display}: ignoring entry {entry_index}: \
+                        cannot transcode from unknown color format {format}"
+                    )).ignore();
+                };
+            }
+        }
+    }
 
     // An image file may come from multiple entries, even across separate ANM files.
     // Do all entries for a given image at a time.
-    let grouped_by_path = get_groups_by(all_entries, |entry| entry.entry.path.clone());
+    let grouped_by_path = get_groups_by(all_entries.into_iter(), |entry| entry.entry.path.clone());
     let mut mismatch_tracker = MismatchedPixelTracker::new(conflict_debug_dir);
-    for (path, entries) in grouped_by_path {
+    for (path, entries) in &grouped_by_path {
         if entries.is_empty() {
             return Ok(());
         }
 
-        let full_path = join_with_tarbomb_prevention(fs, &canonical_out_path, &path)?;
+        let full_path = join_with_tarbomb_prevention(fs, &canonical_out_path, path)?;
         let display_path = fs.display_path(&full_path);
 
         if let Some(parent) = full_path.parent() {
             fs.create_dir_all(&parent)?;
         }
 
-        let image = fs.emitter.chain_with(|f| write!(f, "while extracting '{display_path}'"), |emitter| {
-            produce_image_from_entries(emitter, &entries, &mut mismatch_tracker)
-        })?;
-
+        let image = produce_image_from_entries(entries, Some(&mut mismatch_tracker))?;
         image.save(full_path).map_err(|e| {
             fs.emitter.emit(error!("while writing '{}': {}", display_path, e))
         })?;
@@ -226,6 +241,7 @@ pub fn canonicalize_part_of_path_that_exists(path: &Path) -> Result<PathBuf, std
 
 pub(super) type BgraImage<V=Vec<u8>> = image::ImageBuffer<image::Bgra<u8>, V>;
 
+#[derive(Copy, Clone)]
 struct Rectangle {
     start: [u32; 2],
     size: [u32; 2],
@@ -234,14 +250,6 @@ struct Rectangle {
 impl Rectangle {
     fn end(&self) -> [u32; 2] {
         [self.start[0] + self.size[0], self.start[1] + self.size[1]]
-    }
-
-    fn from_entry(entry: &Entry) -> Self {
-        let texture_meta = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
-        Rectangle {
-            start: [entry.specs.offset_x, entry.specs.offset_y],
-            size: [texture_meta.width, texture_meta.height],
-        }
     }
 
     fn intersection(&self, other: &Rectangle) -> Option<Rectangle> {
@@ -260,52 +268,58 @@ impl Rectangle {
     }
 }
 
-#[derive(Copy, Clone)]
-struct EntryAndLocation<'a> {
+#[derive(Clone)]
+struct EntryForExtraction<'a> {
     entry: &'a Entry,
-    entry_index: usize,
+    // some parts of the Entry, without Options or with better types to make them easier to work with
+    texture_data: &'a TextureData,
+    rectangle: Rectangle,
+    color_format: ColorFormat,
+    // where it came from
     src_anm_path_display: &'a str,
+    entry_index: usize,
 }
 
 /// Function to produce a single image, given all of the entries that contain regions of the image.
 fn produce_image_from_entries<'a>(
-    emitter: &impl Emitter,
-    entries: &[EntryAndLocation<'a>],
-    mismatch_tracker: &mut MismatchedPixelTracker<'a>,
+    entries: &'a [EntryForExtraction<'a>],
+    // This is `None` when outputting the actual conflicting images for a mismatch.
+    mut mismatch_tracker: Option<&mut MismatchedPixelTracker<'a>>,
 ) -> Result<image::RgbaImage, ErrorReported> {
     use image::buffer::ConvertBuffer;
 
+    // Extract entries with max color depth last (giving their pixels highest priority),
+    // because sometimes the same image is saved in both ARGB 4444 and ARGB 8888 entries.
+    let mut entries = entries.iter().collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.color_format.is_full_color());
+
+    // Make an output image large enough to contain every texture's data.
     let mut output_width = 0;
     let mut output_height = 0;
-    for EntryAndLocation { entry, .. } in entries {
-        let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
-        output_width = u32::max(output_width, entry.specs.offset_x + texture_metadata.width);
-        output_height = u32::max(output_height, entry.specs.offset_y + texture_metadata.height);
+    for &EntryForExtraction { rectangle, .. } in &entries {
+        output_width = u32::max(output_width, rectangle.end()[0]);
+        output_height = u32::max(output_height, rectangle.end()[1]);
     }
 
     let output_init_argb = vec![0xFF; 4 * output_width as usize * output_height as usize];
     let mut output_image = BgraImage::from_raw(output_width, output_height, output_init_argb).expect("size error?!");
 
-    mismatch_tracker.begin_image_path(&entries[0].entry.path);
-    for &entry_and_location in entries {
-        let EntryAndLocation { entry, .. } = entry_and_location;
-        let texture_data = entry.texture_data.as_ref().expect("produce_image_from_entry called without texture!");
-        let texture_metadata = entry.texture_metadata.as_ref().expect("produce_image_from_entry called without texture!");
-        let texture_width = texture_metadata.width;
-        let texture_height = texture_metadata.height;
-        let format = texture_metadata.format;
-        let cformat = ColorFormat::from_format_num(format).ok_or_else(|| {
-            emitter.emit(error!("cannot transcode from unknown color format {format}"))
-        })?;
+    if let Some(mismatch_tracker) = mismatch_tracker.as_deref_mut() {
+        mismatch_tracker.begin_image_path(&entries[0].entry.path);
+    }
+    for entry@&EntryForExtraction { rectangle, texture_data, color_format, .. } in &entries {
+        let texture_argb = color_format.transcode_to_argb_8888(&texture_data.data);
+        let texture_image = BgraImage::from_raw(rectangle.size[0], rectangle.size[1], &texture_argb[..]).expect("size error?!");
+        if let Some(mismatch_tracker) = mismatch_tracker.as_deref_mut() {
+            mismatch_tracker.visit_entry(entry, &output_image, &texture_image);
+        }
 
-        let texture_argb = cformat.transcode_to_argb_8888(&texture_data.data);
-        let texture_image = BgraImage::from_raw(texture_width, texture_height, &texture_argb[..]).expect("size error?!");
-
-        mismatch_tracker.visit_entry(entry_and_location, &output_image, &texture_image);
-
-        rectangle_subimage_mut(&mut output_image, &Rectangle::from_entry(entry))
+        rectangle_subimage_mut(&mut output_image, &rectangle)
             .copy_from(&texture_image, 0, 0)
             .expect("region should definitely be large enough");
+    }
+    if let Some(mismatch_tracker) = mismatch_tracker {
+        mismatch_tracker.finish_image();
     }
 
     Ok(output_image.convert())
@@ -314,9 +328,9 @@ fn produce_image_from_entries<'a>(
 /// Helper for the diagnostic on overlapping, mismatched pixels between multiple entries during image extraction.
 #[derive(Default)]
 struct MismatchedPixelTracker<'a> {
-    prior_entries_for_current_image: Vec<EntryAndLocation<'a>>,
+    prior_entries_for_current_image: Vec<&'a EntryForExtraction<'a>>,
     current_image_path: Option<String>,
-    conflicts: Vec<(EntryAndLocation<'a>, EntryAndLocation<'a>, Rectangle)>,
+    conflicts: Vec<(&'a EntryForExtraction<'a>, &'a EntryForExtraction<'a>, Rectangle)>,
     conflict_debug_dir: Option<&'a Path>,
 }
 
@@ -331,13 +345,19 @@ impl<'a> MismatchedPixelTracker<'a> {
     }
 
     fn begin_image_path(&mut self, path: &str) {
+        assert!(self.current_image_path.is_none());
         self.current_image_path = Some(path.to_owned());
+    }
+
+    fn finish_image(&mut self) {
+        assert!(self.current_image_path.is_some());
+        self.current_image_path = None;
         self.prior_entries_for_current_image.clear();
     }
 
     fn visit_entry(
         &mut self,
-        entry: EntryAndLocation<'a>,
+        entry: &'a EntryForExtraction<'a>,
         current_output: &BgraImage,
         texture_image: &BgraImage<&[u8]>,
     ) {
@@ -346,12 +366,25 @@ impl<'a> MismatchedPixelTracker<'a> {
         // For now, just check the regions that intersect with previous images.
         //
         // Iterate in reverse order so that our warnings will name the thing that was most recently written.
-        let new_rectangle = Rectangle::from_entry(entry.entry);
-        for &prior_entry in self.prior_entries_for_current_image.iter().rev() {
-            if let Some(intersection) = Rectangle::from_entry(prior_entry.entry).intersection(&new_rectangle) {
-                let output_region = rectangle_subimage(current_output, &intersection);
-                if output_region.pixels().map(|(_, _, pixel)| pixel).ne(texture_image.pixels().copied()) {
-                    self.conflicts.push((prior_entry, entry, intersection));
+        for prior_entry in self.prior_entries_for_current_image.iter().rev() {
+            if entry.color_format.is_full_color() && !prior_entry.color_format.is_full_color() {
+                continue;  // allow any mismatches as the new texture is superior
+            }
+
+            if let Some(overlap_rect_in_output) = prior_entry.rectangle.intersection(&entry.rectangle) {
+                let overlap_rect_in_entry = Rectangle {
+                    start: [
+                        overlap_rect_in_output.start[0] - entry.rectangle.start[0],
+                        overlap_rect_in_output.start[1] - entry.rectangle.start[1],
+                    ],
+                    size: overlap_rect_in_output.size
+                };
+                let output_region = rectangle_subimage(current_output, &overlap_rect_in_output);
+                let output_pixels = output_region.pixels().map(|(_, _, pixel)| pixel);
+                let entry_region = rectangle_subimage(texture_image, &overlap_rect_in_entry);
+                let entry_pixels = entry_region.pixels().map(|(_, _, pixel)| pixel);
+                if output_pixels.ne(entry_pixels) {
+                    self.conflicts.push((prior_entry, entry, overlap_rect_in_output));
                     break;
                 }
             }
@@ -384,7 +417,7 @@ impl<'a> MismatchedPixelTracker<'a> {
     fn write_conflicting_images(
         &mut self,
         fs: &Fs,
-        entries: (EntryAndLocation<'a>, EntryAndLocation<'a>),
+        entries: (&EntryForExtraction<'a>, &EntryForExtraction<'a>),
         conflict_debug_dir: &Path,
         conflict_index: usize,
     ) -> Result<PathBuf, ErrorReported>  {
@@ -393,7 +426,7 @@ impl<'a> MismatchedPixelTracker<'a> {
         fs.ensure_dir(&subdir)?;
 
         for (filename, entry) in vec![("a.png", entries.0), ("b.png", entries.1)] {
-            let image = produce_image_from_entries(fs.emitter, &vec![entry], self)?;
+            let image = produce_image_from_entries(&[entry.clone()], None)?;
 
             let full_path = subdir.join(filename);
             let display_path = fs.display_path(&full_path);
@@ -413,7 +446,7 @@ fn rectangle_subimage_mut<'a, I: image::GenericImage>(
     image.sub_image(rect.start[0], rect.start[1], rect.size[0], rect.size[1])
 }
 
-fn rectangle_subimage<'a, I: image::GenericImage>(
+fn rectangle_subimage<'a, I: image::GenericImageView>(
     image: &'a I,
     rect: &Rectangle,
 ) -> image::SubImage<&'a I::InnerImageView> {

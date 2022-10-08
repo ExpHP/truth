@@ -81,6 +81,15 @@ impl ColorFormat {
             ColorFormat::Gray8 => &[0x80],
         }
     }
+
+    pub fn is_full_color(&self) -> bool {
+        match self {
+            ColorFormat::Argb8888 => true,
+            ColorFormat::Argb4444 => false,
+            ColorFormat::Rgb565 => false,
+            ColorFormat::Gray8 => false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
