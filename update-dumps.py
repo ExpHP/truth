@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from multiprocessing.pool import ThreadPool
-from collections import Counter
+from collections import Counter, defaultdict
 import shlex
 import subprocess
 import argparse
@@ -57,6 +57,7 @@ def main():
     parser.add_argument('--debug', action='store_false', dest='optimized', help='use unoptimized builds')
     parser.add_argument('--decompile-arg', dest='decompile_args', action='append', help='supply an argument during decompile commands')
     parser.add_argument('--nobuild', action='store_false', dest='build', help='do not build truth')
+    parser.add_argument('--noextract', action='store_false', dest='extract', help='do not extract images, even if --images is supplied')
     parser.add_argument('--noverify', action='store_false', dest='verify', help='do not verify round-tripping (expensive)')
     parser.add_argument('--diff', action='store_true', help='display diffs where recompiled files differ')
     parser.add_argument('--update-known-bad', action='store_true', help='bless the new list of bad files')
@@ -95,29 +96,10 @@ def main():
     if not args.modes:
         args.modes = list(ALL_MODES)
 
-    if args.search_pattern:
-        file_filter_re = re.compile(args.search_pattern)
-        file_filter_func = lambda filename: file_filter_re.search(filename) is not None
-    else:
-        file_filter_func = lambda filename: True
-
-    all_files = []
-    badfiles = [] if args.verify else None
-    timelog = Counter()
-    for game in find_all_games(config):
-        if not any(lo <= game <= hi for (lo, hi) in args.game):
-            continue
-        for filename in os.listdir(config.directories.input.for_game(game)):
-            if not file_filter_func(filename):
-                continue
-            if get_format(game, filename) not in args.formats:
-                continue
-            all_files.append((game, filename, timelog, badfiles, args, config))
+    timelog, badfiles = run_all_jobs(args, config)
 
     if args.build:
         subprocess.run(['cargo', 'build'] + (['--release'] if args.optimized else []), check=True)
-    with ThreadPool(args.j) as p:
-        p.starmap(process_file, all_files)
 
     known_bad_path = f'{config.directories.binary_dump.root}/known-bad'
     update_known_bad = args.update_known_bad
@@ -218,16 +200,62 @@ def get_format(game, path):
         return 'mission'
     return None
 
-def process_file(game, file, timelog, badfiles, args, config):
+
+def run_all_jobs(args, config):
+    badfiles = [] if args.verify else None
+    timelog = Counter()
+
+    games_to_process = [
+        game for game in find_all_games(config)
+        if any(lo <= game <= hi for (lo, hi) in args.game)
+    ]
+
+    if args.search_pattern:
+        file_filter_re = re.compile(args.search_pattern)
+        file_filter_func = lambda filename: file_filter_re.search(filename) is not None
+    else:
+        file_filter_func = lambda filename: True
+
+    files_by_game_and_format = defaultdict(lambda: defaultdict(list))
+    for game in games_to_process:
+        for filename in os.listdir(config.directories.input.for_game(game)):
+            if not file_filter_func(filename):
+                continue
+            format = get_format(game, filename)
+            if format not in args.formats:
+                continue
+            files_by_game_and_format[game][format].append(filename)
+
+    # Begin with one 'truanm extract' task per game.
+    if args.extract and 'anm' in args.formats and 'dir' in args.image_sources:
+        all_extract_inputs = []
+        for game in games_to_process:
+            game_anm_files = files_by_game_and_format[game]['anm']
+            if game_anm_files:
+                all_extract_inputs.append((game, game_anm_files, timelog, args, config))
+        with ThreadPool(args.j) as p:
+            p.starmap(run_image_extraction_task, all_extract_inputs)
+
+    # Standard tasks for every file.
+    all_files = []
+    for game in games_to_process:
+        for format in args.formats:
+            for filename in files_by_game_and_format[game][format]:
+                all_files.append((game, filename, timelog, badfiles, args, config))
+    with ThreadPool(args.j) as p:
+        p.starmap(run_task_for_file, all_files)
+
+    return timelog, badfiles
+
+
+def run_task_for_file(game, file, timelog, badfiles, args, config):
     input = config.directories.input.for_game(game) + f'/{file}'
     outspec = config.directories.text_dump.for_game(game) + f'/{file}.spec'
     outfile = config.directories.binary_dump.for_game(game) + f'/{file}'
     outimgdir = config.directories.image_dump.for_game(game)
 
-    bindir = f'target/' + ('release' if args.optimized else 'debug')
-
+    bindir = cargo_bin_dir(args)
     format = get_format(game, file)
-    extract_args = [f'{bindir}/truanm', 'extract', '-g', game]
     if format == 'std':
         decompile_args = [f'{bindir}/trustd', 'decompile', '-g', game] + args.decompile_args
         compile_args = [f'{bindir}/trustd', 'compile', '-g', game]
@@ -253,11 +281,6 @@ def process_file(game, file, timelog, badfiles, args, config):
     os.makedirs(os.path.dirname(outspec), exist_ok=True)
     os.makedirs(os.path.dirname(outfile), exist_ok=True)
 
-    if format == 'anm' and 'dir' in args.image_sources:
-        start_time = time.time()
-        echo_run(extract_args + [input, '-o', outimgdir], check=True, stdout=subprocess.DEVNULL)
-        timelog[f'{format}-extract'] += time.time() - start_time
-
     if 'decompile' in args.modes:
         start_time = time.time()
         echo_run(decompile_args + [input, '-o', outspec], check=True)
@@ -274,6 +297,24 @@ def process_file(game, file, timelog, badfiles, args, config):
                 diff = get_diff(decompile_args, compile_args, input, outspec, outfile)
             print('!!!', outspec)
             badfiles.append((outspec, diff))
+
+def run_image_extraction_task(game, files, timelog, args, config):
+    inputs = [
+        config.directories.input.for_game(game) + f'/{file}'
+        for file in files
+    ]
+    outimgdir = config.directories.image_dump.for_game(game)
+    bindir = cargo_bin_dir(args)
+
+    os.makedirs(os.path.dirname(outimgdir), exist_ok=True)
+
+    start_time = time.time()
+    echo_run([f'{bindir}/truanm', 'extract', '-g', game, '-o', outimgdir] + inputs, check=True, stdout=subprocess.DEVNULL)
+    timelog[f'{format}-extract'] += time.time() - start_time
+
+
+def cargo_bin_dir(args):
+    return 'target/' + ('release' if args.optimized else 'debug')
 
 def echo_run(args, **kw):
     print(' '.join(map(shlex.quote, args)))

@@ -831,6 +831,8 @@ entry {
     path: "subdir/hai-10x18+105+9.png",
     offset_x: 105,
     offset_y: 9,
+    img_width: 10,
+    img_height: 18,
     has_data: true,
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
@@ -968,21 +970,11 @@ source_test!(
 
 entry {
     path: "subdir/hai-10x18+105+9.png",
-    offset_x: 105,
-    offset_y: 9,
+    offset_x: 105,  //~ ERROR img_width
     has_data: false,
     img_format: FORMAT_ARGB_8888,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    check_compiled: |output, format| {
-        let anm = output.read_anm(format);
-
-        // buffer should be appropriately sized for the region WITHOUT the offset padding
-        assert_eq!(anm.entries[0].specs.rt_width, 16);
-        assert_eq!(anm.entries[0].specs.rt_height, 32);
-        assert_eq!(anm.entries[0].specs.rt_format, 1);
-        assert!(!anm.entries[0].has_thtx_section());
-    },
 );
 
 source_test!(
@@ -1115,13 +1107,14 @@ lazy_error_source_tests!(
     image_source_2: "./tests/integration/resources/dir-with-images",
     full_source: r#"
 entry {
-    path: "subdir/hai-10x18+105+9.png",
-    offset_x: 105,
-    offset_y: 9,
+    path: "subdir/hai-10x18+105+9.png",  //~ ERROR image too small
+    offset_x: 3,
+    offset_y: 4,
+    img_width: 10,
+    img_height: 18,
     has_data: true,
     sprites: {},
 }"#,
-    expect_error_in_failure_case: "image too small",
     check_compiled_in_success_case: |_output, _format| {},
 );
 

@@ -2,6 +2,10 @@
 source: tests/integration/image_sources.rs
 expression: stderr
 ---
-error: tests/integration/resources/dir-with-bad-images/subdir/hai-10x18+105+9.png: image too small (10x18) for an offset of (105, 9)
+error: image file 'tests/integration/resources/dir-with-bad-images/subdir/hai-10x18+105+9.png' too small (10x18) to extract a texture of size 10x18 at offset (3, 4)
+  ┌─ <input>:3:11
+  │
+3 │     path: "subdir/hai-10x18+105+9.png",
+  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ image too small
 
 
