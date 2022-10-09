@@ -253,31 +253,31 @@ fn default_memory_priority(version: Version) -> u32 {
     }
 }
 
-/// Finishes work on an entry during compilation.
+/// Finishes work on an entry during compilation, after a source for its image data has been located.
 fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitter) -> Result<Entry, ErrorReported> {
     let version = Version::from_game(game);
 
     // Fill in defaults to simplify reasoning.
     let mut specs = entry.specs.clone();
-    specs.img_format.set_soft_if_missing(DEFAULT_COLOR_FORMAT as u32);
-    specs.rt_format.set_soft_if_missing(specs.img_format.into_option().expect("was just set"));
-    specs.offset_x.set_soft_if_missing(0);
-    specs.offset_y.set_soft_if_missing(0);
-    specs.colorkey.set_soft_if_missing(0);
-    specs.memory_priority.set_soft_if_missing(default_memory_priority(version));
-    specs.low_res_scale.set_soft_if_missing(DEFAULT_LOW_RES_SCALE);
-    specs.has_data.set_soft_if_missing(DEFAULT_HAS_DATA);
+    specs.img_format.set_default_if_missing(DEFAULT_COLOR_FORMAT as u32);
+    specs.rt_format.set_default_if_missing(specs.img_format.into_option().expect("was just set"));
+    specs.offset_x.set_default_if_missing(0);
+    specs.offset_y.set_default_if_missing(0);
+    specs.colorkey.set_default_if_missing(0);
+    specs.memory_priority.set_default_if_missing(default_memory_priority(version));
+    specs.low_res_scale.set_default_if_missing(DEFAULT_LOW_RES_SCALE);
+    specs.has_data.set_default_if_missing(DEFAULT_HAS_DATA);
 
-    // Do this now.  For missing images that are also missing metadata,
-    // this tends to produce the nicest error message.
+    // Retrieve pixel data from the image source now.  For missing images that are also missing
+    // metadata, this timing tends to produce the nicest error message.
     let texture_data = finalize_entry_texture(fs, &mut specs, &entry.path, entry.loaded_texture.as_ref())?;
 
     // More defaults
     if let Some(img_width) = specs.img_width.into_option() {
-        specs.rt_width.set_soft_if_missing(u32::next_power_of_two(img_width));
+        specs.rt_width.set_default_if_missing(u32::next_power_of_two(img_width));
     }
     if let Some(img_height) = specs.img_height.into_option() {
-        specs.rt_height.set_soft_if_missing(u32::next_power_of_two(img_height));
+        specs.rt_height.set_default_if_missing(u32::next_power_of_two(img_height));
     }
 
     // Now check that rt_width and rt_height were filled.
@@ -292,7 +292,7 @@ fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitt
             // (even an ANM image source with 'has_data: false' can't bring us here; we would've copied
             //  rt_width from the ANM file)
             let has_data_span = match specs.has_data {
-                SoftOption::Explicit(sp) => sp.span,
+                SoftOption::Explicit(sp_pat!(span => HasData::False)) => span,
                 _ => unreachable!(),
             };
 
@@ -328,7 +328,7 @@ fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitt
     })
 }
 
-fn finalize_entry_texture(fs: &Fs, specs: &mut WorkingEntrySpecs, entry_path: &str, loaded_texture: Option<&TextureFromSource>) -> Result<Option<TextureData>, ErrorReported> {
+fn finalize_entry_texture(fs: &Fs, specs: &mut WorkingEntrySpecs, entry_path: &Sp<String>, loaded_texture: Option<&TextureFromSource>) -> Result<Option<TextureData>, ErrorReported> {
     let emitter = fs.emitter;
 
     let mut texture_data = None;
@@ -359,7 +359,7 @@ fn finalize_entry_texture(fs: &Fs, specs: &mut WorkingEntrySpecs, entry_path: &s
 fn finalize_texture_from_loaded(
     fs: &Fs,
     specs: &mut WorkingEntrySpecs,
-    entry_path: &str,
+    entry_path: &Sp<String>,
     loaded_texture: &TextureFromSource,
 ) -> Result<Option<TextureData>, ErrorReported> {
     let (src_texture, src_metadata, loaded_source_path);
@@ -370,7 +370,7 @@ fn finalize_texture_from_loaded(
             loaded_source_path = anm_path;
         },
         TextureFromSource::FromImage { image_path } => {
-            (src_texture, src_metadata) = self::image_io::load_img_file_for_entry(fs, specs, image_path)?;
+            (src_texture, src_metadata) = self::image_io::load_img_file_for_entry(fs, specs, entry_path, image_path)?;
             loaded_source_path = image_path;
         },
     }
@@ -889,11 +889,11 @@ fn update_entry_from_anm_image_source(dest_file: &mut WorkingEntry, src_file: En
         low_res_scale: src_low_res_scale,
     } = src_specs;
 
-    dest_file.specs.has_data.set_soft(HasData::from(src_texture_data.is_some()));
+    dest_file.specs.has_data.set_softly_from_image_source(HasData::from(src_texture_data.is_some()));
     if let Some(src_texture_metadata) = &src_texture_metadata {
-        dest_file.specs.img_width.set_soft(src_texture_metadata.width as u32);
-        dest_file.specs.img_height.set_soft(src_texture_metadata.height as u32);
-        dest_file.specs.img_format.set_soft(src_texture_metadata.format);
+        dest_file.specs.img_width.set_softly_from_image_source(src_texture_metadata.width as u32);
+        dest_file.specs.img_height.set_softly_from_image_source(src_texture_metadata.height as u32);
+        dest_file.specs.img_format.set_softly_from_image_source(src_texture_metadata.format);
     }
     if let (Some(src_texture_data), Some(src_texture_metadata)) = (src_texture_data, src_texture_metadata) {
         dest_file.loaded_texture = Some(TextureFromSource::FromAnmFile {
@@ -902,14 +902,14 @@ fn update_entry_from_anm_image_source(dest_file: &mut WorkingEntry, src_file: En
             anm_path: anm_file_path.into(),
         });
     }
-    dest_file.specs.rt_width.set_soft(src_rt_width);
-    dest_file.specs.rt_height.set_soft(src_rt_height);
-    dest_file.specs.rt_format.set_soft(src_rt_format);
-    dest_file.specs.colorkey.set_soft(src_colorkey);
-    dest_file.specs.offset_x.set_soft(src_offset_x);
-    dest_file.specs.offset_y.set_soft(src_offset_y);
-    dest_file.specs.memory_priority.set_soft(src_memory_priority);
-    dest_file.specs.low_res_scale.set_soft(src_low_res_scale);
+    dest_file.specs.rt_width.set_softly_from_image_source(src_rt_width);
+    dest_file.specs.rt_height.set_softly_from_image_source(src_rt_height);
+    dest_file.specs.rt_format.set_softly_from_image_source(src_rt_format);
+    dest_file.specs.colorkey.set_softly_from_image_source(src_colorkey);
+    dest_file.specs.offset_x.set_softly_from_image_source(src_offset_x);
+    dest_file.specs.offset_y.set_softly_from_image_source(src_offset_y);
+    dest_file.specs.memory_priority.set_softly_from_image_source(src_memory_priority);
+    dest_file.specs.low_res_scale.set_softly_from_image_source(src_low_res_scale);
 
     Ok(())
 }

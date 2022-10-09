@@ -9,6 +9,8 @@ use super::{
 };
 
 use crate::io::{Fs};
+use crate::pos::Sp;
+use crate::diagnostic::Emitter;
 use crate::error::{ErrorReported};
 use crate::image::{ColorFormat};
 
@@ -45,17 +47,18 @@ fn update_entry_from_directory_source(
 pub(in crate::formats::anm) fn load_img_file_for_entry(
     fs: &Fs,
     specs: &mut WorkingEntrySpecs,
+    entry_path: &Sp<String>,
     img_path: &PathBuf,
 ) -> Result<(Option<TextureData>, TextureMetadata), ErrorReported> {
     let emitter = fs.emitter;
 
-    let (src_image, src_dimensions): (Option<image::DynamicImage>, _);
+    let (src_image, src_dims): (Option<image::DynamicImage>, _);
     match specs.has_data.into_option().expect("defaults should be filled!") {
         HasData::True => {
             let image = image::open(img_path).map_err(|e| emitter.emit(error!(
                 message("{}: {}", fs.display_path(img_path), e)
             )))?;
-            src_dimensions = image.dimensions();
+            src_dims = image.dimensions();
             src_image = Some(image);
         },
         HasData::Dummy | HasData::False => {
@@ -64,45 +67,53 @@ pub(in crate::formats::anm) fn load_img_file_for_entry(
                 message("{}: {}", fs.display_path(img_path), e)
             )))?;
             src_image = None;
-            src_dimensions = dims;
+            src_dims = dims;
         },
     }
 
-    // these must be well-defined for us to continue, so fill in defaults early
-    let offsets = (
-        specs.offset_x.into_option().unwrap_or(0),
-        specs.offset_y.into_option().unwrap_or(0),
-    );
+    maybe_infer_img_dims_from_image_file(fs.emitter, specs, src_dims)?;
 
-    // use image dimensions to fill in any missing `img_*` fields
-    // FIXME: This mutation is a bit surprising, but I'm not sure how to work out all of the edge cases
-    //        without it.
-    for (dest_dim, src_dim, offset) in vec![
-        (&mut specs.img_width, src_dimensions.0, offsets.0),
-        (&mut specs.img_height, src_dimensions.1, offsets.1),
-    ] {
-        if src_dim >= offset {
-            dest_dim.set_soft(src_dim - offset);
-        } else {
-            return Err(emitter.emit(error!(
-                "{}: image too small ({}x{}) for an offset of ({}, {})",
-                fs.display_path(img_path),
-                src_dimensions.0, src_dimensions.1,
-                offsets.0, offsets.1,
-            )))
+    // these should now all be set
+    let dest_dims = (specs.img_width.into_option().unwrap(), specs.img_height.into_option().unwrap());
+    let offsets = (specs.offset_x.into_option().unwrap(), specs.offset_y.into_option().unwrap());
+    if dest_dims.0 + offsets.0 > src_dims.0 || dest_dims.1 + offsets.1 > src_dims.1 {
+        use core::fmt::Write;
+
+        let mut message = String::new();
+        write!(message, "image file '{}' too small ({}x{})", fs.display_path(img_path), src_dims.0, src_dims.1).unwrap();
+        write!(message, " to extract a texture of size {}x{}", dest_dims.0, dest_dims.1).unwrap();
+        if offsets != (0, 0) {
+            write!(message, " at offset ({}, {})", offsets.0, offsets.1).unwrap();
         }
+        return Err(emitter.emit(error!(
+            message("{message}"),
+            primary(entry_path, "image too small"),
+        )));
     }
 
-    // all dest dimensions are set now, but pre-existing ones might not match the image
-    let dest_dimensions = (specs.img_width.into_option().unwrap(), specs.img_height.into_option().unwrap());
-    let expected_src_dimensions = (dest_dimensions.0 + offsets.0, dest_dimensions.1 + offsets.1);
-    if src_dimensions != expected_src_dimensions && specs.has_data.into_option() != Some(HasData::Dummy) {
-        return Err(emitter.emit(error!(
-            "{}: wrong image dimensions (expected {}x{}, got {}x{})",
-            fs.display_path(img_path),
-            expected_src_dimensions.0, expected_src_dimensions.1,
-            src_dimensions.0, src_dimensions.1,
-        )))
+    // When no offset was ever provided, forbid mismatched `img_` dimensions versus the image file.
+    // (i.e. require an offset to be present if we are going to read only a subregion)
+    if specs.has_data.into_option() != Some(HasData::Dummy) {
+        let first_bad_dim_info = vec![
+            ("width", "offset_x", specs.offset_x, dest_dims.0, src_dims.0),
+            ("height", "offset_y", specs.offset_y, dest_dims.1, src_dims.1),
+        ].into_iter().find(|(_, _, offset, dest_dim, src_dim)| {
+            !(offset.is_from_image_source() || offset.is_explicit()) && dest_dim != src_dim
+        });
+
+        if let Some((dim_name, offset_name, _, dest_dim, src_dim)) = first_bad_dim_info {
+            return Err(emitter.emit(error!(
+                message(
+                    "image file '{}' has wrong {dim_name} (expected {dest_dim}, got {src_dim})",
+                    fs.display_path(img_path),
+                ),
+                primary(entry_path, "image has wrong size"),
+                note(
+                    "if you meant to read only a portion of the image file, please specify the offset of the pixels \
+                    to begin reading from, e.g. `{offset_name}: 0,`"
+                ),
+            )));
+        }
     }
 
     // if 'has_data: true`, read the texture
@@ -110,17 +121,57 @@ pub(in crate::formats::anm) fn load_img_file_for_entry(
         // obtain ARGB bytes
         let src_data_argb = {
             src_image.into_bgra8()
-                .sub_image(offsets.0, offsets.1, dest_dimensions.0, dest_dimensions.1)
+                .sub_image(offsets.0, offsets.1, dest_dims.0, dest_dims.1)
                 .to_image().into_raw()
         };
         src_data_argb.into()
     });
     let texture_metadata = TextureMetadata {
-        width: dest_dimensions.0,
-        height: dest_dimensions.1,
+        width: dest_dims.0,
+        height: dest_dims.1,
         format: ColorFormat::Argb8888 as u32,
     };
     Ok((texture_data, texture_metadata))
+}
+
+fn maybe_infer_img_dims_from_image_file(
+    emitter: &impl Emitter,
+    specs: &mut WorkingEntrySpecs,
+    src_dimensions: (u32, u32),
+) -> Result<(), ErrorReported> {
+    for (dest_dim_name, offset_name, dest_dim, src_dim, offset) in vec![
+        ("img_width", "offset_x", &mut specs.img_width, src_dimensions.0, specs.offset_x),
+        ("img_height", "offset_y", &mut specs.img_height, src_dimensions.1, specs.offset_y),
+    ] {
+        if dest_dim.is_missing() {
+            if let Some(offset) = offset.as_explicit() {
+                // TODO: in the future this will be an unconditional error
+                if offset.value > &src_dim {
+                    let inferred_value = src_dim - offset.value;
+                    emitter.emit(warning!(
+                        message("{offset_name} requires setting {dest_dim_name} when reading from an image file"),
+                        primary(offset, "requires setting {dest_dim_name}"),
+                        note("for backwards compatibility, a value of {inferred_value} has been inferred (reading to end of image), \
+                        but this will become a hard error in the future."),
+                    )).ignore();
+                    dest_dim.set_softly_from_image_source(inferred_value);
+
+                } else {
+                    return Err(emitter.emit(error!(
+                        message("{offset_name} requires setting {dest_dim_name} when reading from an image file"),
+                        primary(offset, "requires setting {dest_dim_name}"),
+                    )));
+                }
+
+            } else {
+                // If dest_dim is missing then we don't have an ANM source; the offset must be zero.
+                assert_eq!(offset.into_option(), Some(0));
+                // All preconditions have been met to infer the texture dimensions from the image file.
+                dest_dim.set_softly_from_image_source(src_dim);
+            }
+        }
+    }
+    Ok(())
 }
 
 // =============================================================================
@@ -156,7 +207,7 @@ pub fn extract(
                     all_entries.push(EntryForExtraction {
                         entry, texture_data, rectangle,
                         color_format, src_anm_path_display, entry_index,
-                    })
+                    });
                 } else {
                     fs.emitter.emit(warning!(
                         "{src_anm_path_display}: ignoring entry {entry_index}: \

@@ -10,11 +10,14 @@
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
 
-## Other changes
+## Changed
 
 * **`truanm extract`** now attempts to properly handle the case of multiple entries that specify the same image filepath.  It makes a best effort attempt to reconstruct the original image files from all of the data available.
   * Data from multiple entries is stitched together.  Data from 32bpp entries is favored over lower depth entries.  Any other conflicts are detected and produce warnings.
-  * Multiple `.anm` files can now be supplied.  Because some images are used in more than one `.anm` file, this can provide more accurate and deterministic output compared to extracting each anm file individually.  
+  * Multiple `.anm` files can now be supplied.  Because some images are used in more than one `.anm` file, this can provide more accurate and deterministic output compared to extracting each anm file individually.
+* `truanm compile/decompile` have been tweaked to support such entries better.
+  * When reading image files, the restriction that `image.width == offset_x + img_width` has been weakened to `image.width >= offset_x + img_width`, allowing any region of an image to be read.
+  * Inferring `img_width = image.width - offset_x` has been deprecated in the case where an entry has an image file source and no ANM source, **and** `offset_x` is explicitly provided, **and** `img_width` is missing. The purpose of `offset_x` and `offset_y` are to extract regions, so you should always specify the size of the region.
 
 # Version 0.5.1
 
