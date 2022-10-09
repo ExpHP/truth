@@ -77,6 +77,17 @@ truanm extract -g12 in.anm -o images/
 truanm x -g12 in.anm -o images/
 ```
 
+`truanm extract` supports extracting from multiple ANM files at once.  In games where multiple ANM files contain portions of the same image (e.g. `pl00.anm` and `pl00sub.anm` in TH16), this can give you better or more deterministic results than if you were to extract each ANM file one by one.
+
+> **Notice:**  TH09 has an issue where `result00.anm` and `title01.anm` contain different pixel data for the same image.  You may want to ensure `title01.anm` is loaded last for the most accurate output.
+
+```sh
+truanm x -g8 th08/*.anm -o images/
+
+# TH09 has a funny issue so you should do this
+truanm x -g9 th09/*.anm th09/title01.anm -o images/
+```
+
 At this time, **image extraction is not thoroughly tested and may have some bugs.**
 
 #### Compilation and image sources

@@ -10,6 +10,12 @@
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
 
+## Other changes
+
+* **`truanm extract`** now attempts to properly handle the case of multiple entries that specify the same image filepath.  It makes a best effort attempt to reconstruct the original image files from all of the data available.
+  * Data from multiple entries is stitched together.  Data from 32bpp entries is favored over lower depth entries.  Any other conflicts are detected and produce warnings.
+  * Multiple `.anm` files can now be supplied.  Because some images are used in more than one `.anm` file, this can provide more accurate and deterministic output compared to extracting each anm file individually.  
+
 # Version 0.5.1
 
 ## Added
