@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use indexmap::IndexMap;
 use image::{GenericImage, GenericImageView};
 
 use super::{
@@ -13,6 +12,7 @@ use crate::pos::Sp;
 use crate::diagnostic::Emitter;
 use crate::error::{ErrorReported};
 use crate::image::{ColorFormat};
+use crate::util::get_groups_by;
 
 pub fn apply_directory_image_source(
     fs: &Fs,
@@ -91,7 +91,7 @@ pub(in crate::formats::anm) fn load_img_file_for_entry(
         )));
     }
 
-    // When no offset was ever provided, forbid mismatched `img_` dimensions versus the image file.
+    // When no offset was ever provided, lint against mismatched `img_` dimensions versus the image file.
     // (i.e. require an offset to be present if we are going to read only a subregion)
     if specs.has_data.into_option() != Some(HasData::Dummy) {
         let first_bad_dim_info = vec![
@@ -102,12 +102,15 @@ pub(in crate::formats::anm) fn load_img_file_for_entry(
         });
 
         if let Some((dim_name, offset_name, _, dest_dim, src_dim)) = first_bad_dim_info {
-            return Err(emitter.emit(error!(
+            // NOTE: This is only a warning and not an error, because when decompiling, we are unable
+            //       to determine with 100% accuracy all entries that only contain a subregion of an image file,
+            //       thus some explicit offsets and dimensions may be missing.
+            return Err(emitter.emit(warning!(
                 message(
-                    "image file '{}' has wrong {dim_name} (expected {dest_dim}, got {src_dim})",
+                    "image file '{}' has larger {dim_name} than expected (expected {dest_dim}, got {src_dim})",
                     fs.display_path(img_path),
                 ),
-                primary(entry_path, "image has wrong size"),
+                primary(entry_path, "image too large"),
                 note(
                     "if you meant to read only a portion of the image file, please specify the offset of the pixels \
                     to begin reading from, e.g. `{offset_name}: 0,`"
@@ -502,15 +505,4 @@ fn rectangle_subimage<'a, I: image::GenericImageView>(
     rect: &Rectangle,
 ) -> image::SubImage<&'a I::InnerImageView> {
     image.view(rect.start[0], rect.start[1], rect.size[0], rect.size[1])
-}
-
-fn get_groups_by<T, K: Eq + core::hash::Hash>(
-    items: impl Iterator<Item=T>,
-    mut key_fn: impl FnMut(&T) -> K,
-) -> IndexMap<K, Vec<T>> {
-    let mut out = IndexMap::<_, Vec<_>>::default();
-    for item in items {
-        out.entry(key_fn(&item)).or_default().push(item);
-    }
-    out
 }

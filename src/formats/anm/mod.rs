@@ -100,20 +100,27 @@ impl AnmFile {
         write_thecl_defs(&mut bytes, self).expect("io::Error writing to Vec<u8>?!");
         Ok(String::from_utf8(bytes).expect("write_thecl_defs wrote non-utf8?!"))
     }
+
+    /// Update [`Entry::is_region_extraction`] on each entry.
+    pub fn update_region_extraction_hints(&mut self) {
+        update_region_extraction_hints(self)
+    }
 }
 
 impl WorkingAnmFile {
     /// Finish working on the ANM file, filling in defaults and transcoding image buffer data
     /// as necessary.
     pub fn finalize(self, fs: &Fs, game: Game, emitter: &impl Emitter) -> Result<AnmFile, ErrorReported> {
-        Ok(AnmFile {
+        let mut anm = AnmFile {
             entries: {
                 self.entries.into_iter()
                     .map(|entry| finalize_entry(fs, entry, game, emitter))
                     .collect::<Result<_, _>>()?
             },
             binary_filename: self.binary_filename,
-        })
+        };
+        anm.update_region_extraction_hints();
+        Ok(anm)
     }
 }
 
@@ -133,6 +140,10 @@ pub struct Entry {
     pub path_2: Option<Sp<String>>,
     pub scripts: IndexMap<Sp<Ident>, Script>,
     pub sprites: IndexMap<Sp<Ident>, Sprite>,
+
+    /// A hint to the decompiler that this entry only extracts a region of an image along each axis,
+    /// and therefore should have an explicit `offset_x` and/or `offset_y` even if they are zero.
+    is_region_extraction: (bool, bool),
 }
 
 // Some methods to abstract away internal details from integration tests.
@@ -154,7 +165,7 @@ impl Entry {
     pub fn img_format(&self) -> Option<u32> { self.texture_metadata.as_ref().map(|m| m.format) }
 }
 
-/// Type used to represent entries while truanm is doing most of its work.
+/// Type used to represent entries while truanm is doing most of its compilation work.
 ///
 /// This has to contain Options and etc. for the sake of the "merging" of entries that
 /// occurs when `--image-source` is used.
@@ -325,6 +336,7 @@ fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitt
         path_2: entry.path_2,
         scripts: entry.scripts,
         sprites: entry.sprites,
+        is_region_extraction: (false, false),
     })
 }
 
@@ -554,8 +566,8 @@ impl Entry {
             .field_opt("img_width", opt_img_width)
             .field_opt("img_height", opt_img_height)
             .field_opt("img_format", Some(img_format).filter(|&x| x != DEFAULT_COLOR_FORMAT as u32).map(format_to_meta))
-            .field_opt("offset_x", Some(offset_x).filter(|&x| x != 0))
-            .field_opt("offset_y", Some(offset_y).filter(|&x| x != 0))
+            .field_opt("offset_x", Some(offset_x).filter(|&x| x != 0 || self.is_region_extraction.0))
+            .field_opt("offset_y", Some(offset_y).filter(|&x| x != 0 || self.is_region_extraction.1))
             .field_opt("colorkey", Some(colorkey).filter(|&x| x != 0).map(colorkey_to_meta))
             .field_opt("rt_width", opt_rt_width)
             .field_opt("rt_height", opt_rt_height)
@@ -1170,6 +1182,28 @@ fn all_sprite_ids<'a>(entry_sprites: impl IntoIterator<Item=&'a IndexMap<Sp<Iden
         }
     }
     out
+}
+
+// =============================================================================
+
+fn update_region_extraction_hints(anm: &mut AnmFile) {
+    let (entries_with_textures, entries_without_textures) = anm.entries.iter_mut().partition::<Vec<_>, _>(|entry| entry.texture_metadata.is_some());
+    for entry in entries_without_textures {
+        entry.is_region_extraction = (false, false);
+    }
+
+    let grouped_by_path = crate::util::get_groups_by(entries_with_textures.into_iter(), |entry| entry.path.clone());
+    for (_, entries) in grouped_by_path {
+        let entry_stop_x = |entry: &Entry| entry.texture_metadata.as_ref().unwrap().width + entry.specs.offset_x;
+        let entry_stop_y = |entry: &Entry| entry.texture_metadata.as_ref().unwrap().height + entry.specs.offset_y;
+
+        let max_width = entries.iter().map(|entry| entry_stop_x(entry)).max().unwrap();
+        let max_height = entries.iter().map(|entry| entry_stop_y(entry)).max().unwrap();
+        for entry in entries {
+            entry.is_region_extraction.0 = entry.specs.offset_x != 0 || entry_stop_x(entry) != max_width;
+            entry.is_region_extraction.1 = entry.specs.offset_y != 0 || entry_stop_y(entry) != max_height;
+        }
+    }
 }
 
 // =============================================================================

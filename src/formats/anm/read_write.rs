@@ -55,6 +55,7 @@ pub fn read_anm(
     let binary_filename = Some(reader.display_filename().to_string());
     let mut anm = AnmFile { entries, binary_filename };
     super::strip_unnecessary_sprite_ids(anm.entries.iter_mut().map(|e| &mut e.sprites));
+    anm.update_region_extraction_hints();
     Ok(anm)
 }
 
@@ -170,7 +171,8 @@ fn read_entry(
         path: sp!(path),
         path_2: path_2.map(|x| sp!(x)),
         texture_data, texture_metadata,
-        specs, sprites, scripts
+        specs, sprites, scripts,
+        is_region_extraction: (false, false),  // updated later
     };
 
     reader.seek_to(entry_pos + header_data.next_offset)?;

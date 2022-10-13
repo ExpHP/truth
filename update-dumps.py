@@ -96,10 +96,10 @@ def main():
     if not args.modes:
         args.modes = list(ALL_MODES)
 
-    timelog, badfiles = run_all_jobs(args, config)
-
     if args.build:
         subprocess.run(['cargo', 'build'] + (['--release'] if args.optimized else []), check=True)
+
+    timelog, badfiles = run_all_jobs(args, config)
 
     known_bad_path = f'{config.directories.binary_dump.root}/known-bad'
     update_known_bad = args.update_known_bad

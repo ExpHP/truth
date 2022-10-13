@@ -1,5 +1,6 @@
 #[macro_use]
 mod util_macros;
+mod util;
 
 pub use error::ErrorReported;
 pub mod error;
