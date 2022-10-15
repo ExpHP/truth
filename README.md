@@ -47,14 +47,15 @@ Here's how you primarily use it:
 ```shell
 trustd decompile -g13 -m map/any.stdm in.std -o out.stdspec
 
-trustd compile -g13 in.stdspec -o out.std
+trustd compile in.stdspec -o out.std
 ```
 
 The subcommands can be abbreviated to any unambiguous prefix, e.g. `trustd decomp` or even `trustd d`.
 
-Similar to thtk, the `-m` flag imports an ECLMAP-style file. Generally speaking this is only needed during decompilation, because when you are compiling a script, it can contain a reference to its own mapfile:
+Similar to thtk, the `-m` flag imports an ECLMAP-style file. Generally speaking, `-g` and `-m` are only needed during decompilation, because when you are compiling a script, it can contain a game number and reference to its own mapfile:
 
 ```C
+#pragma game 13
 #pragma mapfile "./map/any.anmm"
 ```
 
@@ -111,7 +112,7 @@ To compile an ANM file, you will likely need to supply some source of these imag
 If you are recompiling a script obtained from an ANM file, the original ANM file will serve as a suitable image source, which can be provided through the `-i/--image-source` flag:
 
 ```sh
-truanm compile -g12 edited.spec -i original.anm -o out.anm
+truanm compile edited.spec -i original.anm -o out.anm
 ```
 
 When using an ANM file as an image source, each `entry` in the current script will pull the image from the entry with the same filepath inside the image source.  This mechanism can also be used to copy over any missing metadata from an `entry`.  In cases where multiple entries have the same path (which can happen for virtual files like `"@"` and `"@R"`), the duplicates are matched in order of appearance.
@@ -121,7 +122,7 @@ When using an ANM file as an image source, each `entry` in the current script wi
 If you have a thcrap patch or a directory containing the output of `truanm extract`, that can also be used as an image source:
 
 ```sh
-truanm compile -g12 cool.spec -i path/to/images -o out.anm
+truanm compile cool.spec -i path/to/images -o out.anm
 ```
 
 In this case, the example entry above (with the path `"subdir/image.png"`) would try to load `path/to/images/subdir/image.png` if it exists.  As long as an image can be found, all fields on an `entry` will be automatically filled with reasonable defaults.
@@ -131,7 +132,7 @@ In this case, the example entry above (with the path `"subdir/image.png"`) would
 You can supply multiple image sources!  For instance, if you are recompiling an ANM file *and* adding additional images (or replacing some of the images), you could supply:
 
 ```
-truanm compile -g12 edited.spec -i original.anm -i my/extra/images -o out.anm
+truanm compile edited.spec -i original.anm -i my/extra/images -o out.anm
 ```
 
 The ordering of the image sources is important when replacing images; here, `-i my/extra/images` appears last, so it takes top priority when multiple image sources define the same image.
@@ -167,7 +168,7 @@ cd truth
 
 # Debug builds  (for optimized builds, change it to `cargo run --release`)
 cargo run -- trustd d -g10 -m map/any.stdm in.std -o out.stdspec
-cargo run -- trustd c -g10 out.stdspec -o out.std
+cargo run -- trustd c out.stdspec -o out.std
 
 # If you want optimized binaries installed globally:
 cargo install --path=.

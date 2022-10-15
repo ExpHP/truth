@@ -9,6 +9,7 @@
 * **Difficulty flags.** `{"ENH"}: ins_10();`
 * **`@arg0` pseudo-arg.**  This will be used together with `@blob` when decompiling timelines with unknown signatures in TH06 and TH07.
 * **Difficulty flag names.** (`!difficulty_flags`)  The prepackaged maps do this.
+* **Specifying game inside scripts.** You can now use e.g. `#pragma game 185` in a file and then `-g` will not be required when compiling it.  
 
 ## Changed
 

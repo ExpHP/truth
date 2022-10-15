@@ -805,17 +805,22 @@ mod cli {
         }.map(|opt| opt.map(Into::into))
     }
 
-    const GAME_OPT: opts::Opt = opts::Opt {
-        short: "g", long: "game", metavar: "GAME",
-        help: "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.",
-    };
+    macro_rules! game_desc {
+        () => { "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'." };
+    }
 
     pub fn required_game() -> impl CliArg<Value=Game> {
-        opts::ReqOpt(GAME_OPT).and_then(|s| s.parse())
+        opts::ReqOpt(opts::Opt {
+            short: "g", long: "game", metavar: "GAME",
+            help: game_desc!(),
+        }).and_then(|s| s.parse())
     }
 
     pub fn compile_game() -> impl CliArg<Value=Option<Game>> {
-        GAME_OPT.and_then(|opt| opt.map(|s| s.parse()).transpose())
+        opts::Opt {
+            short: "g", long: "game", metavar: "GAME",
+            help: concat!(game_desc!(), " Will override any '#pragma game' present in the file."),
+        }.and_then(|opt| opt.map(|s| s.parse()).transpose())
     }
 
     pub fn mapfile_options() -> impl CliArg<Value=MapfileOptions> {
