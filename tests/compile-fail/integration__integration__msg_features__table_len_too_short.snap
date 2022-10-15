@@ -3,16 +3,16 @@ source: tests/integration/msg_features.rs
 expression: stderr
 ---
 warning: unused script table entry
-  ┌─ <input>:6:9
+  ┌─ <input>:7:9
   │
-3 │     table_len: 1,
+4 │     table_len: 1,
   │                - unused due to this length
   ·
-6 │         1: {script: "script1"},
+7 │         1: {script: "script1"},
   │         ^ unused table entry
-7 │         2: {script: "script2"},
+8 │         2: {script: "script2"},
   │         ^ unused table entry
-8 │         3: {script: "script2"},
+9 │         3: {script: "script2"},
   │         ^ unused table entry
 
 

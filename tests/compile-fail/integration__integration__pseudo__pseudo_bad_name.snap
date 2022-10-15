@@ -3,9 +3,9 @@ source: tests/integration/pseudo.rs
 expression: stderr
 ---
 error: invalid pseudo-arg
-   ┌─ <input>:28:15
+   ┌─ <input>:29:15
    │
-28 │         wait(@blobloblob="0f000000");
+29 │         wait(@blobloblob="0f000000");
    │               ^^^^^^^^^^ not a pseudo-arg
    │
    = valid pseudo-args are: pop, mask, blob, arg0, nargs

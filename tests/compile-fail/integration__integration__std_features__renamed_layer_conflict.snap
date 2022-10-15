@@ -3,11 +3,11 @@ source: tests/integration/std_features.rs
 expression: stderr
 ---
 error: cannot supply both 'unknown' and 'layer'
-   ┌─ <input>:9:13
+   ┌─ <input>:10:13
    │
- 9 │             unknown: 3,
+10 │             unknown: 3,
    │             ^^^^^^^ conflicting field
-10 │             layer: 4,
+11 │             layer: 4,
    │             ^^^^^ conflicting field
 
 

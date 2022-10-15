@@ -3,9 +3,9 @@ source: tests/integration/enums.rs
 expression: stderr
 ---
 error: no such enum 'NotAnEnum'
-   ┌─ <input>:28:18
+   ┌─ <input>:29:18
    │
-28 │             I0 = NotAnEnum.Test;
+29 │             I0 = NotAnEnum.Test;
    │                  ^^^^^^^^^ no such enum
 
 

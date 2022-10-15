@@ -3,9 +3,9 @@ source: tests/integration/enums.rs
 expression: stderr
 ---
 warning: suspicious use of enum BarEnum 'BarOnly' as enum FooEnum
-   ┌─ <input>:28:17
+   ┌─ <input>:29:17
    │
-28 │         ins_400(BarOnly);
+29 │         ins_400(BarOnly);
    │                 ^^^^^^^ const in enum BarEnum
 
 

@@ -3,9 +3,9 @@ source: tests/integration/image_sources.rs
 expression: stderr
 ---
 error: unexpected image_source
-   ┌─ <input>:11:30
+   ┌─ <input>:12:30
    │
-11 │         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
+12 │         #pragma image_source "tests/integration/resources/th12-embedded-image-source.anm"
    │                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ image_source not valid in this format
 
 

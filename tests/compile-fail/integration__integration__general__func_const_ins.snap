@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: raw instruction in const context
-   ┌─ <input>:26:13
+   ┌─ <input>:27:13
    │
-26 │             ins_23();
+27 │             ins_23();
    │             ^^^^^^ forbidden in this context
 
 

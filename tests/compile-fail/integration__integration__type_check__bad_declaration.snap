@@ -3,12 +3,12 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: unexpected token `%`
-   ┌─ <input>:27:11
+   ┌─ <input>:28:11
    │
-27 │       int %x;
+28 │       int %x;
    │           ^ unexpected token
    │
    = 
-     Expected one of "(", ";", "anim", "case", "default", "ecli", "entry", "mapfile", "script" or IDENT
+     Expected one of "(", ";", "anim", "case", "default", "ecli", "entry", "game", "image_source", "mapfile", "script" or IDENT
 
 

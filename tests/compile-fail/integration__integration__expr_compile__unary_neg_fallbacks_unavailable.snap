@@ -3,15 +3,15 @@ source: tests/integration/expr_compile.rs
 expression: stderr
 ---
 error: feature not supported by format
-   ┌─ <input>:28:13
+   ┌─ <input>:29:13
    │
-28 │     int a = -$I0;
+29 │     int a = -$I0;
    │             ^^^^ this unary operation not supported by format
 
 error: feature not supported by format
-   ┌─ <input>:29:15
+   ┌─ <input>:30:15
    │
-29 │     float x = -%F0;
+30 │     float x = -%F0;
    │               ^^^^ this unary operation not supported by format
 
 

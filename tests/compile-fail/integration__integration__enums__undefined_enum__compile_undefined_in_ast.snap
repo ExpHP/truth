@@ -3,9 +3,9 @@ source: tests/integration/enums.rs
 expression: stderr
 ---
 error: unexpected token `enum`
-   ┌─ <input>:19:31
+   ┌─ <input>:20:31
    │
-19 │             const int ConstFn(enum NotAnEnum x) {
+20 │             const int ConstFn(enum NotAnEnum x) {
    │                               ^^^^ unexpected token
    │
    = 

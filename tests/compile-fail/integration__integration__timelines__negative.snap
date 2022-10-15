@@ -3,15 +3,15 @@ source: tests/integration/timelines.rs
 expression: stderr
 ---
 error: negative timeline indices are forbidden
-  ┌─ <input>:2:8
+  ┌─ <input>:3:8
   │
-2 │ script -1 foo { }
+3 │ script -1 foo { }
   │        ^^
 
 error: negative timeline indices are forbidden
-  ┌─ <input>:3:8
+  ┌─ <input>:4:8
   │
-3 │ script -2 bar { }
+4 │ script -2 bar { }
   │        ^^
 
 

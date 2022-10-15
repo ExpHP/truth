@@ -2,6 +2,7 @@
 source: tests/integration/bits_2_bits.rs
 expression: s
 ---
+#pragma game 6
 #pragma mapfile "map/any.msgm"
 
 meta {

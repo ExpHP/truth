@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: argument must be a compile-time constant
-   ┌─ <input>:10:18
+   ┌─ <input>:11:18
    │
-10 │         jump(30, (offsetof(label) + 4) * 2);
+11 │         jump(30, (offsetof(label) + 4) * 2);
    │                  ^^^^^^^^^^^^^^^^^^^^^^^^^ not constant
    │
    = because the argument is a jump offset

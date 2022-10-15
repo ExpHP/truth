@@ -3,15 +3,15 @@ source: tests/integration/enums.rs
 expression: stderr
 ---
 error: ambiguous enum const 'Name'
-   ┌─ <input>:22:17
+   ┌─ <input>:23:17
    │
-22 │         ins_400(Name);
+23 │         ins_400(Name);
    │                 ^^^^ belongs to multiple enums
 
 error: ambiguous enum const 'Name'
-   ┌─ <input>:23:23
+   ┌─ <input>:24:23
    │
-23 │         ins_999(@mask=Name, @blob="01000000");
+24 │         ins_999(@mask=Name, @blob="01000000");
    │                       ^^^^ belongs to multiple enums
 
 

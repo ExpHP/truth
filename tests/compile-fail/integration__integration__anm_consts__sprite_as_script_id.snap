@@ -3,9 +3,9 @@ source: tests/integration/anm_consts.rs
 expression: stderr
 ---
 warning: suspicious use of enum AnmSprite 'imASprite' as enum AnmScript
-   ┌─ <input>:14:15
+   ┌─ <input>:15:15
    │
-14 │     scriptNew(imASprite);
+15 │     scriptNew(imASprite);
    │               ^^^^^^^^^ const in enum AnmSprite
 
 

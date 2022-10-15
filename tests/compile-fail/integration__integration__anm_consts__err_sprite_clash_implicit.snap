@@ -3,12 +3,12 @@ source: tests/integration/anm_consts.rs
 expression: stderr
 ---
 error: ambiguous value for enum const 'my_sprite'
-   ┌─ <input>:7:15
+   ┌─ <input>:8:15
    │
- 7 │     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
+ 8 │     sprites: {my_sprite: {x: 1.0, y: 1.0, w: 111.0, h: 111.0, id: 1}},
    │               ^^^^^^^^^ definition with value 1
    ·
-14 │     sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
+15 │     sprites: {my_sprite: {x: 2.0, y: 2.0, w: 222.0, h: 220.0}},
    │               ^^^^^^^^^ definition with value 2
 
 

@@ -3,12 +3,12 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: cycle in const definition
-   ┌─ <input>:19:19
+   ┌─ <input>:20:19
    │
-19 │         const int UH_OH = UMMMM;
+20 │         const int UH_OH = UMMMM;
    │                   ^^^^^ cyclic const
-20 │         const int UMMMM = HALP;
-21 │         const int HALP = UH_OH;
+21 │         const int UMMMM = HALP;
+22 │         const int HALP = UH_OH;
    │                          ----- depends on its own value here
 
 

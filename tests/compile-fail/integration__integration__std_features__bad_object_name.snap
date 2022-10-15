@@ -3,9 +3,9 @@ source: tests/integration/std_features.rs
 expression: stderr
 ---
 error: no object named blarb
-   ┌─ <input>:30:9
+   ┌─ <input>:31:9
    │
-30 │         blarb {pos: [-192.0, 6344.0, 0.0]},
+31 │         blarb {pos: [-192.0, 6344.0, 0.0]},
    │         ^^^^^ not an object
 
 

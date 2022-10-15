@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: raw register in const context
-   ┌─ <input>:25:23
+   ┌─ <input>:26:23
    │
-25 │         const int y = $REG[10000];
+26 │         const int y = $REG[10000];
    │                       ^^^^^^^^^^^ forbidden in this context
 
 

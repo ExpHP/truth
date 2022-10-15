@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: wrong number of arguments to 'posKeyframe'
-   ┌─ <input>:21:9
+   ┌─ <input>:22:9
    │
-21 │         posKeyframe(0f, 0f, 0f, 0f);
+22 │         posKeyframe(0f, 0f, 0f, 0f);
    │         ^^^^^^^^^^^ expects 3 arguments, got 4
 
 

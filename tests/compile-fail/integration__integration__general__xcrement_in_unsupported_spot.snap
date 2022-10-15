@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: feature not supported by format
-   ┌─ <input>:28:17
+   ┌─ <input>:29:17
    │
-28 │         int x = --I0;
+29 │         int x = --I0;
    │                 ^^^^ this expression not supported by format
 
 

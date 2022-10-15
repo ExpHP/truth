@@ -3,12 +3,12 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: unexpected token `:`
-   ┌─ <input>:10:17
+   ┌─ <input>:11:17
    │
-10 │         int x = :4:4:6;
+11 │         int x = :4:4:6;
    │                 ^ unexpected token
    │
    = 
-     Expected one of "!", "$", "%", "(", "++", "-", "--", "REG", "_S", "_f", "anim", "case", "cos", "default", "ecli", "entry", "float", "int", "mapfile", "offsetof", "script", "sin", "sqrt", "timeof", "~", FLOAT, FLOAT_RAD, IDENT, INSTR, INT or STRING
+     Expected one of "!", "$", "%", "(", "++", "-", "--", "REG", "_S", "_f", "anim", "case", "cos", "default", "ecli", "entry", "float", "game", "image_source", "int", "mapfile", "offsetof", "script", "sin", "sqrt", "timeof", "~", FLOAT, FLOAT_RAD, IDENT, INSTR, INT or STRING
 
 

@@ -3,17 +3,17 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:28:15
+   ┌─ <input>:29:15
    │
-28 │         times(F0) {}  // count
+29 │         times(F0) {}  // count
    │               ^^ a float
    │
    = an integer is required
 
 error: type error
-   ┌─ <input>:29:20
+   ┌─ <input>:30:20
    │
-29 │         times(F0 = 4) {}  // clobber
+30 │         times(F0 = 4) {}  // clobber
    │               --   ^ an integer
    │               │     
    │               a float

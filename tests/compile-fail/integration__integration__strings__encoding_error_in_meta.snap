@@ -3,9 +3,9 @@ source: tests/integration/strings.rs
 expression: stderr
 ---
 error: string encoding error
-  ┌─ <input>:6:17
+  ┌─ <input>:7:17
   │
-6 │     stage_name: "⏄",
+7 │     stage_name: "⏄",
   │                 ^^^ cannot be encoded using 'Shift_JIS'
 
 

@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: const evaluation error
-   ┌─ <input>:10:23
+   ┌─ <input>:11:23
    │
-10 │         const int x = $(2.0 + 3.0);
+11 │         const int x = $(2.0 + 3.0);
    │                   -   ^^^^^^^^^^^^ non-const expression
    │                   │    
    │                   while evaluating this const

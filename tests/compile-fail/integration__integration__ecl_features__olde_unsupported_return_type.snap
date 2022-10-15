@@ -3,9 +3,9 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: return types are not supported in old-style ECL subs like 'bouba'
-  ┌─ <input>:7:1
+  ┌─ <input>:8:1
   │
-7 │ int bouba() {
+8 │ int bouba() {
   │ ^^^ unsupported return type
 
 

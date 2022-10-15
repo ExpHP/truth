@@ -3,9 +3,9 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: forbidden pseudo-arg in function call
-   ┌─ <input>:15:7
+   ┌─ <input>:16:7
    │
-15 │     i(@blob="ffffffff");
+16 │     i(@blob="ffffffff");
    │     - ^^^^^^^^^^^^^^^^
    │     │  
    │     not an instruction

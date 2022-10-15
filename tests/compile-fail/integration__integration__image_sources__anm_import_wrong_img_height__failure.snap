@@ -3,9 +3,9 @@ source: tests/integration/image_sources.rs
 expression: stderr
 ---
 error: provided dimensions for 'subdir/hi-32x16.png' do not match image source: 32x16 in script, 32x12 in image source
-  ┌─ <input>:6:17
+  ┌─ <input>:7:17
   │
-6 │     img_height: 16,
+7 │     img_height: 16,
   │                 ^^
   │
   = image was loaded from 'tests/integration/resources/th12-embedded-bad-image-source.anm'

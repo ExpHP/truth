@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: too many function qualifiers
-   ┌─ <input>:25:16
+   ┌─ <input>:26:16
    │
-25 │         inline const int foo() { return 1; }
+26 │         inline const int foo() { return 1; }
    │                ^^^^^ extra qualifier
 
 

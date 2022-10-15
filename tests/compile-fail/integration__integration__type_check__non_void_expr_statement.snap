@@ -3,9 +3,9 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:28:9
+   ┌─ <input>:29:9
    │
-28 │         3.0;
+29 │         3.0;
    │         ^^^ a float
    │
    = expression statements must be of void type

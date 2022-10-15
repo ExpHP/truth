@@ -3,11 +3,11 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: redefinition of function 'name'
-  ┌─ <input>:8:16
+  ┌─ <input>:9:16
   │
-7 │     void name() {}
+8 │     void name() {}
   │          ---- originally defined here
-8 │     const void name() {}
+9 │     const void name() {}
   │                ^^^^ redefinition of function
 
 

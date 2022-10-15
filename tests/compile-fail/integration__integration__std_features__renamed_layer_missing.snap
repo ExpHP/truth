@@ -3,14 +3,14 @@ source: tests/integration/std_features.rs
 expression: stderr
 ---
 error: incomplete metadata object
-   ┌─ <input>:8:16
+   ┌─ <input>:9:16
    │  
- 8 │           thing: {
+ 9 │           thing: {
    │ ╭────────────────^
- 9 │ │             pos: [10.0, 20.0, 30.0],
-10 │ │             size: [10.0, 20.0, 30.0],
-11 │ │             quads: [],
-12 │ │         },
+10 │ │             pos: [10.0, 20.0, 30.0],
+11 │ │             size: [10.0, 20.0, 30.0],
+12 │ │             quads: [],
+13 │ │         },
    │ ╰─────────^ missing field 'layer'
 
 

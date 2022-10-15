@@ -3,12 +3,12 @@ source: tests/integration/difficulty.rs
 expression: stderr
 ---
 warning: conditional chain inside difficulty label may have surprising behavior
-   ┌─ <input>:10:5
+   ┌─ <input>:11:5
    │  
-10 │ ╭     {"ENH"}: if (I0 == 0) {
+11 │ ╭     {"ENH"}: if (I0 == 0) {
    │       -------- in this difficulty label
-11 │ │         {"L"}: nop();
-12 │ │     }
+12 │ │         {"L"}: nop();
+13 │ │     }
    │ ╰─────^ conditional chain
    │  
    = This code may not behave as expected! Try using the difficulty register instead, e.g. `if (DIFFICULTY == 2)` instead of a difficulty label. 

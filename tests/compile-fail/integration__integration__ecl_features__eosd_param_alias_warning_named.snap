@@ -3,11 +3,11 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 warning: register F0 used under multiple names
-  ┌─ <input>:7:10
+  ┌─ <input>:8:10
   │
-7 │ void foo(float x, int a) {
+8 │ void foo(float x, int a) {
   │          ^^^^^^^
-8 │     %F0 = 24.0;
+9 │     %F0 = 24.0;
   │     ^^^
   │
   = EoSD ECL subs pass their arguments in I0 and F0

@@ -3,9 +3,9 @@ source: tests/integration/time_label_compilation.rs
 expression: stderr
 ---
 error: const evaluation error in time label
-   ┌─ <input>:11:5
+   ┌─ <input>:12:5
    │
-11 │     +I0: nop();
+12 │     +I0: nop();
    │     ^^^ non-const expression
 
 

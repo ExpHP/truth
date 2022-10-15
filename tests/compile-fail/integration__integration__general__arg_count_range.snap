@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: wrong number of arguments to 'ins_2'
-   ┌─ <input>:21:9
+   ┌─ <input>:22:9
    │
-21 │         ins_2();
+22 │         ins_2();
    │         ^^^^^ expects 1 to 3 arguments, got 0
 
 

@@ -3,9 +3,9 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:10:20
+   ┌─ <input>:11:20
    │
-10 │         int x = 3::4.5:;               // arg
+11 │         int x = 3::4.5:;               // arg
    │                 ---^^^-
    │                 │  │
    │                 │  a float
@@ -13,35 +13,35 @@ error: type error
    │                 an integer
 
 error: type error
-   ┌─ <input>:11:19
+   ┌─ <input>:12:19
    │
-11 │         float a = 3:4::4;              // out
+12 │         float a = 3:4::4;              // out
    │         -----     ^^^^^^ an integer
    │         │          
    │         expects a float
 
 error: type error
-   ┌─ <input>:12:17
+   ┌─ <input>:13:17
    │
-12 │         int y = ins_0():::;            // void expr
+13 │         int y = ins_0():::;            // void expr
    │                 ^^^^^^^---
    │                 │
    │                 expects a value
    │                 void type
 
 error: type error
-   ┌─ <input>:13:32
+   ┌─ <input>:14:32
    │
-13 │         int z = (3.0:4.0:3.0 + 1:5.0); // interior
+14 │         int z = (3.0:4.0:3.0 + 1:5.0); // interior
    │                          --- - ^ an integer
    │                          │   │  
    │                          │   same types required by this
    │                          a float
 
 error: type error
-   ┌─ <input>:14:10
+   ┌─ <input>:15:10
    │
-14 │         (ins_0():::);                  // void stmt
+15 │         (ins_0():::);                  // void stmt
    │         -^^^^^^^----
    │         ││
    │         │void type

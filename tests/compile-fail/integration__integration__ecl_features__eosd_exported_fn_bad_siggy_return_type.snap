@@ -3,9 +3,9 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: return types are not supported in old-style ECL subs like 'bad5'
-  ┌─ <input>:7:1
+  ┌─ <input>:8:1
   │
-7 │ int bad5(int x) { return 2; }
+8 │ int bad5(int x) { return 2; }
   │ ^^^ unsupported return type
 
 

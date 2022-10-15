@@ -3,12 +3,12 @@ source: tests/integration/anm_features.rs
 expression: stderr
 ---
 error: scratch registers are disabled in this script
-   ┌─ <input>:35:27
+   ┌─ <input>:36:27
    │
-35 │         F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
+36 │         F3 = (F0 + 1.0) * ((F0 + 2.0) * (F0 + 3.0));
    │                           ^^^^^^^^^^^^^^^^^^^^^^^^^ this fancy expression requires a scratch register
-36 │ 
-37 │         copyVars();
+37 │ 
+38 │         copyVars();
    │         ^^^^^^^^^^ this disables scratch registers
 
 

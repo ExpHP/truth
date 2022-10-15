@@ -3,9 +3,9 @@ source: tests/integration/strings.rs
 expression: stderr
 ---
 error: string encoding error
-   ┌─ <input>:13:21
+   ┌─ <input>:14:21
    │
-13 │       textSet(0, 0, "⏄");
+14 │       textSet(0, 0, "⏄");
    │                     ^^^ cannot be encoded using 'Shift_JIS'
 
 

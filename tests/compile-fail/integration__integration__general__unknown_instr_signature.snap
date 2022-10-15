@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: signature not known for ANM opcode 6000
-   ┌─ <input>:28:9
+   ┌─ <input>:29:9
    │
-28 │         ins_6000(0, 0, 0);
+29 │         ins_6000(0, 0, 0);
    │         ^^^^^^^^ signature not known
    │
    = try adding this instruction's signature to your mapfiles

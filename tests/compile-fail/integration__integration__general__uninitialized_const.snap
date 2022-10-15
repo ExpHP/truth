@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: uninitialized const var
-   ┌─ <input>:25:26
+   ┌─ <input>:26:26
    │
-25 │         const int y = 3, z, w = 4;
+26 │         const int y = 3, z, w = 4;
    │                          ^ needs a value
 
 

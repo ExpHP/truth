@@ -3,9 +3,9 @@ source: tests/integration/anm_consts.rs
 expression: stderr
 ---
 error: unknown variable 'I0'
-   ┌─ <input>:36:66
+   ┌─ <input>:37:66
    │
-36 │         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
+37 │         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: 3 * I0},
    │                                                                  ^^ not found in this scope
    │
    = there is a 'I0' defined in ANM, which is not a const expression

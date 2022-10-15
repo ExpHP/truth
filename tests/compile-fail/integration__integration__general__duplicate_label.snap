@@ -3,11 +3,11 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: duplicate label 'label'
-   ┌─ <input>:22:5
+   ┌─ <input>:23:5
    │
-21 │     label:
-   │     ----- originally defined here
 22 │     label:
+   │     ----- originally defined here
+23 │     label:
    │     ^^^^^ redefined here
 
 

@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: non-const string variable
-   ┌─ <input>:28:9
+   ┌─ <input>:29:9
    │
-28 │         string x = "hi";
+29 │         string x = "hi";
    │         ^^^^^^ only possible for const vars
 
 

@@ -3,9 +3,9 @@ source: tests/integration/count_jmps.rs
 expression: stderr
 ---
 error: feature not supported by format
-   ┌─ <input>:11:13
+   ┌─ <input>:12:13
    │
-11 │             if (--I2) goto label;
+12 │             if (--I2) goto label;
    │             ^^^^^^^^^^^^^^^^^^^^^ decrement jump of this form not supported in this game
    │
    = this language supports a different form of decrement jump; try 'if (--I2 > 0)'

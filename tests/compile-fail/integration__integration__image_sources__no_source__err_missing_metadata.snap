@@ -3,9 +3,9 @@ source: tests/integration/image_sources.rs
 expression: stderr
 ---
 error: missing required field 'rt_width'!
-  ┌─ <input>:6:15
+  ┌─ <input>:7:15
   │
-6 │     has_data: false,
+7 │     has_data: false,
   │               ^^^^^ requires setting 'rt_width'
   │
   = you can also set 'img_width' to infer 'rt_width' as the next power of 2

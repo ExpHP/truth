@@ -2,6 +2,7 @@
 source: tests/integration/time_label_formatting.rs
 expression: decompiled
 ---
+#pragma game 6
 script timeline0 {
 }
 

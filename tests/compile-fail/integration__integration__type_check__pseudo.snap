@@ -3,9 +3,9 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:28:19
+   ┌─ <input>:29:19
    │
-28 │         pos(@blob=12);
+29 │         pos(@blob=12);
    │              ---- ^^ an integer
    │              │     
    │              expects a string

@@ -3,9 +3,9 @@ source: tests/integration/pseudo.rs
 expression: stderr
 ---
 error: non-const pseudo-arg
-   ┌─ <input>:29:20
+   ┌─ <input>:30:20
    │
-29 │         wait(@mask=I0, @blob="10270000");
+30 │         wait(@mask=I0, @blob="10270000");
    │                    ^^ non-const pseudo-arg
 
 

@@ -3,9 +3,9 @@ source: tests/integration/difficulty.rs
 expression: stderr
 ---
 error: mismatched diff switch lengths in a single statement
-   ┌─ <input>:10:10
+   ┌─ <input>:11:10
    │
-10 │     I0 = (2:3:4:5) + (1:2:3:4:5);
+11 │     I0 = (2:3:4:5) + (1:2:3:4:5);
    │          ^^^^^^^^^   ^^^^^^^^^^^ 5 cases
    │          │            
    │          4 cases

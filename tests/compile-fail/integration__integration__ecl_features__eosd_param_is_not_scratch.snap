@@ -3,17 +3,17 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: script too complex to compile
-   ┌─ <input>:11:11
+   ┌─ <input>:12:11
    │
- 7 │ void i_f(int a, float x) {
+ 8 │ void i_f(int a, float x) {
    │                 ------- F0 holds this
- 8 │     float t1 = 1.0;
+ 9 │     float t1 = 1.0;
    │           -- F1 holds this
- 9 │     float t2 = 2.0;
+10 │     float t2 = 2.0;
    │           -- F2 holds this
-10 │     float t3 = 3.0;
+11 │     float t3 = 3.0;
    │           -- F3 holds this
-11 │     float t4 = 4.0;
+12 │     float t4 = 4.0;
    │           ^^ no more registers of this type!
 
 

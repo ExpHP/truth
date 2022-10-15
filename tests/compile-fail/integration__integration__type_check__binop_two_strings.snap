@@ -3,9 +3,9 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:14:23
+   ┌─ <input>:15:23
    │
-14 │         textSet(0, 0, "F1" - "2.0");
+15 │         textSet(0, 0, "F1" - "2.0");
    │                       ^^^^ - requires a numeric type
    │                       │     
    │                       a string

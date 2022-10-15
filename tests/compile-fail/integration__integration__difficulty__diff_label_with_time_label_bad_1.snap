@@ -3,26 +3,26 @@ source: tests/integration/difficulty.rs
 expression: stderr
 ---
 warning: conditional chain inside difficulty label may have surprising behavior
-   ┌─ <input>:13:9
+   ┌─ <input>:14:9
    │  
-11 │       {"ENH"}: {
+12 │       {"ENH"}: {
    │       -------- in this difficulty label
-12 │           nop();
-13 │ ╭         if (I0 == 0) {
-14 │ │ +10:
-15 │ │             nop();
-16 │ │         }
+13 │           nop();
+14 │ ╭         if (I0 == 0) {
+15 │ │ +10:
+16 │ │             nop();
+17 │ │         }
    │ ╰─────────^ conditional chain
    │  
    = This code may not behave as expected! Try using the difficulty register instead, e.g. `if (DIFFICULTY == 2)` instead of a difficulty label. 
 
 warning: time label inside difficulty label may have surprising behavior
-   ┌─ <input>:14:1
+   ┌─ <input>:15:1
    │
-11 │     {"ENH"}: {
+12 │     {"ENH"}: {
    │     -------- in this difficulty label
    ·
-14 │ +10:
+15 │ +10:
    │ ^^^^ time label
    │
    = This code may not behave as expected! Try using the difficulty register instead, e.g. `if (DIFFICULTY == 2)` instead of a difficulty label. 

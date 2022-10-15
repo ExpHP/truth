@@ -3,43 +3,43 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:26:14
+   ┌─ <input>:27:14
    │
-26 │     if (2 == 3.0) goto label;
+27 │     if (2 == 3.0) goto label;
    │         - -- ^^^ a float
    │         │ │   
    │         │ same types required by this
    │         an integer
 
 error: type error
-   ┌─ <input>:31:9
+   ┌─ <input>:32:9
    │
-31 │     if (3.0) goto label;
+32 │     if (3.0) goto label;
    │         ^^^ a float
    │
    = an integer is required
 
 error: type error
-   ┌─ <input>:37:14
+   ┌─ <input>:38:14
    │
-37 │     if (2 && 3.0) goto label1;
+38 │     if (2 && 3.0) goto label1;
    │         - -- ^^^ a float
    │         │ │   
    │         │ same types required by this
    │         an integer
 
 error: type error
-   ┌─ <input>:40:9
+   ┌─ <input>:41:9
    │
-40 │     if (2.0 && 3.0) goto label2;
+41 │     if (2.0 && 3.0) goto label2;
    │         ^^^ -- expects an integer
    │         │    
    │         a float
 
 error: type error
-   ┌─ <input>:45:11
+   ┌─ <input>:46:11
    │
-45 │     if (--F0) goto label;
+46 │     if (--F0) goto label;
    │         --^^ a float
    │         │  
    │         expects an integer

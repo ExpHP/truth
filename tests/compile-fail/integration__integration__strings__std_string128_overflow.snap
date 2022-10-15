@@ -3,16 +3,16 @@ source: tests/integration/strings.rs
 expression: stderr
 ---
 error: string is too long
-   ┌─ <input>:6:17
+   ┌─ <input>:7:17
    │  
- 6 │       stage_name: "
+ 7 │       stage_name: "
    │ ╭─────────────────^
- 7 │ │ 0123456789abcdef 0123456789abcdef 0123456789abcdef
  8 │ │ 0123456789abcdef 0123456789abcdef 0123456789abcdef
  9 │ │ 0123456789abcdef 0123456789abcdef 0123456789abcdef
+10 │ │ 0123456789abcdef 0123456789abcdef 0123456789abcdef
    · │
-12 │ │ 0123456789abcdef 0123456789abcdef 0123456789abcdef
-13 │ │ ",
+13 │ │ 0123456789abcdef 0123456789abcdef 0123456789abcdef
+14 │ │ ",
    │ ╰─^ 307 bytes (max allowed: 127)
 
 

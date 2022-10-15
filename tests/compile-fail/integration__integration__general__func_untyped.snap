@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: var-typed function
-   ┌─ <input>:25:9
+   ┌─ <input>:26:9
    │
-25 │         var foo() { return 1; }
+26 │         var foo() { return 1; }
    │         ^^^ cannot be used on functions
 
 

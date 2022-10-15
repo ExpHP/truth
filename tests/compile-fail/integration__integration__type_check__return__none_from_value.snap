@@ -3,9 +3,9 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:25:22
+   ┌─ <input>:26:22
    │
-25 │ inline float foo() { return; }
+26 │ inline float foo() { return; }
    │        -----         ^^^^^^ void
    │        │              
    │        expects a float

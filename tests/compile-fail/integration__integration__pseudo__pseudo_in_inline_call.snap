@@ -3,9 +3,9 @@ source: tests/integration/pseudo.rs
 expression: stderr
 ---
 error: forbidden pseudo-arg in function call
-   ┌─ <input>:30:13
+   ┌─ <input>:31:13
    │
-30 │         foo(@mask=0b1, 12);
+31 │         foo(@mask=0b1, 12);
    │         --- ^^^^^^^^^
    │         │    
    │         not an instruction

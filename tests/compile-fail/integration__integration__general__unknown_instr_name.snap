@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: unknown ANM instruction or function 'iMadeThisUpYesterday'
-   ┌─ <input>:28:9
+   ┌─ <input>:29:9
    │
-28 │         iMadeThisUpYesterday(0, 0, 0);
+29 │         iMadeThisUpYesterday(0, 0, 0);
    │         ^^^^^^^^^^^^^^^^^^^^ not found in this scope
 
 

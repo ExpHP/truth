@@ -2,6 +2,7 @@
 source: tests/integration/bits_2_bits.rs
 expression: s
 ---
+#pragma game 11
 #pragma mapfile "map/any.msgm"
 
 meta {table: {0: {script: "script0", flags: 256}}}

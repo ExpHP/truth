@@ -3,9 +3,9 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: feature not supported by format
-   ┌─ <input>:25:1
+   ┌─ <input>:26:1
    │
-25 │ inline void foo() { }
+26 │ inline void foo() { }
    │ ^^^^^^^^^^^^^^^^^^^^^ not supported by ANM files
 
 

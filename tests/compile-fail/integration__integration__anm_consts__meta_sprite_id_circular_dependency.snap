@@ -3,12 +3,12 @@ source: tests/integration/anm_consts.rs
 expression: stderr
 ---
 error: cycle in const definition
-   ┌─ <input>:30:9
+   ┌─ <input>:31:9
    │
-30 │         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
+31 │         coolSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: bestSprite * 3},
    │         ^^^^^^^^^^ cyclic const
    ·
-33 │         coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
+34 │         coolestSprite: {x: 0.0, y: 0.0, w: 512.0, h: 480.0, id: coolSprite + 1},
    │                                                                 ---------- depends on its own value here
 
 

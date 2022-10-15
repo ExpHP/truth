@@ -3,23 +3,23 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: invalid type for param in EoSD ECL
-  ┌─ <input>:7:11
+  ┌─ <input>:8:11
   │
-7 │ void bad2(var x) {}
+8 │ void bad2(var x) {}
   │           ^^^
 
 error: too many int params for EoSD ECL function
-  ┌─ <input>:9:18
-  │
-9 │ void bad3(int x, int y) {}
-  │                  ^^^^^ extra int param
-  │
-  = exported EoSD ECL functions are limited to 1 int and 1 float
+   ┌─ <input>:10:18
+   │
+10 │ void bad3(int x, int y) {}
+   │                  ^^^^^ extra int param
+   │
+   = exported EoSD ECL functions are limited to 1 int and 1 float
 
 error: too many float params for EoSD ECL function
-   ┌─ <input>:11:27
+   ┌─ <input>:12:27
    │
-11 │ void bad4(float x, int y, float z) {}
+12 │ void bad4(float x, int y, float z) {}
    │                           ^^^^^^^ extra float param
    │
    = exported EoSD ECL functions are limited to 1 int and 1 float

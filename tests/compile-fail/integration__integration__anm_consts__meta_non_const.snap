@@ -3,9 +3,9 @@ source: tests/integration/anm_consts.rs
 expression: stderr
 ---
 error: unknown variable 'I0'
-   ┌─ <input>:28:26
+   ┌─ <input>:29:26
    │
-28 │     memory_priority: 3 * I0,
+29 │     memory_priority: 3 * I0,
    │                          ^^ not found in this scope
    │
    = there is a 'I0' defined in ANM, which is not a const expression

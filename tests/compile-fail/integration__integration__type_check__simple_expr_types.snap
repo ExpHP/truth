@@ -3,19 +3,10 @@ source: tests/integration/type_check.rs
 expression: stderr
 ---
 error: type error
-   ┌─ <input>:28:14
-   │
-28 │         I0 = 4.0;
-   │         -- - ^^^ a float
-   │         │  │  
-   │         │  same types required by this
-   │         an integer
-
-error: type error
    ┌─ <input>:29:14
    │
-29 │         I0 = F0;
-   │         -- - ^^ a float
+29 │         I0 = 4.0;
+   │         -- - ^^^ a float
    │         │  │  
    │         │  same types required by this
    │         an integer
@@ -23,7 +14,16 @@ error: type error
 error: type error
    ┌─ <input>:30:14
    │
-30 │         I0 = %I1;
+30 │         I0 = F0;
+   │         -- - ^^ a float
+   │         │  │  
+   │         │  same types required by this
+   │         an integer
+
+error: type error
+   ┌─ <input>:31:14
+   │
+31 │         I0 = %I1;
    │         -- - ^^^ a float
    │         │  │  
    │         │  same types required by this

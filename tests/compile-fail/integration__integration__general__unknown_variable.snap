@@ -3,9 +3,9 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: unknown ANM register or variable 'y'
-   ┌─ <input>:28:17
+   ┌─ <input>:29:17
    │
-28 │         int x = y;
+29 │         int x = y;
    │                 ^ not found in this scope
 
 

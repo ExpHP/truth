@@ -3,12 +3,12 @@ source: tests/integration/general.rs
 expression: stderr
 ---
 error: unexpected token `REG`
-   ┌─ <input>:25:22
+   ┌─ <input>:26:22
    │
-25 │         void foo(int REG[100]) {}
+26 │         void foo(int REG[100]) {}
    │                      ^^^ unexpected token
    │
    = 
-     Expected one of ")", ",", ";", "anim", "case", "default", "ecli", "entry", "mapfile", "script" or IDENT
+     Expected one of ")", ",", ";", "anim", "case", "default", "ecli", "entry", "game", "image_source", "mapfile", "script" or IDENT
 
 

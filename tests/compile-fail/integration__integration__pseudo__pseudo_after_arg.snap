@@ -3,9 +3,9 @@ source: tests/integration/pseudo.rs
 expression: stderr
 ---
 error: invalid pseudo-arg
-   ┌─ <input>:28:18
+   ┌─ <input>:29:18
    │
-28 │         wait(12, @mask=0b1);
+29 │         wait(12, @mask=0b1);
    │                  ^^^^^^ must come before other arguments
 
 

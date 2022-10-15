@@ -3,9 +3,9 @@ source: tests/integration/ecl_features.rs
 expression: stderr
 ---
 error: non-const string variable
-  ┌─ <input>:7:11
+  ┌─ <input>:8:11
   │
-7 │ void bad1(string arg) {}
+8 │ void bad1(string arg) {}
   │           ^^^^^^ only possible for const vars
 
 
