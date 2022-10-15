@@ -8,7 +8,7 @@ use truth::Game;
 
 pub const ANM_06: Format = Format {
     cmd: "truanm",
-    game: Game::Th06,
+    game: Some(Game::Th06),
     script_head: r#"
 #pragma mapfile "map/any.anmm"
 
@@ -41,28 +41,28 @@ script script0 {{
 
 pub const ANM_10: Format = Format {
     cmd: "truanm",
-    game: Game::Th10,
+    game: Some(Game::Th10),
     script_head: ANM_06.script_head,
     make_main: ANM_06.make_main,
 };
 
 pub const ANM_12: Format = Format {
     cmd: "truanm",
-    game: Game::Th12,
+    game: Some(Game::Th12),
     script_head: ANM_06.script_head,
     make_main: ANM_06.make_main,
 };
 
 pub const ANM_16: Format = Format {
     cmd: "truanm",
-    game: Game::Th16,
+    game: Some(Game::Th16),
     script_head: ANM_06.script_head,
     make_main: ANM_06.make_main,
 };
 
 pub const STD_06: Format = Format {
     cmd: "trustd",
-    game: Game::Th06,
+    game: Some(Game::Th06),
     script_head: r#"
 #pragma mapfile "map/any.stdm"
 
@@ -88,14 +88,14 @@ script main {{
 
 pub const STD_08: Format = Format {
     cmd: "trustd",
-    game: Game::Th08,
+    game: Some(Game::Th08),
     script_head: STD_06.script_head,
     make_main: STD_06.make_main,
 };
 
 pub const STD_12: Format = Format {
     cmd: "trustd",
-    game: Game::Th12,
+    game: Some(Game::Th12),
     script_head: r#"
 #pragma mapfile "map/any.stdm"
 
@@ -118,7 +118,7 @@ meta {
 
 pub const MSG_06: Format = Format {
     cmd: "trumsg",
-    game: Game::Th06,
+    game: Some(Game::Th06),
     script_head: r#"
 #pragma mapfile "map/any.msgm"
 
@@ -137,14 +137,14 @@ script main {{
 
 pub const MSG_08: Format = Format {
     cmd: "trumsg",
-    game: Game::Th08,
+    game: Some(Game::Th08),
     script_head: MSG_06.script_head,
     make_main: MSG_06.make_main,
 };
 
 pub const MSG_09: Format = Format {
     cmd: "trumsg",
-    game: Game::Th09,
+    game: Some(Game::Th09),
     script_head:  r#"
 #pragma mapfile "map/any.msgm"
 
@@ -159,28 +159,28 @@ meta {
 
 pub const MSG_11: Format = Format {
     cmd: "trumsg",
-    game: Game::Th11,
+    game: Some(Game::Th11),
     script_head: MSG_09.script_head,
     make_main: MSG_09.make_main,
 };
 
 pub const MSG_12: Format = Format {
     cmd: "trumsg",
-    game: Game::Th12,
+    game: Some(Game::Th12),
     script_head: MSG_09.script_head,
     make_main: MSG_09.make_main,
 };
 
 pub const MSG_17: Format = Format {
     cmd: "trumsg",
-    game: Game::Th17,
+    game: Some(Game::Th17),
     script_head: MSG_09.script_head,
     make_main: MSG_09.make_main,
 };
 
 pub const ECL_06: Format = Format {
     cmd: "truecl",
-    game: Game::Th06,
+    game: Some(Game::Th06),
     script_head: r#"
 #pragma mapfile "map/any.eclm"
 
@@ -196,7 +196,7 @@ void sub0() {{
 // FIXME: Maybe default difficulty names shouldn't be in the default mapfile
 pub const ECL_06_NO_DEFAULT_MAP: Format = Format {
     cmd: "truecl",
-    game: Game::Th06,
+    game: Some(Game::Th06),
     script_head: r#"
 script timeline0 {}
 "#,
@@ -208,12 +208,12 @@ void sub0() {{
 };
 
 pub const ECL_07: Format = Format {
-    game: Game::Th07,
+    game: Some(Game::Th07),
     ..ECL_06
 };
 
 pub const ECL_08: Format = Format {
-    game: Game::Th08,
+    game: Some(Game::Th08),
     ..ECL_06
 };
 
@@ -221,7 +221,7 @@ pub const ECL_08: Format = Format {
 /// There are no subs by default.
 pub const ECL_TIMELINE_06: Format = Format {
     cmd: "truecl",
-    game: Game::Th06,
+    game: Some(Game::Th06),
     script_head: r#""#,
     make_main: |body| format!(r#"
 script timeline0 {{
@@ -232,7 +232,7 @@ script timeline0 {{
 
 pub const ECL_TIMELINE_08: Format = Format {
     cmd: "truecl",
-    game: Game::Th08,
+    game: Some(Game::Th08),
     script_head: r#""#,
     make_main: |body| format!(r#"
 script timeline0 {{
@@ -243,7 +243,7 @@ script timeline0 {{
 
 pub const ECL_10: Format = Format {
     cmd: "truecl",
-    game: Game::Th10,
+    game: Some(Game::Th10),
     script_head: r#"
 meta {
     ecli: [],

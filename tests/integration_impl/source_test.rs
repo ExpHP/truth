@@ -381,15 +381,22 @@ impl SourceBuilder {
         assert!(do_full || do_parts, "missing 'main_body', 'items', or 'full_source'");
         assert!(!(do_full && do_parts), "'full_source' cannot be used with 'main_body' or 'items'");
 
+        let optional_game_pragma = match self.format.game {
+            Some(game) => format!("#pragma game {}\n", game.as_number()),
+            None => format!(""),
+        };
         if do_parts {
             format!(
-                "{}\n{}\n{}",
+                "{}{}\n{}\n{}",
+                optional_game_pragma,
                 self.format.script_head,
                 self.items.clone().unwrap_or_else(String::new),
                 (self.format.make_main)(&self.main_body.clone().unwrap_or_else(String::new)),
             ).into()
         } else {
-            self.full_source.clone().unwrap()
+            let mut bytes = optional_game_pragma.into_bytes();
+            bytes.extend_from_slice(self.full_source.as_ref().unwrap());
+            bytes
         }
     }
 }

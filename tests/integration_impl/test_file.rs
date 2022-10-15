@@ -63,27 +63,27 @@ impl TestFile {
         let mut truth = scope.truth();
         let mut truth = truth.validate_defs().unwrap();
         let with_images = true;
-        truth.read_anm(format.game, self.as_path(), with_images).unwrap()
+        truth.read_anm(format.game.expect("format has no game"), self.as_path(), with_images).unwrap()
     }
 
     pub fn read_msg(&self, format: &Format) -> truth::MsgFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
         let mut truth = truth.validate_defs().unwrap();
-        truth.read_msg(format.game, truth::LanguageKey::Msg, self.as_path()).unwrap()
+        truth.read_msg(format.game.expect("format has no game"), truth::LanguageKey::Msg, self.as_path()).unwrap()
     }
 
     pub fn read_std(&self, format: &Format) -> truth::StdFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
         let mut truth = truth.validate_defs().unwrap();
-        truth.read_std(format.game, self.as_path()).unwrap()
+        truth.read_std(format.game.expect("format has no game"), self.as_path()).unwrap()
     }
 
     pub fn read_olde_ecl(&self, format: &Format) -> truth::OldeEclFile {
         let mut scope = truth::Builder::new().build();
         let mut truth = scope.truth();
         let mut truth = truth.validate_defs().unwrap();
-        truth.read_olde_ecl(format.game, self.as_path()).unwrap()
+        truth.read_olde_ecl(format.game.expect("format has no game"), self.as_path()).unwrap()
     }
 }

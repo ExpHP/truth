@@ -24,7 +24,8 @@ mod parse_errors;
 
 pub struct Format {
     pub cmd: &'static str,
-    pub game: Game,
+    /// Automatically added to the script as a `#pragma game`.  Required for decompilation.
+    pub game: Option<Game>,
     pub script_head: &'static str,
     /// Embed a series of statements inside some sort of subroutine definition;
     /// whatever is appropriate for the language in question.
@@ -70,16 +71,17 @@ impl Format {
         mapfiles: impl IntoIterator<Item=&'a TestFile>,
     ) -> ProgramResult {
         let outfile = TestFile::new_temp("Xx_compiled-file_xX");
+
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("compile")
-                .arg("-g").arg(format!("{}", self.game))
                 .arg(src.as_path())
                 .arg("-o").arg(outfile.as_path())
                 .args(mapfile_args(mapfiles))
                 .args(args)
                 .output().expect("failed to execute process")
         };
+
         if !output.stdout.is_empty() {
             eprintln!("== COMPILE STDOUT:");
             eprintln!("{}", String::from_utf8_lossy(&output.stdout));
@@ -105,7 +107,7 @@ impl Format {
         let output = {
             Command::cargo_bin(self.cmd).unwrap()
                 .arg("decompile")
-                .arg("-g").arg(format!("{}", self.game))
+                .arg("-g").arg(format!("{}", self.game.expect("format has no game")))
                 .arg(infile.as_path())
                 .stdout(outfile.create())
                 .args(mapfile_args(mapfiles))
