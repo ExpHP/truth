@@ -65,7 +65,7 @@ impl ToMeta for Std06Bgm {
 impl StdFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile_std(self, &emitter, &*game_format(game), ctx, decompile_options)
+        decompile_std(self, &emitter, &*game_format(game), Some(game), ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, script: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -239,6 +239,7 @@ fn decompile_std(
     std: &StdFile,
     emitter: &impl Emitter,
     format: &dyn FileFormat,
+    game_pragma: Option<Game>,
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
@@ -266,6 +267,7 @@ fn decompile_std(
                 keyword: sp!(()),
             }),
         ],
+        game: game_pragma.map(|game| sp!(game)),
     };
     crate::passes::postprocess_decompiled(&mut script, ctx, decompile_options)?;
     Ok(script)

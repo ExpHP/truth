@@ -537,8 +537,12 @@ impl_tuple_format!(a:A, b:B, c:C, d:D, e:E, f:F, g:G, h:H);
 
 impl Format for ast::ScriptFile {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::ScriptFile { items, mapfiles, image_sources } = self;
+        let ast::ScriptFile { items, mapfiles, image_sources, game } = self;
 
+        if let Some(game) = game {
+            out.fmt(("#pragma game ", game.as_number() as i32))?;
+            out.next_line()?;
+        }
         for file in mapfiles {
             out.fmt(("#pragma mapfile ", file))?;
             out.next_line()?;

@@ -10,7 +10,7 @@ use crate::game::{Game};
 use crate::image::ColorFormat;
 use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
 
-use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, Version, TextureData, TextureMetadata};
+use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, AnmVersion, TextureData, TextureMetadata};
 
 #[derive(Debug, Clone)]
 struct EntryHeaderData {
@@ -391,7 +391,7 @@ fn write_texture(f: &mut BinWriter, data: &TextureData, metadata: &TextureMetada
 
 /// Type responsible for dealing with version differences in the container format.
 struct FileFormat {
-    version: Version,
+    version: AnmVersion,
     instr_format: Box<dyn InstrFormat>,
 }
 
@@ -400,7 +400,7 @@ struct InstrFormat07;
 
 impl FileFormat {
     fn from_game(game: Game) -> Self {
-        let version = Version::from_game(game);
+        let version = AnmVersion::from_game(game);
         let instr_format = get_instr_format(version);
         FileFormat { version, instr_format }
     }
@@ -545,9 +545,9 @@ impl FileFormat {
     }
 }
 
-pub(super) fn get_instr_format(version: Version) -> Box<dyn InstrFormat> {
+pub(super) fn get_instr_format(version: AnmVersion) -> Box<dyn InstrFormat> {
     match version {
-        Version::V0 => Box::new(InstrFormat06),
+        AnmVersion::V0 => Box::new(InstrFormat06),
         _ => Box::new(InstrFormat07),
     }
 }

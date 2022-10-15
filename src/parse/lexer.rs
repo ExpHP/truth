@@ -95,6 +95,7 @@ define_token_enum! {
         #[token("pragma")] Pragma,
         #[token("mapfile")] Mapfile,
         #[token("image_source")] ImageSource,
+        #[token("game")] Game,
         #[token("offsetof")] OffsetOf,
         #[token("timeof")] TimeOf,
         #[token("sin")] Sin,

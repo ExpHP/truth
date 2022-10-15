@@ -12,6 +12,8 @@ macro_rules! max_game_str { () => {
     "th185"  // NEWHU: 185
 }; }
 
+const VALID_GAME_HINT: &'static str = concat!("valid games are th06 to ", max_game_str!(), ", or alcostg.  Point titles are written as e.g. th095");
+
 impl std::str::FromStr for Game {
     type Err = Diagnostic;
 
@@ -20,14 +22,18 @@ impl std::str::FromStr for Game {
             return Ok(Game::Alcostg);
         }
 
-        let err_suffix = concat!("(valid games are th06 to ", max_game_str!(), ", or alcostg.  Point titles are written as e.g. th095)");
-        let invalid_game = || error!("game not invalid: {} {}", s, err_suffix);
-        let unsupported_pc98 = || error!("game not supported (PC-98): {} {}", s, err_suffix);
-        let unsupported_fighter = || error!("game not supported (fighter): {} {}", s, err_suffix);
-        let unknown_game = || error!("unknown game: {} {}", s, err_suffix);
-
         let s = s.strip_prefix("th").unwrap_or(s);
-        match s.parse::<u32>().map_err(|_| invalid_game())? {
+        let number = s.parse::<u32>().map_err(|_| error!("game not valid: {s} ({VALID_GAME_HINT})"))?;
+        Self::from_number(number)
+    }
+}
+
+impl Game {
+    pub fn from_number(number: u32) -> Result<Self, Diagnostic> {
+        let unsupported_pc98 = || error!("game not supported (PC-98): {number} ({VALID_GAME_HINT})");
+        let unsupported_fighter = || error!("game not supported (fighter): {number} ({VALID_GAME_HINT})");
+        let unknown_game = || error!("unknown game: {number} ({VALID_GAME_HINT})");
+        match number {
             1 | 2 | 3 | 4 | 5 => Err(unsupported_pc98()),
             75 | 105 | 135 | 145 | 155 | 175 => Err(unsupported_fighter()),
             6 => Ok(Game::Th06),

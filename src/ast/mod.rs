@@ -4,7 +4,7 @@ use crate::raw;
 use crate::resolve::{DefId, LoopId, NodeId, RegId};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
-use crate::game::LanguageKey;
+use crate::game::{Game, LanguageKey};
 use crate::value;
 use crate::diff_switch_utils as ds_util;
 
@@ -27,6 +27,7 @@ pub struct ScriptFile {
     pub mapfiles: Vec<Sp<LitString>>,
     pub image_sources: Vec<Sp<LitString>>,
     pub items: Vec<Sp<Item>>,
+    pub game: Option<Sp<Game>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

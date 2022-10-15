@@ -483,7 +483,7 @@ fn extract_jump_args_by_signature(
     };
 
     let (abi, _) = defs.ins_abi(hooks.language(), instr.opcode).expect("decoded, so abi is known");
-    for (arg, encoding) in zip!(args, abi.arg_encodings()) {
+    for (arg, encoding) in izip!(args, abi.arg_encodings()) {
         match encoding {
             ArgEncoding::JumpOffset
             => jump_offset = Some(hooks.decode_label(instr.offset, arg.expect_immediate_int() as u32)),

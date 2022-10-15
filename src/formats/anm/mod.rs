@@ -53,7 +53,7 @@ pub struct WorkingAnmFile {
 impl AnmFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, game, &*game_hooks(game), ctx, decompile_options)
+        decompile(self, &emitter, AnmVersion::from_game(game), &*game_hooks(game), Some(game), ctx, decompile_options)
     }
 }
 
@@ -257,16 +257,16 @@ struct WorkingEntrySpecs {
     low_res_scale: SoftOption<bool>,
 }
 
-fn default_memory_priority(version: Version) -> u32 {
+fn default_memory_priority(version: AnmVersion) -> u32 {
     match version {
-        Version::V0 => 0,
+        AnmVersion::V0 => 0,
         _ => 10,
     }
 }
 
 /// Finishes work on an entry during compilation, after a source for its image data has been located.
 fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitter) -> Result<Entry, ErrorReported> {
-    let version = Version::from_game(game);
+    let version = AnmVersion::from_game(game);
 
     // Fill in defaults to simplify reasoning.
     let mut specs = entry.specs.clone();
@@ -530,9 +530,7 @@ const DEFAULT_LOW_RES_SCALE: bool = false;
 const DEFAULT_HAS_DATA: HasData = HasData::True;
 
 impl Entry {
-    fn make_meta(&self, game: Game) -> meta::Fields {
-        let version = Version::from_game(game);
-
+    fn make_meta(&self, version: AnmVersion) -> meta::Fields {
         // img_* fields are only present if a texture was present
         let (mut img_format, mut opt_img_width, mut opt_img_height) = (DEFAULT_COLOR_FORMAT as u32, None, None);
         if let Some(texture_metadata) = &self.texture_metadata {
@@ -810,8 +808,9 @@ impl FromMeta<'_> for Sprite {
 fn decompile(
     anm_file: &AnmFile,
     emitter: &impl Emitter,
-    game: Game,
+    version: AnmVersion,
     hooks: &dyn LanguageHooks,
+    game_pragma: Option<Game>,
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
@@ -831,7 +830,7 @@ fn decompile(
     for entry in &anm_file.entries {
         items.push(sp!(ast::Item::Meta {
             keyword: sp!(ast::MetaKeyword::Entry),
-            fields: sp!(entry.make_meta(game)),
+            fields: sp!(entry.make_meta(version)),
         }));
 
         entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
@@ -857,6 +856,7 @@ fn decompile(
         //       mapfiles is to encourage people to check their mapfiles into VCS, and I do not
         //       want to encourage people checking in vanilla ANM files.
         image_sources: vec![],
+        game: game_pragma.map(|game| sp!(game)),
     };
     crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
     Ok(out)
@@ -1209,34 +1209,34 @@ fn update_region_extraction_hints(anm: &mut AnmFile) {
 // =============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Version { V0 = 0, V2 = 2, V3 = 3, V4 = 4, V7 = 7, V8 = 8 }
-impl Version {
+enum AnmVersion { V0 = 0, V2 = 2, V3 = 3, V4 = 4, V7 = 7, V8 = 8 }
+impl AnmVersion {
     fn from_game(game: Game) -> Self {
         use Game::*;
         match game {
-            Th06 => Version::V0,
-            Th07 => Version::V2,
-            Th08 | Th09 => Version::V3,
-            Th095 | Th10 | Alcostg => Version::V4,
-            Th11 | Th12 | Th125 | Th128 => Version::V7,
-            Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 => Version::V8,
+            Th06 => AnmVersion::V0,
+            Th07 => AnmVersion::V2,
+            Th08 | Th09 => AnmVersion::V3,
+            Th095 | Th10 | Alcostg => AnmVersion::V4,
+            Th11 | Th12 | Th125 | Th128 => AnmVersion::V7,
+            Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 => AnmVersion::V8,
         }
     }
 
-    fn is_old_header(self) -> bool { self < Version::V7 }
+    fn is_old_header(self) -> bool { self < AnmVersion::V7 }
 }
 
 fn game_hooks(game: Game) -> Box<dyn LanguageHooks> {
-    let version = Version::from_game(game);
+    let version = AnmVersion::from_game(game);
     let instr_format = read_write::get_instr_format(version);
     match version {
-        Version::V0 => Box::new(AnmHooks06 { instr_format }),
+        AnmVersion::V0 => Box::new(AnmHooks06 { instr_format }),
         _ => Box::new(AnmHooks07 { version, game, instr_format }),
     }
 }
 
 struct AnmHooks06 { instr_format: Box<dyn InstrFormat> }
-struct AnmHooks07 { version: Version, game: Game, instr_format: Box<dyn InstrFormat> }
+struct AnmHooks07 { version: AnmVersion, game: Game, instr_format: Box<dyn InstrFormat> }
 
 impl LanguageHooks for AnmHooks06 {
     fn language(&self) -> LanguageKey { LanguageKey::Anm }
@@ -1261,8 +1261,8 @@ impl LanguageHooks for AnmHooks07 {
         use RegId as R;
 
         match self.version {
-            Version::V0 => unreachable!(),
-            Version::V2 | Version::V3 | Version::V4 | Version::V7 | Version::V8 => enum_map::enum_map!{
+            AnmVersion::V0 => unreachable!(),
+            AnmVersion::V2 | AnmVersion::V3 | AnmVersion::V4 | AnmVersion::V7 | AnmVersion::V8 => enum_map::enum_map!{
                 ScalarType::Int => vec![R(10000), R(10001), R(10002), R(10003), R(10008), R(10009)],
                 ScalarType::Float => vec![R(10004), R(10005), R(10006), R(10007)],
                 ScalarType::String => vec![],

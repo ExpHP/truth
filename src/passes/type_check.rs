@@ -504,7 +504,7 @@ impl ExprTypeChecker<'_, '_> {
             )));
         }
 
-        zip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
+        izip!(1.., args, &siggy.params).map(|(param_num, arg, param)| {
             let arg_ty = self.check_expr_as_value(arg, name.span)?;
             if let VarType::Typed(param_ty) = param.ty.value {
                 if arg_ty != param_ty {

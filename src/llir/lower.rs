@@ -554,7 +554,7 @@ fn encode_args(
     // Important: we put the shortest iterator (args_iter) first in the zip list
     //            to ensure that this loop reads an equal number of items from all iters.
     assert!(args_iter.len() <= arg_encodings_iter.len());
-    for (arg, enc) in zip!(args_iter, arg_encodings_iter.by_ref()) {
+    for (arg, enc) in izip!(args_iter, arg_encodings_iter.by_ref()) {
         match *enc {
             | ArgEncoding::Integer { arg0: true, .. }
             => unreachable!(),

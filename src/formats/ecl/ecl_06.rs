@@ -32,7 +32,7 @@ pub struct OldeEclFile {
 impl OldeEclFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &game_format(game)?, ctx, decompile_options)
+        decompile(self, &emitter, &game_format(game)?, Some(game), ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
@@ -56,6 +56,7 @@ fn decompile(
     ecl: &OldeEclFile,
     emitter: &impl Emitter,
     format: &OldeFileFormat,
+    game_pragma: Option<Game>,
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
@@ -130,6 +131,7 @@ fn decompile(
         items,
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
+        game: game_pragma.map(|game| sp!(game)),
     };
     crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
     Ok(out)

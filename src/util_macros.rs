@@ -38,10 +38,18 @@ mod _insta_helpers {
     }
 }
 
+/// Helper to zip an arbitrary number of iterators.
+macro_rules! izip {
+    ($first:expr, $($rest:expr),+) => { zip!( core::iter::IntoIterator::into_iter($first), $($rest),+ ) };
+}
+
+/// Helper to zip an arbitrary number of things; they must have `.zip` and `.map` methods.
+/// E.g. (options, iterators)
 macro_rules! zip {
-    ($a:expr, $b:expr) => { IntoIterator::into_iter($a).zip($b) };
-    ($a:expr, $b:expr, $c:expr) => { IntoIterator::into_iter($a).zip($b).zip($c).map(|((a, b), c)| (a, b, c)) };
-    ($a:expr, $b:expr, $c:expr, $d:expr) => { IntoIterator::into_iter($a).zip($b).zip($c).zip($d).map(|(((a, b), c), d)| (a, b, c, d)) };
+    ($a:expr, $b:expr) => { $a.zip($b) };
+    ($a:expr, $b:expr, $c:expr) => { $a.zip($b).zip($c).map(|((a, b), c)| (a, b, c)) };
+    ($a:expr, $b:expr, $c:expr, $d:expr) => { $a.zip($b).zip($c).zip($d).map(|(((a, b), c), d)| (a, b, c, d)) };
+    ($a:expr, $b:expr, $c:expr, $d:expr, $e:expr) => { $a.zip($b).zip($c).zip($d).zip($e).map(|((((a, b), c), d), e)| (a, b, c, d, e)) };
 }
 
 // =============================================================================

@@ -32,21 +32,21 @@ pub struct StackEclFile {
 impl StackEclFile {
     pub fn decompile_to_ast(&self, game: Game, ctx: &mut CompilerContext, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, game, ctx, decompile_options)
+        decompile(self, &emitter, &game_format(game), Some(game), ctx, decompile_options)
     }
 
     pub fn compile_from_ast(game: Game, ast: &ast::ScriptFile, ctx: &mut CompilerContext) -> Result<Self, ErrorReported> {
-        compile(game, ast, ctx)
+        compile(&game_format(game), ast, ctx)
     }
 
     pub fn write_to_stream(&self, w: &mut BinWriter, game: Game) -> WriteResult {
         let emitter = w.emitter();
-        write(w, &emitter, game, self)
+        write(w, &emitter, &game_format(game), self)
     }
 
     pub fn read_from_stream(r: &mut BinReader, game: Game) -> ReadResult<Self> {
         let emitter = r.emitter();
-        read(r, &emitter, game)
+        read(r, &emitter, &game_format(game))
     }
 }
 
@@ -85,11 +85,12 @@ impl StackEclMeta {
 fn decompile(
     ecl: &StackEclFile,
     emitter: &impl Emitter,
-    game: Game,
+    format: &FileFormat,
+    game_pragma: Option<Game>,
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
-    let hooks = game_hooks(game);
+    let hooks = format.language_hooks();
 
     let sub_idents = generate_sub_idents_from_ecl_file(ecl, emitter)?;
     for (sub_name, sub_ident) in &sub_idents {
@@ -135,6 +136,7 @@ fn decompile(
         items,
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
+        game: game_pragma.map(|game| sp!(game)),
     };
     crate::passes::postprocess_decompiled(&mut out, ctx, decompile_options)?;
     Ok(out)
@@ -151,11 +153,11 @@ fn generate_sub_idents_from_ecl_file(ecl: &StackEclFile, emitter: &impl Emitter)
 // =============================================================================
 
 fn compile(
-    game: Game,
+    format: &FileFormat,
     ast: &ast::ScriptFile,
     ctx: &mut CompilerContext,
 ) -> Result<StackEclFile, ErrorReported> {
-    let hooks = game_hooks(game);
+    let hooks = format.language_hooks();
 
     let mut ast = ast.clone();
 
@@ -318,9 +320,9 @@ fn unsupported(span: &crate::pos::Span) -> Diagnostic {
 fn read(
     reader: &mut BinReader,
     emitter: &impl Emitter,
-    game: Game,
+    format: &FileFormat,
 ) -> ReadResult<StackEclFile> {
-    let hooks = game_hooks(game);
+    let hooks = format.language_hooks();
     let instr_format = hooks.instr_format();
 
     let start_pos = reader.pos()?;
@@ -378,7 +380,7 @@ fn read(
 
     let mut subs = IndexMap::new();
     let mut end_offsets = sub_offsets.iter().copied().skip(1);
-    for (sub_index, &sub_header_offset, name) in zip!(0.., &sub_offsets, sub_names) {
+    for (sub_index, &sub_header_offset, name) in izip!(0.., &sub_offsets, sub_names) {
         let sub_end_offset = end_offsets.next();
         if let Some(sub_end_offset) = sub_end_offset {
             if sub_end_offset < sub_header_offset {
@@ -448,7 +450,7 @@ fn read_sub_header(
     reader.expect_magic(emitter, "ECLH")?;
     let data = reader.read_u32s(3)?;
     let expected_data = &[0x10, 0, 0];
-    for (index, data_dword, &expected_dword) in zip!(0.., data, expected_data) {
+    for (index, data_dword, &expected_dword) in izip!(0.., data, expected_data) {
         if data_dword != expected_dword {
             emitter.emit(warning!("unexpected data in sub header dword {index} (value: {data_dword:#x}")).ignore();
         }
@@ -461,10 +463,10 @@ fn read_sub_header(
 fn write(
     writer: &mut BinWriter,
     emitter: &impl Emitter,
-    game: Game,
+    format: &FileFormat,
     ecl: &StackEclFile,
 ) -> WriteResult {
-    let hooks = game_hooks(game);
+    let hooks = format.language_hooks();
     let instr_format = hooks.instr_format();
 
     let start_pos = writer.pos()?;
@@ -562,8 +564,18 @@ fn write_sub_header(
 
 // =============================================================================
 
-fn game_hooks(_game: Game) -> Box<dyn LanguageHooks> {
-    Box::new(ModernEclHooks)
+struct FileFormat {
+    // there's currently nothing that differs by game in the file format!
+}
+
+impl FileFormat {
+    fn language_hooks(&self) -> Box<dyn LanguageHooks> {
+        Box::new(ModernEclHooks)
+    }
+}
+
+fn game_format(_game: Game) -> FileFormat {
+    FileFormat {}
 }
 
 // =============================================================================

@@ -149,7 +149,7 @@ pub mod anm_extract {
         let (inputs, outdir, game, conflict_debug_dir) = cli::parse_args(version, args, CmdSpec {
             program: "truanm extract",
             usage_args: "FILE [FILE...] -g GAME [OPTIONS...]",
-            options: (cli::one_or_more_path_args("FILE"), cli::extract_outdir(), cli::game(), cli::extract_conflict_debug_dir()),
+            options: (cli::one_or_more_path_args("FILE"), cli::extract_outdir(), cli::required_game(), cli::extract_conflict_debug_dir()),
         });
 
         wrap_exit_code(|truth| {
@@ -180,7 +180,7 @@ pub mod anm_compile {
     pub fn main(version: &str, args: &[String]) -> ! {
         let (common_options, image_sources, output_thecl_defs) = cli::parse_args(version, args, CmdSpec {
             program: "truanm compile",
-            usage_args: "SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
+            usage_args: "SCRIPT [-g GAME] -o OUTPUT [OPTIONS...]",
             options: (cli::common_compile_options(), cli::image_sources(), cli::output_thecl_defs()),
         });
 
@@ -194,11 +194,12 @@ pub mod anm_compile {
         output_thecl_defs: Option<PathBuf>,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_options, ref debug_info_path,
+            ref in_path, ref out_path, cli_game, ref mapfile_options, ref debug_info_path,
         } = common_options;
-        load_mapfiles(truth, game, &[LanguageKey::Anm], mapfile_options)?;
 
         let ast = truth.read_script(&in_path)?;
+        let game = determine_game_for_compile(truth, &ast, cli_game)?;
+        load_mapfiles(truth, game, &[LanguageKey::Anm], mapfile_options)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         let mut truth = truth.validate_defs()?;
         let mut compiled = truth.compile_anm(game, &ast)?;
@@ -235,7 +236,7 @@ pub mod anm_redump {
         let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core anm-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::path_arg("FILE"), cli::required_output(), cli::game()),
+            options: (cli::path_arg("FILE"), cli::required_output(), cli::required_game()),
         });
 
         wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
@@ -259,7 +260,7 @@ pub mod ecl_compile {
     pub fn main(version: &str, args: &[String]) -> ! {
         let common_options = cli::parse_args(version, args, CmdSpec {
             program: "truecl compile",
-            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            usage_args: "FILE [-g GAME] -o OUTPUT [OPTIONS...]",
             options: cli::common_compile_options(),
         });
 
@@ -271,12 +272,13 @@ pub mod ecl_compile {
         common_options: &CommonCompileOptions,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_options, ref debug_info_path,
+            ref in_path, ref out_path, cli_game, ref mapfile_options, ref debug_info_path,
         } = common_options;
 
+        let ast = truth.read_script(&in_path)?;
+        let game = determine_game_for_compile(truth, &ast, cli_game)?;
         load_mapfiles(truth, game, &[LanguageKey::Ecl, LanguageKey::Timeline], mapfile_options)?;
 
-        let ast = truth.read_script(&in_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
@@ -329,7 +331,7 @@ pub mod ecl_redump {
         let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core ecl-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::path_arg("FILE"), cli::required_output(), cli::game()),
+            options: (cli::path_arg("FILE"), cli::required_output(), cli::required_game()),
         });
 
         wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
@@ -356,7 +358,7 @@ pub mod anm_benchmark {
             usage_args: "ANMFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
                 cli::path_arg("ANMFILE"), cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfile_options(), cli::decompile_options(),
+                cli::required_game(), cli::required_output(), cli::mapfile_options(), cli::decompile_options(),
             ),
         });
 
@@ -380,7 +382,7 @@ pub mod anm_benchmark {
             decompile_options: decompile_options.clone(),
         };
         let common_compile_options = CommonCompileOptions {
-            game,
+            cli_game: Some(game),
             in_path: script_path.to_owned(),
             out_path: out_path.to_owned(),
             mapfile_options: mapfile_options.clone(),
@@ -411,7 +413,7 @@ pub mod ecl_benchmark {
             usage_args: "ECLFILE SCRIPT -g GAME -o OUTPUT [OPTIONS...]",
             options: (
                 cli::path_arg("ECLFILE"), cli::path_arg("SCRIPT"),
-                cli::game(), cli::required_output(), cli::mapfile_options(), cli::decompile_options(),
+                cli::required_game(), cli::required_output(), cli::mapfile_options(), cli::decompile_options(),
             ),
         });
 
@@ -434,7 +436,7 @@ pub mod ecl_benchmark {
             decompile_options: decompile_options.clone(),
         };
         let common_compile_options = CommonCompileOptions {
-            game,
+            cli_game: Some(game),
             in_path: script_path.to_owned(),
             out_path: out_path.to_owned(),
             mapfile_options: mapfile_options.clone(),
@@ -462,7 +464,7 @@ pub mod std_compile {
     pub fn main(version: &str, args: &[String]) -> ! {
         let common_options = cli::parse_args(version, args, CmdSpec {
             program: "trustd compile",
-            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            usage_args: "FILE [-g GAME] -o OUTPUT [OPTIONS...]",
             options: cli::common_compile_options(),
         });
 
@@ -474,12 +476,13 @@ pub mod std_compile {
         common_options: &CommonCompileOptions,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_options, ref debug_info_path,
+            ref in_path, ref out_path, cli_game, ref mapfile_options, ref debug_info_path,
         } = common_options;
 
+        let ast = truth.read_script(&in_path)?;
+        let game = determine_game_for_compile(truth, &ast, cli_game)?;
         load_mapfiles(truth, game, &[LanguageKey::Std], mapfile_options)?;
 
-        let ast = truth.read_script(&in_path)?;
         truth.load_mapfiles_from_pragmas(game, &ast)?;
         truth.expect_no_image_sources(&ast)?;
 
@@ -531,7 +534,7 @@ pub mod msg_redump {
         let (input, output, game) = cli::parse_args(version, args, CmdSpec {
             program: "truth-core msg-redump",
             usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
-            options: (cli::path_arg("FILE"), cli::required_output(), cli::game()),
+            options: (cli::path_arg("FILE"), cli::required_output(), cli::required_game()),
         });
 
         wrap_exit_code(|truth| run(truth, game, input.as_ref(), output.as_ref()))
@@ -556,7 +559,7 @@ pub mod msg_compile {
     pub fn main(version: &str, args: &[String]) -> ! {
         let (common_options, msg_mode) = cli::parse_args(version, args, CmdSpec {
             program: "trumsg compile",
-            usage_args: "FILE -g GAME -o OUTPUT [OPTIONS...]",
+            usage_args: "FILE [-g GAME] -o OUTPUT [OPTIONS...]",
             options: (cli::common_compile_options(), cli::msg_mode()),
         });
 
@@ -569,10 +572,11 @@ pub mod msg_compile {
         msg_mode: MsgMode,
     ) -> Result<(), ErrorReported> {
         let &CommonCompileOptions {
-            ref in_path, ref out_path, game, ref mapfile_options, ref debug_info_path,
+            ref in_path, ref out_path, cli_game, ref mapfile_options, ref debug_info_path,
         } = common_options;
 
         let ast = truth.read_script(&in_path)?;
+        let game = determine_game_for_compile(truth, &ast, cli_game)?;
         truth.expect_no_image_sources(&ast)?;
 
         match msg_mode {
@@ -644,6 +648,14 @@ pub mod msg_decompile {
             MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
         }
     }
+}
+
+fn determine_game_for_compile(truth: &Truth, ast: &ScriptFile, cli_game: Option<Game>) -> Result<Game, ErrorReported> {
+    cli_game.or(ast.game.map(|sp| sp.value))
+        .ok_or_else(|| truth.emit(error!(
+            message("missing required option --game"),
+            note("alternatively you may specify the game inside the script using e.g. '#pragma game 125'"),
+        )))
 }
 
 // =============================================================================
@@ -727,7 +739,7 @@ mod cli {
 
     /// Options shared by all 'compile' commands. This struct exists to help reduce the tedium of adding a new option.
     pub struct CommonCompileOptions {
-        pub game: Game,
+        pub cli_game: Option<Game>,
         pub in_path: PathBuf,
         pub out_path: PathBuf,
         pub mapfile_options: MapfileOptions,
@@ -750,15 +762,15 @@ mod cli {
     }
 
     pub fn common_compile_options() -> impl CliArg<Value=CommonCompileOptions> {
-        game().zip(required_output()).zip(path_arg("FILE")).zip(mapfile_options()).zip(debug_info())
-            .and_then(|((((game, out_path), in_path), mapfile_options), debug_info_path)| {
-                Ok(CommonCompileOptions { game, out_path, in_path, mapfile_options, debug_info_path })
+        zip!(compile_game(), required_output(), path_arg("FILE"), mapfile_options(), debug_info())
+            .and_then(|(cli_game, out_path, in_path, mapfile_options, debug_info_path)| {
+                Ok(CommonCompileOptions { cli_game, out_path, in_path, mapfile_options, debug_info_path })
             })
     }
 
     pub fn common_decompile_options() -> impl CliArg<Value=CommonDecompileOptions> {
-        game().zip(path_arg("FILE")).zip(mapfile_options()).zip(decompile_options())
-            .and_then(|(((game, in_path), mapfile_options), decompile_options)| {
+        zip!(required_game(), path_arg("FILE"), mapfile_options(), decompile_options())
+            .and_then(|(game, in_path, mapfile_options, decompile_options)| {
                 Ok(CommonDecompileOptions { game, in_path, mapfile_options, decompile_options })
             })
     }
@@ -793,11 +805,17 @@ mod cli {
         }.map(|opt| opt.map(Into::into))
     }
 
-    pub fn game() -> impl CliArg<Value=Game> {
-        opts::ReqOpt(opts::Opt {
-            short: "g", long: "game", metavar: "GAME",
-            help: "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.",
-        }).and_then(|s| s.parse())
+    const GAME_OPT: opts::Opt = opts::Opt {
+        short: "g", long: "game", metavar: "GAME",
+        help: "game number, e.g. 'th095' or '8'. Don't include a point in point titles. Also supports 'alcostg'.",
+    };
+
+    pub fn required_game() -> impl CliArg<Value=Game> {
+        opts::ReqOpt(GAME_OPT).and_then(|s| s.parse())
+    }
+
+    pub fn compile_game() -> impl CliArg<Value=Option<Game>> {
+        GAME_OPT.and_then(|opt| opt.map(|s| s.parse()).transpose())
     }
 
     pub fn mapfile_options() -> impl CliArg<Value=MapfileOptions> {

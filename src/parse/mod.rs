@@ -2,6 +2,7 @@ use lalrpop_util::lalrpop_mod;
 
 use crate::diagnostic::Diagnostic;
 use crate::ast;
+use crate::game::Game;
 use crate::ident::Ident;
 use crate::pos::{Sp, Span, SourceStr};
 
@@ -50,12 +51,14 @@ pub type Error<'input> = GenericError<'input, Token<'input>>;
 pub struct State {
     mapfiles: Vec<Sp<ast::LitString>>,
     image_sources: Vec<Sp<ast::LitString>>,
+    game: Option<Sp<Game>>
 }
 
 impl State {
     pub fn new() -> State { State {
         mapfiles: vec![],
         image_sources: vec![],
+        game: None,
     }}
 }
 

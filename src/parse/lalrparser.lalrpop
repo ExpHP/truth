@@ -3,6 +3,7 @@ use crate::parse::lexer::{Token};
 use crate::ident::{Ident, ResIdent};
 use crate::pos::{Sp, Span};
 use crate::ast::{self, meta, Meta};
+use crate::game::Game;
 use super::lalrparser_util as util;
 
 grammar<'input, 'st>(state: &'st mut crate::parse::State);
@@ -103,6 +104,7 @@ extern {
         "pragma" => Token::Pragma,
         "mapfile" => Token::Mapfile,
         "image_source" => Token::ImageSource,
+        "game" => Token::Game,
         "offsetof" => Token::OffsetOf,
         "timeof" => Token::TimeOf,
         "sin" => Token::Sin,
@@ -158,7 +160,8 @@ ScriptFile: ast::ScriptFile = {
     <items:Items> => {
         let mapfiles = state.mapfiles.clone();
         let image_sources = state.image_sources.clone();
-        ast::ScriptFile { items, mapfiles, image_sources }
+        let game = state.game;
+        ast::ScriptFile { items, mapfiles, image_sources, game }
     }
 };
 
@@ -167,17 +170,7 @@ Items: Vec<Sp<ast::Item>> = {
 
     <items:Items> <item:Sp<Item>> => util::push(items, item),
 
-    // FIXME: this syntax likely won't stay.  People might be confused that it is treated
-    //        in a declarative manner, and I don't know what I want our preprocessing solution
-    //        to look like
-    <items:Items> "#" "pragma" "mapfile" <file:Sp<LitString>> => {
-        state.mapfiles.push(file);
-        items
-    },
-    <items:Items> "#" "pragma" "image_source" <file:Sp<LitString>> => {
-        state.image_sources.push(file);
-        items
-    },
+    <items:Items> Pragma => items,
 };
 
 Item: ast::Item = {
@@ -694,6 +687,48 @@ PseudoArgKind: ast::PseudoArgKind = {
 
 // ==================================================
 
+#[inline]
+Pragma: () = {
+    // FIXME: this syntax likely won't stay.  People might be confused that it is treated
+    //        in a declarative manner, and I don't know what I want our preprocessing solution
+    //        to look like
+    "#" "pragma" "mapfile" <file:Sp<LitString>> => {
+        state.mapfiles.push(file);
+    },
+    "#" "pragma" "image_source" <file:Sp<LitString>> => {
+        state.image_sources.push(file);
+    },
+    "#" "pragma" "game" <game:Sp<GameLiteral>> =>? {
+        match state.game {
+            None => state.game = Some(game),
+            Some(old_game) if old_game == game => {},
+            Some(old_game) => return Err(error!(
+                message("multiple conflicting game #pragmas"),
+                primary(game, ""),
+                secondary(old_game, ""),
+            ).into()),
+        }
+        Ok(())
+    },
+};
+
+GameLiteral: Game = {
+    <l: @L> <game_or_diagnostic:GameLiteralImpl> <r: @R> =>? {
+        game_or_diagnostic.map_err(|mut diag| {
+            diag.primary(Span::from_locs(l, r), format!(""));
+            diag.into()
+        })
+    },
+};
+
+#[inline]
+GameLiteralImpl: Result<Game, Diagnostic> = {
+    <number:LitIntUnsigned> => Game::from_number(number as u32),
+    <string:LitString> => string.string.parse(),
+};
+
+// ==================================================
+
 LitString: ast::LitString = {
     <l: @L> <s:STRING> <r: @R> =>? {
         let string = util::parse_string_literal(s, (l, r))?;
@@ -779,6 +814,8 @@ IdentStr: &'input str = {
     IDENT,
     // contextual keywords
     <s: "mapfile"> => s.as_str(),
+    <s: "image_source"> => s.as_str(),
+    <s: "game"> => s.as_str(),
     <s: "entry"> => s.as_str(),
     <s: "anim"> => s.as_str(),
     <s: "ecli"> => s.as_str(),

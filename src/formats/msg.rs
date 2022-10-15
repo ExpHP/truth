@@ -30,7 +30,8 @@ impl MsgFile {
     pub fn decompile_to_ast(&self, game: Game, language: LanguageKey, ctx: &mut CompilerContext<'_>, decompile_options: &DecompileOptions) -> Result<ast::ScriptFile, ErrorReported> {
         let format = game_format(game, language, &ctx.emitter)?;
         let emitter = ctx.emitter.while_decompiling(self.binary_filename.as_deref());
-        decompile(self, &emitter, &format, ctx, decompile_options)
+        decompile(self, &emitter, &format, Some(game), ctx, decompile_options)
+
     }
 
     pub fn compile_from_ast(game: Game, language: LanguageKey, script: &ast::ScriptFile, ctx: &mut CompilerContext<'_>) -> Result<Self, ErrorReported> {
@@ -187,6 +188,7 @@ fn decompile(
     msg: &MsgFile,
     emitter: &impl Emitter,
     format: &FileFormat,
+    game_pragma: Option<Game>,
     ctx: &mut CompilerContext,
     decompile_options: &DecompileOptions,
 ) -> Result<ast::ScriptFile, ErrorReported> {
@@ -215,6 +217,7 @@ fn decompile(
         mapfiles: ctx.mapfiles_to_ast(),
         image_sources: vec![],
         items,
+        game: game_pragma.map(|game| sp!(game)),
     };
     crate::passes::postprocess_decompiled(&mut script, ctx, decompile_options)?;
     Ok(script)
