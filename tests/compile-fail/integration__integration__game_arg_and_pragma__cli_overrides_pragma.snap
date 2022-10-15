@@ -1,0 +1,13 @@
+---
+source: tests/integration/game_arg_and_pragma.rs
+expression: stderr
+---
+error: signature not known for ANM opcode 300
+   ┌─ <input>:31:9
+   │
+31 │         ins_300(0);
+   │         ^^^^^^^ signature not known
+   │
+   = try adding this instruction's signature to your mapfiles
+
+

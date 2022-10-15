@@ -1,0 +1,8 @@
+---
+source: tests/integration/game_arg_and_pragma.rs
+expression: stderr
+---
+error: missing required option --game
+ = alternatively you may specify the game inside the script using e.g. '#pragma game 125'
+
+

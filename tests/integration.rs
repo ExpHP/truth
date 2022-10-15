@@ -18,6 +18,7 @@ mod integration {
     mod ecl_features;
     mod enums;
     mod expr_compile;
+    mod game_arg_and_pragma;
     mod general;
     mod image_sources;
     mod interrupts;

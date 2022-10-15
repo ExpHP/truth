@@ -1,0 +1,13 @@
+---
+source: tests/integration/game_arg_and_pragma.rs
+expression: stderr
+---
+error: multiple conflicting game #pragmas
+   ┌─ <input>:26:14
+   │
+25 │ #pragma game 6
+   │              -
+26 │ #pragma game 10
+   │              ^^
+
+

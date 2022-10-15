@@ -60,6 +60,13 @@ pub const ANM_16: Format = Format {
     make_main: ANM_06.make_main,
 };
 
+pub const ANM_NOGAME: Format = Format {
+    cmd: "truanm",
+    game: None,
+    script_head: ANM_06.script_head,
+    make_main: ANM_06.make_main,
+};
+
 pub const STD_06: Format = Format {
     cmd: "trustd",
     game: Some(Game::Th06),
