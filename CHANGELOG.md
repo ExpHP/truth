@@ -19,6 +19,10 @@
   * When reading image files, the restriction that `image.width == offset_x + img_width` has been weakened to `image.width >= offset_x + img_width`, allowing any region of an image to be read.
   * Inferring `img_width = image.width - offset_x` has been deprecated in the case where an entry has an image file source and no ANM source, **and** `offset_x` is explicitly provided, **and** `img_width` is missing. The purpose of `offset_x` and `offset_y` are to extract regions, so you should always specify the size of the region.
 
+## Compatibility notes
+
+* `truanm -i original.anm -i images/` can no longer replace an image with one of a different size unless you explicitly specify `img_width/img_height`. See [this issue](https://github.com/ExpHP/truth/issues/68).
+
 # Version 0.5.1
 
 ## Added
