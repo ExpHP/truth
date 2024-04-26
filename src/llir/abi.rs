@@ -42,7 +42,14 @@ pub enum ArgEncoding {
     /// The first argument may have `arg0` if it is two bytes large.  This indicates that the argument is
     /// stored in the arg0 header field of the instruction in EoSD and PCB ECL. (which is mapped to the
     /// `@arg0` pseudo-argument in raw instruction syntax)
-    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool, immediate: bool, extend: bool, format: ast::IntFormat },
+    Integer {
+        size: u8,
+        ty_color: Option<TypeColor>,
+        arg0: bool,
+        immediate: bool,
+        extend: bool,
+        format: ast::IntFormat
+    },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
@@ -114,12 +121,14 @@ impl ArgEncoding {
 
         impl fmt::Display for Impl<'_> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                match &self.0 {
-                    Enc::Integer { arg0: true, ty_color, size, immediate, format, extend } => write!(
-                        f,
-                        "{} (in timeline arg0)",
-                        Enc::Integer { extend: *extend, format: *format, immediate: *immediate, arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
-                    ),
+                match self.0 {
+                    Enc::Integer { arg0: true, .. } => {
+                        let mut temp = self.0.clone();
+                        write!(f, "{} (in timeline arg0)", match &mut temp {
+                            Enc::Integer { arg0, .. } => { *arg0 = false; temp },
+                            _ => unreachable!(),
+                        }.descr())
+                    },
                     Enc::Integer { ty_color: Some(en), size: 4, .. } => write!(f, "{}", en.descr()),
                     Enc::Integer { ty_color: Some(en), size, .. } => write!(f, "{size}-byte {}", en.descr()),
                     Enc::Integer { ty_color: None, size: 1, .. } => write!(f, "byte-sized integer"),

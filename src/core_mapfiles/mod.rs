@@ -8,6 +8,7 @@ use crate::llir::IntrinsicInstrKind;
 
 mod anm;
 mod ecl;
+mod end;
 mod msg;
 mod std;
 
@@ -20,7 +21,7 @@ pub fn core_mapfile(emitter: &RootEmitter, game: Game, language: LanguageKey) ->
         LanguageKey::Msg => self::msg::core_signatures(game),
         LanguageKey::Ecl => self::ecl::core_signatures(game),
         LanguageKey::Timeline => self::ecl::timeline_core_signatures(game),
-        LanguageKey::End => CoreSignatures::EMPTY, // TODO
+        LanguageKey::End => self::end::core_signatures(game),
         LanguageKey::Dummy => CoreSignatures::EMPTY,
     };
 

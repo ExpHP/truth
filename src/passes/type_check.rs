@@ -652,6 +652,9 @@ impl ExprTypeChecker<'_, '_> {
 
             | token![unop sin]
             | token![unop cos]
+            | token![unop tan]
+            | token![unop acos]
+            | token![unop atan]
             | token![unop sqrt]
             => self.require_float(arg_ty, op.span, arg_span),
         }
@@ -681,6 +684,9 @@ impl ast::Expr {
 
             token![unop sin] |
             token![unop cos] |
+            token![unop tan] |
+            token![unop acos] |
+            token![unop atan] |
             token![unop sqrt] => ScalarType::Float,
 
             token![unop $] => ScalarType::Int,

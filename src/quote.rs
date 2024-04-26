@@ -33,6 +33,9 @@ macro_rules! token {
     ($(unop)? ~) => { $crate::ast::UnOpKind::BitNot };
     ($(unop)? sin) => { $crate::ast::UnOpKind::Sin };
     ($(unop)? cos) => { $crate::ast::UnOpKind::Cos };
+    ($(unop)? tan) => { $crate::ast::UnOpKind::Tan };
+    ($(unop)? acos) => { $crate::ast::UnOpKind::Acos };
+    ($(unop)? atan) => { $crate::ast::UnOpKind::Atan };
     ($(unop)? sqrt) => { $crate::ast::UnOpKind::Sqrt };
     (  unop   $) => { $crate::ast::UnOpKind::EncodeI };
     (  unop   %) => { $crate::ast::UnOpKind::EncodeF };

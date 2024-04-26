@@ -22,6 +22,7 @@ use indexmap::IndexMap;
 pub struct MsgFile {
     pub dense_table: Vec<ScriptTableEntry>,
     pub scripts: IndexMap<Ident, Vec<RawInstr>>,
+    pub extended_header: Option<Vec<u32>>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
 }
@@ -395,6 +396,7 @@ fn compile(
     Ok(MsgFile {
         dense_table,
         scripts,
+        extended_header: None,
         /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
     })
@@ -436,6 +438,13 @@ fn read_msg(
     let start_pos = reader.pos()?;
 
     let script_table_len = reader.read_u32()?;
+    
+    let extended_header = if format.extended_header() {
+        Some(reader.read_u32s(20)?)
+    } else {
+        None
+    };
+    
     let script_table = {
         (0..script_table_len).map(|_| {
             Ok(RawScriptTableEntry {
@@ -486,7 +495,7 @@ fn read_msg(
     }).collect();
 
     let binary_filename = Some(reader.display_filename().to_owned());
-    Ok(MsgFile { dense_table, scripts, binary_filename })
+    Ok(MsgFile { dense_table, scripts, extended_header, binary_filename })
 }
 
 #[derive(Debug)]
@@ -588,8 +597,24 @@ fn write_msg(
 fn game_format(game: Game, language: LanguageKey, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
     match (game, language) {
         | (Game::Th095, LanguageKey::Msg)
-        | (Game::Th125, LanguageKey::Msg)
-        => Err(emitter.emit(error!("{} does not have stage MSG files; maybe try 'trumsg --mission'?", game))),
+        | (Game::Th095, LanguageKey::End)
+        => Err(emitter.emit(error!("{} does not have MSG files; maybe try 'trumsg --mission'?", game))),
+        
+        | (Game::Alcostg, LanguageKey::Msg)
+        | (Game::Alcostg, LanguageKey::End)
+        => Err(emitter.emit(error!("{} does not have MSG files", game))),
+        
+        | (Game::Th125, LanguageKey::End)
+        | (Game::Th143, LanguageKey::End)
+        | (Game::Th165, LanguageKey::End)
+        | (Game::Th185, LanguageKey::End)
+        => Err(emitter.emit(error!("{} does not have ending MSG files", game))),
+        
+        | (Game::Th06, LanguageKey::End)
+        | (Game::Th07, LanguageKey::End)
+        | (Game::Th08, LanguageKey::End)
+        | (Game::Th09, LanguageKey::End)
+        => Err(emitter.emit(error!("--ending is not yet implemented for {}", game))),
 
         _ => Ok(FileFormat { game, language })
     }
@@ -606,18 +631,23 @@ impl FileFormat {
     fn table_has_flags(&self) -> bool {
         self.game >= Game::Th09
     }
+    
+    fn extended_header(&self) -> bool {
+        self.language == LanguageKey::Msg && self.game == Game::Th19
+    }
 
     fn language_hooks(&self) -> Box<dyn LanguageHooks> {
         match self.game {
             | Game::Th06 | Game::Th07 | Game::Th08
-            | Game::Th09 | Game::Th10 | Game::Alcostg | Game::Th11
-            | Game::Th12 | Game::Th128 | Game::Th13
-            | Game::Th14 | Game::Th143 | Game::Th15
-            | Game::Th16 | Game::Th165 | Game::Th17
-            | Game::Th18
+            | Game::Th09 | Game::Th10 | Game::Th11
+            | Game::Th12 | Game::Th125 | Game::Th128
+            | Game::Th13 | Game::Th14 | Game::Th143
+            | Game::Th15 | Game::Th16 | Game::Th165
+            | Game::Th17 | Game::Th18 | Game::Th185
+            | Game::Th19
             => Box::new(MsgHooks { language: self.language }),
 
-            | Game::Th095 | Game::Th125
+            | Game::Th095 | Game::Alcostg
             => unreachable!(),
         }
     }
