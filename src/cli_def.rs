@@ -576,7 +576,10 @@ pub mod msg_compile {
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
             },
             MsgMode::Mission => {},
-            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
+            MsgMode::Ending => {
+                load_mapfiles(truth, game, &[LanguageKey::End], mapfile_options)?;
+                truth.load_mapfiles_from_pragmas(game, &ast)?;
+            },
         }
 
         let mut truth = truth.validate_defs()?;
@@ -590,7 +593,10 @@ pub mod msg_compile {
                 let msg = truth.compile_mission(game, &ast)?;
                 truth.write_mission(game, out_path, &msg)?;
             },
-            MsgMode::Ending => unreachable!(),
+            MsgMode::Ending => {
+                let msg = truth.compile_msg(game, LanguageKey::End, &ast)?;
+                truth.write_msg(game, LanguageKey::End, out_path, &msg)?;
+            },
         }
         if let Some(debug_info_path) = debug_info_path {
             truth.prepare_and_write_debug_info(debug_info_path)?;
@@ -636,7 +642,14 @@ pub mod msg_decompile {
                 let msg = truth.read_mission(game, in_path)?;
                 truth.decompile_mission(game, &msg)
             },
-            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
+            MsgMode::Ending => {
+                let mapfile_options = add_env_mapfile_for_decomp(mapfile_options, ".endm");
+                load_mapfiles(truth, game, &[LanguageKey::End], &mapfile_options)?;
+
+                let mut truth = truth.validate_defs()?;
+                let msg = truth.read_msg(game, LanguageKey::End, in_path)?;
+                truth.decompile_msg(game, LanguageKey::End, &msg, decompile_options)
+            },
         }
     }
 }

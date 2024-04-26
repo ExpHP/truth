@@ -174,6 +174,7 @@ fn mapfile_from_seqmap(seqmap: SeqmapRaw<'_>, emitter: &impl Emitter) -> Result<
         "!anmmap" => LanguageKey::Anm,
         "!stdmap" => LanguageKey::Std,
         "!msgmap" => LanguageKey::Msg,
+        "!endmap" => LanguageKey::End,
         TIMELINE_MAP_MAGIC => LanguageKey::Timeline,
         _ => return Err(emitter.emit(error!(
             message("bad magic: {:?}", magic),
@@ -285,6 +286,7 @@ fn borrowed_seqmap_from_mapfile(mapfile: &Mapfile) -> SeqmapRaw<'_> {
         LanguageKey::Anm => "!anmmap",
         LanguageKey::Std => "!stdmap",
         LanguageKey::Msg => "!msgmap",
+        LanguageKey::End => "!endmap",
         LanguageKey::Timeline => TIMELINE_MAP_MAGIC,
         _ => unimplemented!("unexpected language key: {language:?}"),
     };

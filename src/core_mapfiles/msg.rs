@@ -3,15 +3,15 @@ use crate::Game::{self, *};
 
 pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
     match game {
-        | Th095 | Th125
+        | Th095 | Alcostg
         => EMPTY,
 
         | Th06 | Th07 | Th08 | Th09
         => MSG_06_09,
 
-        | Th10 | Alcostg | Th11 | Th12 | Th128 | Th13
-        | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18
-        => MSG_10_18,
+        | Th10 | Th11 | Th12 | Th125 | Th128 | Th13
+        | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19
+        => MSG_10_19,
     }
 }
 
@@ -73,7 +73,7 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
     ],
     var: &[],
 };
-static MSG_10_18: &CoreSignatures = &CoreSignatures {
+static MSG_10_19: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
@@ -161,6 +161,32 @@ static MSG_10_18: &CoreSignatures = &CoreSignatures {
         (Th18, 7, Some(("S", None))),
         (Th18, 13, Some(("SS", None))),
         (Th18, 36, Some(("", None))),
+        
+        (Th185, 19, Some(("S", None))),
+        (Th185, 37, Some(("", None))),
+        (Th185, 38, Some(("", None))),
+        (Th185, 39, Some(("", None))),
+        (Th185, 40, Some(("m(bs=4;mask=0x77,7,16;furibug)", None))), // Just hoping these string types are correct
+        (Th185, 41, Some(("m(bs=4;mask=0x77,7,16;furibug)", None))),
+        
+        // Th19 Notes:
+        // 20 doesn't read an argument, check size
+        (Th19, 31, None),
+        (Th19, 42, Some(("S", None))),
+        (Th19, 43, Some(("S", None))),
+        (Th19, 44, Some(("ff", None))),
+        (Th19, 45, Some(("ff", None))),
+        (Th19, 46, Some(("SS", None))),
+        (Th19, 47, Some(("SS", None))),
+        (Th19, 48, Some(("S", None))),
+        (Th19, 49, Some(("S", None))),
+        (Th19, 50, Some(("S", None))),
+        (Th19, 51, Some(("S", None))),
+        (Th19, 52, Some(("", None))),
+        (Th19, 53, Some(("", None))),
+        (Th19, 54, Some(("", None))),
+        (Th19, 55, Some(("", None))),
+        (Th19, 56, Some(("", None))),
     ],
     var: &[],
 };

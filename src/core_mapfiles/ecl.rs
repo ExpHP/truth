@@ -13,10 +13,10 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         Th08 | Th09 => ECL_08_09,
         Th095 => ECL_095,
         Th10 | Alcostg | Th11 => ECL_10_11,
-        Th12 => ECL_12,
+        Th12 | Th125 => ECL_12,
 
-        Th125 | Th128 |
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
+        Th128 |
+        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 => CoreSignatures::EMPTY,
     }
 }
 
@@ -25,7 +25,7 @@ pub(super) fn timeline_core_signatures(game: Game) -> &'static CoreSignatures {
         Th06 | Th07 | Th08 | Th09 | Th095 => TIMELINE,
 
         Th10 | Alcostg | Th11 | Th12 | Th125 | Th128 |
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
+        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 => CoreSignatures::EMPTY,
     }
 }
 
@@ -1061,9 +1061,9 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
 
 
 static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
-    inherit: &[ECL_10_18_COMMON],
+    inherit: &[ECL_10_19_COMMON],
     ins: &[
-        // Section A
+        // Section B
         (Th10, 256, Some(("P(bs=4)ffSSS", None))),
         (Th10, 257, Some(("P(bs=4)ffSSS", None))),
         (Th10, 258, Some(("S", None))),
@@ -1090,7 +1090,7 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
         (Th11, 277, Some(("Sf", None))),
         (Th11, 278, Some(("S", None))), // Not implemented
 
-        // Section B
+        // Section C
         (Th10, 280, Some(("ff", None))),
         (Th10, 281, Some(("SSff", None))),
         (Th10, 282, Some(("ff", None))),
@@ -1124,7 +1124,7 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
         (Th11, 306, Some(("Sffffff", None))),
         (Th11, 307, Some(("", None))),
 
-        // Section C
+        // Section D
         (Th10, 320, Some(("ff", None))),
         (Th10, 321, Some(("ff", None))),
         (Th10, 322, Some(("S(hex)", None))),
@@ -1182,7 +1182,7 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
         (Th11, 371, Some(("S", None))),
         (Th11, 372, Some(("S", None))),
 
-        // Section D
+        // Section E
         (Th10, 400, Some(("S", None))),
         (Th10, 401, Some(("S", None))),
         (Th10, 402, Some(("SSS", None))),
@@ -1245,10 +1245,14 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
         (Th11, 449, Some(("S", None))),
         (Th11, 450, Some(("S", None))),
 
-        // Section E (Didn't exist yet)
+        // Section F (Didn't exist yet)
 
-        // Section F
+        // Section G (Didn't exist yet)
+
+        // Section H
         (Th11, 500, Some(("S", None))), // Not implemented
+
+        // Section I (Didn't exist yet)
     ],
     var: &[
         // This is placed here to avoid putting game-specific
@@ -1260,9 +1264,9 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
 
 
 static ECL_12: &'static CoreSignatures = &CoreSignatures {
-    inherit: &[ECL_10_18_COMMON],
+    inherit: &[ECL_10_19_COMMON],
     ins: &[
-        // Section A
+        // Section B
         (Th12, 256, Some(("P(bs=4)ffSSS", None))),
         (Th12, 257, Some(("P(bs=4)ffSSS", None))),
         (Th12, 258, Some(("S", None))),
@@ -1289,8 +1293,9 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         (Th12, 279, Some(("Sff", None))),
         (Th12, 280, Some(("P(bs=4)ffSSS", None))),
         (Th12, 281, Some(("SS", None))),
+        (Th125, 282, Some(("SS", None))),
 
-        // Section B
+        // Section C
         (Th12, 300, Some(("ff", None))),
         (Th12, 301, Some(("SSff", None))),
         (Th12, 302, Some(("ff", None))),
@@ -1323,8 +1328,10 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         (Th12, 329, Some(("SSff", None))),
         (Th12, 330, Some(("ff", None))),
         (Th12, 331, Some(("SSff", None))),
+        (Th125, 332, Some(("S", None))),
+        (Th125, 333, Some(("S", None))),
 
-        // Section C
+        // Section D
         (Th12, 400, Some(("ff", None))),
         (Th12, 401, Some(("ff", None))),
         (Th12, 402, Some(("S(hex)", None))),
@@ -1383,7 +1390,18 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         (Th12, 455, Some(("SS", None))),
         (Th12, 456, Some(("ffS", None))),
 
-        // Section D
+        (Th125, 427, None),
+        (Th125, 440, None),
+        (Th125, 454, None),
+        (Th125, 457, Some(("", None))),
+        (Th125, 458, Some(("S", None))),
+        (Th125, 459, Some(("S", None))),
+        (Th125, 460, Some(("f", None))),
+        (Th125, 461, Some(("f", None))),
+        (Th125, 462, Some(("S", None))),
+        // (Th125, 463, Some(("P(bs=4)", None))),
+
+        // Section E
         (Th12, 500, Some(("S", None))),
         (Th12, 501, Some(("S", None))),
         (Th12, 502, Some(("SSS", None))),
@@ -1424,8 +1442,9 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         // Final laser instruction moved
         (Th12, 534, Some(("S", None))),
         (Th12, 535, Some(("S", None))),
+        (Th125, 536, Some(("S", None))),
 
-        // Section E
+        // Section F
         (Th12, 600, Some(("Sffff", None))),
         (Th12, 601, Some(("SSSSSS(hex)", None))),
         (Th12, 602, Some(("S", None))),
@@ -1438,15 +1457,20 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
         (Th12, 609, Some(("Sf", None))),
         (Th12, 610, Some(("S", None))),
         (Th12, 611, Some(("S", None))),
+        (Th125, 612, Some(("ff", None))),
 
-        // Section F
+        // Section G (Didn't exist yet)
+
+        // Section H
         (Th12, 700, Some(("S", None))), // Not implemented
+
+        // Section I (Didn't exist yet)
     ],
     var: &[],
 };
 
 
-static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
+static ECL_10_19_COMMON: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
@@ -1463,7 +1487,7 @@ static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
         (Th10, 19, Some(("S", None))),
         (Th10, 20, Some(("SS", None))),
         (Th10, 21, Some(("", None))),
-        // (Th10, 30, Some((r#"p(bs=4)v(rep="g")"#, None))),
+        // (Th10, 30, Some((r#"p(bs=4)v(rep="g")"#, None))), // Implementation removed as of DS
         (Th10, 40, Some(("S", None))), // Some(IKind::FrameEnter)
         (Th10, 41, Some(("", None))), // Some(IKind::FrameLeave)
         (Th10, 42, Some(("S", None))), // Some(IKind::Push(Ty::Int))
@@ -1505,7 +1529,7 @@ static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
         (Th10, 82, Some(("f", None))),
         (Th10, 83, Some(("S", None))),
         (Th10, 84, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Int))
-        (Th10, 85, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Float))
+        (Th10, 85, Some(("", None))), // NOT an intrinsic, since it's broken
         (Th10, 86, Some(("fff", None))),
         (Th10, 87, Some(("ffff", None))),
 
@@ -1514,6 +1538,14 @@ static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
         (Alcostg, 88, Some(("", None))), // Some(IKind::StackUnOp(U::Sqrt, Ty::Float))
 
         (Th12, 89, Some(("fff", None))),
+
+        // Finally not broken
+        (Th125, 85, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Float))
+        (Th125, 90, Some(("fffff", None))),
+        (Th125, 91, Some(("SfSSff", None))),
+        (Th125, 92, Some(("SfSSffff", None))),
+
+        (Th128, 22, Some((r#"SP(bs=4)"#, None))),
     ],
     var: &[
         (Th10, -10000, Some("$")),
@@ -1590,5 +1622,27 @@ static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
 
         (Th12, -9931, Some("$")),
         (Th12, -9930, Some("$")),
+
+        (Th125, -9930, Some("$")),
+        (Th125, -9929, Some("$")),
+        (Th125, -9928, Some("$")),
+        (Th125, -9927, Some("$")),
+        (Th125, -9926, Some("$")),
+        (Th125, -9925, Some("$")),
+        (Th125, -9924, Some("$")),
+        (Th125, -9923, Some("$")),
+        (Th125, -9922, Some("%")),
+        (Th125, -9921, Some("%")),
+        (Th125, -9920, Some("%")),
+        (Th125, -9919, Some("%")),
+        (Th125, -9918, Some("%")),
+        (Th125, -9917, Some("%")),
+        (Th125, -9916, Some("%")),
+        (Th125, -9915, Some("%")),
+        (Th125, -9914, Some("$")),
+        (Th125, -9913, Some("$")),
+        (Th125, -9912, Some("$")),
+        (Th125, -9911, Some("%")),
+        (Th125, -9910, Some("%")),
     ],
 };

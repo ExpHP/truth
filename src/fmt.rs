@@ -892,7 +892,7 @@ impl Format for ast::Expr {
 
                 token![unop $] | token![unop %] |
                 token![unop int] | token![unop float] |
-                token![sin] | token![cos] | token![sqrt]
+                token![sin] | token![cos] | token![tan] | token![acos] | token![atan] | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
             ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op, var } => out.fmt((op, var)),

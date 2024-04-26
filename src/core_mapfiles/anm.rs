@@ -32,9 +32,9 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
             OUT
         },
 
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => {
+        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 => {
             static OUT: &CoreSignatures = &CoreSignatures {
-                inherit: &[ANM_INS_13_18, ANM_VAR],
+                inherit: &[ANM_INS_13_19, ANM_VAR],
                 ins: &[], var: &[],
             };
             OUT
@@ -150,9 +150,9 @@ static ANM_INS_07_09: &'static CoreSignatures = &CoreSignatures {
         (Th07, 60, Some(("ff", None))),
         (Th07, 61, Some(("ff", Some(IKind::UnOp(U::Sin, Ty::Float))))),
         (Th07, 62, Some(("ff", Some(IKind::UnOp(U::Cos, Ty::Float))))),
-        (Th07, 63, Some(("ff", None))),
-        (Th07, 64, Some(("ff", None))),
-        (Th07, 65, Some(("ff", None))),
+        (Th07, 63, Some(("ff", Some(IKind::UnOp(U::Tan, Ty::Float))))),
+        (Th07, 64, Some(("ff", Some(IKind::UnOp(U::Acos, Ty::Float))))),
+        (Th07, 65, Some(("ff", Some(IKind::UnOp(U::Atan, Ty::Float))))),
         (Th07, 66, Some(("f", None))),
         (Th07, 67, Some(("SSot", Some(IKind::CondJmp(B::Eq, Ty::Int))))),
         (Th07, 68, Some(("ffot", Some(IKind::CondJmp(B::Eq, Ty::Float))))),
@@ -240,9 +240,9 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
         (Th095, 41, Some(("ff", None))),
         (Th095, 42, Some(("ff", Some(IKind::UnOp(U::Sin, Ty::Float))))),
         (Th095, 43, Some(("ff", Some(IKind::UnOp(U::Cos, Ty::Float))))),
-        (Th095, 44, Some(("ff", None))),
-        (Th095, 45, Some(("ff", None))),
-        (Th095, 46, Some(("ff", None))),
+        (Th095, 44, Some(("ff", Some(IKind::UnOp(U::Tan, Ty::Float))))),
+        (Th095, 45, Some(("ff", Some(IKind::UnOp(U::Acos, Ty::Float))))),
+        (Th095, 46, Some(("ff", Some(IKind::UnOp(U::Atan, Ty::Float))))),
         (Th095, 47, Some(("f", None))),
         (Th095, 48, Some(("fff", None))),
         (Th095, 49, Some(("fff", None))),
@@ -328,9 +328,10 @@ static ANM_INS_095_128: &'static CoreSignatures = &CoreSignatures {
 };
 
 // v8
-static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
+static ANM_INS_13_19: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
+        // Section A
         (Th13, 0, Some(("", None))),
         (Th13, 1, Some(("", None))),
         (Th13, 2, Some(("", None))),
@@ -339,6 +340,8 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 5, Some(("S", Some(IKind::InterruptLabel)))),
         (Th13, 6, Some(("S", None))),
         (Th13, 7, Some(("", None))),
+        
+        // Section B
         (Th13, 100, Some(("SS", Some(IKind::AssignOp(A::Assign, Ty::Int))))),
         (Th13, 101, Some(("ff", Some(IKind::AssignOp(A::Assign, Ty::Float))))),
         (Th13, 102, Some(("SS", Some(IKind::AssignOp(A::Add, Ty::Int))))),
@@ -365,12 +368,14 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 123, Some(("ff", None))),
         (Th13, 124, Some(("ff", Some(IKind::UnOp(U::Sin, Ty::Float))))),
         (Th13, 125, Some(("ff", Some(IKind::UnOp(U::Cos, Ty::Float))))),
-        (Th13, 126, Some(("ff", None))),
-        (Th13, 127, Some(("ff", None))),
-        (Th13, 128, Some(("ff", None))),
+        (Th13, 126, Some(("ff", Some(IKind::UnOp(U::Tan, Ty::Float))))),
+        (Th13, 127, Some(("ff", Some(IKind::UnOp(U::Acos, Ty::Float))))),
+        (Th13, 128, Some(("ff", Some(IKind::UnOp(U::Atan, Ty::Float))))),
         (Th13, 129, Some(("f", None))),
         (Th13, 130, Some(("ffff", None))),
         (Th13, 131, Some(("ffff", None))),
+        
+        // Section C
         (Th13, 200, Some(("ot", Some(IKind::Jmp)))),
         (Th13, 201, Some(("Sot", Some(IKind::CountJmp(B::Ne))))),
         (Th13, 202, Some(("SSot", Some(IKind::CondJmp(B::Eq, Ty::Int))))),
@@ -385,6 +390,8 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 211, Some(("ffot", Some(IKind::CondJmp(B::Gt, Ty::Float))))),
         (Th13, 212, Some(("SSot", Some(IKind::CondJmp(B::Ge, Ty::Int))))),
         (Th13, 213, Some(("ffot", Some(IKind::CondJmp(B::Ge, Ty::Float))))),
+        
+        // Section D
         (Th13, 300, Some(("n", None))),
         (Th13, 301, Some(("nS", None))),
         (Th13, 302, Some(("S", None))),
@@ -398,6 +405,18 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 310, Some(("S", None))),
         (Th13, 311, Some(("S", None))),
         (Th13, 312, Some(("SS", None))),
+        
+        (Th14, 313, Some(("S", None))),
+        (Th14, 314, Some(("S", None))),
+        (Th14, 315, Some(("S", None))),
+        
+        (Th143, 316, Some(("", None))),
+        (Th143, 317, Some(("", None))),
+        
+        (Th19, 318, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th19, 319, Some(("nnnn", None))),
+        
+        // Section E
         (Th13, 400, Some(("fff", None))),
         (Th13, 401, Some(("fff", None))),
         (Th13, 402, Some(("ff", None))),
@@ -437,6 +456,16 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 436, Some(("ff", None))),
         (Th13, 437, Some(("S", None))),
         (Th13, 438, Some(("S", None))),
+        
+        (Th165, 439, Some(("S", None))),  // files use this, but it's not in the jumptable!
+
+        (Th17, 439, None),  // ... TH17 doesn't use it ...
+
+        (Th18, 439, Some(("Sff", None))),  // ...and TH18 demo reused its ID for something else!
+        
+        (Th185, 440, Some(("", None))),
+        
+        // Section F
         (Th13, 500, Some(("N", None))),
         (Th13, 501, Some(("N", None))),
         (Th13, 502, Some(("N", None))),
@@ -446,6 +475,12 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 506, Some(("Nff", None))),
         (Th13, 507, Some(("S", None))),
         (Th13, 508, Some(("S", None))),
+        
+        (Th14, 509, Some(("", None))),
+        
+        (Th19, 510, Some(("Nff", None))),
+        
+        // Section G
         (Th13, 600, Some(("S", None))),
         (Th13, 601, Some(("S", None))),
         (Th13, 602, Some(("S", None))),
@@ -456,26 +491,34 @@ static ANM_INS_13_18: &CoreSignatures = &CoreSignatures {
         (Th13, 607, Some(("ff", None))),
         (Th13, 608, Some(("ff", None))),
 
-        (Th14, 313, Some(("S", None))),
-        (Th14, 314, Some(("S", None))),
-        (Th14, 315, Some(("S", None))),
-        (Th14, 509, Some(("", None))),
         (Th14, 609, Some(("S", None))),
         (Th14, 610, Some(("S", None))),
 
-        (Th143, 316, Some(("", None))),
-        (Th143, 317, Some(("", None))),
         (Th143, 611, Some(("ffS", None))),
 
         (Th16, 612, Some(("ff", None))),
         (Th16, 613, Some(("ff", None))),
 
-        (Th165, 439, Some(("S", None))),  // files use this, but it's not in the jumptable!
-
-        (Th17, 439, None),  // ... TH17 doesn't use it ...
-
-        (Th18, 439, Some(("Sff", None))),  // ...and TH18 demo reused its ID for something else!
         (Th18, 614, Some(("ff", None))),
+        
+        (Th19, 615, Some(("ffS", None))),
+        (Th19, 616, Some(("ffS", None))),
+        (Th19, 617, Some(("fS", None))),
+        (Th19, 618, Some(("", None))),
+        (Th19, 619, Some(("fS", None))),
+        (Th19, 620, Some(("ffS", None))),
+        (Th19, 621, Some(("ffS", None))),
+        (Th19, 622, Some(("ffS", None))),
+        (Th19, 623, Some(("fffS", None))),
+        (Th19, 624, Some(("fffS", None))),
+        (Th19, 625, Some(("ffffS", None))),
+        (Th19, 626, Some(("ffffS", None))),
+        (Th19, 627, Some(("ffffS", None))),
+        (Th19, 628, Some(("fS", None))),
+        (Th19, 629, Some(("fS", None))),
+        (Th19, 630, Some(("ffS", None))),
+        (Th19, 631, Some(("ffS", None))),
+        (Th19, 632, Some(("ffS", None))),
     ],
     var: &[],
 };
