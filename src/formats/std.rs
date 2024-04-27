@@ -113,6 +113,7 @@ pub struct Object {
     /// This field determines when objects are drawn relative to 2D sprites,
     /// as if their polygon scripts had the given `layer(n)` command.
     pub layer: u16,
+    pub id: Option<u32>,
     pub pos: [f32; 3],
     pub size: [f32; 3],
     pub quads: Vec<Quad>,
@@ -122,6 +123,7 @@ impl FromMeta<'_> for Object {
     fn from_meta(meta: &Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
         meta.parse_object(|m| Ok(Object {
             layer: m.expect_renamed_field::<i32>("unknown", "layer")? as u16,
+            id: m.get_field("id")?,
             pos: m.expect_field("pos")?,
             size: m.expect_field("size")?,
             quads: m.expect_field("quads")?,
@@ -131,12 +133,16 @@ impl FromMeta<'_> for Object {
 
 impl ToMeta for Object {
     fn to_meta(&self) -> Meta {
-        Meta::make_object()
-            .field("layer", &(self.layer as i32))
-            .field("pos", &self.pos)
-            .field("size", &self.size)
-            .field("quads", &self.quads)
-            .build()
+        let mut builder = Meta::make_object();
+        if let Some(id) = &self.id {
+            builder.field("id", id);
+        }
+        builder.field("layer", &(self.layer as i32));
+        builder.field("pos", &self.pos);
+        builder.field("size", &self.size);
+        builder.field("quads", &self.quads);
+        
+        builder.build()
     }
 }
 
@@ -494,11 +500,21 @@ fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) ->
     while let Some(quad) = read_quad(f, emitter)? {
         quads.push(quad);
     }
-    Ok(Object { layer, pos, size, quads })
+    Ok(Object {
+        layer,
+        id: if id as usize == expected_id {
+            None
+        } else {
+            Some(id as u32)
+        },
+        pos,
+        size,
+        quads
+    })
 }
 
 fn write_object(f: &mut BinWriter, emitter: &impl Emitter, format: &dyn FileFormat, id: usize, x: &Object) -> WriteResult {
-    f.write_u16(id as u16)?;
+    f.write_u16(x.id.unwrap_or_else(|| id as u32) as u16)?;
     f.write_u16(x.layer)?;
     f.write_f32s(&x.pos)?;
     f.write_f32s(&x.size)?;

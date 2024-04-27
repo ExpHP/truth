@@ -72,6 +72,17 @@ pub enum ArgEncoding {
         mask: AcceleratingByteMask,
         furibug: bool,
     },
+    /*
+    /// `g` in mapfile. Single typed argument
+    /// 'G' in mapfile. Double typed argument
+    TypedArg {
+        is_double: bool,
+    },
+    /// `v` in mapfile.
+    Variadic {
+        pattern: Option<Vec<ArgEncoding>>
+    },
+    */
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -105,6 +116,7 @@ impl ArgEncoding {
             Self::Integer { size: 1, .. } => "byte-sized integer",
             Self::Integer { size: 2, .. } => "word-sized integer",
             Self::Integer { size: 4, .. } => "dword integer",
+            //Self::Integer { size: 8, .. } => "qword integer",
             Self::Integer { size: _, .. } => "integer",
             Self::JumpOffset => "jump offset",
             Self::JumpTime => "jump time",
@@ -113,6 +125,8 @@ impl ArgEncoding {
             Self::Padding { size: _ } => "padding",
             Self::Float { .. } => "float",
             Self::String { .. } => "string",
+            //Self::TypedArg { .. } => "type cast argument",
+            //Self::Variadic { .. } => "variadic",
         }
     }
 
@@ -134,6 +148,7 @@ impl ArgEncoding {
                     Enc::Integer { ty_color: None, size: 1, .. } => write!(f, "byte-sized integer"),
                     Enc::Integer { ty_color: None, size: 2, .. } => write!(f, "word-sized integer"),
                     Enc::Integer { ty_color: None, size: 4, .. } => write!(f, "dword integer"),
+                    //Enc::Integer { ty_color: None, size: 8, .. } => write!(f, "qword integer"),
                     Enc::Integer { ty_color: None, size, .. } => write!(f, "{size}-byte integer"),
                     enc => write!(f, "{}", enc.static_descr()),
                 }
@@ -159,6 +174,8 @@ impl ArgEncoding {
 
             | Self::Integer { immediate: false, .. }
             | Self::Float { immediate: false, .. }
+            //| Self::TypedArg { .. }
+            //| Self::Variadic { .. }
             => false,
         }
     }
@@ -392,6 +409,9 @@ fn other_from_attrs(param: &abi_ast::Param, _emitter: &dyn Emitter) -> Result<Op
         't' => Ok(Some(ArgEncoding::JumpTime)),
         '_' => Ok(Some(ArgEncoding::Padding { size: 4 })),
         '-' => Ok(Some(ArgEncoding::Padding { size: 1 })),
+        //'g' => Ok(Some(ArgEncoding::TypedArg { is_double: false })),
+        //'G' => Ok(Some(ArgEncoding::TypedArg { is_double: true })),
+        //'v' => 
         _ => Ok(None),
     }
 }

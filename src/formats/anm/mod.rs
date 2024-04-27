@@ -225,6 +225,9 @@ pub struct EntrySpecs {
     /// e.g. the border around the game.  (not used for things like `ascii.anm` which have dedicated files
     /// for each resolution)
     pub low_res_scale: bool,
+    pub jpeg_quality: u32,
+    pub full_width: u32,
+    pub full_height: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -244,6 +247,9 @@ struct WorkingEntrySpecs {
     offset_y: SoftOption<u32>,
     memory_priority: SoftOption<u32>,
     low_res_scale: SoftOption<bool>,
+    jpeg_quality: SoftOption<u32>,
+    full_width: SoftOption<u32>,
+    full_height: SoftOption<u32>,
 }
 
 fn default_memory_priority(version: Version) -> u32 {
@@ -267,6 +273,9 @@ fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitt
     specs.memory_priority.set_soft_if_missing(default_memory_priority(version));
     specs.low_res_scale.set_soft_if_missing(DEFAULT_LOW_RES_SCALE);
     specs.has_data.set_soft_if_missing(DEFAULT_HAS_DATA);
+    specs.jpeg_quality.set_soft_if_missing(0);
+    specs.full_width.set_soft_if_missing(0);
+    specs.full_height.set_soft_if_missing(0);
 
     // Do this now.  For missing images that are also missing metadata,
     // this tends to produce the nicest error message.
@@ -314,6 +323,9 @@ fn finalize_entry(fs: &Fs, entry: WorkingEntry, game: Game, emitter: &impl Emitt
             colorkey: specs.colorkey.into_option().expect("was filled by default"),
             memory_priority: specs.memory_priority.into_option().expect("was filled by default"),
             low_res_scale: specs.low_res_scale.into_option().expect("was filled by default"),
+            jpeg_quality: specs.jpeg_quality.into_option().expect("was filled by default"),
+            full_width: specs.full_width.into_option().expect("was filled by default"),
+            full_height: specs.full_height.into_option().expect("was filled by default"),
         },
         texture_metadata: texture_data.as_ref().map(|_| TextureMetadata {
             width: specs.img_width.into_option().expect("was filled by default"),
@@ -534,6 +546,7 @@ impl Entry {
         let EntrySpecs {
             rt_width, rt_height, rt_format, colorkey,
             offset_x, offset_y, memory_priority, low_res_scale,
+            jpeg_quality, full_width, full_height,
         } = self.specs;
 
         // suppress defaults
@@ -562,6 +575,9 @@ impl Entry {
             .field_opt("rt_format", Some(rt_format).filter(|&x| x != img_format).map(format_to_meta))
             .field_opt("memory_priority", Some(memory_priority).filter(|&x| x != default_memory_priority(version)))
             .field_opt("low_res_scale", Some(low_res_scale).filter(|&x| x != DEFAULT_LOW_RES_SCALE))
+            .field_opt("jpeg_quality", Some(jpeg_quality).filter(|&x| x != 0))
+            .field_opt("full_width", Some(full_width).filter(|&x| x != 0))
+            .field_opt("full_height", Some(full_height).filter(|&x| x != 0))
             .field("sprites", &self.sprites)
             .build_fields()
     }
@@ -641,6 +657,9 @@ impl WorkingEntry {
             let memory_priority = make_explicit(m.get_field("memory_priority")?);
             let low_res_scale = make_explicit(m.get_field("low_res_scale")?);
             let has_data = make_explicit(m.get_field("has_data")?);
+            let jpeg_quality = make_explicit(m.get_field("jpeg_quality")?);
+            let full_width = make_explicit(m.get_field("full_width")?);
+            let full_height = make_explicit(m.get_field("full_height")?);
             let path: Sp<String> = m.expect_field("path")?;
             let path_2 = m.get_field("path_2")?;
             let sprites = m.get_field("sprites")?.unwrap_or_default();
@@ -664,6 +683,7 @@ impl WorkingEntry {
                 img_width, img_height, img_format,
                 colorkey, offset_x, offset_y,
                 memory_priority, has_data, low_res_scale,
+                jpeg_quality, full_width, full_height,
             };
             let loaded_texture = None;
             let scripts = Default::default();
@@ -768,17 +788,19 @@ pub struct Sprite {
     pub id: Option<u32>,
     pub offset: [f32; 2],
     pub size: [f32; 2],
+    pub unknown: Option<[f32; 5]>,
 }
 
 impl ToMeta for Sprite {
     fn to_meta(&self) -> Meta {
-        let &Sprite { id, offset, size } = self;
+        let &Sprite { id, offset, size, unknown, } = self;
         Meta::make_object()
             .field("x", &offset[0])
             .field("y", &offset[1])
             .field("w", &size[0])
             .field("h", &size[1])
             .field_opt("id", id.as_ref())
+            .field_opt("unknown", unknown.as_ref())
             .build()
     }
 }
@@ -789,6 +811,7 @@ impl FromMeta<'_> for Sprite {
             id: m.get_field("id")?,
             offset: [m.expect_field("x")?, m.expect_field("y")?],
             size: [m.expect_field("w")?, m.expect_field("h")?],
+            unknown: m.get_field("unknown")?
         }))
     }
 }
@@ -887,6 +910,9 @@ fn update_entry_from_anm_image_source(dest_file: &mut WorkingEntry, src_file: En
         colorkey: src_colorkey, offset_x: src_offset_x, offset_y: src_offset_y,
         memory_priority: src_memory_priority,
         low_res_scale: src_low_res_scale,
+        jpeg_quality: src_jpeg_quality,
+        full_width: src_full_width,
+        full_height: src_full_height,
     } = src_specs;
 
     dest_file.specs.has_data.set_soft(HasData::from(src_texture_data.is_some()));
@@ -910,6 +936,9 @@ fn update_entry_from_anm_image_source(dest_file: &mut WorkingEntry, src_file: En
     dest_file.specs.offset_y.set_soft(src_offset_y);
     dest_file.specs.memory_priority.set_soft(src_memory_priority);
     dest_file.specs.low_res_scale.set_soft(src_low_res_scale);
+    dest_file.specs.jpeg_quality.set_soft(src_jpeg_quality);
+    dest_file.specs.full_width.set_soft(src_full_width);
+    dest_file.specs.full_height.set_soft(src_full_height);
 
     Ok(())
 }

@@ -29,7 +29,10 @@ struct EntryHeaderData {
     thtx_offset: Option<NonZeroU64>,
     has_data: u32,
     low_res_scale: u32,
+    jpeg_quality: u32,
     next_offset: u64,
+    full_width: u32,
+    full_height: u32,
 }
 
 pub fn read_anm(
@@ -107,7 +110,7 @@ fn read_entry(
     let mut sprites_seen_in_entry = IndexSet::new();
     let sprites = sprite_offsets.iter().map(|&offset| {
         reader.seek_to(entry_pos + offset as u64)?;
-        let sprite = read_sprite(reader)?;
+        let sprite = read_sprite(reader, format.has_extended_sprites())?;
         let sprite_id = sprite.id.expect("(bug!) sprite read from binary must always have id");
 
         // Note: Duplicate IDs do happen between different entries, so we don't check that.
@@ -164,6 +167,9 @@ fn read_entry(
         offset_x: header_data.offset_x, offset_y: header_data.offset_y,
         memory_priority: header_data.memory_priority,
         low_res_scale: header_data.low_res_scale != 0,
+        jpeg_quality: header_data.jpeg_quality,
+        full_width: header_data.full_width,
+        full_height: header_data.full_height,
     };
 
     let entry = Entry {
@@ -226,7 +232,8 @@ fn write_entry(
     let EntrySpecs {
         rt_width, rt_height, rt_format,
         colorkey, offset_x, offset_y, memory_priority,
-        low_res_scale,
+        low_res_scale, jpeg_quality,
+        full_width, full_height
     } = entry.specs;
 
     file_format.write_header(w, &EntryHeaderData {
@@ -241,6 +248,9 @@ fn write_entry(
         // we will overwrite these later
         name_offset: 0, secondary_name_offset: None,
         next_offset: 0, thtx_offset: None,
+        jpeg_quality: jpeg_quality as u32,
+        full_width: full_width as u32,
+        full_height: full_height as u32,
     })?;
 
     let sprite_offsets_pos = w.pos()?;
@@ -263,7 +273,7 @@ fn write_entry(
         let sprite_id = sprite.id.unwrap_or(*next_auto_sprite_id);
         *next_auto_sprite_id = sprite_id.wrapping_add(1);
 
-        write_sprite(w, sprite_id, sprite)?;
+        write_sprite(w, sprite_id, sprite, file_format.has_extended_sprites())?;
         Ok(sprite_offset)
     }).collect::<WriteResult<Vec<_>>>()?;
 
@@ -325,11 +335,16 @@ fn write_entry(
     Ok(())
 }
 
-fn read_sprite(f: &mut BinReader) -> ReadResult<Sprite> {
+fn read_sprite(f: &mut BinReader, extended: bool) -> ReadResult<Sprite> {
     Ok(Sprite {
         id: Some(f.read_u32()?),
         offset: f.read_f32s_2()?,
         size: f.read_f32s_2()?,
+        unknown: if extended {
+            Some(f.read_f32s_5()?)
+        } else {
+            None
+        },
     })
 }
 
@@ -337,10 +352,15 @@ fn write_sprite(
     f: &mut BinWriter,
     sprite_id: u32,  // we ignore sprite.id because that can be None
     sprite: &Sprite,
+    extended: bool
 ) -> WriteResult {
     f.write_u32(sprite_id)?;
     f.write_f32s(&sprite.offset)?;
-    f.write_f32s(&sprite.size)
+    f.write_f32s(&sprite.size)?;
+    if extended {
+        f.write_f32s(&sprite.unknown.unwrap_or_else(|| [0.0, 0.0, 1.0, 1.0, 0.0]))?;
+    }
+    Ok(())
 }
 
 #[inline(never)]
@@ -390,6 +410,7 @@ fn write_texture(f: &mut BinWriter, data: &TextureData, metadata: &TextureMetada
 /// Type responsible for dealing with version differences in the container format.
 struct FileFormat {
     version: Version,
+    game: Game,
     instr_format: Box<dyn InstrFormat>,
 }
 
@@ -400,7 +421,11 @@ impl FileFormat {
     fn from_game(game: Game) -> Self {
         let version = Version::from_game(game);
         let instr_format = get_instr_format(version);
-        FileFormat { version, instr_format }
+        FileFormat { version, game, instr_format }
+    }
+    
+    fn has_extended_sprites(&self) -> bool {
+        self.game == Game::Th19
     }
 
     fn read_header(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<EntryHeaderData> {
@@ -430,10 +455,11 @@ impl FileFormat {
             let version = f.read_u32()? as _;
             let memory_priority = f.read_u32()? as _;
             let thtx_offset = NonZeroU64::new(f.read_u32()? as _) as _;
-            let has_data = f.read_u16()? as _;
-            warn_if_nonzero!("unused_2", f.read_u16()?);
+            let has_data = f.read_u8()? as _;
+            warn_if_nonzero!("unused_2", f.read_u8()?);
+            warn_if_nonzero!("unused_3", f.read_u16()?);
             let next_offset = f.read_u32()? as _;
-            warn_if_nonzero!("unused_3", f.read_u32()?);
+            warn_if_nonzero!("unused_4", f.read_u32()?);
 
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
@@ -443,6 +469,7 @@ impl FileFormat {
                 next_offset, secondary_name_offset, colorkey,
                 memory_priority, thtx_offset, has_data,
                 offset_x: 0, offset_y: 0, low_res_scale: 0,
+                jpeg_quality: 0, full_width: 0, full_height: 0,
             })
 
         } else {
@@ -459,13 +486,20 @@ impl FileFormat {
             let offset_y = f.read_u16()? as _;
             let memory_priority = f.read_u32()? as _;
             let thtx_offset = NonZeroU64::new(f.read_u32()? as _);
-            let has_data = f.read_u16()? as _;
-            let low_res_scale = f.read_u16()? as _;
+            let has_data = f.read_u8()? as _;
+            warn_if_nonzero!("unused_1", f.read_u8()?);
+            let low_res_scale = f.read_u8()? as _;
+            let jpeg_quality = f.read_u8()? as _;
             let next_offset = f.read_u32()? as _;
+            let full_width = f.read_u16()? as _;
+            let full_height = f.read_u16()? as _;
+            // header gets padded to 16 dwords
+            warn_if_nonzero!("header_padding1", f.read_u32()?);
+            warn_if_nonzero!("header_padding2", f.read_u32()?);
+            warn_if_nonzero!("header_padding3", f.read_u32()?);
+            warn_if_nonzero!("header_padding4", f.read_u32()?);
+            warn_if_nonzero!("header_padding5", f.read_u32()?);
 
-            for _ in 0..6 {  // header gets padded to 16 dwords
-            warn_if_nonzero!("header padding", f.read_u32()?);
-            }
             Ok(EntryHeaderData {
                 version, num_sprites, num_scripts,
                 rt_width: width,
@@ -475,6 +509,7 @@ impl FileFormat {
                 memory_priority, thtx_offset, has_data,
                 secondary_name_offset: None,
                 colorkey: 0,
+                jpeg_quality, full_width, full_height,
             })
         }
     }
@@ -514,10 +549,14 @@ impl FileFormat {
             f.write_u16(header.offset_y as _)?;
             f.write_u32(header.memory_priority as _)?;
             f.write_u32(header.thtx_offset.map(NonZeroU64::get).unwrap_or(0) as _)?;
-            f.write_u16(header.has_data as _)?;
-            f.write_u16(header.low_res_scale as _)?;
+            f.write_u8(header.has_data as _)?;
+            f.write_u8(0)?;
+            f.write_u8(header.low_res_scale as _)?;
+            f.write_u8(header.jpeg_quality as _)?;
             f.write_u32(header.next_offset as _)?;
-            f.write_u32s(&[0; 6])?;
+            f.write_u16(header.full_width as _)?;
+            f.write_u16(header.full_height as _)?;
+            f.write_u32s(&[0; 5])?;
         }
         Ok(())
     }
