@@ -76,15 +76,16 @@ impl Default for ScriptTableEntry {
 
 /// An alternative structure closer to the Meta representation.
 #[derive(Debug, Clone, PartialEq)]
-struct SparseScriptTable {
+struct MsgMeta {
     /// The script table is sparsely filled and could potentially have empty entries after the
     /// last full one, so we must store its true length.
     table_len: Sp<u32>,
     table: IndexMap<Sp<u32>, ScriptTableEntry>,
+    extended_header: Option<Vec<u32>>,
     default: ScriptTableEntry,
 }
 
-impl SparseScriptTable {
+impl MsgMeta {
     fn make_meta(&self) -> meta::Fields {
         let mut builder = Meta::make_object();
 
@@ -103,6 +104,10 @@ impl SparseScriptTable {
             inner.field_default("default", &self.default, &Default::default());
             inner.build()
         });
+        
+        if let Some(extended_header) = &self.extended_header {
+            builder.field("header", extended_header);
+        }
 
         builder.build_fields()
     }
@@ -131,11 +136,16 @@ impl SparseScriptTable {
             let table_len = m.get_field("table_len")?.unwrap_or_else(|| {
                 sp!(fields.span => sparse_table_implicit_len(&int_map))
             });
-            Ok(SparseScriptTable { table_len, table: int_map, default })
+            Ok(MsgMeta {
+                table_len,
+                table: int_map,
+                extended_header: m.get_field("header")?,
+                default
+            })
         })
     }
 
-    fn densify(&self) -> Vec<ScriptTableEntry> {
+    fn make_dense_script_table(&self) -> Vec<ScriptTableEntry> {
         (0..self.table_len.value)
             .map(|index| {
                 self.table.get(&index).unwrap_or_else(|| &self.default).clone()
@@ -193,13 +203,13 @@ fn decompile(
 ) -> Result<ast::ScriptFile, ErrorReported> {
     let hooks = &*format.language_hooks();
 
-    let sparse_script_table = sparsify_script_table(&msg.dense_table);
+    let msg_meta = generate_msg_meta(&msg.dense_table, msg.extended_header.clone());
 
     let const_proof = crate::passes::evaluate_const_vars::run(ctx)?;
     let mut raiser = llir::Raiser::new(hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
     let mut items = vec![sp!(ast::Item::Meta {
         keyword: sp!(token![meta]),
-        fields: sp!(sparse_script_table.make_meta()),
+        fields: sp!(msg_meta.make_meta()),
     })];
     items.extend(msg.scripts.iter().map(|(ident, instrs)| {
         let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?;
@@ -221,7 +231,7 @@ fn decompile(
     Ok(script)
 }
 
-fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable {
+fn generate_msg_meta(dense_table: &[ScriptTableEntry], extended_header: Option<Vec<u32>>) -> MsgMeta {
     let counts = get_counts(dense_table.iter());
 
     // get first index of all nonzero entries
@@ -254,7 +264,12 @@ fn sparsify_script_table(dense_table: &[ScriptTableEntry]) -> SparseScriptTable 
     };
 
     let table_len = sp!(dense_table.len() as u32);
-    SparseScriptTable { table_len, table, default }
+    MsgMeta {
+        table_len,
+        table,
+        extended_header,
+        default
+    }
 }
 
 fn get_counts<T: Eq + Ord>(items: impl IntoIterator<Item=T>) -> BTreeMap<T, u32> {
@@ -329,10 +344,10 @@ fn compile(
             None => return Err(emit(error!("missing 'meta' section"))),
         }
     };
-    let sparse_table: SparseScriptTable = {
-        SparseScriptTable::from_fields(meta).map_err(|e| ctx.emitter.emit(e))?
+    let msg_meta: MsgMeta = {
+        MsgMeta::from_fields(meta).map_err(|e| ctx.emitter.emit(e))?
     };
-    let dense_table = sparse_table.densify();
+    let dense_table = msg_meta.make_dense_script_table();
     let script_table_indices_by_name = get_script_table_indices_by_name(&dense_table);
 
     let mut errors = ErrorFlag::new();
@@ -362,13 +377,13 @@ fn compile(
     errors.into_result(())?;
 
     let unused_table_keys = {
-        sparse_table.table.keys().copied()
-            .filter(|&key| key >= sparse_table.table_len).collect::<Vec<_>>()
+        msg_meta.table.keys().copied()
+            .filter(|&key| key >= msg_meta.table_len).collect::<Vec<_>>()
     };
     if !unused_table_keys.is_empty() {
         let mut diag = warning!(
             message("unused script table entry"),
-            secondary(sparse_table.table_len, "unused due to this length"),
+            secondary(msg_meta.table_len, "unused due to this length"),
         );
         for key in unused_table_keys {
             diag.primary(key.span, format!("unused table entry"));
@@ -377,8 +392,8 @@ fn compile(
     }
 
     let used_scripts = {
-        std::iter::once(sparse_table.default.clone())
-            .chain(sparse_table.table.values().cloned())
+        std::iter::once(msg_meta.default.clone())
+            .chain(msg_meta.table.values().cloned())
             .filter_map(|entry| match entry.script.value {
                 ScriptTableOffset::Zero => None,
                 ScriptTableOffset::Name(ref ident) => Some(ident.clone()),
@@ -396,7 +411,7 @@ fn compile(
     Ok(MsgFile {
         dense_table,
         scripts,
-        extended_header: None,
+        extended_header: msg_meta.extended_header,
         /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
     })
@@ -542,6 +557,10 @@ fn write_msg(
     let start_pos = w.pos()?;
 
     w.write_u32(msg.dense_table.len() as _)?;
+    
+    if msg.extended_header.is_some() {
+        w.write_u32s(&msg.extended_header.as_ref().unwrap())?;
+    }
 
     let script_offsets_pos = w.pos()?;
     for _ in 0..msg.dense_table.len() {

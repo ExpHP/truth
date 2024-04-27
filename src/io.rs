@@ -317,7 +317,10 @@ pub trait BinRead {
     fn read_u16(&mut self) -> Result<u16, Self::Err> { ReadBytesExt::read_u16::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
     fn read_i32(&mut self) -> Result<i32, Self::Err> { ReadBytesExt::read_i32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
     fn read_u32(&mut self) -> Result<u32, Self::Err> { ReadBytesExt::read_u32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
+    //fn read_i64(&mut self) -> Result<i64, Self::Err> { ReadBytesExt::read_i64::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
+    //fn read_u64(&mut self) -> Result<u64, Self::Err> { ReadBytesExt::read_u64::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
     fn read_f32(&mut self) -> Result<f32, Self::Err> { ReadBytesExt::read_f32::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
+    //fn read_f64(&mut self) -> Result<f64, Self::Err> { ReadBytesExt::read_f64::<Le>(self._bin_read_reader()).map_err(|e| self._bin_read_io_error(e)) }
 
     fn read_u32s(&mut self, count: usize) -> Result<Vec<u32>, Self::Err> { (0..count).map(|_| self.read_u32()).collect() }
 
@@ -339,6 +342,9 @@ pub trait BinRead {
     }
     fn read_f32s_3(&mut self) -> Result<[f32; 3], Self::Err> {
         Ok([self.read_f32()?, self.read_f32()?, self.read_f32()?])
+    }
+    fn read_f32s_5(&mut self) -> Result<[f32; 5], Self::Err> {
+        Ok([self.read_f32()?, self.read_f32()?, self.read_f32()?, self.read_f32()?, self.read_f32()?])
     }
 
     fn read_byte_vec(&mut self, len: usize) -> Result<Vec<u8>, Self::Err> {
