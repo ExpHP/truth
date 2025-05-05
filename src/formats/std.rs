@@ -116,6 +116,7 @@ pub struct Object {
     pub id: Option<u32>,
     pub pos: [f32; 3],
     pub size: [f32; 3],
+    pub unk: Option<f32>,
     pub quads: Vec<Quad>,
 }
 
@@ -126,6 +127,7 @@ impl FromMeta<'_> for Object {
             id: m.get_field("id")?,
             pos: m.expect_field("pos")?,
             size: m.expect_field("size")?,
+            unk: m.get_field("unk")?,
             quads: m.expect_field("quads")?,
         }))
     }
@@ -140,6 +142,9 @@ impl ToMeta for Object {
         builder.field("layer", &(self.layer as i32));
         builder.field("pos", &self.pos);
         builder.field("size", &self.size);
+        if let Some(unk) = &self.unk {
+            builder.field("unk", unk);
+        }
         builder.field("quads", &self.quads);
         
         builder.build()
@@ -399,7 +404,7 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
 
             let expected_id = i;
             let value = emitter.chain_with(|f| write!(f, "object at index {i}"), |emitter| {
-                read_object(reader, emitter, expected_id)
+                read_object(reader, emitter, format, expected_id)
             })?;
             Ok((key, value))
         }).collect::<ReadResult<IndexMap<_, _>>>()?;
@@ -487,7 +492,7 @@ fn write_string_128<S: AsRef<str>>(f: &mut BinWriter, emitter: &dyn Emitter, s: 
     Ok(())
 }
 
-fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) -> ReadResult<Object> {
+fn read_object(f: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFormat, expected_id: usize) -> ReadResult<Object> {
     let id = f.read_u16()?;
     if id as usize != expected_id {
         emitter.emit(warning!("object has non-sequential id (expected {expected_id}, got {id})")).ignore();
@@ -496,6 +501,11 @@ fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) ->
     let layer = f.read_u16()?;
     let pos = f.read_f32s_3()?;
     let size = f.read_f32s_3()?;
+    let unk = if format.has_obj_unk() {
+        Some(f.read_f32()?)
+    } else {
+        None
+    };
     let mut quads = vec![];
     while let Some(quad) = read_quad(f, emitter)? {
         quads.push(quad);
@@ -509,6 +519,7 @@ fn read_object(f: &mut BinReader, emitter: &impl Emitter, expected_id: usize) ->
         },
         pos,
         size,
+        unk,
         quads
     })
 }
@@ -518,6 +529,9 @@ fn write_object(f: &mut BinWriter, emitter: &impl Emitter, format: &dyn FileForm
     f.write_u16(x.layer)?;
     f.write_f32s(&x.pos)?;
     f.write_f32s(&x.size)?;
+    if let Some(unk) = x.unk {
+        f.write_f32(unk)?;
+    }
     for quad in &x.quads {
         write_quad(f, emitter, format, quad)?;
     }
@@ -629,7 +643,7 @@ fn write_terminal_instance(f: &mut BinWriter) -> WriteResult {
 fn game_format(game: Game) -> Box<dyn FileFormat> {
     if Game::Th095 <= game {
         let hooks = StdHooks10;
-        Box::new(FileFormat10 { hooks })
+        Box::new(FileFormat10 { hooks, game })
     } else {
         let has_strips = match game {
             Game::Th06 | Game::Th07 => false,
@@ -652,6 +666,7 @@ struct FileFormat06 {
 /// STD format, StB to present.
 struct FileFormat10 {
     hooks: StdHooks10,
+    game: Game,
 }
 
 trait FileFormat {
@@ -661,6 +676,7 @@ trait FileFormat {
     fn write_extra(&self, f: &mut BinWriter, emitter: &dyn Emitter, x: &StdExtra) -> WriteResult;
     fn language_hooks(&self) -> &dyn LanguageHooks;
     fn has_strips(&self) -> bool;
+    fn has_obj_unk(&self) -> bool;
 }
 
 impl FileFormat for FileFormat06 {
@@ -709,6 +725,7 @@ impl FileFormat for FileFormat06 {
 
     fn language_hooks(&self) -> &dyn LanguageHooks { &self.hooks }
     fn has_strips(&self) -> bool { self.has_strips }
+    fn has_obj_unk(&self) -> bool { false }
 }
 
 impl FileFormat for FileFormat10 {
@@ -739,6 +756,7 @@ impl FileFormat for FileFormat10 {
 
     fn language_hooks(&self) -> &dyn LanguageHooks { &self.hooks }
     fn has_strips(&self) -> bool { false }
+    fn has_obj_unk(&self) -> bool { self.game >= Game::Th20 }
 }
 
 struct StdHooks06;
