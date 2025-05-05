@@ -86,7 +86,7 @@ impl ColorFormat {
             ColorFormat::Argb4444 => Rc::new(Argb8888::encode(&Argb4444::decode(bytes))),
             ColorFormat::Argb8332 => Rc::new(Argb8888::encode(&Argb8332::decode(bytes))),
             ColorFormat::Gray8 => Rc::new(Argb8888::encode(&Gray8::decode(bytes))),
-            ColorFormat::Rgb332 => Rc::new(Rgb332::encode(&Rgb332::decode(bytes))),
+            ColorFormat::Rgb332 => Rc::new(Argb8888::encode(&Rgb332::decode(bytes))),
         }
     }
 

@@ -10,8 +10,8 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         => MSG_06_09,
 
         | Th10 | Th11 | Th12 | Th125 | Th128 | Th13
-        | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19
-        => MSG_10_19,
+        | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 | Th20
+        => MSG_10_20,
     }
 }
 
@@ -73,7 +73,7 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
     ],
     var: &[],
 };
-static MSG_10_19: &CoreSignatures = &CoreSignatures {
+static MSG_10_20: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),

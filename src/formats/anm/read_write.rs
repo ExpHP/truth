@@ -425,7 +425,7 @@ impl FileFormat {
     }
     
     fn has_extended_sprites(&self) -> bool {
-        self.game == Game::Th19
+        self.game >= Game::Th19
     }
 
     fn read_header(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<EntryHeaderData> {

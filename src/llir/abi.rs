@@ -48,7 +48,7 @@ pub enum ArgEncoding {
         arg0: bool,
         immediate: bool,
         extend: bool,
-        format: ast::IntFormat
+        format: ast::IntFormat,
     },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,

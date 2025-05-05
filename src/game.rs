@@ -6,9 +6,9 @@ use crate::diagnostic::Diagnostic;
 pub enum Game {
     Th06, Th07, Th08, Th09, Th095, Th10, Alcostg, Th11, Th12,
     Th125, Th128, Th13, Th14, Th143, Th15, Th16, Th165, Th17, Th18,
-    Th185, Th19
+    Th185, Th19, Th20
 }
-macro_rules! max_game_str { () => { "th19" }; }
+macro_rules! max_game_str { () => { "th20" }; }
 
 impl std::str::FromStr for Game {
     type Err = Diagnostic;
@@ -49,6 +49,7 @@ impl std::str::FromStr for Game {
             18 => Ok(Game::Th18),
             185 => Ok(Game::Th185),
             19 => Ok(Game::Th19),
+            20 => Ok(Game::Th20),
             _ => Err(unknown_game()),
         }
     }
@@ -78,6 +79,7 @@ impl Game {
             Game::Th18 => "UM",
             Game::Th185 => "HBM",
             Game::Th19 => "UDoALG",
+            Game::Th20 => "FW",
         }
     }
 
@@ -104,7 +106,7 @@ impl Game {
             Game::Th18 => "th18",
             Game::Th185 => "th185",
             Game::Th19 => "th19",
-            
+            Game::Th20 => "th20",
         }
     }
 
@@ -131,6 +133,7 @@ impl Game {
             Game::Th18 => 18,
             Game::Th185 => 185,
             Game::Th19 => 19,
+            Game::Th20 => 20,
         }
     }
 }
