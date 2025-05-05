@@ -652,7 +652,7 @@ impl FileFormat {
     }
     
     fn extended_header(&self) -> bool {
-        self.language == LanguageKey::Msg && self.game == Game::Th19
+        self.language == LanguageKey::Msg && self.game >= Game::Th19
     }
 
     fn language_hooks(&self) -> Box<dyn LanguageHooks> {
@@ -663,7 +663,7 @@ impl FileFormat {
             | Game::Th13 | Game::Th14 | Game::Th143
             | Game::Th15 | Game::Th16 | Game::Th165
             | Game::Th17 | Game::Th18 | Game::Th185
-            | Game::Th19
+            | Game::Th19 | Game::Th20
             => Box::new(MsgHooks { language: self.language }),
 
             | Game::Th095 | Game::Alcostg

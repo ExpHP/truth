@@ -16,7 +16,7 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         Th12 | Th125 => ECL_12,
 
         Th128 |
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 => CoreSignatures::EMPTY,
+        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 | Th20 => CoreSignatures::EMPTY,
     }
 }
 
@@ -25,7 +25,7 @@ pub(super) fn timeline_core_signatures(game: Game) -> &'static CoreSignatures {
         Th06 | Th07 | Th08 | Th09 | Th095 => TIMELINE,
 
         Th10 | Alcostg | Th11 | Th12 | Th125 | Th128 |
-        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 => CoreSignatures::EMPTY,
+        Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 | Th185 | Th19 | Th20 => CoreSignatures::EMPTY,
     }
 }
 
@@ -1061,7 +1061,7 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
 
 
 static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
-    inherit: &[ECL_10_19_COMMON],
+    inherit: &[ECL_10_20_COMMON],
     ins: &[
         // Section B
         (Th10, 256, Some(("P(bs=4)ffSSS", None))),
@@ -1264,7 +1264,7 @@ static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
 
 
 static ECL_12: &'static CoreSignatures = &CoreSignatures {
-    inherit: &[ECL_10_19_COMMON],
+    inherit: &[ECL_10_20_COMMON],
     ins: &[
         // Section B
         (Th12, 256, Some(("P(bs=4)ffSSS", None))),
@@ -1470,7 +1470,7 @@ static ECL_12: &'static CoreSignatures = &CoreSignatures {
 };
 
 
-static ECL_10_19_COMMON: &'static CoreSignatures = &CoreSignatures {
+static ECL_10_20_COMMON: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
