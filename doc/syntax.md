@@ -41,9 +41,9 @@ Literals can be:
 
 * **Integers:** `123`, `0x123`, `-0b00101`, `true`, `false`.  There is no octal syntax. Literal numbers have no optional leading plus.
 * **Floats:** `1.0`, `-1.3f`, `2f`.  Again, no leading plus.
-* **Strings:** `"The quick brown fox\njumped over the lazy dog"`.  The control characters for strings are `\0`, `\n`, `\r`, `\\`, and `\"`.  
+* **Strings:** `"The quick brown fox\njumped over the lazy dog"`.  The control characters for strings are `\0`, `\n`, `\r`, `\\`, and `\"`.
 
-Source text files for `truth` **must** be encoded in UTF-8.  `truth` handles the conversion between the Shift-JIS encoding used in the binary files and the UTF-8 encoding used in source text.  (in the future, you may even be able to configure which encoding is used in the binary files... but source text will always be UTF-8!) 
+Source text files for `truth` **must** be encoded in UTF-8.  `truth` handles the conversion between the Shift-JIS encoding used in the binary files and the UTF-8 encoding used in source text.  (in the future, you may even be able to configure which encoding is used in the binary files... but source text will always be UTF-8!)
 
 ### Variables
 
@@ -139,12 +139,12 @@ Other things present in expressions:
 
 * The **ternary operator** `a ? b : c`.  Right associative, [the way it should be](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/#operators).
 * **Unary negation** `-x`.
-* **Special functions** `sin(x)` and `cos(x)`.
+* **Special functions** `sin(x)` and `cos(x)`.  Some languages support `acos`, `asin`, `tan`, and `sqrt`.
 * **Logical right shift `>>>`**.
   * All ints in truth are signed so `>>` is an arithmetic right shift (sign-extended) for consistency.
     `>>>` is provided as a separate operator for doing logical right shifts (zero-extended).
 * **Explicit casts** `_S` (float to int) and `_f` (int to float): `I0 = _S(F0);`
-  * That example is identical to `I0 = $F0`, but `_S` is also more generally usable in larger expressions where it may introduce a temporary 
+  * That example is identical to `I0 = $F0`, but `_S` is also more generally usable in larger expressions where it may introduce a temporary
 
 ### Assignments
 
@@ -217,7 +217,7 @@ times(I2 = I0) {
 ```
 
 #### About conditions
- 
+
 In the desugared form of `times()` above, you'll notice that there is a `while (--var)`.  This `--var` is not an expression!
 
 Basically, a **condition** can either be an expression `<expr>` or a predecrement operation `--<var>`.  The latter compiles to a special kind of jump available in ANM and early ECL that decrements a variable and jumps if it is nonzero.  (*every single `while` loop in vanilla ANM files uses this form of jump,* so the ability to decompile it seemed... kind of important!)
@@ -290,7 +290,7 @@ Notice that, unlike conditional blocks, *the conditional jump has no braces*; it
 ```C
 // this compiles to a single instruction in anm
 if (I0 != 0) goto else_label;
- 
+
 // this typically compiles to more than one instruction
 if (I0 != 0) {
     goto else_label;
@@ -317,7 +317,7 @@ However, this is generally obsolete.  Normally, the only reason the game ever us
 label:  // has time label 15
     bar()
     goto label @ 10;
-    
+
 
 // is equivalent to
 10:

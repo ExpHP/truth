@@ -71,7 +71,7 @@
 61 fsin
 62 fcos
 63 ftan
-64 acos
+64 facos
 65 fatan
 66 validRad
 

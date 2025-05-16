@@ -51,6 +51,10 @@ impl ast::UnOpKind {
                 token![unop ~] => Some(ScalarValue::Int(!x)),
                 token![unop sin] |
                 token![unop cos] |
+                token![unop tan] |
+                token![unop asin] |
+                token![unop acos] |
+                token![unop atan] |
                 token![unop sqrt] => uncaught_type_error(),
                 token![unop int] => Some(ScalarValue::Int(x)),
                 token![unop float] => Some(ScalarValue::Float(x as f32)),
@@ -64,6 +68,10 @@ impl ast::UnOpKind {
                 token![unop ~] => uncaught_type_error(),
                 token![unop sin] => Some(ScalarValue::Float(x.sin())),
                 token![unop cos] => Some(ScalarValue::Float(x.cos())),
+                token![unop tan] => Some(ScalarValue::Float(x.tan())),
+                token![unop asin] => Some(ScalarValue::Float(x.asin())),
+                token![unop acos] => Some(ScalarValue::Float(x.acos())),
+                token![unop atan] => Some(ScalarValue::Float(x.atan())),
                 token![unop sqrt] => Some(ScalarValue::Float(x.sqrt())),
                 token![unop int] => Some(ScalarValue::Int(x as i32)),
                 token![unop float] => Some(ScalarValue::Float(x)),

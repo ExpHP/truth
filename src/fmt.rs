@@ -886,12 +886,14 @@ impl Format for ast::Expr {
                 })
             },
             ast::Expr::UnOp(op, x) => match op.value {
-                token![unop -] | token![!] | token![~]
+                | token![unop -] | token![!] | token![~]
                     => out.fmt_optional_parens(|out| out.fmt((op, x))),
 
-                token![unop $] | token![unop %] |
-                token![unop int] | token![unop float] |
-                token![sin] | token![cos] | token![sqrt]
+                | token![unop $] | token![unop %]
+                | token![unop int] | token![unop float]
+                | token![sin] | token![cos] | token![tan]
+                | token![asin] | token![acos] | token![atan]
+                | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
             ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op, var } => out.fmt((op, var)),
