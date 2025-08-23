@@ -686,7 +686,7 @@ fn format_to_meta(format_num: u32) -> Meta {
 }
 
 fn colorkey_to_meta(colorkey: u32) -> impl ToMeta {
-    ast::Expr::LitInt { value: colorkey as i32, radix: ast::IntRadix::Hex }
+    ast::Expr::LitInt { value: colorkey as i32, format: ast::IntFormat::HEX }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

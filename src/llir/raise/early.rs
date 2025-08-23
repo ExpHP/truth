@@ -181,7 +181,7 @@ fn early_raise_intrinsics(
 fn raise_mask(value: raw::ParamMask) -> ast::Expr {
     ast::Expr::LitInt {
         value: value.into(),
-        radix: ast::IntRadix::Bin,
+        format: ast::IntFormat::BIN,
     }
 }
 
@@ -192,7 +192,7 @@ fn raise_nargs(value: raw::ArgCount) -> ast::Expr {
 fn raise_pop(value: raw::StackPop) -> ast::Expr {
     ast::Expr::LitInt {
         value: value.into(),
-        radix: ast::IntRadix::Hex,
+        format: ast::IntFormat::HEX,
     }
 }
 
@@ -698,7 +698,7 @@ impl AtomRaiser<'_, '_> {
             },
 
             | ArgEncoding::Color
-            => Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::Hex }),
+            => Ok(ast::Expr::LitInt { value: raw.expect_int(), format: ast::IntFormat::HEX }),
 
             | ArgEncoding::Float
             => Ok(ast::Expr::from(raw.expect_float())),
@@ -721,7 +721,7 @@ impl AtomRaiser<'_, '_> {
 
                 | Err(IllegalOffset) => {
                     emitter.emit(warning!("invalid offset in a jump instruction")).ignore();
-                    Ok(ast::Expr::LitInt { value: raw.expect_int(), radix: ast::IntRadix::SignedHex })
+                    Ok(ast::Expr::LitInt { value: raw.expect_int(), format: ast::IntFormat::SIGNED_HEX })
                 },
             },
         }
