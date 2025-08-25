@@ -99,7 +99,9 @@ pub fn gen_ast_macros() -> String {
             "expr_unop", &[
                 ("op", ArgKind::Token(&[
                     "-", "!",
-                    "sin", "cos", "sqrt",
+                    "sin", "cos", "tan",
+                    "asin", "acos", "atan",
+                    "sqrt",
                     "_S", "_f",  // $ has to be written as _S since it's a macro meta-char
                     "%", "int", "float",
                 ])),

@@ -886,24 +886,49 @@ impl Format for ast::Expr {
                 })
             },
             ast::Expr::UnOp(op, x) => match op.value {
-                token![unop -] | token![!] | token![~]
+                | token![unop -] | token![!] | token![~]
                     => out.fmt_optional_parens(|out| out.fmt((op, x))),
 
-                token![unop $] | token![unop %] |
-                token![unop int] | token![unop float] |
-                token![sin] | token![cos] | token![sqrt]
+                | token![unop $] | token![unop %]
+                | token![unop int] | token![unop float]
+                | token![sin] | token![cos] | token![tan]
+                | token![asin] | token![acos] | token![atan]
+                | token![sqrt]
                     => out.fmt((op, "(", SuppressParens(x), ")")),
             },
             ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Pre, op, var } => out.fmt((op, var)),
             ast::Expr::XcrementOp { order: ast::XcrementOpOrder::Post, op, var } => out.fmt((var, op)),
             ast::Expr::EnumConst { enum_name, ident } => out.fmt((enum_name, ".", ident)),
-            ast::Expr::LitInt { value: 0, radix: ast::IntRadix::Bool } => out.fmt("false"),
-            ast::Expr::LitInt { value: 1, radix: ast::IntRadix::Bool } => out.fmt("true"),
-            ast::Expr::LitInt { value, radix: ast::IntRadix::Bool } => out.fmt(value),
-            ast::Expr::LitInt { value, radix: ast::IntRadix::Dec } => out.fmt(value),
-            ast::Expr::LitInt { value, radix: ast::IntRadix::Hex } => out.fmt(format_args!("{:#x}", value)),
-            ast::Expr::LitInt { value, radix: ast::IntRadix::SignedHex } => out.fmt(format_args!("{:#x}", SignedRadix(*value))),
-            ast::Expr::LitInt { value, radix: ast::IntRadix::Bin } => out.fmt(format_args!("{:#b}", value)),
+            ast::Expr::LitInt { value, format } => match format {
+                // These are the decimal formats
+                &ast::IntFormat::SIGNED => out.fmt(value),
+                &ast::IntFormat::UNSIGNED => {
+                    out.fmt(format_args!("{}", *value as u32))
+                },
+
+                &ast::IntFormat { radix: ast::IntRadix::Hex, signed } => {
+                    match signed {
+                        false => out.fmt(format_args!("{:#x}", value)),
+                        true => out.fmt(format_args!("{:#x}", SignedRadix(*value))),
+                    }
+                },
+
+                &ast::IntFormat { radix: ast::IntRadix::Bin, signed } => {
+                    match signed {
+                        false => out.fmt(format_args!("{:#b}", value)),
+                        true => out.fmt(format_args!("{:#b}", SignedRadix(*value))),
+                    }
+                },
+
+                &ast::IntFormat { radix: ast::IntRadix::Bool, signed } => {
+                    match (value, signed) {
+                        (0, _) => out.fmt("false"),
+                        (1, _) => out.fmt("true"),
+                        (_, true) => out.fmt(value),
+                        (_, false) => out.fmt(format_args!("{:#x}", *value as u32)),
+                    }
+                },
+            },
             ast::Expr::LitFloat { value } => out.fmt(value),
             ast::Expr::LitString(x) => out.fmt(x),
             ast::Expr::LabelProperty { label, keyword } => out.fmt((keyword, "(", label, ")")),
@@ -1134,4 +1159,32 @@ mod tests {
         assert!(reformat::<ast::ScriptFile>(3, r#"meta { x: 25 }"#).ends_with("\n"));
         assert!(reformat::<ast::ScriptFile>(9999, r#"  script  lol { nop(); }"#).ends_with("\n"));
     }
+
+    #[test]
+    fn integer_formats() {
+        use ast::IntRadix as R;
+
+        fn fmt_int(value: i32, signed: bool, radix: R) -> String {
+            stringify(&ast::Expr::LitInt {
+                value,
+                format: ast::IntFormat { signed, radix }
+            })
+        }
+
+        assert_eq!(fmt_int(20, true, R::Dec), "20");
+        assert_eq!(fmt_int(-20, true, R::Dec), "-20");
+        assert_eq!(fmt_int(-0x30, true, R::Hex), "-0x30");
+        assert_eq!(fmt_int(-0x30, false, R::Hex), "0xffffffd0");
+        assert_eq!(fmt_int(-0b100, true, R::Bin), "-0b100");
+
+        assert_eq!(fmt_int(0, true, R::Bool), "false");
+        assert_eq!(fmt_int(0, false, R::Bool), "false");
+        assert_eq!(fmt_int(1, true, R::Bool), "true");
+        assert_eq!(fmt_int(1, false, R::Bool), "true");
+        assert_eq!(fmt_int(2, true, R::Bool), "2");
+        assert_eq!(fmt_int(2, false, R::Bool), "0x2");
+        assert_eq!(fmt_int(-2, true, R::Bool), "-2");
+        assert_eq!(fmt_int(-2, false, R::Bool), "0xfffffffe");
+    }
 }
+

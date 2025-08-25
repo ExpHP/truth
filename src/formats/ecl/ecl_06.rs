@@ -1003,7 +1003,7 @@ impl LanguageHooks for OldeEclHooks {
             Game::Th06 => enum_map::enum_map!{
                 ScalarType::Int => vec![
                     R(-10001), R(-10002), R(-10003), R(-10004), // I0-I3
-                    R(-10009), R(-10010), R(-10011), R(-10012), // I4-I7
+                    R(-10009), R(-10010), R(-10011), R(-10012), // IC0-IC3
                 ],
                 ScalarType::Float => vec![
                     R(-10005), R(-10006), R(-10007), R(-10008), // F0-F3
@@ -1013,23 +1013,44 @@ impl LanguageHooks for OldeEclHooks {
             Game::Th07 => enum_map::enum_map!{
                 ScalarType::Int => vec![
                     R(10000), R(10001), R(10002), R(10003), // I0-I3
-                    R(10012), R(10013), R(10014), R(10015), // I4-I7
+                    R(10012), R(10013), R(10014), R(10015), // IC0-IC3
+                    //R(10029), R(10030), R(10031), R(10032), // PARAM_A-PARAM_D
                 ],
                 ScalarType::Float => vec![
                     R(10004), R(10005), R(10006), R(10007), // F0-F3
                     R(10008), R(10009), R(10010), R(10011), // F4-F7
                     R(10072), R(10074),                     // F8-F9
+                    //R(10033), R(10034), R(10035), R(10036), // PARAM_R-PARAM_N
                 ],
                 ScalarType::String => vec![],
             },
-            Game::Th08 => enum_map::enum_map!{
+            Game::Th08 | Game::Th09 => enum_map::enum_map!{
                 ScalarType::Int => vec![
-                    R(10000), R(10001), R(10002), R(10003),
-                    R(10012), R(10013), R(10014), R(10015),
+                    R(10000), R(10001), R(10002), R(10003), // I0-I3
+                    R(10004), R(10005), R(10006), R(10007), // I4-I7
+                    R(10036), R(10037), R(10038), R(10039), // IC0-IC3
+                    //R(10053), R(10054), R(10055), R(10056), // PARAM_A-PARAM_D
                 ],
                 ScalarType::Float => vec![
-                    R(10004), R(10005), R(10006), R(10007),
-                    R(10008), R(10009), R(10010), R(10011),
+                    R(10016), R(10017), R(10018), R(10019), // F0-F3
+                    R(10020), R(10021), R(10022), R(10023), // F4-F7
+                    R(10094), R(10095),                     // F8-F9
+                    //R(10057), R(10058), R(10059), R(10060), // PARAM_R-PARAM_N
+                ],
+                ScalarType::String => vec![],
+            },
+            Game::Th095 => enum_map::enum_map!{
+                ScalarType::Int => vec![
+                    R(10000), R(10001), R(10002), R(10003), // I0-I3
+                    R(10004), R(10005), R(10006), R(10007), // I4-I7
+                    R(10020), R(10021), R(10022), R(10023), // IC0-IC3
+                    //R(10036), R(10037), R(10038), R(10039), // PARAM_A-PARAM_D
+                ],
+                ScalarType::Float => vec![
+                    R(10008), R(10009), R(10010), R(10011), // F0-F3
+                    R(10012), R(10013), R(10014), R(10015), // F4-F7
+                    R(10077), R(10078), R(10079), R(10080), // F8-F11
+                    //R(10040), R(10041), R(10042), R(10043), // PARAM_R-PARAM_N
                 ],
                 ScalarType::String => vec![],
             },
@@ -1076,7 +1097,7 @@ impl InstrFormat for OldeEclHooks {
     fn read_instr(&self, f: &mut BinReader, emitter: &dyn Emitter) -> ReadResult<ReadInstr> {
         let time = f.read_i32()?;
         let opcode = f.read_u16()?;
-        let size = f.read_u16()? as usize;
+        let size = f.read_i16()? as usize;
         let before_difficulty = f.read_u8()?;  // according to zero, not referenced in any game
         let difficulty = f.read_u8()?;
         let param_mask = f.read_u16()?;
@@ -1110,7 +1131,7 @@ impl InstrFormat for OldeEclHooks {
     fn write_instr(&self, f: &mut BinWriter, _: &dyn Emitter, instr: &RawInstr) -> WriteResult {
         f.write_i32(instr.time)?;
         f.write_u16(instr.opcode)?;
-        f.write_u16(self.instr_size(instr) as _)?;
+        f.write_i16(self.instr_size(instr) as _)?;
 
         f.write_u8(0)?;
         f.write_u8(instr.difficulty)?;
@@ -1126,7 +1147,7 @@ impl InstrFormat for OldeEclHooks {
     fn write_terminal_instr(&self, f: &mut BinWriter, _: &dyn Emitter) -> WriteResult {
         f.write_i32(-1)?; // time
         f.write_i16(-1)?; // opcode
-        f.write_u16(self.instr_header_size() as _)?; // size
+        f.write_i16(self.instr_header_size() as _)?; // size
         f.write_u16(0xff00)?; // difficulty
         f.write_u16(0x00ff)?; // param_mask
         Ok(())
@@ -1162,7 +1183,7 @@ impl InstrFormat for TimelineFormat06 {
         }
 
         let opcode = f.read_u16()?;
-        let size = f.read_u16()? as usize;
+        let size = f.read_i16()? as usize;
 
         let args_size = size.checked_sub(self.instr_header_size()).ok_or_else(|| {
             emitter.as_sized().emit(error!("bad instruction size ({} < {})", size, self.instr_header_size()))

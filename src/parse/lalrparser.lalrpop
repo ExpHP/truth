@@ -107,6 +107,10 @@ extern {
         "timeof" => Token::TimeOf,
         "sin" => Token::Sin,
         "cos" => Token::Cos,
+        "tan" => Token::Tan,
+        "asin" => Token::Asin,
+        "acos" => Token::Acos,
+        "atan" => Token::Atan,
         "sqrt" => Token::Sqrt,
         "_S" => Token::LegacyEncodeI,
         "_f" => Token::LegacyEncodeF,
@@ -570,6 +574,10 @@ OpXcrement: ast::XcrementOpKind = {
 FuncUnOpKeyword: ast::UnOpKind = {
     "sin" => token![sin],
     "cos" => token![cos],
+    "tan" => token![tan],
+    "asin" => token![asin],
+    "acos" => token![acos],
+    "atan" => token![atan],
     "sqrt" => token![sqrt],
     // FIXME: differentiate read sigils from type casts
     "_S" => token![$],
@@ -604,7 +612,7 @@ ExprTerm: ast::Expr = {
     <var:Sp<Var>> <op:Sp<OpXcrement>>
         => ast::Expr::XcrementOp { var, op, order: ast::XcrementOpOrder::Post },
 
-    <value:LitIntUnsigned> => ast::Expr::LitInt { value, radix: ast::IntRadix::Dec },
+    <value:LitIntUnsigned> => ast::Expr::LitInt { value, format: ast::IntFormat::SIGNED },
 
     <value:LitFloatUnsigned> => ast::Expr::LitFloat { value },
 

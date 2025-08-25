@@ -454,8 +454,8 @@ pub enum Expr {
     LitInt {
         value: raw::LangInt,
         /// A hint to the formatter on how it should write the integer.
-        /// (may not necessarily represent the original radix of a parsed token)
-        radix: IntRadix,
+        /// (not meaningful when parsing)
+        format: IntFormat,
     },
     LitFloat { value: raw::LangFloat },
     LitString(LitString),
@@ -469,14 +469,29 @@ pub enum Expr {
     },
 }
 
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IntFormat {
+    pub signed: bool,
+    pub radix: IntRadix,
+}
+
+impl IntFormat {
+    pub const UNSIGNED: IntFormat = IntFormat { signed: false, radix: IntRadix::Dec };
+    pub const SIGNED: IntFormat = IntFormat { signed: true, radix: IntRadix::Dec };
+    pub const HEX: IntFormat = IntFormat { signed: false, radix: IntRadix::Hex };
+    pub const BIN: IntFormat = IntFormat { signed: false, radix: IntRadix::Bin };
+    pub const BOOL: IntFormat = IntFormat { signed: true, radix: IntRadix::Bool };
+    /// Used to decompile `jmp` in function syntax.
+    pub const SIGNED_HEX: IntFormat = IntFormat { signed: true, radix: IntRadix::Hex };
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntRadix {
     /// Display as decimal.
     Dec,
     /// Display as hexadecimal, with an `0x` prefix.
     Hex,
-    /// Display as potentially negative hexadecimal, with an `0x` prefix.
-    SignedHex,
     /// Display as binary, with an `0b` prefix.
     Bin,
     /// Use `true` and `false` if the value is `1` or `0`.  Otherwise, fall back to decimal.
@@ -695,6 +710,10 @@ string_enum! {
         #[strum(serialize = "~")] BitNot,
         #[strum(serialize = "sin")] Sin,
         #[strum(serialize = "cos")] Cos,
+        #[strum(serialize = "tan")] Tan,
+        #[strum(serialize = "asin")] Asin,
+        #[strum(serialize = "acos")] Acos,
+        #[strum(serialize = "atan")] Atan,
         #[strum(serialize = "sqrt")] Sqrt,
         #[strum(serialize = "$")] EncodeI,
         #[strum(serialize = "%")] EncodeF,
@@ -711,6 +730,10 @@ impl UnOpKind {
             UnOpKind::BitNot => OpClass::Bitwise,
             UnOpKind::Sin => OpClass::FloatMath,
             UnOpKind::Cos => OpClass::FloatMath,
+            UnOpKind::Tan => OpClass::FloatMath,
+            UnOpKind::Asin => OpClass::FloatMath,
+            UnOpKind::Acos => OpClass::FloatMath,
+            UnOpKind::Atan => OpClass::FloatMath,
             UnOpKind::Sqrt => OpClass::FloatMath,
             UnOpKind::CastI => OpClass::Cast,
             UnOpKind::CastF => OpClass::Cast,
@@ -842,7 +865,7 @@ string_enum! {
 }
 
 impl From<raw::LangInt> for Expr {
-    fn from(value: raw::LangInt) -> Expr { Expr::LitInt { value, radix: IntRadix::Dec } }
+    fn from(value: raw::LangInt) -> Expr { Expr::LitInt { value, format: IntFormat::SIGNED } }
 }
 impl From<raw::LangFloat> for Expr {
     fn from(value: raw::LangFloat) -> Expr { Expr::LitFloat { value } }
@@ -1261,7 +1284,7 @@ macro_rules! generate_visitor_stuff {
                 Expr::XcrementOp { op: _, order: _, var } => {
                     v.visit_var(var);
                 },
-                Expr::LitInt { value: _, radix: _ } => {},
+                Expr::LitInt { value: _, format: _ } => {},
                 Expr::LitFloat { value: _ } => {},
                 Expr::LitString(_s) => {},
                 Expr::LabelProperty { .. } => {},
