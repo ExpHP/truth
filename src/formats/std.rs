@@ -116,7 +116,7 @@ pub struct Object {
     pub id: Option<u32>,
     pub pos: [f32; 3],
     pub size: [f32; 3],
-    pub unk: Option<f32>,
+    pub unk: Option<[f32; 5]>,
     pub quads: Vec<Quad>,
 }
 
@@ -502,7 +502,7 @@ fn read_object(f: &mut BinReader, emitter: &impl Emitter, format: &dyn FileForma
     let pos = f.read_f32s_3()?;
     let size = f.read_f32s_3()?;
     let unk = if format.has_obj_unk() {
-        Some(f.read_f32()?)
+        Some(f.read_f32s_5()?)
     } else {
         None
     };
@@ -530,7 +530,7 @@ fn write_object(f: &mut BinWriter, emitter: &impl Emitter, format: &dyn FileForm
     f.write_f32s(&x.pos)?;
     f.write_f32s(&x.size)?;
     if let Some(unk) = x.unk {
-        f.write_f32(unk)?;
+        f.write_f32s(&unk)?;
     }
     for quad in &x.quads {
         write_quad(f, emitter, format, quad)?;
