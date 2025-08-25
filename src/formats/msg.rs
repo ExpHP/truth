@@ -616,13 +616,13 @@ fn write_msg(
 fn game_format(game: Game, language: LanguageKey, emitter: &RootEmitter) -> Result<FileFormat, ErrorReported> {
     match (game, language) {
         | (Game::Th095, LanguageKey::Msg)
-        | (Game::Th095, LanguageKey::End)
         => Err(emitter.emit(error!("{} does not have MSG files; maybe try 'trumsg --mission'?", game))),
         
         | (Game::Alcostg, LanguageKey::Msg)
-        | (Game::Alcostg, LanguageKey::End)
         => Err(emitter.emit(error!("{} does not have MSG files", game))),
         
+        | (Game::Th095, LanguageKey::End)
+        | (Game::Alcostg, LanguageKey::End)
         | (Game::Th125, LanguageKey::End)
         | (Game::Th143, LanguageKey::End)
         | (Game::Th165, LanguageKey::End)
@@ -652,7 +652,7 @@ impl FileFormat {
     }
     
     fn extended_header(&self) -> bool {
-        self.language == LanguageKey::Msg && self.game >= Game::Th19
+        self.language == LanguageKey::Msg && self.game == Game::Th19
     }
 
     fn language_hooks(&self) -> Box<dyn LanguageHooks> {

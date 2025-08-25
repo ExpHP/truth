@@ -108,6 +108,8 @@ static STD_095_20: &CoreSignatures = &CoreSignatures {
         (Th14, 20, Some(("f", None))),
 
         (Th17, 21, Some(("SSf", None))),
+
+        (Th20, 22, Some(("S", None))),
     ],
     var: &[],
 };

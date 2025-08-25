@@ -50,6 +50,9 @@ static END_10_20: &CoreSignatures = &CoreSignatures {
         (Th10, 15, Some(("SSN", None))),
         (Th10, 16, Some(("SSN", None))),
         (Th10, 17, Some(("SSN", None))),
+
+        (Th20, 3, Some(("m(bs=4;mask=0x77,7,16;furibug)", None))),
+        (Th20, 9, Some(("CC", None))),
     ],
     var: &[],
 };
