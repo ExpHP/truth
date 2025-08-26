@@ -772,6 +772,7 @@ impl Defs {
 
 // =============================================================================
 
+/// Lookup table for decompiling constant values to enum consts.
 #[derive(Debug, Clone)]
 pub struct ConstNames {
     pub enums: IdMap<Ident, IdMap<i32, Sp<Ident>>>,
@@ -792,7 +793,7 @@ impl CompilerContext<'_> {
 
 impl EnumData {
     fn generate_lookup(&self, consts: &context::Consts) -> IdMap<i32, Sp<Ident>> {
-        let mut out = IdMap::default();
+        let mut out = IdMap::new();
         for (ident, &const_id) in &self.consts {
             let value = consts.get_cached_value(const_id).expect("evaluate_const_vars has not run! (bug!)");
             out.insert(value.expect_int(), ident.clone());
