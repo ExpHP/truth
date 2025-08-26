@@ -73,6 +73,12 @@ pub struct SimpleArg {
 
 impl SimpleArg {
     #[track_caller]
+    pub fn expect_immediate(&self) -> &ScalarValue {
+        assert!(!self.is_reg);
+        &self.value
+    }
+
+    #[track_caller]
     pub fn expect_immediate_int(&self) -> raw::LangInt {
         assert!(!self.is_reg);
         self.expect_int()
