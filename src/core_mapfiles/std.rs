@@ -85,8 +85,8 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
         (Th095, 7, Some(("f", None))),
         (Th095, 8, Some(("Cff", None))),
         (Th095, 9, Some(("Sbb--Cff", None))),
-        (Th095, 10, Some(("SUfffffffff", None))),
-        (Th095, 11, Some(("SUfffffffff", None))),
+        (Th095, 10, Some(("SUfffffffff", None))), // Technically S_fffffffff since MoF
+        (Th095, 11, Some(("SUfffffffff", None))), // Technically S_fffffffff since MoF
         (Th095, 12, Some(("b---", None))),
         (Th095, 13, Some(("C", None))),
         (Th095, 14, Some(("SN", None))),
@@ -96,13 +96,12 @@ static STD_095_18: &CoreSignatures = &CoreSignatures {
         (Th10, 3, Some(("SUfff", None))),
         (Th10, 5, Some(("SUfff", None))),
         (Th10, 9, Some(("SUCff", None))), // Technically the C arg is split into 4 individual byte reads. But why tho
-        (Th10, 10, Some(("S_fffffffff", None))),
-        (Th10, 11, Some(("S_fffffffff", None))),
 
-        (Th11, 16, Some(("S", Some(IKind::InterruptLabel)))),
+        (Alcostg, 16, Some(("S(imm)", Some(IKind::InterruptLabel)))),
+
         (Th11, 17, Some(("S", None))),
 
-        (Th12, 18, Some(("SSfff", None))),
+        (Th12, 18, Some(("SUfff", None))),
 
         (Th14, 14, Some(("SNS", None))),  // 'layer' argument added
         (Th14, 19, Some(("S", None))),

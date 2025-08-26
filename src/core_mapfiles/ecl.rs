@@ -12,9 +12,10 @@ pub(super) fn core_signatures(game: Game) -> &'static CoreSignatures {
         Th07 => ECL_07,
         Th08 | Th09 => ECL_08_09,
         Th095 => ECL_095,
-        Th10 => ECL_10,
+        Th10 | Alcostg | Th11 => ECL_10_11,
+        Th12 => ECL_12,
 
-        Alcostg | Th11 | Th12 | Th125 | Th128 |
+        Th125 | Th128 |
         Th13 | Th14 | Th143 | Th15 | Th16 | Th165 | Th17 | Th18 => CoreSignatures::EMPTY,
     }
 }
@@ -628,7 +629,7 @@ static ECL_08_09: &'static CoreSignatures = &CoreSignatures {
         (Th08, 127, Some(("S", None))),
         (Th08, 128, Some(("S(imm)f(imm)f(imm)f(imm)f(imm)", None))), // Argument 1 is unread
         (Th08, 129, Some(("b(imm)---", None))),
-        (Th08, 130, Some((r#"s(imm;enum="EclSub")--"#, None))),
+        (Th08, 130, Some((r#"s(imm;extend;enum="EclSub")--"#, None))),
         (Th08, 131, Some(("S", None))),
         (Th08, 132, Some(("S", None))),
         (Th08, 133, Some(("SSE", None))),
@@ -902,7 +903,7 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
         (Th095, 81, Some(("U(hex)", None))),
         (Th095, 82, Some(("f", None))),
         (Th095, 83, Some(("E(imm)", None))),
-        (Th095, 84, Some(("E(imm)fff", None))),
+        (Th095, 84, Some(("E(imm)ff", None))), // Game engine reads E(imm)fff, but the files are cursed trash
         (Th095, 85, Some(("", None))),
         (Th095, 86, Some(("ssSSffffU(imm;hex)", None))),
         (Th095, 87, Some(("ssSSffffU(imm;hex)", None))),
@@ -1059,7 +1060,393 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
 };
 
 
-static ECL_10: &'static CoreSignatures = &CoreSignatures {
+static ECL_10_11: &'static CoreSignatures = &CoreSignatures {
+    inherit: &[ECL_10_18_COMMON],
+    ins: &[
+        // Section A
+        (Th10, 256, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 257, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 258, Some(("S", None))),
+        (Th10, 259, Some(("SN", None))),
+        (Th10, 260, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 261, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 262, Some(("SN", None))),
+        (Th10, 263, Some(("SN", None))),
+        (Th10, 264, Some(("SN", None))),
+        (Th10, 265, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 266, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 267, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 268, Some(("P(bs=4)ffSSS", None))),
+        (Th10, 269, Some(("S", None))),
+        (Th10, 270, Some(("P(bs=4)fffSSS", None))),
+        (Th10, 271, Some(("P(bs=4)fffSSS", None))),
+        (Th10, 272, Some(("SN", None))),
+        (Th10, 273, Some(("SNf", None))),
+
+        (Alcostg, 274, Some(("SN", None))),
+        (Alcostg, 275, Some(("SS", None))),
+
+        (Th11, 276, Some(("", None))),
+        (Th11, 277, Some(("Sf", None))),
+        (Th11, 278, Some(("S", None))), // Not implemented
+
+        // Section B
+        (Th10, 280, Some(("ff", None))),
+        (Th10, 281, Some(("SSff", None))),
+        (Th10, 282, Some(("ff", None))),
+        (Th10, 283, Some(("SSff", None))),
+        (Th10, 284, Some(("ff", None))),
+        (Th10, 285, Some(("SSff", None))),
+        (Th10, 286, Some(("ff", None))),
+        (Th10, 287, Some(("SSff", None))),
+        (Th10, 288, Some(("ffff", None))),
+        (Th10, 289, Some(("SSffff", None))),
+        (Th10, 290, Some(("ffff", None))),
+        (Th10, 291, Some(("SSffff", None))),
+        (Th10, 292, Some(("SSf", None))),
+        (Th10, 293, Some(("SSf", None))),
+        (Th10, 294, Some(("", None))),
+        (Th10, 295, Some(("", None))),
+        (Th10, 296, Some(("fff", None))),
+        (Th10, 297, Some(("fff", None))),
+        (Th10, 298, Some(("ff", None))),
+        (Th10, 299, Some(("ff", None))),
+
+        (Alcostg, 300, Some(("ffffff", None))),
+        (Alcostg, 301, Some(("SSffffff", None))),
+        (Alcostg, 302, Some(("ffffff", None))),
+        (Alcostg, 303, Some(("SSffffff", None))),
+
+        (Th11, 289, Some(("SSfff", None))), // Why is there 1 fewer arg after this?
+        (Th11, 291, Some(("SSfff", None))),
+        (Th11, 304, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th11, 305, Some(("Sffffff", None))),
+        (Th11, 306, Some(("Sffffff", None))),
+        (Th11, 307, Some(("", None))),
+
+        // Section C
+        (Th10, 320, Some(("ff", None))),
+        (Th10, 321, Some(("ff", None))),
+        (Th10, 322, Some(("S(hex)", None))),
+        (Th10, 323, Some(("S(hex)", None))),
+        (Th10, 324, Some(("ffff", None))),
+        (Th10, 325, Some(("", None))),
+        (Th10, 326, Some(("", None))),
+        (Th10, 327, Some(("SS", None))),
+        (Th10, 328, Some(("ff", None))),
+        (Th10, 329, Some(("", None))),
+        (Th10, 330, Some(("S", None))),
+        (Th10, 331, Some(("S", None))),
+        (Th10, 332, Some(("S", None))),
+        (Th10, 333, Some(("", None))),
+        (Th10, 334, Some(("SSSP(bs=4)", None))),
+        (Th10, 335, Some(("S", None))),
+        (Th10, 336, Some(("S", None))),
+        (Th10, 337, Some(("SSS", None))),
+        (Th10, 338, Some((r#"S(enum="MsgScript")"#, None))),
+        (Th10, 339, Some(("", None))),
+        (Th10, 340, Some(("", None))),
+        (Th10, 341, Some(("SP(bs=4)", None))),
+        (Th10, 342, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 343, Some(("", None))),
+        (Th10, 344, Some(("S", None))),
+        (Th10, 345, Some(("", None))),
+        (Th10, 346, Some(("f", None))),
+        (Th10, 347, Some(("SfC", None))),
+        (Th10, 348, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 349, Some(("fff", None))),
+        (Th10, 350, Some(("fffff", None))),
+        (Th10, 351, Some(("fff", None))),
+        (Th10, 352, Some(("SSS", None))),
+        (Th10, 353, Some(("SSSSS", None))),
+        (Th10, 354, Some(("SSS", None))),
+        (Th10, 355, Some(("SSSSS", None))), // alcostg: SS___
+        (Th10, 356, Some(("fffff", None))), // alcostg: ff___
+        (Th10, 357, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 358, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 359, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th10, 360, Some(("S", None))),
+        (Th10, 361, Some(("S", None))),
+        (Th10, 362, Some(("", None))),
+        (Th10, 363, Some(("", None))),
+        (Th10, 364, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th10, 365, Some(("", None))),
+        (Th10, 366, Some((r#"S(enum="bool")N"#, None))), // zero: S(enum="BitBool")N
+        (Th10, 367, Some(("f", None))),
+        (Th10, 368, Some(("SSSS", None))), // alcostg: S___
+
+        (Alcostg, 369, Some(("SSSS", None))),
+
+        (Th11, 369, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th11, 370, Some(("S", None))),
+        (Th11, 371, Some(("S", None))),
+        (Th11, 372, Some(("S", None))),
+
+        // Section D
+        (Th10, 400, Some(("S", None))),
+        (Th10, 401, Some(("S", None))),
+        (Th10, 402, Some(("SSS", None))),
+        (Th10, 403, Some(("Sff", None))),
+        (Th10, 404, Some(("Sff", None))),
+        (Th10, 405, Some(("Sff", None))),
+        (Th10, 406, Some(("SSS", None))),
+        (Th10, 407, Some(("SS", None))),
+        (Th10, 408, Some(("SSS", None))),
+        (Th10, 409, Some((r#"SSS(enum="bool")SSSff"#, None))),
+        (Th10, 410, Some(("", None))),
+        (Th10, 411, Some(("SS", None))),
+        (Th10, 412, Some(("SSffffff", None))),
+        (Th10, 413, Some(("SSSfffSSSSfS(hex)", None))),
+        (Th10, 414, Some(("Sff", None))),
+        (Th10, 415, Some(("Sff", None))),
+        (Th10, 416, Some(("Sf", None))),
+        (Th10, 417, Some(("Sf", None))),
+        (Th10, 418, Some(("Sf", None))),
+        (Th10, 419, Some(("Sf", None))),
+        (Th10, 420, Some(("f", None))),
+        (Th10, 421, Some(("f", None))),
+        (Th10, 422, Some(("Sffffff", None))),
+        (Th10, 423, Some(("Sffffffffff", None))),
+        (Th10, 424, Some(("Sffff", None))),
+        (Th10, 425, Some(("SSSSSSS", None))),
+        (Th10, 426, Some(("SSSSSSSSSSS", None))),
+        (Th10, 427, Some(("SSSSS", None))),
+        (Th10, 428, Some(("SSffffff", None))),
+        (Th10, 429, Some(("SSSfffSSSSfS(hex)", None))),
+        (Th10, 430, Some(("fff", None))),
+        (Th10, 431, Some(("SSffffff", None))),
+        (Th10, 432, Some(("SSSfffSSSSfS(hex)", None))),
+        (Th10, 433, Some(("SSffffff", None))),
+        (Th10, 434, Some(("SSSfffSSSSfS(hex)", None))),
+        (Th10, 435, Some(("Sffffffff", None))), // alcostg: Sf___f___
+        (Th10, 436, Some(("SSSSSSSSS", None))), // alcostg: SS___S___
+
+        (Alcostg, 437, Some(("S", None))),
+        (Alcostg, 438, Some(("SS", None))),
+        (Alcostg, 439, Some(("Sf", None))),
+        (Alcostg, 440, Some(("", None))),
+        (Alcostg, 441, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Alcostg, 442, Some(("S", None))),
+        (Alcostg, 443, Some(("S", None))), // S(enum="StdInterrupt")
+        (Alcostg, 444, Some(("Sf", None))),
+
+        (Th11, 437, Some(("Sff", None))),
+        (Th11, 438, Some(("Sf", None))),
+        (Th11, 439, Some(("Sff", None))),
+        (Th11, 440, Some(("fC", None))),
+        (Th11, 441, Some(("S", None))), // S(enum="StdInterrupt")
+        (Th11, 442, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th11, 443, Some(("S", None))),
+        (Th11, 444, Some(("S", None))),
+        (Th11, 445, Some(("S", None))),
+        (Th11, 446, Some(("f", None))),
+        (Th11, 447, Some(("f", None))),
+        (Th11, 448, Some(("S", None))),
+        (Th11, 449, Some(("S", None))),
+        (Th11, 450, Some(("S", None))),
+
+        // Section E (Didn't exist yet)
+
+        // Section F
+        (Th11, 500, Some(("S", None))), // Not implemented
+    ],
+    var: &[
+        // This is placed here to avoid putting game-specific
+        // stuff into the "common" definition block
+        (Alcostg, -9959, None), // Didn't have difficulty
+        (Th11, -9959, Some("$")), // Readded difficulty
+    ],
+};
+
+
+static ECL_12: &'static CoreSignatures = &CoreSignatures {
+    inherit: &[ECL_10_18_COMMON],
+    ins: &[
+        // Section A
+        (Th12, 256, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 257, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 258, Some(("S", None))),
+        (Th12, 259, Some(("SN", None))),
+        (Th12, 260, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 261, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 262, Some(("SN", None))),
+        (Th12, 263, Some(("SN", None))),
+        (Th12, 264, Some(("SN", None))),
+        (Th12, 265, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 266, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 267, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 268, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 269, Some(("S", None))),
+        (Th12, 270, Some(("P(bs=4)fffSSS", None))),
+        (Th12, 271, Some(("P(bs=4)fffSSS", None))),
+        (Th12, 272, Some(("SN", None))),
+        (Th12, 273, Some(("SNf", None))),
+        (Th12, 274, Some(("SN", None))),
+        (Th12, 275, Some(("SS", None))),
+        (Th12, 276, Some(("", None))),
+        (Th12, 277, Some(("Sf", None))),
+        (Th12, 278, Some(("Sff", None))),
+        (Th12, 279, Some(("Sff", None))),
+        (Th12, 280, Some(("P(bs=4)ffSSS", None))),
+        (Th12, 281, Some(("SS", None))),
+
+        // Section B
+        (Th12, 300, Some(("ff", None))),
+        (Th12, 301, Some(("SSff", None))),
+        (Th12, 302, Some(("ff", None))),
+        (Th12, 303, Some(("SSff", None))),
+        (Th12, 304, Some(("ff", None))),
+        (Th12, 305, Some(("SSff", None))),
+        (Th12, 306, Some(("ff", None))),
+        (Th12, 307, Some(("SSff", None))),
+        (Th12, 308, Some(("ffff", None))),
+        (Th12, 309, Some(("SSfff", None))),
+        (Th12, 310, Some(("ffff", None))),
+        (Th12, 311, Some(("SSfff", None))),
+        (Th12, 312, Some(("SSf", None))),
+        (Th12, 313, Some(("SSf", None))),
+        (Th12, 314, Some(("", None))),
+        (Th12, 315, Some(("", None))),
+        (Th12, 316, Some(("fff", None))),
+        (Th12, 317, Some(("fff", None))),
+        (Th12, 318, Some(("ff", None))),
+        (Th12, 319, Some(("ff", None))),
+        (Th12, 320, Some(("ffffff", None))),
+        (Th12, 321, Some(("SSfffff", None))), // Again, another pair of removed floats...?
+        (Th12, 322, Some(("ffffff", None))),
+        (Th12, 323, Some(("SSfffff", None))),
+        (Th12, 324, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 325, Some(("Sffffff", None))),
+        (Th12, 326, Some(("Sffffff", None))),
+        (Th12, 327, Some(("", None))),
+        (Th12, 328, Some(("ff", None))),
+        (Th12, 329, Some(("SSff", None))),
+        (Th12, 330, Some(("ff", None))),
+        (Th12, 331, Some(("SSff", None))),
+
+        // Section C
+        (Th12, 400, Some(("ff", None))),
+        (Th12, 401, Some(("ff", None))),
+        (Th12, 402, Some(("S(hex)", None))),
+        (Th12, 403, Some(("S(hex)", None))),
+        (Th12, 404, Some(("ffff", None))),
+        (Th12, 405, Some(("", None))),
+        (Th12, 406, Some(("", None))),
+        (Th12, 407, Some(("SS", None))),
+        (Th12, 408, Some(("ff", None))),
+        (Th12, 409, Some(("", None))),
+        (Th12, 410, Some(("S", None))),
+        (Th12, 411, Some(("S", None))),
+        (Th12, 412, Some(("S", None))),
+        (Th12, 413, Some(("", None))),
+        (Th12, 414, Some(("SSSP(bs=4)", None))),
+        (Th12, 415, Some(("S", None))),
+        (Th12, 416, Some(("S", None))),
+        (Th12, 417, Some(("SSS", None))),
+        (Th12, 418, Some((r#"S(enum="MsgScript")"#, None))),
+        (Th12, 419, Some(("", None))),
+        (Th12, 420, Some(("", None))),
+        (Th12, 421, Some(("SP(bs=4)", None))),
+        (Th12, 422, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 423, Some(("", None))),
+        (Th12, 424, Some(("S", None))),
+        (Th12, 425, Some(("", None))),
+        (Th12, 426, Some(("f", None))),
+        (Th12, 427, Some(("SfC", None))),
+        (Th12, 428, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 429, Some(("fff", None))),
+        (Th12, 430, Some(("fffff", None))),
+        (Th12, 431, Some(("fff", None))),
+        (Th12, 432, Some(("SSS", None))),
+        (Th12, 433, Some(("SSSSS", None))),
+        (Th12, 434, Some(("SSS", None))),
+        (Th12, 435, Some(("SSSSS", None))),
+        (Th12, 436, Some(("fffff", None))),
+        (Th12, 437, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 438, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 439, Some(("SSSp(bs=4;mask=0x77,7,16)", None))), // Third arg read but not used
+        (Th12, 440, Some(("S", None))),
+        (Th12, 441, Some(("S", None))),
+        (Th12, 442, Some(("", None))),
+        (Th12, 443, Some(("", None))),
+        (Th12, 444, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 445, Some(("", None))),
+        (Th12, 446, Some((r#"S(enum="bool")N"#, None))), // zero: S(enum="BitBool")N
+        (Th12, 447, Some(("f", None))),
+        (Th12, 448, Some(("SSSS", None))),
+        (Th12, 449, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 450, Some(("S", None))),
+        (Th12, 451, Some(("S", None))),
+        (Th12, 452, Some(("S", None))),
+        (Th12, 453, Some(("S", None))),
+        (Th12, 454, Some(("", None))),
+        (Th12, 455, Some(("SS", None))),
+        (Th12, 456, Some(("ffS", None))),
+
+        // Section D
+        (Th12, 500, Some(("S", None))),
+        (Th12, 501, Some(("S", None))),
+        (Th12, 502, Some(("SSS", None))),
+        (Th12, 503, Some(("Sff", None))),
+        (Th12, 504, Some(("Sff", None))),
+        (Th12, 505, Some(("Sff", None))),
+        (Th12, 506, Some(("SSS", None))),
+        (Th12, 507, Some(("SS", None))),
+        (Th12, 508, Some(("SSS", None))),
+        (Th12, 509, Some((r#"SSS(enum="bool")SSSff"#, None))),
+        (Th12, 510, Some(("", None))),
+        (Th12, 511, Some(("SS", None))),
+        // Laser instructions moved, everything else shifted up
+        (Th12, 512, Some(("f", None))),
+        (Th12, 513, Some(("f", None))),
+        (Th12, 514, Some(("Sffffff", None))),
+        (Th12, 515, Some(("Sffffffffff", None))),
+        (Th12, 516, Some(("Sffff", None))),
+        (Th12, 517, Some(("SSSSSSS", None))),
+        (Th12, 518, Some(("SSSSSSSSSSS", None))),
+        (Th12, 519, Some(("SSSSS", None))),
+        // More lasers moved
+        (Th12, 520, Some(("fff", None))),
+        // Even more lasers moved
+        (Th12, 521, Some(("Sffffffff", None))),
+        (Th12, 522, Some(("SSSSSSSSS", None))),
+        (Th12, 523, Some(("Sff", None))),
+        (Th12, 524, Some(("Sf", None))),
+        (Th12, 525, Some(("Sff", None))),
+        (Th12, 526, Some(("fC", None))),
+        (Th12, 527, Some(("S", None))), // S(enum="StdInterrupt")
+        (Th12, 528, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
+        (Th12, 529, Some(("S", None))),
+        (Th12, 530, Some(("S", None))),
+        (Th12, 531, Some(("S", None))),
+        (Th12, 532, Some(("f", None))),
+        (Th12, 533, Some(("f", None))),
+        // Final laser instruction moved
+        (Th12, 534, Some(("S", None))),
+        (Th12, 535, Some(("S", None))),
+
+        // Section E
+        (Th12, 600, Some(("Sffff", None))),
+        (Th12, 601, Some(("SSSSSS(hex)", None))),
+        (Th12, 602, Some(("S", None))),
+        (Th12, 603, Some(("SS", None))),
+        (Th12, 604, Some(("Sff", None))),
+        (Th12, 605, Some(("Sff", None))),
+        (Th12, 606, Some(("Sf", None))),
+        (Th12, 607, Some(("Sf", None))),
+        (Th12, 608, Some(("Sf", None))),
+        (Th12, 609, Some(("Sf", None))),
+        (Th12, 610, Some(("S", None))),
+        (Th12, 611, Some(("S", None))),
+
+        // Section F
+        (Th12, 700, Some(("S", None))), // Not implemented
+    ],
+    var: &[],
+};
+
+
+static ECL_10_18_COMMON: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
@@ -1121,130 +1508,12 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, 85, Some(("", None))), // Some(IKind::StackUnOp(U::Neg, Ty::Float))
         (Th10, 86, Some(("fff", None))),
         (Th10, 87, Some(("ffff", None))),
-        (Th10, 256, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 257, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 258, Some(("S", None))),
-        (Th10, 259, Some(("SN", None))),
-        (Th10, 260, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 261, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 262, Some(("SN", None))),
-        (Th10, 263, Some(("SN", None))),
-        (Th10, 264, Some(("SN", None))),
-        (Th10, 265, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 266, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 267, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 268, Some(("P(bs=4)ffSSS", None))),
-        (Th10, 269, Some(("S", None))),
-        (Th10, 270, Some(("P(bs=4)fffSSS", None))),
-        (Th10, 271, Some(("P(bs=4)fffSSS", None))),
-        (Th10, 272, Some(("SN", None))),
-        (Th10, 273, Some(("SNf", None))),
-        (Th10, 280, Some(("ff", None))),
-        (Th10, 281, Some(("SSff", None))),
-        (Th10, 282, Some(("ff", None))),
-        (Th10, 283, Some(("SSff", None))),
-        (Th10, 284, Some(("ff", None))),
-        (Th10, 285, Some(("SSff", None))),
-        (Th10, 286, Some(("ff", None))),
-        (Th10, 287, Some(("SSff", None))),
-        (Th10, 288, Some(("ffff", None))),
-        (Th10, 289, Some(("SSffff", None))),
-        (Th10, 290, Some(("ffff", None))),
-        (Th10, 291, Some(("SSffff", None))),
-        (Th10, 292, Some(("SSf", None))),
-        (Th10, 293, Some(("SSf", None))),
-        (Th10, 294, Some(("", None))),
-        (Th10, 295, Some(("", None))),
-        (Th10, 296, Some(("fff", None))),
-        (Th10, 297, Some(("fff", None))),
-        (Th10, 298, Some(("ff", None))),
-        (Th10, 299, Some(("ff", None))),
-        (Th10, 320, Some(("ff", None))),
-        (Th10, 321, Some(("ff", None))),
-        (Th10, 322, Some(("S(hex)", None))),
-        (Th10, 323, Some(("S(hex)", None))),
-        (Th10, 324, Some(("ffff", None))),
-        (Th10, 325, Some(("", None))),
-        (Th10, 326, Some(("", None))),
-        (Th10, 327, Some(("SS", None))),
-        (Th10, 328, Some(("ff", None))),
-        (Th10, 329, Some(("", None))),
-        (Th10, 330, Some(("S", None))),
-        (Th10, 331, Some(("S", None))),
-        (Th10, 332, Some(("S", None))),
-        (Th10, 333, Some(("", None))),
-        (Th10, 334, Some(("SSSP(bs=4)", None))),
-        (Th10, 335, Some(("S", None))),
-        (Th10, 336, Some(("S", None))),
-        (Th10, 337, Some(("SSS", None))),
-        (Th10, 338, Some((r#"S(enum="MsgScript")"#, None))),
-        (Th10, 339, Some(("", None))),
-        (Th10, 340, Some(("", None))),
-        (Th10, 341, Some(("SP(bs=4)", None))),
-        (Th10, 342, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 343, Some(("", None))),
-        (Th10, 344, Some(("S", None))),
-        (Th10, 345, Some(("", None))),
-        (Th10, 346, Some(("f", None))),
-        (Th10, 347, Some(("SfC", None))),
-        (Th10, 348, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 349, Some(("fff", None))),
-        (Th10, 350, Some(("fffff", None))),
-        (Th10, 351, Some(("fff", None))),
-        (Th10, 352, Some(("SSS", None))),
-        (Th10, 353, Some(("SSSSS", None))),
-        (Th10, 354, Some(("SSS", None))),
-        (Th10, 355, Some(("SSSSS", None))),
-        (Th10, 356, Some(("fffff", None))),
-        (Th10, 357, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 358, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 359, Some(("SSSp(bs=4;mask=0x77,7,16)", None))),
-        (Th10, 360, Some(("S", None))),
-        (Th10, 361, Some(("S", None))),
-        (Th10, 362, Some(("", None))),
-        (Th10, 363, Some(("", None))),
-        (Th10, 364, Some((r#"S(enum="bool")"#, None))), // zero: S(enum="BitBool")
-        (Th10, 365, Some(("", None))),
-        (Th10, 366, Some((r#"S(enum="bool")N"#, None))),
-        (Th10, 367, Some(("f", None))),
-        (Th10, 368, Some(("SSSS", None))),
-        (Th10, 400, Some(("S", None))),
-        (Th10, 401, Some(("S", None))),
-        (Th10, 402, Some(("SSS", None))),
-        (Th10, 403, Some(("Sff", None))),
-        (Th10, 404, Some(("Sff", None))),
-        (Th10, 405, Some(("Sff", None))),
-        (Th10, 406, Some(("SSS", None))),
-        (Th10, 407, Some(("SS", None))),
-        (Th10, 408, Some(("SSS", None))),
-        (Th10, 409, Some((r#"SSS(enum="bool")SSSff"#, None))),
-        (Th10, 410, Some(("", None))),
-        (Th10, 411, Some(("SS", None))),
-        (Th10, 412, Some(("SSffffff", None))),
-        (Th10, 413, Some(("SSSfffSSSSfS(hex)", None))),
-        (Th10, 414, Some(("Sff", None))),
-        (Th10, 415, Some(("Sff", None))),
-        (Th10, 416, Some(("Sf", None))),
-        (Th10, 417, Some(("Sf", None))),
-        (Th10, 418, Some(("Sf", None))),
-        (Th10, 419, Some(("Sf", None))),
-        (Th10, 420, Some(("f", None))),
-        (Th10, 421, Some(("f", None))),
-        (Th10, 422, Some(("Sffffff", None))),
-        (Th10, 423, Some(("Sffffffffff", None))),
-        (Th10, 424, Some(("Sffff", None))),
-        (Th10, 425, Some(("SSSSSSS", None))),
-        (Th10, 426, Some(("SSSSSSSSSSS", None))),
-        (Th10, 427, Some(("SSSSS", None))),
-        (Th10, 428, Some(("SSffffff", None))),
-        (Th10, 429, Some(("SSSfffSSSSfS(hex)", None))),
-        (Th10, 430, Some(("fff", None))),
-        (Th10, 431, Some(("SSffffff", None))),
-        (Th10, 432, Some(("SSSfffSSSSfS(hex)", None))),
-        (Th10, 433, Some(("SSffffff", None))),
-        (Th10, 434, Some(("SSSfffSSSSfS(hex)", None))),
-        (Th10, 435, Some(("Sffffffff", None))),
-        (Th10, 436, Some(("SSSSSSSSS", None))),
+
+        (Th12, 87, Some(("fffff", None))), // Changed to not use first arg as input and output
+
+        (Alcostg, 88, Some(("", None))), // Some(IKind::StackUnOp(U::Sqrt, Ty::Float))
+
+        (Th12, 89, Some(("fff", None))),
     ],
     var: &[
         (Th10, -10000, Some("$")),
@@ -1262,14 +1531,14 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, -9988, Some("$")),
         (Th10, -9987, Some("%")),
         (Th10, -9986, Some("$")),
-        (Th10, -9985, Some("$")),
-        (Th10, -9984, Some("$")),
-        (Th10, -9983, Some("$")),
-        (Th10, -9982, Some("$")),
-        (Th10, -9981, Some("%")),
-        (Th10, -9980, Some("%")),
-        (Th10, -9979, Some("%")),
-        (Th10, -9978, Some("%")),
+        (Th10, -9985, Some("$")), // Writable since MoF
+        (Th10, -9984, Some("$")), // Writable since MoF
+        (Th10, -9983, Some("$")), // Writable since MoF
+        (Th10, -9982, Some("$")), // Writable since MoF
+        (Th10, -9981, Some("%")), // Writable since MoF
+        (Th10, -9980, Some("%")), // Writable since MoF
+        (Th10, -9979, Some("%")), // Writable since MoF
+        (Th10, -9978, Some("%")), // Writable since MoF
         (Th10, -9977, Some("%")),
         (Th10, -9976, Some("%")),
         (Th10, -9975, Some("%")),
@@ -1298,5 +1567,28 @@ static ECL_10: &'static CoreSignatures = &CoreSignatures {
         (Th10, -9952, Some("$")),
         (Th10, -9951, Some("$")),
         (Th10, -9950, Some("$")),
+
+        (Alcostg, -9949, Some("$")), // Writable since SA
+        (Alcostg, -9948, Some("$")), // Writable since SA
+
+        (Th11, -9947, Some("$")), // Writable since SA
+        (Th11, -9946, Some("$")),
+        (Th11, -9945, Some("$")),
+        (Th11, -9944, Some("%")),
+        (Th11, -9943, Some("$")), // Writable since SA
+        (Th11, -9942, Some("$")), // Writable since SA
+        (Th11, -9941, Some("$")), // Writable since SA
+        (Th11, -9940, Some("$")), // Writable since SA
+        (Th11, -9939, Some("%")), // Writable since SA
+        (Th11, -9938, Some("%")), // Writable since SA
+        (Th11, -9937, Some("%")), // Writable since SA
+        (Th11, -9936, Some("%")), // Writable since SA
+        (Th11, -9935, Some("%")), // Writable since SA
+        (Th11, -9934, Some("%")), // Writable since SA
+        (Th11, -9933, Some("%")), // Writable since SA
+        (Th11, -9932, Some("%")), // Writable since SA
+
+        (Th12, -9931, Some("$")),
+        (Th12, -9930, Some("$")),
     ],
 };

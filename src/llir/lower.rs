@@ -554,18 +554,25 @@ fn encode_args(
     let mut param_mask: raw::ParamMask = 0;
     let mut current_param_mask_bit: raw::ParamMask = 1;
 
+    let mut small_padding_value = 0i8;
+
     // Important: we put the shortest iterator (args_iter) first in the zip list
     //            to ensure that this loop reads an equal number of items from all iters.
     assert!(args_iter.len() <= arg_encodings_iter.len());
     for enc in arg_encodings_iter.by_ref() {
         if let ArgEncoding::Padding { size } = enc {
             match size {
-                1 => args_blob.write_u8(0).expect("Cursor<Vec> failed?!"),
+                1 => {
+                    if (args_blob.position() & 3) == 0 { small_padding_value = 0i8 }
+                    args_blob.write_i8(small_padding_value).expect("Cursor<Vec> failed?!")
+                },
                 4 => args_blob.write_u32(0).expect("Cursor<Vec> failed?!"),
                 _ => unreachable!(),
             }
             continue;
         }
+        small_padding_value = 0i8;
+
         let arg = args_iter.next().expect("function arity already checked");
 
         let arg_bit = match &arg.value {
@@ -607,14 +614,28 @@ fn encode_args(
 
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
-            | ArgEncoding::Integer { size: 4, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
             => args_blob.write_i32(arg.expect_raw().expect_int()).expect("Cursor<Vec> failed?!"),
 
-            | ArgEncoding::Integer { size: 2, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
-            => args_blob.write_i16(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+            | ArgEncoding::Integer { size: 4, extend, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
+            => {
+                let value = arg.expect_raw().expect_int();
+                if extend && value < 0 { small_padding_value = -1 }
+                args_blob.write_i32(value).expect("Cursor<Vec> failed?!")
+            },
 
-            | ArgEncoding::Integer { size: 1, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
-            => args_blob.write_i8(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),
+            | ArgEncoding::Integer { size: 2, extend, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
+            => {
+                let value = arg.expect_raw().expect_int();
+                if extend && value < 0 { small_padding_value = -1 }
+                args_blob.write_i16(value as _).expect("Cursor<Vec> failed?!")
+            },
+
+            | ArgEncoding::Integer { size: 1, extend, format: ast::IntFormat { unsigned: false, radix: _ }, .. }
+            => {
+                let value = arg.expect_raw().expect_int();
+                if extend && value < 0 { small_padding_value = -1 }
+                args_blob.write_i8(value as _).expect("Cursor<Vec> failed?!")
+            },
 
             | ArgEncoding::Integer { size: 4, format: ast::IntFormat { unsigned: true, radix: _ }, .. }
             => args_blob.write_u32(arg.expect_raw().expect_int() as _).expect("Cursor<Vec> failed?!"),

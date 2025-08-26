@@ -42,7 +42,7 @@ pub enum ArgEncoding {
     /// The first argument may have `arg0` if it is two bytes large.  This indicates that the argument is
     /// stored in the arg0 header field of the instruction in EoSD and PCB ECL. (which is mapped to the
     /// `@arg0` pseudo-argument in raw instruction syntax)
-    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool, immediate: bool, format: ast::IntFormat },
+    Integer { size: u8, ty_color: Option<TypeColor>, arg0: bool, immediate: bool, extend: bool, format: ast::IntFormat },
     /// `o` in mapfile. Max of one per instruction. Is decoded to a label.
     JumpOffset,
     /// `t` in mapfile. Max of one per instruction, and requires an accompanying `o` arg.
@@ -91,7 +91,7 @@ pub enum StringArgSize {
 }
 
 impl ArgEncoding {
-    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false, immediate: false, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } } }
+    pub fn dword() -> Self { ArgEncoding::Integer { size: 4, ty_color: None, arg0: false, immediate: false, extend: false, format: ast::IntFormat { unsigned: false, radix: ast::IntRadix::Dec } } }
 
     pub fn static_descr(&self) -> &'static str {
         match self {
@@ -115,10 +115,10 @@ impl ArgEncoding {
         impl fmt::Display for Impl<'_> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match &self.0 {
-                    Enc::Integer { arg0: true, ty_color, size, immediate, format } => write!(
+                    Enc::Integer { arg0: true, ty_color, size, immediate, format, extend } => write!(
                         f,
                         "{} (in timeline arg0)",
-                        Enc::Integer { format: *format, immediate: *immediate, arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
+                        Enc::Integer { extend: *extend, format: *format, immediate: *immediate, arg0: false, ty_color: ty_color.clone(), size: *size }.descr(),
                     ),
                     Enc::Integer { ty_color: Some(en), size: 4, .. } => write!(f, "{}", en.descr()),
                     Enc::Integer { ty_color: Some(en), size, .. } => write!(f, "{size}-byte {}", en.descr()),
@@ -275,6 +275,7 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
         let arg0 = de.accept_flag("arg0")?;
         let imm = de.accept_flag("imm")?;
         let is_hex = de.accept_flag("hex")?;
+        let extend = de.accept_flag("extend")?;
 
         if let Some(arg0_flag) = arg0 {
             if size.wrapping_sub(1) >= 2 {
@@ -299,6 +300,7 @@ fn int_from_attrs(param: &abi_ast::Param, emitter: &dyn Emitter) -> Result<Optio
             ty_color: user_ty_color.or(default_ty_color),
             arg0: arg0.is_some(),
             immediate: imm.is_some(),
+            extend: extend.is_some(),
             format: ast::IntFormat { unsigned, radix },
         }))
     })
@@ -424,7 +426,7 @@ fn abi_to_signature(abi: &InstrAbi, abi_span: Span, ctx: &mut CompilerContext<'_
 
     defs::Signature {
         return_ty: sp!(value::ExprType::Void),
-        params: abi.encodings.iter().enumerate().flat_map(|(index, enc)| {
+        params: abi.encodings.iter().filter(|enc| !matches!(*enc, ArgEncoding::Padding { .. })).enumerate().flat_map(|(index, enc)| {
             let Info { ty, default, reg_ok, ty_color } = match *enc {
                 | ArgEncoding::Integer { arg0: false, ref ty_color, .. }
                 => Info { ty: ScalarType::Int, default: None, reg_ok: true, ty_color: ty_color.clone() },
