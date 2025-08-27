@@ -599,11 +599,20 @@ impl AtomRaiser<'_, '_> {
             }
         };
 
-        // drop padding args
+        // check for garbage in padding args that we can't roundtrip  (FIXME: would like to fallback to blob)
         //
-        // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
+        // IMPORTANT: these is looking at the original arg list because the new lengths may differ due to arg0.
+        let found_nonzero_padding = raised_args.iter().zip(abi.arg_encodings()).any(|(value, enc)| {
+            matches!(enc, ArgEncoding::Padding { .. }) && value.as_const_int().unwrap() != 0
+        });
+        if found_nonzero_padding {
+            emitter.emit(warning!("ignoring nonzero data found in padding")).ignore();
+        }
+
+        // drop the padding
         let mut arg_iter = abi.arg_encodings();
         raised_args.retain(|_| !matches!(arg_iter.next().unwrap(), ArgEncoding::Padding { .. }));
+
 
         Ok(RaisedIntrinsicParts {
             opcode: Some(instr.opcode),

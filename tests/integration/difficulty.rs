@@ -282,10 +282,12 @@ source_test!(
 200 SS__
     "#,
     main_body: r#"
-    {"EN"}: ins_200(I0, 10, 0);
-    {"HL"}: ins_200(I0, 10, 16);
+    {"EN"}: ins_200(@blob="01010101 02020202 00000000 00000000"); // padding 0, 0
+    {"HL"}: ins_200(@blob="01010101 02020202 10000000 00000000"); // padding 16, 0
 "#,
-    check_decompiled: |_| { /* just round-trip */ },
+    // FIXME: would like this to roundtrip as blob instead of warning
+    expect_decompile_warning: "nonzero data found in padding",
+    require_roundtrip: false,
 );
 
 source_test!(
@@ -297,16 +299,13 @@ source_test!(
 10 AssignOp(op="="; type="int")
     "#,
     main_body: r#"
-    {"EN"}: ins_10(I0, 10, 0);
-    {"HL"}: ins_10(I0, 10, 16);
-    ins_10(I0, 15, 0);
+    // these are 'I0 = 10' but one of them has nonzero padding
+    {"EN"}: ins_10(@mask=0b001, @blob="EFD8FFFF 0a000000 00000000");
+    {"HL"}: ins_10(@mask=0b001, @blob="EFD8FFFF 0a000000 10000000");
 "#,
-    check_decompiled: |decompiled| {
-        // specificity: show that the second instance does decompile
-        assert!(decompiled.contains("= 15;"));
-        // doesn't really matter how this decompiles as long as it round-trips.
-        // (it might expand the diff switch, or it might put a switch in padding)
-    },
+    // FIXME: would like this to roundtrip as a regular instruction and a blob
+    expect_decompile_warning: "nonzero data found in padding",
+    require_roundtrip: false,
 );
 
 source_test!(

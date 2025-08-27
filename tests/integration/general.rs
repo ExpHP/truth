@@ -335,9 +335,9 @@ source_test!(
 );
 
 source_test!(
-    STD_08, arg_count_range,
+    STD_08, arg_count_does_not_count_padding,
     main_body: r#"
-        ins_2();  //~ ERROR expects 1 to 3 arguments
+        ins_2();  //~ ERROR expects 1 argument
     "#,
 );
 
