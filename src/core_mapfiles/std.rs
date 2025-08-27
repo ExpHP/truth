@@ -96,8 +96,6 @@ static STD_095_185: &CoreSignatures = &CoreSignatures {
         (Th10, 3, Some(("SUfff", None))),
         (Th10, 5, Some(("SUfff", None))),
         (Th10, 9, Some(("SUCff", None))), // Technically the C arg is split into 4 individual byte reads. But why tho
-        (Th10, 10, Some(("S_fffffffff", None))),
-        (Th10, 11, Some(("S_fffffffff", None))),
 
         (Th11, 16, Some(("S", Some(IKind::InterruptLabel)))),
         (Th11, 17, Some(("S", None))),

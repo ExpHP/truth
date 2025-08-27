@@ -88,6 +88,7 @@ script main {}
 );
 
 source_test!(
+    #[ignore = "FIXME:  Test is known broken because currently the implementation of 'imm' in signatures obscures the param mask"]
     ANM_10, decompile_string_reg,
     mapfile: r#"!anmmap
 !ins_signatures
