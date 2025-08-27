@@ -74,9 +74,9 @@ fn parse_args_blob(str: Sp<&str>) -> Result<Vec<u8>, Diagnostic> {
             continue;
         }
         let value = match c {
-            'a'..='f' => (c as u32 as u8 - b'a' + 10),
-            'A'..='F' => (c as u32 as u8 - b'A' + 10),
-            '0'..='9' => (c as u32 as u8 - b'0'),
+            'a'..='f' => c as u32 as u8 - b'a' + 10,
+            'A'..='F' => c as u32 as u8 - b'A' + 10,
+            '0'..='9' => c as u32 as u8 - b'0',
             _ => return Err(error!(
                 message("invalid character '{}' in blob literal", c),
                 primary(str, "invalid blob literal"),

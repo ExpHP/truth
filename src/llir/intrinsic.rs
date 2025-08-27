@@ -199,14 +199,6 @@ pub struct IntrinsicInstrAbiParts {
 }
 
 pub mod abi_parts {
-    /// Indicates that the ABI contains this many padding dwords at the end,
-    /// which cannot be represented in the AST if they are nonzero.
-    #[derive(Debug, Copy, Clone)]
-    pub struct PaddingInfo {
-        pub index: usize,
-        pub count: usize,
-    }
-
     #[derive(Debug, Copy, Clone)]
     pub enum OutputArgMode {
         /// It's a float register, but is written to file as an integer. (used by EoSD ECL)

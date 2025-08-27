@@ -175,7 +175,7 @@ impl Sp<Meta> {
     pub fn parse_object<'a, T>(
         &'a self,
         func: impl FnOnce(&mut ParseObject<'a>) -> Result<T, FromMetaError<'a>>,
-    ) -> Result<T, FromMetaError<'_>> {
+    ) -> Result<T, FromMetaError<'a>> {
         match &self.value {
             Meta::Object(map) => ParseObject::scope(map, func),
             _ => Err(FromMetaError::expected("an object", self)),
@@ -523,7 +523,7 @@ impl FromMeta<'_> for String {
 }
 
 impl<'m, T: FromMeta<'m>> FromMeta<'m> for Vec<T> {
-    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'_>> {
+    fn from_meta(meta: &'m Sp<Meta>) -> Result<Self, FromMetaError<'m>> {
         match &meta.value {
             Meta::Array(xs) => xs.into_iter().map(|x| x.parse()).collect(),
             _ => Err(FromMetaError::expected("an array", meta)),

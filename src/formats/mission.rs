@@ -271,7 +271,7 @@ fn compile<E: Entry>(
             ))),
         }
         Ok(())
-    }).collect_with_recovery()?;
+    }).collect_with_recovery::<()>()?;
 
     Ok(MissionMsg { entries, binary_filename: None })
 }

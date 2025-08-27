@@ -1,4 +1,3 @@
-use std::fmt;
 use std::num::NonZeroU32;
 use std::collections::HashMap;
 
@@ -100,13 +99,6 @@ pub enum AliasableId {
     /// Typically a local or a temporary.
     Var(DefId),
 }
-
-/// Identifies a scope in which a set of names are visible.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
-struct ScopeId(
-    // we define a new scope for every name.  None is the empty scope.
-    Option<DefId>,
-);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[derive(enum_map::Enum)]
@@ -778,20 +770,6 @@ pub mod rib {
             }
             out
         }
-    }
-}
-
-// =============================================================================
-
-impl fmt::Display for ScopeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.0.map(|x| x.0.get()).unwrap_or(0), f)
-    }
-}
-
-impl fmt::Debug for ScopeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(self, f)
     }
 }
 

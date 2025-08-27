@@ -32,7 +32,7 @@ macro_rules! b2b_test {
         $(, check_stderr=$check_stderr_closure:expr)?
         $(,)?
     ) => {
-        #[allow(unused_mut)]
+        #[allow(unused_mut, unused_assignments)]
         #[test]
         fn $test_name() {
             let mut stderr_closure: Option<&dyn Fn(&str)> = None;

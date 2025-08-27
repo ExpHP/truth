@@ -1268,7 +1268,7 @@ impl Signature {
 
     /// Matches arguments at a call site to their corresponding parameters.
     /// (assuming that the argument count has already been checked)
-    pub fn match_params_to_args<'a>(&'a self, args: &'a [Sp<ast::Expr>]) -> MatchedArgs<'_> {
+    pub fn match_params_to_args<'a>(&'a self, args: &'a [Sp<ast::Expr>]) -> MatchedArgs<'a> {
         // TODO: variadics, keywords?
         let positional_pairs = Box::new(self.params.iter().zip(args));
         MatchedArgs { positional_pairs }

@@ -395,7 +395,6 @@ fn compile(
     Ok(MsgFile {
         dense_table,
         scripts,
-        /// Filename of a read binary file, for display purposes only.
         binary_filename: None,
     })
 }

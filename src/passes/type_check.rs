@@ -247,7 +247,7 @@ impl Visitor<'_, '_> {
         return_keyword: ast::TokenSpan,
         expr: &Option<Sp<ast::Expr>>,
     ) -> ImplResult {
-        let mut func_state = self.cur_func_stack.last_mut().expect("return outside of function?!");
+        let func_state = self.cur_func_stack.last_mut().expect("return outside of function?!");
         func_state.missing_return = false;
 
         let func_def_id = func_state.func_def_id;
@@ -455,7 +455,7 @@ impl ExprTypeChecker<'_, '_> {
             let ast::PseudoArg { kind, ref value, at_sign: _, eq_sign: _ } = pseudo.value;
             let value_ty = self.check_expr_as_value(value, pseudo.tag_span())?;
             self.pseudo_check(kind, value_ty, value.span)
-        }).collect_with_recovery()?;
+        }).collect_with_recovery::<()>()?;
 
         // Only instruction-like calls are allowed to have pseudo-args
         if self.ctx.func_opcode_from_ast(&call.name).is_err() {
@@ -516,9 +516,10 @@ impl ExprTypeChecker<'_, '_> {
                 }
             }
             Ok(())
-        }).collect_with_recovery()?;
+        }).collect_with_recovery::<()>()?;
 
-        args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery()?;
+        // Recurse on function arguments
+        args.iter().map(|arg| self.check_expr(arg).map(|_| ())).collect_with_recovery::<()>()?;
 
         Ok(siggy.return_ty.value)
     }

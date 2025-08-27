@@ -391,7 +391,7 @@ fn gather_label_info(
             _ => {},
         }
         Ok(())
-    }).collect_with_recovery()?;
+    }).collect_with_recovery::<()>()?;
 
     let debug_info = do_debug_info.then(|| debug_info::ScriptOffsetInfo {
         instrs: debug_info_instrs.unwrap(),

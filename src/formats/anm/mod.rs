@@ -834,7 +834,7 @@ fn decompile(
                 keyword: sp!(()),
             }));
             Ok(())
-        }).collect_with_recovery()?;
+        }).collect_with_recovery::<()>()?;
     }
 
     let mut out = ast::ScriptFile {
