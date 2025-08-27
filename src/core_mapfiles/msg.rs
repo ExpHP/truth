@@ -26,37 +26,40 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th06, 0, Some(("", None))),
-        (Th06, 1, Some(("ss", None))),
-        (Th06, 2, Some(("ss", None))),  // note: 2nd word is technically an anm sprite
+        (Th06, 1, Some((r#"ss(enum="AnmScript")"#, None))),
+        (Th06, 2, Some((r#"ss(enum="AnmSprite")"#, None))),
         (Th06, 3, Some(("ssz(bs=4)", None))),
         (Th06, 4, Some(("S", None))),
-        (Th06, 5, Some(("ss", None))),
+        (Th06, 5, Some(("sb-", None))),
         (Th06, 6, Some(("", None))),
         (Th06, 7, Some(("S", None))),
         (Th06, 8, Some(("ssz(bs=4)", None))),
-        (Th06, 9, Some(("S", None))),  // arg looks unused
+        (Th06, 9, Some(("_", None))),
         (Th06, 10, Some(("", None))),
         (Th06, 11, Some(("", None))),
         (Th06, 12, Some(("", None))),
-        (Th06, 13, Some(("S", None))),
+        (Th06, 13, Some((r#"b(enum="bool")---"#, None))),
 
         (Th07, 14, Some(("", None))),
 
         (Th08, 3, Some(("ssm(bs=4;mask=0x77,0,0)", None))),
         (Th08, 8, Some(("ssm(bs=4;mask=0x77,0,0)", None))),
-        (Th08, 15, Some(("SSSSS", None))),  // Snnnn
+        (Th08, 15, Some(("Unnnn", None))),
         (Th08, 16, Some(("m(bs=4;mask=0x77,0,0)", None))),
-        (Th08, 17, Some(("SS", None))),  // Sn
-        (Th08, 18, Some(("S", None))),
+        (Th08, 17, Some(("Un", None))),
+        (Th08, 18, Some((r#"b(enum="bool")---"#, None))),
         (Th08, 19, Some(("m(bs=4;mask=0x77,0,0)", None))),
         (Th08, 20, Some(("m(bs=4;mask=0x77,0,0)", None))),
         (Th08, 21, Some(("S", None))),
         (Th08, 22, Some(("", None))),
 
+        (Th09, 1, Some(("s--", None))),
         (Th09, 3, Some(("ssm(bs=4;mask=0x77,7,16)", None))),
         (Th09, 8, Some(("", None))),
-        (Th09, 15, Some(("SSS", None))),
+        (Th09, 9, Some(("S", None))), // Can't be marked as padding since unused value is non-zero
+        (Th09, 15, Some(("Snn", None))),
         (Th09, 16, Some(("m(bs=4;mask=0x77,7,16)", None))),
+        (Th09, 17, Some(("Sn", None))),
         (Th09, 19, None),  // removed from jumptable
         (Th09, 20, None),
         (Th09, 21, None),
@@ -64,7 +67,7 @@ static MSG_06_09: &CoreSignatures = &CoreSignatures {
         (Th09, 23, Some(("S", None))),
         (Th09, 24, Some(("", None))),
         (Th09, 25, Some(("", None))),
-        (Th09, 26, Some(("S", None))),
+        (Th09, 26, Some(("b---", None))),
         // 27 is not in the jumptable; could be a nop, but it's never used
         (Th09, 28, Some(("S", None))),
     ],
@@ -74,19 +77,19 @@ static MSG_10_185: &CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th10, 0, Some(("", None))),
-        (Th10, 1, Some(("S", None))),  // arg is unused
-        (Th10, 2, Some(("S", None))),  // arg is unused
+        (Th10, 1, Some(("_", None))),
+        (Th10, 2, Some(("_", None))),
         (Th10, 3, Some(("", None))),
         (Th10, 4, Some(("", None))),
         (Th10, 5, Some(("", None))),
         (Th10, 6, Some(("", None))),
         (Th10, 7, Some(("", None))),
         (Th10, 8, Some(("", None))),
-        (Th10, 9, Some(("S", None))),
+        (Th10, 9, Some((r#"b(enum="bool")---"#, None))), // zero: b(enum="BitBool")---
         (Th10, 10, Some(("S", None))),
         (Th10, 11, Some(("", None))),
-        (Th10, 12, Some(("S", None))),
-        (Th10, 13, Some(("S", None))),
+        (Th10, 12, Some(("N", None))),
+        (Th10, 13, Some(("N", None))),
         (Th10, 14, Some(("m(bs=4;mask=0x77,7,16)", None))),
         (Th10, 15, Some(("m(bs=4;mask=0x77,7,16)", None))),
         (Th10, 16, Some(("m(bs=4;mask=0x77,7,16)", None))),

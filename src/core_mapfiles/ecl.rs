@@ -42,13 +42,14 @@ static TIMELINE: &'static CoreSignatures = &CoreSignatures {
         (Th06, 8, Some((r#"s(arg0;enum="MsgScript")"#, None))),
         (Th06, 9, Some(("", None))),
         (Th06, 10, Some(("SS", None))),
-        (Th06, 11, Some(("s(arg0)", None))),
+        (Th06, 11, Some(("u(arg0)", None))),
         (Th06, 12, Some(("s(arg0)", None))),
 
         (Th07, 0, Some((r#"s(arg0;enum="EclSub")fffSSS"#, None))),
         (Th07, 2, Some((r#"s(arg0;enum="EclSub")fffSSS"#, None))),
         (Th07, 4, Some((r#"s(arg0;enum="EclSub")fffSSS"#, None))),
         (Th07, 6, Some((r#"s(arg0;enum="EclSub")fffSSS"#, None))),
+        (Th07, 11, Some(("s(arg0)", None))),
 
         (Th08, 0, Some(("EffSSS", None))),
         (Th08, 1, Some(("EffSSS", None))),
@@ -58,7 +59,7 @@ static TIMELINE: &'static CoreSignatures = &CoreSignatures {
         (Th08, 5, Some(("EfSSS", None))),
         (Th08, 6, Some((r#"S(enum="MsgScript")"#, None))),
         (Th08, 7, Some(("", None))), // Not implemented in PoFV, but present in the files anyway
-        (Th08, 8, Some(("SS", None))),
+        (Th08, 8, Some(("Ss--", None))),
         (Th08, 9, Some(("S", None))),
         (Th08, 10, Some(("S", None))),
         (Th08, 11, Some(("EffSSSS", None))),
@@ -72,6 +73,7 @@ static TIMELINE: &'static CoreSignatures = &CoreSignatures {
         (Th09, 9, None),
         (Th09, 17, Some(("EffSSS", None))),
 
+        (Th095, 7, None),
         (Th095, 13, None),
         (Th095, 14, None),
         (Th095, 16, None),
@@ -84,13 +86,13 @@ static ECL_06: &'static CoreSignatures = &CoreSignatures {
     inherit: &[],
     ins: &[
         (Th06, 0, Some(("", None))),
-        (Th06, 1, Some(("S", None))),
+        (Th06, 1, Some(("_", None))), // Bytes are never read
         (Th06, 2, Some(("to", Some(IKind::Jmp)))),
         (Th06, 3, Some(("toS", Some(IKind::CountJmp(B::Gt))))),
         (Th06, 4, Some(("SS", Some(IKind::AssignOp(A::Assign, Ty::Int))))),
         (Th06, 5, Some(("Sf", Some(IKind::AssignOp(A::Assign, Ty::Float))))),
-        (Th06, 6, Some(("SS", None))),
-        (Th06, 7, Some(("SSS", None))),
+        (Th06, 6, Some(("SU", None))), // The division for both of these uses DIV instead of IDIV
+        (Th06, 7, Some(("SUS", None))),
         (Th06, 8, Some(("Sf", None))),
         (Th06, 9, Some(("Sff", None))),
         (Th06, 10, Some(("S", None))),
@@ -98,7 +100,7 @@ static ECL_06: &'static CoreSignatures = &CoreSignatures {
         (Th06, 12, Some(("S", None))),
         (Th06, 13, Some(("SSS", Some(IKind::BinOp(B::Add, Ty::Int))))),
         (Th06, 14, Some(("SSS", Some(IKind::BinOp(B::Sub, Ty::Int))))),
-        (Th06, 15, Some(("SSS", Some(IKind::BinOp(B::Mul, Ty::Int))))),
+        (Th06, 15, Some(("SSS", Some(IKind::BinOp(B::Mul, Ty::Int))))), // EoSD reads args 2/3 an extra time for multiplication compared to the other ops, so don't prefer multiplication based fallback sequences
         (Th06, 16, Some(("SSS", Some(IKind::BinOp(B::Div, Ty::Int))))),
         (Th06, 17, Some(("SSS", Some(IKind::BinOp(B::Rem, Ty::Int))))),
         (Th06, 18, Some(("S", None))), // Some(IKind::UnOp(U::Inc, Ty::Int))
@@ -118,108 +120,109 @@ static ECL_06: &'static CoreSignatures = &CoreSignatures {
         (Th06, 32, Some(("to", Some(IKind::CondJmp2B(B::Gt))))),
         (Th06, 33, Some(("to", Some(IKind::CondJmp2B(B::Ge))))),
         (Th06, 34, Some(("to", Some(IKind::CondJmp2B(B::Ne))))),
-        (Th06, 35, Some(("ESf", Some(IKind::CallEosd)))),
+        (Th06, 35, Some(("E(imm)S(imm)f(imm)", Some(IKind::CallEosd)))),
         (Th06, 36, Some(("", None))), // Some(IKind::Return)
-        (Th06, 37, Some(("ESfSS", None))), // Some(IKind::CallEosdCond(B::Lt))
-        (Th06, 38, Some(("ESfSS", None))), // Some(IKind::CallEosdCond(B::Le))
-        (Th06, 39, Some(("ESfSS", None))), // Some(IKind::CallEosdCond(B::Eq))
-        (Th06, 40, Some(("ESfSS", None))), // Some(IKind::CallEosdCond(B::Gt))
-        (Th06, 41, Some(("ESfSS", None))), // Some(IKind::CallEosdCond(B::Ge))
-        (Th06, 42, Some(("ESfSS", None))), // Some(IKind::CallEosdCond(B::Ne))
+        (Th06, 37, Some(("E(imm)S(imm)f(imm)SS(imm)", None))), // Some(IKind::CallEosdCond(B::Lt))
+        (Th06, 38, Some(("E(imm)S(imm)f(imm)SS(imm)", None))), // Some(IKind::CallEosdCond(B::Le))
+        (Th06, 39, Some(("E(imm)S(imm)f(imm)SS(imm)", None))), // Some(IKind::CallEosdCond(B::Eq))
+        (Th06, 40, Some(("E(imm)S(imm)f(imm)SS(imm)", None))), // Some(IKind::CallEosdCond(B::Gt))
+        (Th06, 41, Some(("E(imm)S(imm)f(imm)SS(imm)", None))), // Some(IKind::CallEosdCond(B::Ge))
+        (Th06, 42, Some(("E(imm)S(imm)f(imm)SS(imm)", None))), // Some(IKind::CallEosdCond(B::Ne))
         (Th06, 43, Some(("fff", None))),
         (Th06, 44, Some(("fff", None))),
         (Th06, 45, Some(("ff", None))),
         (Th06, 46, Some(("f", None))),
         (Th06, 47, Some(("f", None))),
         (Th06, 48, Some(("f", None))),
-        (Th06, 49, Some(("ff", None))),
-        (Th06, 50, Some(("ff", None))),
-        (Th06, 51, Some(("ff", None))),
-        (Th06, 52, Some(("Sff", None))),
-        (Th06, 53, Some(("Sff", None))),
-        (Th06, 54, Some(("Sff", None))),
-        (Th06, 55, Some(("Sff", None))),
-        (Th06, 56, Some(("Sfff", None))),
-        (Th06, 57, Some(("Sfff", None))),
-        (Th06, 58, Some(("Sfff", None))),
-        (Th06, 59, Some(("Sfff", None))),
-        (Th06, 60, Some(("Sfff", None))),
-        (Th06, 61, Some(("S", None))),
-        (Th06, 62, Some(("S", None))),
-        (Th06, 63, Some(("S", None))),
-        (Th06, 64, Some(("S", None))),
-        (Th06, 65, Some(("ffff", None))),
+        (Th06, 49, Some(("f(imm)f(imm)", None))),
+        (Th06, 50, Some(("f(imm)f(imm)", None))),
+        (Th06, 51, Some(("f(imm)f", None))),
+        (Th06, 52, Some(("S(imm)ff(imm)", None))),
+        (Th06, 53, Some(("S(imm)ff(imm)", None))),
+        (Th06, 54, Some(("S(imm)ff(imm)", None))),
+        (Th06, 55, Some(("S(imm)ff(imm)", None))),
+        (Th06, 56, Some(("S(imm)fff", None))),
+        (Th06, 57, Some(("S(imm)fff", None))),
+        (Th06, 58, Some(("S(imm)fff", None))),
+        (Th06, 59, Some(("S(imm)fff", None))),
+        (Th06, 60, Some(("S(imm)fff", None))),
+        (Th06, 61, Some(("S(imm)", None))), //
+        (Th06, 62, Some(("S(imm)", None))), // These read the current value of SELF_ANGLE as a variable
+        (Th06, 63, Some(("S(imm)", None))), //
+        (Th06, 64, Some(("S(imm)", None))), //
+        (Th06, 65, Some(("f(imm)f(imm)f(imm)f(imm)", None))),
         (Th06, 66, Some(("", None))),
-        (Th06, 67, Some(("ssSSffffS", None))),
-        (Th06, 68, Some(("ssSSffffS", None))),
-        (Th06, 69, Some(("ssSSffffS", None))),
-        (Th06, 70, Some(("ssSSffffS", None))),
-        (Th06, 71, Some(("ssSSffffS", None))),
-        (Th06, 72, Some(("ssSSffffS", None))),
-        (Th06, 73, Some(("ssSSffffS", None))),
-        (Th06, 74, Some(("ssSSffffS", None))),
-        (Th06, 75, Some(("ssSSffffS", None))),
-        (Th06, 76, Some(("S", None))),
-        (Th06, 77, Some(("S", None))),
+        // Flags marked as hex
+        (Th06, 67, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 68, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 69, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 70, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 71, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 72, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 73, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 74, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 75, Some(("s(imm)sSSffffU(imm;hex)", None))),
+        (Th06, 76, Some(("S(imm)", None))),
+        (Th06, 77, Some(("S(imm)", None))), // This value is used with both IDIV and DIV...?
         (Th06, 78, Some(("", None))),
         (Th06, 79, Some(("", None))),
         (Th06, 80, Some(("", None))),
         (Th06, 81, Some(("fff", None))),
         (Th06, 82, Some(("SSSSffff", None))),
         (Th06, 83, Some(("", None))),
-        (Th06, 84, Some(("S", None))),
-        (Th06, 85, Some(("ssffffffSSSSSS", None))),
-        (Th06, 86, Some(("ssffffffSSSSSS", None))),
+        (Th06, 84, Some(("S(imm)", None))),
+        (Th06, 85, Some(("s(imm)s(imm)ffffff(imm)S(imm)S(imm)S(imm)S(imm)S(imm)U(imm;hex)", None))),
+        (Th06, 86, Some(("s(imm)s(imm)ffffff(imm)S(imm)S(imm)S(imm)S(imm)S(imm)U(imm;hex)", None))),
         (Th06, 87, Some(("S", None))),
-        (Th06, 88, Some(("Sf", None))),
-        (Th06, 89, Some(("Sf", None))),
-        (Th06, 90, Some(("Sfff", None))),
-        (Th06, 91, Some(("S", None))),
-        (Th06, 92, Some(("S", None))),
+        (Th06, 88, Some(("S(imm)f", None))),
+        (Th06, 89, Some(("S(imm)f", None))),
+        (Th06, 90, Some(("S(imm)f(imm)f(imm)f(imm)", None))),
+        (Th06, 91, Some(("S(imm)", None))),
+        (Th06, 92, Some(("S(imm)", None))),
         // 34. Yes. This makes every spell name instruction not a multiple of 4 bytes.
-        (Th06, 93, Some(("ssz(len=34)", None))),
+        (Th06, 93, Some(("s(imm)s(imm)z(len=34)", None))),
         (Th06, 94, Some(("", None))),
-        (Th06, 95, Some(("EfffssS", None))),
+        (Th06, 95, Some(("E(imm)fffs(imm)s(imm)S(imm)", None))),
         (Th06, 96, Some(("", None))),
-        (Th06, 97, Some(("N", None))),
-        (Th06, 98, Some((r#"s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")N"#, None))), // zero: s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")--
-        (Th06, 99, Some(("SN", None))),
-        (Th06, 100, Some(("U", None))), // zero: bbb-
-        (Th06, 101, Some(("S", None))),
-        (Th06, 102, Some(("Sffff", None))),
-        (Th06, 103, Some(("fff", None))),
-        (Th06, 104, Some(("U", None))), // zero: b---
-        (Th06, 105, Some(("U", None))), // zero: b---
-        (Th06, 106, Some(("S", None))),
-        (Th06, 107, Some(("U", None))), // zero: b---
-        (Th06, 108, Some(("E", None))),
-        (Th06, 109, Some(("ES", None))),
-        (Th06, 110, Some(("S", None))),
-        (Th06, 111, Some(("S", None))),
-        (Th06, 112, Some(("S", None))),
-        (Th06, 113, Some(("S", None))),
-        (Th06, 114, Some(("E", None))),
-        (Th06, 115, Some(("S", None))),
-        (Th06, 116, Some(("E", None))),
-        (Th06, 117, Some(("U", None))), // zero: b---
-        (Th06, 118, Some(("SUC", None))),
-        (Th06, 119, Some(("S", None))),
-        (Th06, 120, Some(("U", None))), // zero: b---
-        (Th06, 121, Some(("SS", None))),
-        (Th06, 122, Some(("S", None))),
-        (Th06, 123, Some(("S", None))),
-        (Th06, 124, Some(("S", None))),
+        (Th06, 97, Some(("N(imm)", None))),
+        (Th06, 98, Some((r#"s(imm;enum="AnmScript")s(imm;enum="AnmScript")s(imm;enum="AnmScript")s(imm;enum="AnmScript")s(imm;enum="AnmScript")--"#, None))),
+        (Th06, 99, Some(("S(imm)N(imm)", None))),
+        (Th06, 100, Some(("b(imm)b(imm)b(imm)-", None))),
+        (Th06, 101, Some(("S(imm)", None))),
+        (Th06, 102, Some(("S(imm)f(imm)f(imm)f(imm)f(imm)", None))),
+        (Th06, 103, Some(("f(imm)f(imm)f(imm)", None))),
+        (Th06, 104, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th06, 105, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th06, 106, Some(("S(imm)", None))),
+        (Th06, 107, Some(("b(imm)---", None))),
+        (Th06, 108, Some(("E(imm)", None))),
+        (Th06, 109, Some(("E(imm)S(imm)", None))),
+        (Th06, 110, Some(("S(imm)", None))),
+        (Th06, 111, Some(("S(imm)", None))),
+        (Th06, 112, Some(("S(imm)", None))),
+        (Th06, 113, Some(("S(imm)", None))),
+        (Th06, 114, Some(("E(imm)", None))),
+        (Th06, 115, Some(("S(imm)", None))),
+        (Th06, 116, Some(("E(imm)", None))),
+        (Th06, 117, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th06, 118, Some(("S(imm)U(imm)C(imm)", None))),
+        (Th06, 119, Some(("S(imm)", None))),
+        (Th06, 120, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th06, 121, Some(("S(imm)S(imm)", None))), // zero: S(imm)v
+        (Th06, 122, Some(("S(imm)", None))),
+        (Th06, 123, Some(("S", None))), // Lack of (imm) here is not a typo
+        (Th06, 124, Some(("S(imm)", None))),
         (Th06, 125, Some(("", None))),
-        (Th06, 126, Some(("S", None))),
+        (Th06, 126, Some(("S(imm)", None))),
         (Th06, 127, Some(("S", None))),
-        (Th06, 128, Some(("S", None))), // zero: s--
-        (Th06, 129, Some(("SS", None))), // zero: Ss--
-        (Th06, 130, Some(("U", None))), // zero: b---
-        (Th06, 131, Some(("ffSSSS", None))),
-        (Th06, 132, Some(("U", None))), // zero: b---
+        (Th06, 128, Some(("s(imm)--", None))),
+        (Th06, 129, Some(("S(imm)s(imm)--", None))),
+        (Th06, 130, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th06, 131, Some(("f(imm)f(imm)S(imm)S(imm)S(imm)S(imm)", None))),
+        (Th06, 132, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th06, 133, Some(("", None))),
         (Th06, 134, Some(("", None))),
-        (Th06, 135, Some(("U", None))), // zero: b---
+        (Th06, 135, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
     ],
     var: &[
         (Th06, -10001, Some("$")),
@@ -259,8 +262,8 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 3, Some(("toS", Some(IKind::CountJmp(B::Gt))))),
         (Th07, 4, Some(("SS", Some(IKind::AssignOp(A::Assign, Ty::Int))))),
         (Th07, 5, Some(("ff", Some(IKind::AssignOp(A::Assign, Ty::Float))))),
-        (Th07, 6, Some(("SS", None))),
-        (Th07, 7, Some(("SSS", None))),
+        (Th07, 6, Some(("SU", None))),
+        (Th07, 7, Some(("SUS", None))),
         (Th07, 8, Some(("ff", None))),
         (Th07, 9, Some(("fff", None))),
         (Th07, 10, Some(("SS", None))),
@@ -294,7 +297,7 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 38, Some(("SSto", Some(IKind::CondJmp(B::Ge, Ty::Int))))),
         (Th07, 39, Some(("ffto", Some(IKind::CondJmp(B::Ge, Ty::Float))))),
         (Th07, 40, Some(("f", None))),
-        (Th07, 41, Some(("E", Some(IKind::CallReg)))),
+        (Th07, 41, Some(("E(imm)", Some(IKind::CallReg)))),
         (Th07, 42, Some(("", None))), // Some(IKind::Return)
         (Th07, 43, Some(("SSS", None))),
         (Th07, 44, Some(("ffS", None))),
@@ -305,7 +308,7 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 49, Some(("f", None))),
         (Th07, 50, Some(("f", None))),
         (Th07, 51, Some(("fff", None))),
-        (Th07, 52, Some(("fff", None))),
+        (Th07, 52, Some(("fff", None))), // Arguments 2 and 3 are never read
         (Th07, 53, Some(("ff", None))),
         (Th07, 54, Some(("SSff", None))),
         (Th07, 55, Some(("SSfff", None))),
@@ -317,51 +320,51 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 61, Some(("S", None))),
         (Th07, 62, Some(("ffff", None))),
         (Th07, 63, Some(("", None))),
-        (Th07, 64, Some(("ssSSffffS", None))),
-        (Th07, 65, Some(("ssSSffffS", None))),
-        (Th07, 66, Some(("ssSSffffS", None))),
-        (Th07, 67, Some(("ssSSffffS", None))),
-        (Th07, 68, Some(("ssSSffffS", None))),
-        (Th07, 69, Some(("ssSSffffS", None))),
-        (Th07, 70, Some(("ssSSffffS", None))),
-        (Th07, 71, Some(("ssSSffffS", None))),
-        (Th07, 72, Some(("ssSSffffS", None))),
+        (Th07, 64, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 65, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 66, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 67, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 68, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 69, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 70, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 71, Some(("ssSSffffU(imm;hex)", None))),
+        (Th07, 72, Some(("ssSSffffU(imm;hex)", None))),
         (Th07, 73, Some(("S", None))),
         (Th07, 74, Some(("S", None))),
         (Th07, 75, Some(("", None))),
         (Th07, 76, Some(("", None))),
         (Th07, 77, Some(("", None))),
         (Th07, 78, Some(("fff", None))),
-        (Th07, 79, Some(("SSUSSff", None))),
+        (Th07, 79, Some((r#"SU(hex)U(enum="bool")SSff"#, None))),
         (Th07, 80, Some(("", None))),
         (Th07, 81, Some(("SS", None))),
-        (Th07, 82, Some(("ssffffffSSSSSS", None))),
-        (Th07, 83, Some(("ssffffffSSSSSS", None))),
+        (Th07, 82, Some(("s(imm)sffffff(imm)S(imm)S(imm)S(imm)S(imm)S(imm)U(imm;hex)", None))),
+        (Th07, 83, Some(("s(imm)sffffff(imm)S(imm)S(imm)S(imm)S(imm)S(imm)U(imm;hex)", None))),
         (Th07, 84, Some(("S", None))),
         (Th07, 85, Some(("Sf", None))),
         (Th07, 86, Some(("Sf", None))),
         (Th07, 87, Some(("Sfff", None))),
         (Th07, 88, Some(("S", None))),
         (Th07, 89, Some(("S", None))),
-        (Th07, 90, Some(("sum(len=48;mask=0xaa,0,0)", None))),
+        (Th07, 90, Some(("s(imm)u(imm)m(len=48;mask=0xaa,0,0)", None))),
         (Th07, 91, Some(("", None))),
-        (Th07, 92, Some(("EfffSSS", None))),
-        (Th07, 93, Some(("EfffSSS", None))),
+        (Th07, 92, Some(("E(imm)fffSSS", None))),
+        (Th07, 93, Some(("E(imm)fffSSS", None))),
         (Th07, 94, Some(("", None))),
         (Th07, 95, Some(("N", None))),
-        (Th07, 96, Some((r#"s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")N"#, None))), // zero: s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")s(enum="AnmScript")--
+        (Th07, 96, Some((r#"s(imm;enum="AnmScript")s(imm;enum="AnmScript")s(imm;enum="AnmScript")s(imm;enum="AnmScript")s(imm;enum="AnmScript")--"#, None))),
         (Th07, 97, Some(("SN", None))),
-        (Th07, 98, Some(("S", None))), // zero: bbb-
+        (Th07, 98, Some(("c(imm)b(imm)b(imm)-", None))),
         (Th07, 99, Some(("S", None))),
-        (Th07, 100, Some(("Sffff", None))),
+        (Th07, 100, Some(("S(imm)f(imm)f(imm)f(imm)f(imm)", None))),
         (Th07, 101, Some(("fff", None))),
-        (Th07, 102, Some(("U", None))), // zero: b---
-        (Th07, 103, Some(("U", None))), // zero: b---
-        (Th07, 104, Some(("U", None))), // zero: b---
+        (Th07, 102, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 103, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 104, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th07, 105, Some(("S", None))),
-        (Th07, 106, Some(("S", None))),
-        (Th07, 107, Some(("E", None))), // zero: b(enum="EclSub")---
-        (Th07, 108, Some(("ES", None))),
+        (Th07, 106, Some(("b(imm)---", None))),
+        (Th07, 107, Some((r#"b(imm;enum="EclSub")---"#, None))),
+        (Th07, 108, Some(("ES", None))), // Yes, this really is a non-immediate sub id. Any fields marked as such are intentional!
         (Th07, 109, Some(("S", None))),
         (Th07, 110, Some(("S", None))),
         (Th07, 111, Some(("S", None))),
@@ -369,29 +372,29 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 113, Some(("E", None))),
         (Th07, 114, Some(("S", None))),
         (Th07, 115, Some(("E", None))),
-        (Th07, 116, Some(("U", None))), // zero: b---
-        (Th07, 117, Some(("SUC", None))),
-        (Th07, 118, Some(("SUCfff", None))),
+        (Th07, 116, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 117, Some(("SUC", None))), // Third argument is read from a pointer for some reason...
+        (Th07, 118, Some(("SUCfff", None))), // Also read as a pointer
         (Th07, 119, Some(("S", None))),
-        (Th07, 120, Some(("U", None))), // zero: b---
-        (Th07, 121, Some(("SS", None))),
-        (Th07, 122, Some(("SS", None))),
+        (Th07, 120, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 121, Some(("SS(imm)", None))), // zero: Sv
+        (Th07, 122, Some(("SS(imm)", None))), // zero: Sv
         (Th07, 123, Some(("S", None))),
         (Th07, 124, Some(("S", None))),
         (Th07, 125, Some(("S", None))),
         (Th07, 126, Some(("S", None))),
-        (Th07, 127, Some(("", None))),
+        (Th07, 127, Some(("S", None))),
         (Th07, 128, Some(("S", None))),
-        (Th07, 129, Some(("SS", None))),
-        (Th07, 130, Some(("U", None))), // zero: b---
+        (Th07, 129, Some(("S(imm)s(imm)--", None))),
+        (Th07, 130, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th07, 131, Some(("ffSSSS", None))),
-        (Th07, 132, Some(("U", None))), // zero: b---
+        (Th07, 132, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th07, 133, Some(("", None))),
         (Th07, 134, Some(("", None))),
-        (Th07, 135, Some(("U", None))), // zero: b---
-        (Th07, 136, Some(("U", None))), // zero: b---
-        (Th07, 137, Some(("U", None))), // zero: b---
-        (Th07, 138, Some(("USSS", None))), // zero: b---SSS
+        (Th07, 135, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 136, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 137, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th07, 138, Some(("b(imm;hex)---SSS", None))),
         (Th07, 139, Some(("SSSC", None))),
         (Th07, 140, Some(("ffff", None))),
         (Th07, 141, Some(("S", None))), // Not implemented
@@ -402,19 +405,19 @@ static ECL_07: &'static CoreSignatures = &CoreSignatures {
         (Th07, 146, Some(("", None))),
         (Th07, 147, Some(("S", None))),
         (Th07, 148, Some(("SSE", None))),
-        (Th07, 149, Some(("Ufff", None))),
+        (Th07, 149, Some((r#"U(enum="bool")fff"#, None))), // zero: U(enum="BitBool")fff
         (Th07, 150, Some(("f", None))),
         (Th07, 151, Some(("ffff", None))),
         (Th07, 152, Some(("Sf", None))),
         (Th07, 153, Some(("fff", None))),
         (Th07, 154, Some(("S", None))),
         (Th07, 155, Some(("f", None))),
-        (Th07, 156, Some(("SU", None))),
+        (Th07, 156, Some((r#"SU(enum="bool")"#, None))),
         (Th07, 157, Some(("Sf", None))),
         (Th07, 158, Some(("Sff", None))),
         (Th07, 159, Some(("ffff", None))),
         (Th07, 160, Some(("S", None))),
-        (Th07, 161, Some(("U", None))),
+        (Th07, 161, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
     ],
     var: &[
         (Th07, 10000, Some("$")),
@@ -549,7 +552,7 @@ static ECL_08_09: &'static CoreSignatures = &CoreSignatures {
         (Th08, 49, Some(("ffto", Some(IKind::CondJmp(B::Gt, Ty::Float))))),
         (Th08, 50, Some(("SSto", Some(IKind::CondJmp(B::Ge, Ty::Int))))),
         (Th08, 51, Some(("ffto", Some(IKind::CondJmp(B::Ge, Ty::Float))))),
-        (Th08, 52, Some(("E", Some(IKind::CallReg)))),
+        (Th08, 52, Some(("E(imm)", Some(IKind::CallReg)))),
         (Th08, 53, Some(("", None))), // Some(IKind::Return)
         (Th08, 54, Some(("N", None))),
         (Th08, 55, Some(("N", None))),
@@ -576,110 +579,110 @@ static ECL_08_09: &'static CoreSignatures = &CoreSignatures {
         (Th08, 76, Some(("", None))),
         (Th08, 77, Some(("ff", None))),
         (Th08, 78, Some(("ff", None))),
-        (Th08, 79, Some(("U", None))),
-        (Th08, 80, Some(("U", None))),
-        (Th08, 81, Some(("U", None))),
+        (Th08, 79, Some(("U(hex)", None))),
+        (Th08, 80, Some(("U(hex)", None))),
+        (Th08, 81, Some(("U(hex)", None))),
         (Th08, 82, Some(("f", None))),
-        (Th08, 83, Some(("U", None))),
+        (Th08, 83, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th08, 86, Some(("SSS", None))),
         (Th08, 87, Some(("ffS", None))),
-        (Th08, 88, Some(("SE", None))),
+        (Th08, 88, Some(("SE(imm)", None))),
         (Th08, 89, Some(("SS", None))),
-        (Th08, 90, Some(("EffSSS", None))),
-        (Th08, 91, Some(("EffSSS", None))),
-        (Th08, 92, Some(("EffSSS", None))),
-        (Th08, 93, Some(("EfffSSS", None))),
-        (Th08, 94, Some(("EfffSSS", None))),
+        (Th08, 90, Some(("E(imm)ffSSS", None))),
+        (Th08, 91, Some(("E(imm)ffSSS", None))),
+        (Th08, 92, Some(("E(imm)ffSSS", None))),
+        (Th08, 93, Some(("E(imm)fffSSS", None))),
+        (Th08, 94, Some(("E(imm)fffSSS", None))),
         (Th08, 95, Some(("", None))),
-        (Th08, 96, Some(("ssSSffffS", None))),
-        (Th08, 97, Some(("ssSSffffS", None))),
-        (Th08, 98, Some(("ssSSffffS", None))),
-        (Th08, 99, Some(("ssSSffffS", None))),
-        (Th08, 100, Some(("ssSSffffS", None))),
-        (Th08, 101, Some(("ssSSffffS", None))),
-        (Th08, 102, Some(("ssSSffffS", None))),
-        (Th08, 103, Some(("ssSSffffS", None))),
-        (Th08, 104, Some(("ssSSffffS", None))),
+        (Th08, 96, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 97, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 98, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 99, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 100, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 101, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 102, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 103, Some(("ssSSffffU(imm;hex)", None))),
+        (Th08, 104, Some(("ssSSffffU(imm;hex)", None))),
         (Th08, 105, Some(("S", None))),
         (Th08, 106, Some(("S", None))),
         (Th08, 107, Some(("", None))),
         (Th08, 108, Some(("", None))),
         (Th08, 109, Some(("", None))),
         (Th08, 110, Some(("ff", None))),
-        (Th08, 111, Some(("SSUSSff", None))),
+        (Th08, 111, Some((r#"SU(hex)U(enum="bool")SSff"#, None))),
         (Th08, 112, Some(("", None))),
         (Th08, 113, Some(("SS", None))),
-        (Th08, 114, Some(("ssffffffSSSSSS", None))),
-        (Th08, 115, Some(("ssffffffSSSSSS", None))),
+        (Th08, 114, Some(("s(imm)sffffffSSSS(imm)S(imm)U(imm;hex)", None))),
+        (Th08, 115, Some(("s(imm)sffffffSSSS(imm)S(imm)U(imm;hex)", None))),
         (Th08, 116, Some(("S", None))),
         (Th08, 117, Some(("Sf", None))),
         (Th08, 118, Some(("Sf", None))),
         (Th08, 119, Some(("Sfff", None))),
         (Th08, 120, Some(("S", None))),
         (Th08, 121, Some(("S", None))),
-        (Th08, 122, Some(("suSm(len=48;mask=0xaa,0,0)m(len=48;mask=0xbb,0,0)m(len=64;nulless;mask=0xdd,0,0)m(len=64;nulless;mask=0xee,0,0)", None))),
+        (Th08, 122, Some(("s(imm)u(imm)S(imm)m(len=48;mask=0xaa,0,0)m(len=48;mask=0xbb,0,0)m(len=64;nulless;mask=0xdd,0,0)m(len=64;nulless;mask=0xee,0,0)", None))),
         (Th08, 123, Some(("", None))),
         (Th08, 124, Some(("S", None))),
         (Th08, 125, Some(("S", None))),
         (Th08, 126, Some(("ES", None))),
         (Th08, 127, Some(("S", None))),
-        (Th08, 128, Some(("Sffff", None))),
-        (Th08, 129, Some(("U", None))), // zero: b---
-        (Th08, 130, Some(("E", None))), // zero: s(enum="EclSub")--
+        (Th08, 128, Some(("S(imm)f(imm)f(imm)f(imm)f(imm)", None))), // Argument 1 is unread
+        (Th08, 129, Some(("b(imm)---", None))),
+        (Th08, 130, Some((r#"s(imm;enum="EclSub")--"#, None))),
         (Th08, 131, Some(("S", None))),
         (Th08, 132, Some(("S", None))),
         (Th08, 133, Some(("SSE", None))),
         (Th08, 134, Some(("SE", None))),
         (Th08, 135, Some(("SE", None))), // Some(IKind::CallRegAsync)
-        (Th08, 136, Some(("SS", None))),
-        (Th08, 137, Some(("SS", None))),
-        (Th08, 138, Some(("U", None))), // zero: bbb-
-        (Th08, 139, Some(("SUC", None))),
-        (Th08, 140, Some(("SUCfff", None))),
+        (Th08, 136, Some(("SS(imm)", None))), // zero: Sv
+        (Th08, 137, Some(("SS(imm)", None))), // zero: Sv
+        (Th08, 138, Some(("c(imm)b(imm)b(imm)-", None))),
+        (Th08, 139, Some(("SUC", None))), // Third argument is read from a pointer for some reason...
+        (Th08, 140, Some(("SUCfff", None))), // Also read as a pointer
         (Th08, 141, Some(("S", None))),
         (Th08, 142, Some(("S", None))),
         (Th08, 143, Some(("S", None))),
         (Th08, 144, Some(("SS", None))),
-        (Th08, 145, Some(("U", None))), // zero: b---
+        (Th08, 145, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th08, 146, Some(("S", None))),
         (Th08, 147, Some(("S", None))),
         (Th08, 148, Some(("S", None))),
         (Th08, 149, Some(("S", None))),
-        (Th08, 150, Some(("SS", None))),
-        (Th08, 151, Some(("U", None))), // zero: b---
+        (Th08, 150, Some(("S(imm)s(imm)--", None))),
+        (Th08, 151, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th08, 152, Some(("ffSSSS", None))),
         (Th08, 153, Some(("", None))),
         (Th08, 154, Some(("", None))),
-        (Th08, 155, Some(("U", None))), // zero: b---
-        (Th08, 156, Some(("U", None))), // zero: b---
-        (Th08, 157, Some(("USSS", None))), // zero: b---SSS
+        (Th08, 155, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th08, 156, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th08, 157, Some(("b(imm;hex)---SSS", None))),
         (Th08, 158, Some(("SSSC", None))),
         (Th08, 159, Some(("U", None))),
         (Th08, 160, Some(("S", None))),
         (Th08, 161, Some(("f", None))),
         (Th08, 162, Some(("", None))),
         (Th08, 163, Some(("S", None))),
-        (Th08, 164, Some(("Ufff", None))),
+        (Th08, 164, Some((r#"U(enum="bool")fff"#, None))), // zero: U(enum="BitBool")fff
         (Th08, 165, Some(("f", None))),
         (Th08, 166, Some(("ffff", None))),
         (Th08, 167, Some(("Sf", None))),
         (Th08, 168, Some(("S", None))),
         (Th08, 169, Some(("f", None))),
-        (Th08, 170, Some(("SU", None))),
+        (Th08, 170, Some((r#"SU(enum="bool")"#, None))),
         (Th08, 171, Some(("Sf", None))),
         (Th08, 172, Some(("Sff", None))),
-        (Th08, 173, Some(("U", None))),
+        (Th08, 173, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th08, 174, Some(("S", None))),
-        (Th08, 175, Some(("U", None))),
-        (Th08, 176, Some(("S", None))),
+        (Th08, 175, Some((r#"U(enum="bool")"#, None))),
+        (Th08, 176, Some((r#"b(imm;enum="bool")---"#, None))), // Argument is never read, so this is just to try and make it look better in the output
         (Th08, 177, Some(("S", None))),
         (Th08, 178, Some(("SSf", None))),
         (Th08, 179, Some(("", None))),
         (Th08, 180, Some(("", None))),
         (Th08, 181, Some(("", None))),
-        (Th08, 182, Some(("U", None))),
-        (Th08, 183, Some(("U", None))),
-        (Th08, 184, Some(("U", None))),
+        (Th08, 182, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
+        (Th08, 183, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
+        (Th08, 184, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
 
         (Th09, 83, None),
         (Th09, 90, None),
@@ -698,9 +701,9 @@ static ECL_08_09: &'static CoreSignatures = &CoreSignatures {
         (Th09, 180, None),
         (Th09, 181, None),
         (Th09, 184, None),
-        (Th09, 185, Some(("U", None))),
+        (Th09, 185, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th09, 186, Some(("", None))),
-        (Th09, 187, Some(("U", None))),
+        (Th09, 187, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
     ],
     var: &[
         (Th08, 10000, Some("$")),
@@ -869,7 +872,7 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
         (Th095, 49, Some(("ffto", Some(IKind::CondJmp(B::Gt, Ty::Float))))),
         (Th095, 50, Some(("SSto", Some(IKind::CondJmp(B::Ge, Ty::Int))))),
         (Th095, 51, Some(("ffto", Some(IKind::CondJmp(B::Ge, Ty::Float))))),
-        (Th095, 52, Some(("E", Some(IKind::CallReg)))),
+        (Th095, 52, Some(("E(imm)", Some(IKind::CallReg)))),
         (Th095, 53, Some(("", None))), // Some(IKind::Return)
         (Th095, 54, Some(("N", None))),
         (Th095, 55, Some(("N", None))),
@@ -894,29 +897,29 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
         (Th095, 76, Some(("", None))),
         (Th095, 77, Some(("ff", None))),
         (Th095, 78, Some(("ff", None))),
-        (Th095, 79, Some(("U", None))),
-        (Th095, 80, Some(("U", None))),
-        (Th095, 81, Some(("U", None))),
+        (Th095, 79, Some(("U(hex)", None))),
+        (Th095, 80, Some(("U(hex)", None))),
+        (Th095, 81, Some(("U(hex)", None))),
         (Th095, 82, Some(("f", None))),
-        (Th095, 83, Some(("E", None))),
-        (Th095, 84, Some(("Eff", None))),
+        (Th095, 83, Some(("E(imm)", None))),
+        (Th095, 84, Some(("E(imm)fff", None))),
         (Th095, 85, Some(("", None))),
-        (Th095, 86, Some(("ssSSffffS", None))),
-        (Th095, 87, Some(("ssSSffffS", None))),
-        (Th095, 88, Some(("ssSSffffS", None))),
-        (Th095, 89, Some(("ssSSffffS", None))),
-        (Th095, 90, Some(("ssSSffffS", None))),
-        (Th095, 91, Some(("ssSSffffS", None))),
-        (Th095, 92, Some(("ssSSffffS", None))),
-        (Th095, 93, Some(("ssSSffffS", None))),
-        (Th095, 94, Some(("ssSSffffS", None))),
+        (Th095, 86, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 87, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 88, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 89, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 90, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 91, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 92, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 93, Some(("ssSSffffU(imm;hex)", None))),
+        (Th095, 94, Some(("ssSSffffU(imm;hex)", None))),
         (Th095, 95, Some(("S", None))),
         (Th095, 96, Some(("S", None))),
         (Th095, 97, Some(("", None))),
         (Th095, 98, Some(("", None))),
         (Th095, 99, Some(("", None))),
         (Th095, 100, Some(("ff", None))),
-        (Th095, 101, Some(("SSUSSff", None))),
+        (Th095, 101, Some((r#"SU(hex)U(enum="bool")SSff"#, None))),
         (Th095, 102, Some(("", None))),
         (Th095, 103, Some(("SS", None))),
         (Th095, 104, Some(("m(len=48;mask=0xaa,0,0)", None))),
@@ -925,47 +928,47 @@ static ECL_095: &'static CoreSignatures = &CoreSignatures {
         (Th095, 107, Some(("S", None))),
         (Th095, 108, Some(("ES", None))),
         (Th095, 109, Some(("S", None))),
-        (Th095, 112, Some(("E", None))), // zero: s(enum="EclSub")--
+        (Th095, 112, Some((r#"s(imm;enum="EclSub")--"#, None))),
         (Th095, 113, Some(("S", None))),
         (Th095, 114, Some(("S", None))),
         (Th095, 115, Some(("SSE", None))),
         (Th095, 116, Some(("SE", None))),
         (Th095, 117, Some(("SE", None))), // Some(IKind::CallRegAsync)
-        (Th095, 118, Some(("S", None))),
-        (Th095, 119, Some(("S", None))),
-        (Th095, 120, Some(("U", None))), // zero: b---
+        (Th095, 118, Some(("S", None))), // zero: Sv
+        (Th095, 119, Some(("S", None))), // zero: Sv
+        (Th095, 120, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th095, 121, Some(("S", None))),
         (Th095, 124, Some(("S", None))),
-        (Th095, 126, Some(("U", None))), // zero: b---
+        (Th095, 126, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
         (Th095, 128, Some(("", None))),
-        (Th095, 130, Some(("U", None))), // zero: b---
-        (Th095, 131, Some(("USSS", None))), // zero: b---SSS
-        (Th095, 132, Some(("S", None))),
+        (Th095, 130, Some((r#"b(imm;enum="bool")---"#, None))), // zero: b(imm;enum="BitBool")---
+        (Th095, 131, Some(("b(imm;hex)---SSS", None))),
+        (Th095, 132, Some(("U", None))),
         (Th095, 133, Some(("S", None))),
         (Th095, 135, Some(("f", None))),
         (Th095, 136, Some(("ffff", None))),
         (Th095, 137, Some(("f", None))),
-        (Th095, 138, Some(("U", None))), // zero: b---
+        (Th095, 138, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th095, 139, Some(("S", None))),
-        (Th095, 140, Some(("U", None))), // zero: b---
+        (Th095, 140, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
         (Th095, 141, Some(("S", None))),
         (Th095, 142, Some(("", None))),
-        (Th095, 143, Some(("US", None))),
+        (Th095, 143, Some((r#"U(enum="bool")S"#, None))), // zero: U(enum="BitBool")S
         (Th095, 144, Some(("S", None))),
         (Th095, 145, Some(("SSffff", None))),
         (Th095, 146, Some(("SSffff", None))),
-        (Th095, 147, Some(("SSfffSSSSfU", None))),
-        (Th095, 148, Some(("SSfffSSSSfU", None))),
+        (Th095, 147, Some(("SSfffSSSSfU(imm;hex)", None))),
+        (Th095, 148, Some(("SSfffSSSSfU(imm;hex)", None))),
         (Th095, 149, Some(("f", None))),
         (Th095, 150, Some(("N", None))),
         (Th095, 151, Some(("SN", None))),
         (Th095, 152, Some(("SS", None))),
-        (Th095, 153, Some(("SSfffSSSSfU", None))),
-        (Th095, 154, Some(("SSfffSSSSfU", None))),
-        (Th095, 155, Some(("SSfffSSSSfUff", None))),
-        (Th095, 156, Some(("SSfffSSSSfUff", None))),
-        (Th095, 157, Some(("SSfffSSSSfUff", None))),
-        (Th095, 158, Some(("U", None))),
+        (Th095, 153, Some(("SSfffSSSSfU(imm;hex)", None))),
+        (Th095, 154, Some(("SSfffSSSSfU(imm;hex)", None))),
+        (Th095, 155, Some(("SSfffSSSSfU(imm;hex)ff", None))),
+        (Th095, 156, Some(("SSfffSSSSfU(imm;hex)ff", None))),
+        (Th095, 157, Some(("SSfffSSSSfU(imm;hex)ff", None))),
+        (Th095, 158, Some((r#"U(enum="bool")"#, None))), // zero: U(enum="BitBool")
     ],
     var: &[
         (Th095, 10000, Some("$")),
