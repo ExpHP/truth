@@ -1,0 +1,7 @@
+---
+source: tests/integration/difficulty.rs
+expression: stderr
+---
+warning: <compiled-file>: in sub0: instr 1 (opcode 200, offset 0x1C): ignoring nonzero data found in padding
+
+

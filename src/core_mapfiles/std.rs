@@ -61,13 +61,13 @@ static STD_07_09: &CoreSignatures = &CoreSignatures {
         (Th07, 26, Some(("fff", None))),
         (Th07, 27, Some(("fff", None))),
         (Th07, 28, Some(("S__", None))),
-        (Th07, 29, Some(("S__", None))),  // anm script
-        (Th07, 30, Some(("S__", None))),  // anm script
+        (Th07, 29, Some(("N__", None))),
+        (Th07, 30, Some(("N__", None))),
         (Th07, 31, Some(("S__", Some(IKind::InterruptLabel)))),
 
         (Th08, 32, Some(("fff", None))),
-        (Th08, 33, Some(("S__", None))),
-        (Th08, 34, Some(("S__", None))),  // anm script
+        (Th08, 33, Some(("b---__", None))),
+        (Th08, 34, Some(("N__", None))),
     ],
     var: &[],
 };
@@ -78,27 +78,31 @@ static STD_095_185: &CoreSignatures = &CoreSignatures {
         (Th095, 0, Some(("", None))),
         (Th095, 1, Some(("ot", Some(IKind::Jmp)))),
         (Th095, 2, Some(("fff", None))),
-        (Th095, 3, Some(("SSfff", None))),
+        (Th095, 3, Some(("Sbb--fff", None))),
         (Th095, 4, Some(("fff", None))),
-        (Th095, 5, Some(("SSfff", None))),
+        (Th095, 5, Some(("Sbb--fff", None))),
         (Th095, 6, Some(("fff", None))),
         (Th095, 7, Some(("f", None))),
         (Th095, 8, Some(("Cff", None))),
-        (Th095, 9, Some(("SSCff", None))),
-        (Th095, 10, Some(("SSfffffffff", None))),
-        (Th095, 11, Some(("SSfffffffff", None))),
-        (Th095, 12, Some(("S", None))),
+        (Th095, 9, Some(("Sbb--Cff", None))),
+        (Th095, 10, Some(("SUfffffffff", None))),
+        (Th095, 11, Some(("SUfffffffff", None))),
+        (Th095, 12, Some(("b---", None))),
         (Th095, 13, Some(("C", None))),
-        (Th095, 14, Some(("SS", None))),  // SN
+        (Th095, 14, Some(("SN", None))),
         // 15 appears to be a nop (i.e. it's not in the jumptable).
         //    However, no game ever uses it
+
+        (Th10, 3, Some(("SUfff", None))),
+        (Th10, 5, Some(("SUfff", None))),
+        (Th10, 9, Some(("SUCff", None))), // Technically the C arg is split into 4 individual byte reads. But why tho
 
         (Th11, 16, Some(("S", Some(IKind::InterruptLabel)))),
         (Th11, 17, Some(("S", None))),
 
         (Th12, 18, Some(("SSfff", None))),
 
-        (Th14, 14, Some(("SSS", None))),  // SNS. 'layer' argument added
+        (Th14, 14, Some(("SNS", None))),  // 'layer' argument added
         (Th14, 19, Some(("S", None))),
         (Th14, 20, Some(("f", None))),
 

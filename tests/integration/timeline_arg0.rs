@@ -174,15 +174,17 @@ source_test!(
     // this is an edge case that arose in decompilation where the presence of a timeline
     // arg could make the code that trims padding look at the wrong values
     main_body: r#"
-    ins_200(1, 3, 0, 0);
-    ins_200(1, 4, 4, 0);
-    ins_200(1, 5, 5, 5);
+    ins_200(@arg0=1, @blob="03000000 00000000 00000000");
+    ins_200(@arg0=1, @blob="04000000 04000000 00000000");
+    ins_200(@arg0=1, @blob="05000000 05000000 05000000");
 "#,
+    // FIXME: would like the second two to roundtrip as blobs
+    expect_decompile_warning: "nonzero data found in padding",
+    expect_decompile_warning: "nonzero data found in padding",
+    require_roundtrip: false,
     check_decompiled: |decompiled| {
-        // make sure it cut the padding off at the right index each time
+        // make sure it cut the padding off at the right index
         assert!(decompiled.contains("(1, 3)"));
-        assert!(decompiled.contains("(1, 4, 4)"));
-        assert!(decompiled.contains("(1, 5, 5, 5)"));
     },
 );
 

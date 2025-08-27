@@ -38,7 +38,9 @@ impl Format {
         &self,
         infile: impl AsRef<Path>,
         mapfile: impl AsRef<Path>,
+        require_roundtrip: bool,
         do_with_text: impl FnOnce(&str),
+        do_with_stderr: Option<&dyn Fn(&str)>,
     ) {
         truth::setup_for_test_harness();
 
@@ -46,7 +48,11 @@ impl Format {
         let mapfile = TestFile::from_path(mapfile.as_ref());
         let decompile_result = self.decompile(&original, &[], &[mapfile][..]);
 
-        assert!(decompile_result.stderr.is_empty(), "unexpected stderr: {}", String::from_utf8_lossy(&decompile_result.stderr));
+        let stderr = String::from_utf8_lossy(&decompile_result.stderr);
+        match do_with_stderr {
+            None => assert!(stderr.is_empty(), "unexpected stderr: {}", stderr),
+            Some(callback) => callback(&stderr),
+        }
         let decompiled = decompile_result.output.unwrap();
 
         do_with_text(&decompiled.read_to_string());
@@ -60,7 +66,9 @@ impl Format {
         let recompile_mapfiles = &[][..]; // decompiled source already includes mapfile
         let recompile_result = self.compile(&decompiled, &args, recompile_mapfiles);
         let recompiled = recompile_result.output.unwrap();
-        assert_eq!(original.read(), recompiled.read());
+        if require_roundtrip {
+            assert_eq!(original.read(), recompiled.read());
+        }
     }
 
     pub fn compile<'a>(

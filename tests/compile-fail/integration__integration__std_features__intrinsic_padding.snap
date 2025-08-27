@@ -1,0 +1,7 @@
+---
+source: tests/integration/std_features.rs
+expression: stderr
+---
+warning: <compiled-file>: instr 1 (opcode 4, offset 0x14): ignoring nonzero data found in padding
+
+

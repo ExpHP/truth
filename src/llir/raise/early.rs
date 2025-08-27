@@ -251,12 +251,34 @@ fn decode_args_with_abi(
 
     let reg_style = hooks.register_style();
     for (arg_index, enc) in siggy.arg_encodings().enumerate() {
+        // Padding produces values for the sake of verifying the bytes are 0. TODO: Implement!
+        // They're filtered out later on after dealing with @arg0 in the argument-raising pass.
+        if let ArgEncoding::Padding { size } = enc {
+            decrease_len(emitter, &mut remaining_len, *size as usize)?;
+            let raw_value = match size {
+                1 => blob_reader.read_u8().expect("already checked len") as i32,
+                4 => blob_reader.read_u32().expect("already checked len") as i32,
+                _ => unreachable!(),
+            };
+            args.push(SimpleArg { value: ScalarValue::Int(raw_value), is_reg: false } );
+            continue;
+        }
         let ref emitter = add_argument_context(emitter, arg_index);
 
-        let param_mask_bit = param_mask % 2 == 1;
-        param_mask /= 2;
+        // TODO: Add a way to fallback to @mask for
+        // "bad" mask bits to allow roundtripping
+        let can_be_param = if enc.contributes_to_param_mask() {
+            let value = !enc.is_always_immediate() && param_mask & 1 == 1;
+            param_mask >>= 1;
+            value
+        } else {
+            false
+        };
 
         let value = match *enc {
+            | ArgEncoding::Padding { .. }
+            => unreachable!(),
+
             | ArgEncoding::Integer { arg0: true, .. }
             => {
                 // a check that non-timeline languages don't have timeline args in their signature
@@ -265,26 +287,48 @@ fn decode_args_with_abi(
                 ScalarValue::Int(extra_arg as _)
             },
 
-            | ArgEncoding::Integer { arg0: false, size: 4, ty_color: _ }
-            | ArgEncoding::Color
             | ArgEncoding::JumpOffset
             | ArgEncoding::JumpTime
-            | ArgEncoding::Padding
+            | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { signed: true, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
-                ScalarValue::Int(blob_reader.read_u32().expect("already checked len") as i32)
+                ScalarValue::Int(blob_reader.read_i32().expect("already checked len") as i32)
             },
 
-            | ArgEncoding::Integer { arg0: false, size: 2, ty_color: _ }
+            | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { signed: true, radix: _ }, .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 2)?;
                 ScalarValue::Int(blob_reader.read_i16().expect("already checked len") as i32)
             },
 
+            | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { signed: true, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 1)?;
+                ScalarValue::Int(blob_reader.read_i8().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 4, format: ast::IntFormat { signed: false, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 4)?;
+                ScalarValue::Int(blob_reader.read_u32().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 2, format: ast::IntFormat { signed: false, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 2)?;
+                ScalarValue::Int(blob_reader.read_u16().expect("already checked len") as i32)
+            },
+
+            | ArgEncoding::Integer { arg0: false, size: 1, format: ast::IntFormat { signed: false, radix: _ }, .. }
+            => {
+                decrease_len(emitter, &mut remaining_len, 1)?;
+                ScalarValue::Int(blob_reader.read_u8().expect("already checked len") as i32)
+            },
+
             | ArgEncoding::Integer { size, .. }
             => panic!("unexpected integer size: {size}"),
 
-            | ArgEncoding::Float
+            | ArgEncoding::Float { .. }
             => {
                 decrease_len(emitter, &mut remaining_len, 4)?;
                 ScalarValue::Float(f32::from_bits(blob_reader.read_u32().expect("already checked len")))
@@ -321,9 +365,9 @@ fn decode_args_with_abi(
         };
 
         let is_reg = match reg_style {
-            RegisterEncodingStyle::ByParamMask => param_mask_bit,
+            RegisterEncodingStyle::ByParamMask => can_be_param,
             RegisterEncodingStyle::EosdEcl { does_value_look_like_a_register } => {
-                does_value_look_like_a_register(&value)
+                can_be_param && does_value_look_like_a_register(&value)
             },
         };
 
@@ -549,21 +593,26 @@ impl AtomRaiser<'_, '_> {
         let pseudo_arg0 = match instr.pseudo_arg0 {
             None | Some(0) => None,
             Some(arg0) => {
-                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true };
+                let enc = ArgEncoding::Integer { size: 2, ty_color: None, arg0: true, immediate: true, format: ast::IntFormat::SIGNED };
                 let expr = self.raise_arg(emitter, &SimpleArg::from(arg0 as i32), &enc, dest_label)?;
                 Some(expr)
             }
         };
 
-        // drop early STD padding args from the end as long as they're zero.
+        // check for garbage in padding args that we can't roundtrip  (FIXME: would like to fallback to blob)
         //
-        // IMPORTANT: this is looking at the original arg list because the new lengths may differ due to arg0.
-        for (enc, arg) in abi.arg_encodings().zip(args).rev() {
-            match enc {
-                ArgEncoding::Padding if arg.is_immediate_zero() => raised_args.pop(),
-                _ => break,
-            };
+        // IMPORTANT: these is looking at the original arg list because the new lengths may differ due to arg0.
+        let found_nonzero_padding = raised_args.iter().zip(abi.arg_encodings()).any(|(value, enc)| {
+            matches!(enc, ArgEncoding::Padding { .. }) && value.as_const_int().unwrap() != 0
+        });
+        if found_nonzero_padding {
+            emitter.emit(warning!("ignoring nonzero data found in padding")).ignore();
         }
+
+        // drop the padding
+        let mut arg_iter = abi.arg_encodings();
+        raised_args.retain(|_| !matches!(arg_iter.next().unwrap(), ArgEncoding::Padding { .. }));
+
 
         Ok(RaisedIntrinsicParts {
             opcode: Some(instr.opcode),
@@ -592,14 +641,9 @@ impl AtomRaiser<'_, '_> {
 
         let encodings = abi.arg_encodings().collect::<Vec<_>>();
         let IntrinsicInstrAbiParts {
-            num_instr_args: _, padding: ref padding_info, outputs: ref outputs_info,
+            num_instr_args: _, outputs: ref outputs_info,
             jump: ref jump_info, plain_args: ref plain_args_info, sub_id: ref sub_id_info,
         } = abi_parts;
-
-        let padding_range = padding_info.index..padding_info.index + padding_info.count;
-        if !args[padding_range].iter().all(|arg| arg.is_immediate_zero()) {
-            return Err(CannotRaiseIntrinsic);  // data in padding
-        }
 
         let mut jump = None;
         if let &Some((index, order)) = jump_info {
@@ -680,13 +724,19 @@ impl AtomRaiser<'_, '_> {
         ensure!(emitter, !raw.is_reg, "expected an immediate, got a register");
 
         match enc {
-            | ArgEncoding::Padding
-            | ArgEncoding::Integer { ty_color: None, .. }
+            | ArgEncoding::Integer { ty_color: None, format, .. }
+            => Ok(ast::Expr::LitInt { value: raw.expect_int(), format: *format }),
+
+            | ArgEncoding::Padding { .. }
             => Ok(ast::Expr::from(raw.expect_int())),
 
             | ArgEncoding::Integer { ty_color: Some(ty_color), .. }
             | ArgEncoding::String { ty_color: Some(ty_color), .. }
             => {
+                let int_format = match enc {
+                    &ArgEncoding::Integer { format, .. } => Some(format),
+                    _ => None,
+                };
                 let lookup_table = match ty_color {
                     TypeColor::Enum(ident) => &self.const_names.enums[ident],
                 };
@@ -694,13 +744,11 @@ impl AtomRaiser<'_, '_> {
                     &lookup_table,
                     raw.expect_immediate(),
                     ty_color,
+                    int_format,
                 ))
             },
 
-            | ArgEncoding::Color
-            => Ok(ast::Expr::LitInt { value: raw.expect_int(), format: ast::IntFormat::HEX }),
-
-            | ArgEncoding::Float
+            | ArgEncoding::Float { .. }
             => Ok(ast::Expr::from(raw.expect_float())),
 
             | ArgEncoding::String { .. }
@@ -769,7 +817,7 @@ impl AtomRaiser<'_, '_> {
     }
 }
 
-fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &ScalarValue, ty_color: &TypeColor) -> ast::Expr {
+fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &ScalarValue, ty_color: &TypeColor, int_format: Option<ast::IntFormat>) -> ast::Expr {
     match names.get(value) {
         Some(ident) => {
             match ty_color {
@@ -781,9 +829,21 @@ fn raise_to_possibly_named_constant(names: &ScalarValueMap<Sp<Ident>>, value: &S
                 },
             }
         },
-        None => value.clone().into(),
+
+        None => {
+            let expr: ast::Expr = value.clone().into();
+
+            // .into() used a default integer format, replace it if applicable
+            match expr {
+                ast::Expr::LitInt { value, .. } => {
+                    ast::Expr::LitInt { value, format: int_format.unwrap() }
+                },
+                _ => expr,
+            }
+        },
     }
 }
+
 
 // =============================================================================
 

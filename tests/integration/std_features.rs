@@ -154,12 +154,17 @@ source_test!(
 blah:
     up(0.0, 0.0, 0.0);
 blah2:
-    ins_4(offsetof(blah), timeof(blah), 50);  // 50 is padding
-    ins_4(offsetof(blah), timeof(blah));
+    // both of these are "jmp blah @ timeof(blah)"
+    ins_4(@blob="00000000 00000000 50000000");  // garbage padding
+    ins_4(@blob="00000000 00000000 00000000");
 "#,
+
+    // FIXME: would like this to roundtrip as blob instead of warning
+    expect_decompile_warning: "nonzero data found in padding",
+    require_roundtrip: false,
     check_decompiled: |decompiled| {
-        // intrinsic syntax has nowhere to put padding, so this must fall back to raw syntax
-        assert!(decompiled.contains(", 50)"));
+        // FIXME:  Check for blob once this decompiles to have blob
+
         // specificity: double check that this instruction is indeed the jump intrinsic
         //  by making sure the second one decompiled.
         assert!(decompiled.contains("loop {"));

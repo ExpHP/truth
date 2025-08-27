@@ -190,7 +190,7 @@ source_test!(
     ECL_06, const_cast_even_in_eosd,
     main_body: r#"
         const int x = int(2.0 + 3.0);
-        ins_1(x);
+        ins_61(x);
     "#,
     check_compiled: |output, format| {
         let ecl = output.read_olde_ecl(format);
@@ -335,9 +335,9 @@ source_test!(
 );
 
 source_test!(
-    STD_08, arg_count_range,
+    STD_08, arg_count_does_not_count_padding,
     main_body: r#"
-        ins_2();  //~ ERROR expects 1 to 3 arguments
+        ins_2();  //~ ERROR expects 1 argument
     "#,
 );
 

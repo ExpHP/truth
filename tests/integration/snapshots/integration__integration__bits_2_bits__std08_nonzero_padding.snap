@@ -19,6 +19,6 @@ meta {
 
 
 script main {
-    posTime(1024, 0, 60);
+    posTime(1024, 0);
 }
 

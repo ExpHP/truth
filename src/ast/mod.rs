@@ -454,7 +454,10 @@ pub enum Expr {
     LitInt {
         value: raw::LangInt,
         /// A hint to the formatter on how it should write the integer.
-        /// (not meaningful when parsing)
+        ///
+        /// (not meaningful/left as default when parsing source code;
+        /// if you want an integer in a diagnostic to appear as it was written,
+        /// consider labeling its span in the message instead)
         format: IntFormat,
     },
     LitFloat { value: raw::LangFloat },

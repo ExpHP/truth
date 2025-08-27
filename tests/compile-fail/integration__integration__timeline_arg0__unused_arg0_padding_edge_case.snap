@@ -1,0 +1,9 @@
+---
+source: tests/integration/timeline_arg0.rs
+expression: stderr
+---
+warning: <compiled-file>: instr 1 (opcode 200, offset 0x14): ignoring nonzero data found in padding
+
+warning: <compiled-file>: instr 2 (opcode 200, offset 0x28): ignoring nonzero data found in padding
+
+

@@ -28,14 +28,34 @@ macro_rules! b2b_test {
         // Some tests don't have any expected strings; those tests are most likely only concerned that the
         // data can be round-tripped back to binary.
         $(, expected=$expected:literal)*
+        $(, require_roundtrip=$require_roundtrip:literal)?
+        $(, check_stderr=$check_stderr_closure:expr)?
         $(,)?
     ) => {
+        #[allow(unused_mut)]
         #[test]
         fn $test_name() {
-            $format.bits_to_bits(file($fname), $map, |s| {
-                $( assert!(s.contains($expected)); )*
-                insta::assert_snapshot!(s)
-            });
+            let mut stderr_closure: Option<&dyn Fn(&str)> = None;
+            $(
+                stderr_closure.get_or_insert(&$check_stderr_closure);
+            )?
+
+            let mut require_roundtrip = true;
+            $(
+                require_roundtrip = $require_roundtrip;
+            )?
+
+
+            $format.bits_to_bits(
+                file($fname),
+                $map,
+                require_roundtrip,
+                |s| {
+                    $( assert!(s.contains($expected)); )*
+                    insta::assert_snapshot!(s)
+                },
+                stderr_closure,
+            );
         }
     }
 }
@@ -66,10 +86,17 @@ fn all_files_tested() {
 b2b_test!(STD_08, "map/any.stdm", std08_rects, "th08-rects.std");
 b2b_test!(STD_08, "map/any.stdm", std08_strip, "th08-strip.std");
 b2b_test!(STD_08, "map/any.stdm", std08_instance_order, "th08-instance-order.std");
-b2b_test!(STD_08, "map/any.stdm", std08_nonzero_padding, "th08-nonzero-padding.std");
 b2b_test!(STD_08, "map/any.stdm", std08_empty_script, "th08-empty-script.std");
 b2b_test!(STD_06, "map/any.stdm", std06_general, "th06-general.std");
 b2b_test!(STD_12, "map/any.stdm", std12_general, "th12-general.std");
+
+b2b_test!(
+    STD_08, "map/any.stdm", std08_nonzero_padding, "th08-nonzero-padding.std",
+    require_roundtrip=false, // FIXME:  Use blobs to fix this
+    check_stderr=|stderr| {
+        assert!(stderr.contains("nonzero data found in padding"));
+    },
+);
 
 // ANM metadata
 b2b_test!(ANM_12, "map/any.anmm", anm12_weird_color_format, "th12-weird-color-format.anm");
