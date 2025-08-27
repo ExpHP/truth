@@ -1,6 +1,9 @@
 #[allow(unused)]
 use crate::integration_impl::{expected, formats::*};
 
+// (just casually gonna mention 'tests/integration/resources/Makefile' here to satisfy the "all_files_tested" test,
+//  and because it can be used to rebuild the files for these tests)
+
 /// Generate two integration test cases that both look for an error, and make sure it does not trigger
 /// when irrelevant.
 ///
