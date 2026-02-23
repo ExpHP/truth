@@ -65,7 +65,7 @@ impl<Tok: Display> crate::diagnostic::IntoDiagnostics for GenericError<'_, Tok> 
 
         match self {
             User { error } => vec![error],
-            UnrecognizedEOF { location, ref expected } => vec![error!(
+            UnrecognizedEof { location, ref expected } => vec![error!(
                 message("unexpected EOF"),
                 primary(Span::from_locs(location, location), "unexpected EOF"),
                 note("{}", DisplayExpected(expected)),
