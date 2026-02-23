@@ -1132,7 +1132,7 @@ mod cli {
             let mut usage_or_align = "usage: ";
             for choice in self.choices {
                 if choice.public {
-                    eprintln!("{} {} {} ARGS...", usage_or_align, self.program, choice.name);
+                    eprintln!("{} {} {} [--help] ARGS...", usage_or_align, self.program, choice.name);
                     usage_or_align = "       ";
                 }
             }

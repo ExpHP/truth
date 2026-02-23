@@ -23,8 +23,8 @@ fn show_subcommands_error() {
         .assert()
         .failure()
         // it should do a listing of subcommands.
-        .stderr(pred(|s: &str| s.contains("truanm compile")))
-        .stderr(pred(|s: &str| s.contains("truanm decompile")))
+        .stderr(pred(|s: &str| s.contains("truanm compile [--help] ARGS...")))
+        .stderr(pred(|s: &str| s.contains("truanm decompile [--help] ARGS...")))
     ;
 }
 
@@ -33,9 +33,21 @@ fn show_subcommands_help() {
     Command::cargo_bin("truanm").unwrap()
         .arg("--help")
         .assert()
-        .success()  // should succeed as long as --help is given
-        .stderr(pred(|s: &str| s.contains("truanm compile")))
-        .stderr(pred(|s: &str| s.contains("truanm decompile")))
+        .success()  // --help has the same output, but with exit code 0
+        .stderr(pred(|s: &str| s.contains("truanm compile [--help] ARGS...")))
+        .stderr(pred(|s: &str| s.contains("truanm decompile [--help] ARGS...")))
+    ;
+}
+
+#[test]
+fn fake_subcommand_help() {
+    Command::cargo_bin("truanm").unwrap()
+        .arg("help")
+        .assert()
+        // don't really care if this succeeds or fails, but it's something
+        // somebody might--and has--tried.  We just want to know it mentions --help.
+        .stderr(pred(|s: &str| s.contains("truanm compile [--help] ARGS...")))
+        .stderr(pred(|s: &str| s.contains("truanm decompile [--help] ARGS...")))
     ;
 }
 
