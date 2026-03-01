@@ -570,27 +570,31 @@ pub mod msg_compile {
         let ast = truth.read_script(&in_path)?;
         truth.expect_no_image_sources(&ast)?;
 
+        let language = match msg_mode {
+            MsgMode::Stage => Some(LanguageKey::Msg),
+            MsgMode::Ending => Some(LanguageKey::End),
+            MsgMode::Mission => None,
+        };
+
         match msg_mode {
-            MsgMode::Stage => {
-                load_mapfiles(truth, game, &[LanguageKey::Msg], mapfile_options)?;
+            MsgMode::Stage | MsgMode::Ending => {
+                load_mapfiles(truth, game, &[language.unwrap()], mapfile_options)?;
                 truth.load_mapfiles_from_pragmas(game, &ast)?;
             },
             MsgMode::Mission => {},
-            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
         }
 
         let mut truth = truth.validate_defs()?;
 
         match msg_mode {
-            MsgMode::Stage => {
-                let msg = truth.compile_msg(game, LanguageKey::Msg, &ast)?;
-                truth.write_msg(game, LanguageKey::Msg, out_path, &msg)?;
+            MsgMode::Stage | MsgMode::Ending => {
+                let msg = truth.compile_msg(game, language.unwrap(), &ast)?;
+                truth.write_msg(game, language.unwrap(), out_path, &msg)?;
             },
             MsgMode::Mission => {
                 let msg = truth.compile_mission(game, &ast)?;
                 truth.write_mission(game, out_path, &msg)?;
             },
-            MsgMode::Ending => unreachable!(),
         }
         if let Some(debug_info_path) = debug_info_path {
             truth.prepare_and_write_debug_info(debug_info_path)?;
@@ -622,22 +626,22 @@ pub mod msg_decompile {
             game, ref in_path, ref mapfile_options, ref decompile_options
         } = common_options;
 
-        match msg_mode {
-            MsgMode::Stage => {
-                let mapfile_options = add_env_mapfile_for_decomp(mapfile_options, ".msgm");
-                load_mapfiles(truth, game, &[LanguageKey::Msg], &mapfile_options)?;
-
-                let mut truth = truth.validate_defs()?;
-                let msg = truth.read_msg(game, LanguageKey::Msg, in_path)?;
-                truth.decompile_msg(game, LanguageKey::Msg, &msg, decompile_options)
-            },
+        let language = match msg_mode {
             MsgMode::Mission => {
                 let mut truth = truth.validate_defs()?;
                 let msg = truth.read_mission(game, in_path)?;
-                truth.decompile_mission(game, &msg)
+                return truth.decompile_mission(game, &msg);
             },
-            MsgMode::Ending => return Err(truth.emit(error!("--ending is not yet implemented"))),
-        }
+            MsgMode::Stage => LanguageKey::Msg,
+            MsgMode::Ending => LanguageKey::End,
+        };
+
+        let mapfile_options = add_env_mapfile_for_decomp(mapfile_options, ".msgm");
+        load_mapfiles(truth, game, &[language], &mapfile_options)?;
+
+        let mut truth = truth.validate_defs()?;
+        let msg = truth.read_msg(game, language, in_path)?;
+        truth.decompile_msg(game, language, &msg, decompile_options)
     }
 }
 
@@ -868,7 +872,7 @@ mod cli {
     pub enum MsgMode { Stage, Mission, Ending }
     pub fn msg_mode() -> impl CliArg<Value=MsgMode> {
         let mission_opt = opts::Flag { short: "", long: "mission", help: "parse mission.msg or titlemsg.txt" };
-        let ending_opt = opts::Flag { short: "", long: "ending", help: "parse an ending MSG" };
+        let ending_opt = opts::Flag { short: "", long: "ending", help: "parse an ending MSG. You don't need this if your mapfile contains END instruction signatures." };
         mission_opt.zip(ending_opt).and_then(|(mission, ending)| match (mission, ending) {
             (true, true) => Err(error!("--mission and --ending are incompatible")),
             (true, false) => Ok(MsgMode::Mission),

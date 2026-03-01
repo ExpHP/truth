@@ -333,7 +333,8 @@ impl SourceTest {
                     func(decompiled_text.as_ref().unwrap());
                 };
                 if !options.skip_recompile {
-                    let result = format.compile(&decompiled, &[][..], recompile_mapfiles);
+                    let args = options.compile.extra_args.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+                    let result = format.compile(&decompiled, &args, recompile_mapfiles);
                     let recompiled = result.output.expect("recompile failed?!");
                     if !options.skip_roundtrip {
                         assert_eq!(compiled.read(), recompiled.read());

@@ -150,7 +150,7 @@ pub const MSG_09: Format = Format {
 
 meta {
     table: {
-        0: {script: "script0", flags: 256},
+        0: {script: "main", flags: 256},
     }
 }
 "#,
@@ -177,6 +177,26 @@ pub const MSG_17: Format = Format {
     script_head: MSG_09.script_head,
     make_main: MSG_09.make_main,
 };
+
+pub const END_10: Format = Format {
+    cmd: "trumsg",
+    game: Game::Th10,
+    script_head: r#"
+// #pragma mapfile "map/any.endm"  // TODO
+
+meta {
+    table: {
+        0: {script: "main"},
+    }
+}
+"#,
+    make_main: |body| format!(r#"
+script main {{
+    {body}
+}}
+"#),
+};
+
 
 pub const ECL_06: Format = Format {
     cmd: "truecl",

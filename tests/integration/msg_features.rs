@@ -194,3 +194,18 @@ script theDefault {}
     // Hence we're mostly just checking that there's no warning here.
     check_compiled: |_, _| {},
 );
+
+
+source_test!(
+    END_10, ending_core_mapfiles,
+    main_body: r#"
+        ins_3("sleep little baby");
+        ins_10("bgm/th10_16");
+        ins_9(0xc0c0c0);
+"#,
+    compile_args: &["--ending"],
+    decompile_args: &["--ending"],
+    check_decompiled: |_decompiled| {
+        // just roundtrip
+    },
+);
