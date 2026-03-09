@@ -121,7 +121,7 @@ impl RootEmitter {
         for diag in errors.into_diagnostics() {
             self.writer.borrow_mut().write_error(&diag, &self.config, &self.files);
         }
-        ErrorReported
+        ErrorReported::new()
     }
 
     /// Obtain captured diagnostics written to stderr, provided that this [`RootEmitter`]
@@ -285,11 +285,12 @@ pub trait Emitter {
     where
         Self: Sized,
     {
-        diagnostics.into_diagnostics().into_iter().for_each(|mut d| {
+        let diagnostics = diagnostics.into_diagnostics();
+        diagnostics.into_iter().for_each(|mut d| {
             d.unspanned_prefix = self._unspanned_prefix();
             self._root_emitter().emit(d).ignore();
         });
-        ErrorReported
+        ErrorReported::new()
     }
 }
 
@@ -318,7 +319,7 @@ pub struct DummyEmitter;
 impl Emitter for DummyEmitter {
     fn _root_emitter(&self) -> &RootEmitter { panic!("_root_emitter called on DummyEmitter") }
     fn _unspanned_prefix(&self) -> String { String::new() }
-    fn emit(&self, _: impl IntoDiagnostics) -> ErrorReported { ErrorReported }
+    fn emit(&self, _: impl IntoDiagnostics) -> ErrorReported { ErrorReported::new() }
 }
 
 #[derive(Clone)]

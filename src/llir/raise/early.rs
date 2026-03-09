@@ -678,7 +678,7 @@ impl AtomRaiser<'_, '_> {
         let mut outputs = vec![];
         for &(index, mode) in outputs_info {
             let var = self.raise_arg_to_reg(emitter, &args[index], &encodings[index], mode)
-                .map_err(|ErrorReported| CannotRaiseIntrinsic)?;
+                .map_err(|ErrorReported { .. } | CannotRaiseIntrinsic)?;
 
             outputs.push(var);
         }
@@ -687,7 +687,7 @@ impl AtomRaiser<'_, '_> {
         for &index in plain_args_info {
             let dest_label = None;  // offset and time are not plain args so this is irrelevant
             let expr = self.raise_arg(emitter, &args[index], &encodings[index], dest_label)
-                .map_err(|ErrorReported| CannotRaiseIntrinsic)?;
+                .map_err(|ErrorReported { .. } | CannotRaiseIntrinsic)?;
 
             plain_args.push(expr);
         }

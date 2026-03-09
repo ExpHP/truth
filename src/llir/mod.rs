@@ -536,7 +536,7 @@ mod test_reader {
             );
             let diagnostic_str = truth.get_captured_diagnostics().unwrap();
             match result {
-                Err(ErrorReported) => Err(diagnostic_str),
+                Err(ErrorReported { .. }) => Err(diagnostic_str),
                 Ok(output) => Ok(SuccessfulOutput { output, warnings: diagnostic_str }),
             }
         }

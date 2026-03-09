@@ -690,7 +690,12 @@ fn wrap_exit_code(func: impl FnOnce(&mut Truth) -> Result<(), ErrorReported>) ->
 
     match func(&mut truth) {
         Ok(()) => std::process::exit(0),
-        Err(ErrorReported) => std::process::exit(1),
+        Err(ErrorReported { backtrace }) => {
+            if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+                eprintln!("{backtrace}");
+            }
+            std::process::exit(1)
+        }
     }
 }
 

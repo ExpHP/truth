@@ -354,27 +354,27 @@ impl ExprTypeChecker<'_, '_> {
 
             ast::Expr::Ternary { ref cond, question, ref left, colon, ref right }
             => {
-                let left_ty = self.check_expr_as_value(left, question.span);
-                let right_ty = self.check_expr_as_value(right, colon.span);
-                let cond_ty = self.check_expr_as_value(cond, colon.span);
+                let left_ty = self.check_expr_as_value(left, question.span)?;
+                let right_ty = self.check_expr_as_value(right, colon.span)?;
+                let cond_ty = self.check_expr_as_value(cond, colon.span)?;
 
-                self.require_int(cond_ty?, question.span, cond.span)?;
-                self.require_same((left_ty?, right_ty?), colon.span, (left.span, right.span))?;
-                ExprType::Value(left_ty?)
+                self.require_int(cond_ty, question.span, cond.span)?;
+                let output_ty = self.require_same((left_ty, right_ty), colon.span, (left.span, right.span))?;
+                ExprType::Value(output_ty)
             },
 
             ast::Expr::DiffSwitch(ref cases)
             => {
                 let first = cases[0].as_ref().expect("empty first woulda been parse error");
-                let first_ty = self.check_expr_as_value(first, expr.span);
+                let mut output_ty = self.check_expr_as_value(first, expr.span)?;
 
                 for other in &cases[1..] {
                     if let Some(other) = other {
-                        let other_ty = self.check_expr_as_value(other, expr.span);
-                        self.require_same((first_ty?, other_ty?), expr.span, (first.span, other.span))?;
+                        let other_ty = self.check_expr_as_value(other, expr.span)?;
+                        output_ty = self.require_same((output_ty, other_ty), expr.span, (first.span, other.span))?;
                     }
                 }
-                ExprType::Value(first_ty?)
+                ExprType::Value(output_ty)
             },
 
             ast::Expr::LabelProperty { keyword: _, label: _ }

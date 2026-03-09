@@ -1,17 +1,22 @@
+use std::backtrace::Backtrace;
+
 use crate::pos::{FileId};
 
-/// A dummy error type with no payload.
+/// A dummy error type with no payload (other than a backtrace).
 ///
 /// This type is returned by [`RootEmitter::emit`] for potential use as an error type.
 /// More generally, this could be used by any function that "emits" its errors through some form of side effect.
 /// E.g. a function could call a callback, or a private method may push an item onto a `Vec` field.
 ///
 /// This type very deliberately does not implement [`std::error::Error`] or [`std::fmt::Display`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 #[must_use = "When reporting an error, you usually also want to return Err.  Call `.ignore()` to explicitly ignore."]
-pub struct ErrorReported;
+pub struct ErrorReported { pub backtrace: Backtrace }
 
 impl ErrorReported {
+    pub fn new() -> Self {
+        ErrorReported { backtrace: Backtrace::capture() }
+    }
     /// Explicitly drop this [`ErrorReported`] value.
     ///
     /// This is like `let _ = ...` or `drop(...)`, but as a named method that helps clarify intent (and that would
@@ -22,11 +27,11 @@ impl ErrorReported {
 
 // =============================================================================
 
-// FIXME: If this looks overengineered, it's because it is.
-//        It is naught but a ghastly remnant of some ErrorStore type that used to exist.
 /// An accumulator for errors that provides a straightforward way of converting to
 /// a `Result<T, ErrorReported>` based on whether any errors have occurred.
-#[derive(Debug, Clone, Default)]
+///
+/// Now that we have backtraces, it's not exactly a "flag" anymore....
+#[derive(Debug, Default)]
 pub struct ErrorFlag {
     errors: Option<ErrorReported>,
 }
@@ -36,8 +41,10 @@ impl ErrorFlag {
     pub fn new() -> Self { Default::default() }
 
     /// Force this [`ErrorFlag`] into the error state.
+    ///
+    /// If backtraces are enabled, the earliest backtrace is kept.
     pub fn set(&mut self, e: ErrorReported) {
-        self.errors = Some(e);
+        self.errors.get_or_insert(e);
     }
 
     /// Become an `Ok` if empty, and an `Err` otherwise.
