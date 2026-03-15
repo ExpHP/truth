@@ -82,6 +82,7 @@ impl VisitMut for InsertLocalScopeEndsVisitor<'_> {
             x.0.push(sp!(span => ast::Stmt {
                 node_id: Some(self.unused_node_ids.next()),
                 diff_label: None,
+                offset_comment: None,
                 kind: ast::StmtKind::ScopeEnd(def_id),
             }));
         }
@@ -148,6 +149,7 @@ impl VisitMut for BreakContinueToGotoVisitor<'_> {
             block.0.insert(insertion_index, sp!(loop_end_span => ast::Stmt {
                 node_id: Some(self.unused_node_ids.next()),
                 diff_label: None,
+                offset_comment: None,
                 kind: ast::StmtKind::Label(sp!(loop_end_span => self.loop_end_label_name(loop_id))),
             }));
         }
@@ -412,6 +414,7 @@ impl Desugarer<'_, '_> {
         self.out.push(sp!(span => ast::Stmt {
             node_id: Some(self.ctx.next_node_id()),
             diff_label: diff_label.cloned(),
+            offset_comment: None,
             kind,
         }))
     }

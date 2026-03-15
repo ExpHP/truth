@@ -106,6 +106,7 @@ string_enum! {
 pub struct Stmt {
     pub node_id: Option<NodeId>,
     pub diff_label: Option<Sp<DiffLabel>>,
+    pub offset_comment: Option<OffsetComment>,
     pub kind: StmtKind,
 }
 
@@ -117,6 +118,15 @@ pub struct DiffLabel {
     pub mask: Option<crate::bitset::BitSet32>,
     pub string: Sp<LitString>,
 }
+
+/// Output from `--show-instr-offsets`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OffsetComment {
+    // These aren't AST integer literals because (a) they will be living inside a comment,
+    // and (b) they won't be formatted quite the same. (zero-padding to align, etc.)
+    pub subrel_offset: raw::BytePos,
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
@@ -1147,7 +1157,7 @@ macro_rules! generate_visitor_stuff {
         pub fn walk_stmt<V>(v: &mut V, x: & $($mut)? Sp<Stmt>)
         where V: ?Sized + $Visit,
         {
-            let Stmt { node_id, kind, diff_label } = & $($mut)? x.value;
+            let Stmt { node_id, kind, diff_label, .. } = & $($mut)? x.value;
 
             v.visit_node_id(node_id);
 

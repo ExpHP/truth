@@ -23,7 +23,7 @@ impl SingleSubRaiser<'_, '_> {
         for instr in script {
             label_gen.emit_labels_for_instr(&mut out, instr);
             self.raise_instr(emitter, &instr, |stmt| {
-                out.push(self.make_stmt(instr.difficulty_mask, stmt))
+                out.push(self.make_stmt(instr.difficulty_mask, instr.subrel_offset, stmt))
             });
         }
 
@@ -286,7 +286,7 @@ impl LabelEmitter {
         emit: &mut impl FnMut(Sp<ast::Stmt>),
     ) {
         // labels don't need to worry about difficulty
-        let make_stmt = |kind| sp!(ast::Stmt { node_id: None, diff_label: None, kind });
+        let make_stmt = |kind| sp!(ast::Stmt { node_id: None, diff_label: None, offset_comment: None, kind });
 
         // in the current implementation there is at most one regular label at this offset, which
         // may be before or after a relative time jump.

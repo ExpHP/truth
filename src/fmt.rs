@@ -646,6 +646,10 @@ impl Format for ast::FuncParam {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
+        if let Some(offset_comment) = &self.offset_comment {
+            let subrel = offset_comment.subrel_offset;
+            out.fmt(format_args!("/* {subrel:#x} */  "))?;
+        }
         if let Some(diff_label) = &self.diff_label {
             out.fmt((diff_label, "  "))?;
         }

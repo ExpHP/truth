@@ -315,6 +315,7 @@ impl FinalCasesType {
                         $crate::ast::Stmt {{
                             node_id: None,
                             diff_label: None,
+                            offset_comment: None,
                             kind: {},
                         }}
                     "#, body_expr),

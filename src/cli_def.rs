@@ -867,10 +867,25 @@ mod cli {
             short: "", long: "no-diff-switches",
             help: "prevent decompilation of diff switches, forcing direct usage of difficulty flags",
         };
-        let zipped = no_intrinsics.zip(no_blocks).zip(no_arguments).zip(no_diff_switches);
-        zipped.map(|(((no_intrinsics, no_blocks), no_arguments), no_diff_switches)| DecompileOptions {
-            intrinsics: !no_intrinsics, blocks: !no_blocks, arguments: !no_arguments,
-            diff_switches: !no_diff_switches
+        let show_instr_offsets = opts::Flag {
+            short: "", long: "show-instr-offsets",
+            help: "display instruction offsets.  Implies --no-intrinsics --no-diff-switches",
+        };
+        let zipped = no_intrinsics.zip(no_blocks).zip(no_arguments).zip(no_diff_switches).zip(show_instr_offsets);
+        let zipped = zipped.map(|((((a, b), c), d), e)| (a, b, c, d, e));  // flatten
+
+        zipped.map(|(mut no_intrinsics, no_blocks, no_arguments, mut no_diff_switches, show_instr_offsets)| {
+            if show_instr_offsets {
+                no_intrinsics = true;
+                no_diff_switches = true;
+            }
+            DecompileOptions {
+                intrinsics: !no_intrinsics,
+                blocks: !no_blocks,
+                arguments: !no_arguments,
+                diff_switches: !no_diff_switches,
+                show_instr_offsets,
+            }
         })
     }
 

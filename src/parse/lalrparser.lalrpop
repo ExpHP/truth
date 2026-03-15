@@ -281,10 +281,10 @@ PossiblyNumericIdent: Ident = {
 
 Stmt: ast::Stmt = {
     <diff_label:Sp<DiffLabel>> <kind:StmtKindPhysical>
-        => ast::Stmt { kind, diff_label: Some(diff_label), node_id: None },
+        => ast::Stmt { kind, diff_label: Some(diff_label), offset_comment: None, node_id: None },
 
     <kind:StmtKind>
-        => ast::Stmt { kind, diff_label: None, node_id: None },
+        => ast::Stmt { kind, diff_label: None, offset_comment: None, node_id: None },
 };
 
 #[inline]
@@ -447,11 +447,13 @@ BlockInnards: ast::Block = {
         code.insert(0, sp!(start_span => ast::Stmt {
             node_id: None,
             diff_label: None,
+            offset_comment: None,
             kind: ast::StmtKind::NoInstruction,
         }));
         code.push(sp!(end_span => ast::Stmt {
             node_id: None,
             diff_label: None,
+            offset_comment: None,
             kind: ast::StmtKind::NoInstruction,
         }));
         ast::Block(code)

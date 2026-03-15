@@ -40,23 +40,27 @@ mod infer_pcb_signatures;
 #[derive(Debug, Clone)]
 pub struct DecompileOptions {
     pub arguments: bool,
-    pub intrinsics: bool,  // invariant: intrinsics implies arguments
+    pub intrinsics: bool,
     pub blocks: bool,
     pub diff_switches: bool,
+    pub show_instr_offsets: bool,
 }
 
 impl DecompileOptions {
-    /// Construct with all features enabled.
+    /// Construct with all features in their default setting.
     pub fn new() -> Self { Default::default() }
 }
 
 impl Default for DecompileOptions {
     fn default() -> Self {
         DecompileOptions {
+            // decompile as much as possible by default
             arguments: true,
             intrinsics: true,
             blocks: true,
             diff_switches: true,
+            // don't include ancillary debug information
+            show_instr_offsets: false,
         }
     }
 }
@@ -86,6 +90,8 @@ struct RaiseInstr {
     labels: Vec<Label>,
     time: raw::Time,
     difficulty_mask: raw::DifficultyMask,
+    /// This is only used by `--show-instr-offsets`.
+    subrel_offset: raw::BytePos,
     kind: RaiseIntrinsicKind,
     parts: RaisedIntrinsicParts,
     /// If something prevents this [`RaiseInstr`] from being converted into AST statements,
@@ -274,10 +280,12 @@ struct SingleSubRaiser<'a, 'ctx> {
 }
 
 impl SingleSubRaiser<'_, '_> {
-    fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, kind: ast::StmtKind) -> Sp<ast::Stmt> {
+    fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, subrel_offset: raw::BytePos, kind: ast::StmtKind) -> Sp<ast::Stmt> {
+        let offset_comment = self.options.show_instr_offsets.then_some(ast::OffsetComment { subrel_offset });
         sp!(ast::Stmt {
             node_id: None,
             diff_label: self.make_diff_label(difficulty_mask),
+            offset_comment,
             kind,
         })
     }

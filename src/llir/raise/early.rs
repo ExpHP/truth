@@ -110,6 +110,7 @@ fn early_raise_intrinsics(
             labels: Vec::from_iter(offset_labels.get(&instr.offset).cloned()),
             time: instr.time,
             difficulty_mask: instr.difficulty_mask,
+            subrel_offset: instr.offset,
             kind, parts,
         };
 
@@ -172,6 +173,7 @@ fn early_raise_intrinsics(
         labels: Vec::from_iter(offset_labels.get(&end_offset).cloned()),
         time: end_time,
         difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
+        subrel_offset: end_offset,
         kind: RaiseIntrinsicKind::End,
         parts: Default::default(),
     });
