@@ -90,7 +90,7 @@ source_test!(
     label:
         goto label @ 100;
 "#,
-    expect_error: expected::NOT_SUPPORTED_BY_FORMAT,
+    expect_nospan_error: expected::NOT_SUPPORTED_BY_FORMAT,
 );
 
 source_test!(
@@ -107,7 +107,7 @@ source_test!(
             nop();
         }
 "#,
-    expect_error: "try inserting a nop before",
+    expect_nospan_error: "try inserting a nop before",
 );
 
 // =============================================================================

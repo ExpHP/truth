@@ -27,7 +27,7 @@ macro_rules! lazy_error_source_tests {
                 $FORMAT, failure,
                 compile_args: &["-i", $image_source_1],
                 full_source: $full_source,
-                $(expect_error: $expect_error,)?
+                $(expect_nospan_error: $expect_error,)?
             );
 
             source_test!(
@@ -48,7 +48,7 @@ source_test!(
     items: r#"
         #pragma image_source "this/is/a/bad/path"
     "#,
-    expect_error: "while resolving",
+    expect_nospan_error: "while resolving",
 );
 
 // Tests that copy an embedded image
@@ -299,7 +299,7 @@ entry {
     low_res_scale: false,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 512.0, h: 480.0}},
 }"#,
-        expect_error: "no bitmap data",
+        expect_nospan_error: "no bitmap data",
     );
 }
 
@@ -637,7 +637,7 @@ entry {
     img_format: FORMAT_GRAY_8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "from unknown color format",
+        expect_nospan_error: "from unknown color format",
     );
 
     source_test!(
@@ -652,7 +652,7 @@ entry {
     img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "into unknown color format",
+        expect_nospan_error: "into unknown color format",
     );
 
     source_test!(
@@ -685,7 +685,7 @@ entry {
     img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "unknown color format",
+        expect_nospan_error: "unknown color format",
     );
 
     source_test!(
@@ -701,7 +701,7 @@ entry {
     has_data: "dummy",
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "unknown color format",
+        expect_nospan_error: "unknown color format",
     );
 
     source_test!(
@@ -733,7 +733,7 @@ entry {
     img_format: 8,
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "into unknown color format",
+        expect_nospan_error: "into unknown color format",
     );
 
     source_test!(
@@ -750,7 +750,7 @@ entry {
     path: "teeny.png",
     sprites: {sprite0: {id: 0, x: 0.0, y: 0.0, w: 10.0, h: 10.0}},
 }"#,
-        expect_error: "into unknown color format",
+        expect_nospan_error: "into unknown color format",
     );
 }
 
@@ -1153,5 +1153,5 @@ entry {
     rt_width: 16,
     sprites: {sprite0: {id: 0, x: 1.0, y: 1.0, w: 111.0, h: 111.0}},
 }"#,
-    expect_warning: "too small for",
+    expect_nospan_warning: "too small for",
 );

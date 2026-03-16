@@ -75,7 +75,7 @@ meta {
 
 script main {}
 "#,
-    expect_warning: "TH08 and TH09",
+    expect_nospan_warning: "TH08 and TH09",
 );
 
 source_test!(

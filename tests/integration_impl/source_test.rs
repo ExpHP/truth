@@ -12,6 +12,24 @@ use lazy_static::lazy_static;
 /// test and a compile-fail test (a thing you frequently have to do when making a group of tests
 /// that share a lot of source).
 ///
+/// A `source_test` may perform all of the following:
+///
+/// * Compilation of a source code snippet.
+///   - optional inspection of the compiled file via [`SourceTest::check_compiled`]
+///   - checking of expected diagnostics via comments in the source snippet
+///   - **Compilation diagnostics are always snapshotted.**
+/// * Decompilation of the compiled result.
+///   - oftentimes this is done to test decompilation, though there may exist tests
+///     that are using the decompiled result to probe the compiled result.
+///   - occurs as long as at least one attribute that depends on decompilation is supplied.
+///     ([`SourceTest::check_decompiled`], [`SourceTest::expect_decompile_warning`],
+///     [`SourceTest::expect_decompile_error`], [`SourceTest::require_roundtrip`]).
+///   - decompiled output can be snapshotted using [`assert_snapshot!`] inside [`SourceTest::check_decompiled`].
+/// * Recompilation of THAT decompiled result.
+///   - this is done to ensure byte-for-byte roundtripping.
+///   - occurs as long as decompilation occurred and succeeded.
+///   - can be disabled with [`SourceTest::recompile`]`: false` or [`SourceTest::require_roundtrip`]`: false`.
+///
 /// The available test attributes currently come directly from the methods on [`SourceTest`].
 /// (one might ask, why use this macro when one could use that builder API directly?
 ///  The answer is partly historical, but also partly because a macro of some form is necessary
@@ -161,46 +179,96 @@ impl SourceTest {
         (file, diagnostics)
     }
 
-    // source
+    //-----------------------
+    //---- Compile input ----
+    //-----------------------
+
+    /// Use a default template built into the [`Format`], placing the provided source code into the body of a main subroutine.
+    ///
+    /// `//~ ERROR` and `//~ WARNING` comments must be used to label expected diagnostics, provided they have spans.
     pub fn main_body(&mut self, text: impl Into<String>) {
         self.source.main_body = Some(text.into());
     }
+    /// This can be used alongside [`Self::main_body`] to provide additional subs, consts, and meta while still
+    /// leveraging the template built into the test's [`Format`].
+    ///
+    /// `//~ ERROR` and `//~ WARNING` comments must be used to label expected diagnostics, provided they have spans.
     pub fn items(&mut self, text: impl Into<String>) {
         self.source.items = Some(text.into());
     }
+    /// Override the template built into the [`Format`] by supplying the full source code of a test file.
+    ///
+    /// Generally used by tests playing around with toplevel meta, such as that found in STD or MSG.
+    ///
+    /// `//~ ERROR` and `//~ WARNING` comments must be used to label expected diagnostics, provided they have spans.
     pub fn full_source(&mut self, text: impl Into<Vec<u8>>) {
         self.source.full_source = Some(text.into());
     }
 
-    // shared (compile/decompile)
+    //----------------------
+    //---- Shared stuff ----
+    //----------------------
+
+    /// Provide a mapfile during both compilation and, if performed, decompilation.
     pub fn mapfile(&mut self, text: impl Into<String>) {
         let (mapfile, diagnostics) = self.make_mapfile(text);
         self.options.shared_mapfiles.push(mapfile);
         self.options.compile.expected.expect_diagnostics(diagnostics);
     }
 
-    // compile input
+    //-----------------------
+    //---- Compile input ----
+    //-----------------------
+
+    /// Provide additional args during compilation.
     pub fn compile_args(&mut self, args: &[impl AsRef<OsStr>]) {
         self.options.compile.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned()));
     }
+    /// Provide a mapfile only during compilation.
     pub fn compile_mapfile(&mut self, text: impl Into<String>) {
         let (mapfile, diagnostics) = self.make_mapfile(text);
         self.options.compile.mapfiles.push(mapfile);
         self.options.compile.expected.expect_diagnostics(diagnostics);
     }
-    // compile result
-    pub fn expect_error(&mut self, text: impl Into<String>) {
-        self.options.compile.expected.expect_error(text.into());
-    }
-    pub fn expect_warning(&mut self, text: impl Into<String>) {
-        self.options.compile.expected.expect_warning(text.into());
-    }
+
+    //------------------------
+    //---- Compile result ----
+    //------------------------
+
+    /// Execute a function containing assertions on the compiled binary file.
+    ///
+    /// The [`TestFile`] provided contains methods like [`TestFile::read_anm`] to inspect
+    /// the compiled file.
     pub fn check_compiled(&mut self, func: impl FnMut(&TestFile, &Format) + 'static) {
         self.expect_compilation_to_succeed();
         self.options.check_compiled = Some(Box::new(func));
     }
+    /// Expect an error, with no span info, containing the given substring.
+    ///
+    /// A single instance of this attribute will match a single diagnostic.  If there are multiple errors,
+    /// you must provide multiple `expect_nospan_error:`s.
+    ///
+    /// This cannot match errors attached to a source span.  Use `//~ ERROR` tags inside
+    /// the source text instead.
+    pub fn expect_nospan_error(&mut self, text: impl Into<String>) {
+        self.options.compile.expected.expect_error(text.into());
+    }
+    /// Expect a warning, with no span info, containing the given substring.
+    ///
+    /// A single instance of this attribute will match a single diagnostic.  If there are multiple warnings,
+    /// you must provide multiple `expect_nospan_warning:`s.
+    ///
+    /// This cannot match errors attached to a source span.  Use `//~ WARNING` tags inside
+    /// the source text instead.
+    pub fn expect_nospan_warning(&mut self, text: impl Into<String>) {
+        self.options.compile.expected.expect_warning(text.into());
+    }
 
-    // decompile input
+    //-------------------------
+    //---- Decompile input ----
+    //-------------------------
+
+    /// Add arguments to the decompile test.
     pub fn decompile_args(&mut self, args: &[impl AsRef<OsStr>]) {
         self.expect_decompilation_can_run();
         self.options.decompile.extra_args.extend(args.iter().map(|x| x.as_ref().to_owned()));
@@ -212,31 +280,61 @@ impl SourceTest {
         self.options.decompile.mapfiles.push(mapfile);
         self.options.decompile.expected.expect_diagnostics(diagnostics);
     }
-    // decompile result
+
+    //--------------------------
+    //---- Decompile result ----
+    //--------------------------
+
+    /// Decompile the compiled result, and run a callback containing assertions on it.
+    ///
+    /// By default, any attribute such as this which forces decompilation to occur will also enable a roundtrip test
+    /// that recompiles the decompiled output.  This can be disabled using [`Self::require_roundtrip`].
+    ///
+    /// **Tip:** You can use `assert_snapshot!(decompiled)` in the callback to do a snapshot test.
     pub fn check_decompiled(&mut self, func: impl FnMut(&str) + 'static) {
         self.expect_decompilation_to_succeed();
         self.options.check_decompiled = Some(Box::new(func));
     }
+    /// Decompile the compiled result, expecting a single, unspanned decompile warning with a given substring pattern.
+    ///
+    /// A single instance of this attribute will match a single diagnostic.  If there are multiple warnings,
+    /// you must provide multiple `expect_nospan_wwarning:`s.
+    ///
+    /// By default, any attribute such as this which forces decompilation to occur will also enable a roundtrip test
+    /// that recompiles the decompiled output.  This can be disabled using [`Self::require_roundtrip`].
     pub fn expect_decompile_warning(&mut self, text: impl Into<String>) {
         self.expect_decompilation_can_run();
         self.options.decompile.expected.expect_warning(text.into());
     }
+    /// Decompile the compiled result, expecting a single, unspanned decompile error with a given substring pattern.
+    ///
+    /// A single instance of this attribute will match a single diagnostic.  If there are multiple errors,
+    /// you must provide multiple `expect_nospan_error:`s.
     pub fn expect_decompile_error(&mut self, text: impl Into<String>) {
         self.expect_decompilation_can_run();
         self.options.decompile.expected.expect_error(text.into());
     }
 
-    /// If true (default), recompilation is attempted after any decompilation.
+    //--------------------------
+    //---- Recompile result ----
+    //--------------------------
+
+    /// This can be set to `false` to disable the recompilation that happens by default after a successful decompilation.
     ///
-    /// (mind: decompilation is normally only attempted if [`Self::check_decompiled`],
-    ///  [`Self::expect_decompile_warning`], or [`Self::expect_decompile_error`] is used)
+    /// This exists for extremely rare circumstances where it is not necessarily expected that the decompiled result should
+    /// be able to recompile **at all**.  If you just want to disable the roundtrip test, use [`Self::require_roundtrip`].
+    ///
+    /// With all the fallback behavior contained in truth, even in the extremely rare test that uses this, it probably still
+    /// does recompile; we're just keeping the option open to let it fail.
     pub fn recompile(&mut self, value: bool) {
         self.expect_recompilation_can_run();
         self.options.skip_recompile = !value;
     }
-    /// If true (default) and recompilation occurs, it must match the first compilation.
+    /// Force recompilation to occur, and set whether it is tested that the recompiled file must match the first compilation.
     ///
-    /// (mind: recompilation normally occurs only if decompilation occurs AND succeeds)
+    /// **Notice:** Roundtrip testing is already implied by [`Self::check_decompiled`] and [`Self::expect_decompile_warning`].
+    /// You can use `require_roundtrip: false` in such tests to disable this check.
+    /// You can also use `require_roundtrip: true` to enable decompilation on a test that *doesn't* include these attributes.
     pub fn require_roundtrip(&mut self, value: bool) {
         self.expect_recompilation_can_run();
         self.options.skip_roundtrip = !value;
@@ -268,6 +366,7 @@ impl ProgramResult {
 }
 
 impl SourceTest {
+    #[doc(hidden)]  // used by source_test! macro
     #[track_caller]
     pub fn run(
         mut self,

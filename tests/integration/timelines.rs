@@ -110,7 +110,7 @@ source_test!(
 script foo { ins_10(100); }
 script bar { ins_10(100); }
 "#,
-    expect_error: "too many timelines",
+    expect_nospan_error: "too many timelines",
 );
 
 source_test!(
@@ -137,6 +137,6 @@ script timeline13 { ins_10(100); }
 script timeline14 { ins_10(100); }
 script timeline15 { ins_10(100); }
 "#,
-    expect_error: "too many timelines",
+    expect_nospan_error: "too many timelines",
 );
 
