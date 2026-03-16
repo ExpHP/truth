@@ -52,7 +52,9 @@ pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
     if decompile_options.blocks {
         // decompile loops before if/else for better detection of continue/break
         decompile_loop::decompile_loop(script, ctx)?;
+        sanity_check::validate_block_bookending(script)?;
         decompile_loop::decompile_if_else(script, ctx)?;
+        sanity_check::validate_block_bookending(script)?;
         decompile_loop::decompile_break(script, ctx)?;
         unused_labels::run(script)?;
     }

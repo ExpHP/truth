@@ -2,14 +2,14 @@
 source: tests/integration/show_instr_offsets.rs
 expression: decompiled
 ---
-#pragma mapfile "Xx_mapfile-1_xX"
+#pragma mapfile "Xx_mapfile-1_xX""
 
 script timeline0 {
-}
+ /* (0x7c) 0x0 */ }
 
 
 void sub0() {
-    /* 0x0 */  {"EN"}:  $REG[10000] = 2;
-    /* 0x14 */  {"HL"}:  $REG[10000] = 4;
-}
+ /* (0x48) 0x00 */ {"EN"}:  $REG[10000] = 2;
+ /* (0x5c) 0x14 */ {"HL"}:  $REG[10000] = 4;
+ /* (0x70) 0x28 */ }
 

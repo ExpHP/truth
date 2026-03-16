@@ -145,6 +145,7 @@ fn compile(
     let sub_format = &*game_sub_format(format.game);
 
     let mut ast = ast.clone();
+    crate::passes::sanity_check::validate_block_bookending(&ast)?;
     crate::passes::resolution::AssignLanguagesOptions {
         funcs: LanguageKey::Ecl,
         scripts: LanguageKey::Timeline,

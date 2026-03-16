@@ -1,4 +1,3 @@
-use codespan::Offset;
 use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast::{self, meta, Meta};
@@ -1089,7 +1088,7 @@ impl OffsetCommentFormatter {
         //
         // The trailing bookend definitely has an offset comment when --show-instr-offsets is enabled, so it's
         // the only thing we need to look at.
-        let end_comment = block.last_stmt().offset_comment.as_ref();
+        let end_comment = block.0.last().and_then(|stmt| stmt.offset_comment.as_ref());
         OffsetCommentFormatter {
             has_offset_comments: end_comment.is_some(),
             subrel_digits: end_comment.map(|c| hexdigit_count(c.subrel_offset)).unwrap_or(0),

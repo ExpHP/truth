@@ -159,6 +159,7 @@ fn compile(
 
     let mut ast = ast.clone();
 
+    crate::passes::sanity_check::validate_block_bookending(&ast)?;
     crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
     crate::passes::resolution::compute_diff_label_masks(&mut ast, ctx)?;
 

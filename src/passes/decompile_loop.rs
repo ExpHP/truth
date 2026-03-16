@@ -392,6 +392,13 @@ impl VisitMut for LoopVisitor<'_, '_> {
                 Some(jmp) => match should_decompile_loop(&interrupt_label_indices, &out_indices, scan_index, &jmp) {
                     ShouldDecompileLoop::No => continue,  // the stars have not aligned
                     ShouldDecompileLoop::Yes { label_pos_in_current_output } => {
+                        let make_bookend = || ast::Stmt {
+                            node_id: Some(self.ctx.next_node_id()),
+                            diff_label: None,
+                            offset_comment: None,
+                            kind: ast::StmtKind::NoInstruction,
+                        };
+
                         // consolidate everything after the label into a loop
                         let trim_from = label_pos_in_current_output + 1;
 
@@ -399,9 +406,14 @@ impl VisitMut for LoopVisitor<'_, '_> {
 
                         // (the loop jump guarantees we have at least one statement so this won't panic)
                         let inner_span = new_block.start_span().merge(new_block.end_span());
+                        let start_bookend_span = new_block.start_span();
 
                         // Don't need the jump anymore.
-                        new_block.0.pop().unwrap();
+                        let removed_jump = new_block.0.pop().unwrap();
+                        let end_bookend_span = removed_jump.span.start_span();
+
+                        new_block.0.insert(0, sp!(start_bookend_span => make_bookend()));
+                        new_block.0.push(sp!(end_bookend_span => make_bookend()));
 
                         // Construct the loop statement.
                         out_stmts.push(sp!(inner_span => ast::Stmt {

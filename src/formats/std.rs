@@ -287,6 +287,7 @@ fn compile_std(
         let mut ast = script.clone();
 
         let language = format.language_hooks().language();
+        crate::passes::sanity_check::validate_block_bookending(&ast)?;
         crate::passes::resolution::assign_languages(&mut ast, language, ctx)?;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;
@@ -352,9 +353,7 @@ fn compile_std(
     let mut lowerer = crate::llir::Lowerer::new(hooks);
     let do_debug_info = true;
 
-    let lowering_info;
-    let instrs;
-    (instrs, lowering_info) = lowerer.lower_sub(&main_sub.0, None, ctx, do_debug_info).unwrap_or_else(|e| {
+    let (instrs, lowering_info) = lowerer.lower_sub(&main_sub.0, None, ctx, do_debug_info).unwrap_or_else(|e| {
         errors.set(e);
         (vec![], None) // dummy instructions so we can call lowerer.finish before returning
     });
