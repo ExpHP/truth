@@ -62,6 +62,32 @@ impl RawInstr {
     };
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RawScript {
+    pub instrs: Vec<RawInstr>,
+    pub file_offset: Option<raw::BytePos>,
+}
+
+impl std::ops::Deref for RawScript {
+    type Target = [RawInstr];
+
+    fn deref(&self) -> &Self::Target {
+        &self.instrs
+    }
+}
+
+impl std::ops::DerefMut for RawScript {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.instrs
+    }
+}
+
+impl From<Vec<RawInstr>> for RawScript {
+    fn from(instrs: Vec<RawInstr>) -> Self {
+        RawScript { instrs, file_offset: None }
+    }
+}
+
 /// A simple argument, which is either an immediate or a register reference.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SimpleArg {

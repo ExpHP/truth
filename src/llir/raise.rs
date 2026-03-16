@@ -6,13 +6,12 @@ use crate::ident::{Ident};
 use crate::pos::{Sp};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
-use crate::llir::{RawInstr, LanguageHooks, IntrinsicInstrs, IntrinsicInstrKind};
+use crate::llir::{RawScript, LanguageHooks, IntrinsicInstrs, IntrinsicInstrKind};
 use crate::context::{self, CompilerContext, defs::ConstNames};
 use crate::game::LanguageKey;
 use crate::passes::semantics::time_and_difficulty::{DEFAULT_DIFFICULTY_MASK_BYTE};
 use crate::bitset::BitSet32;
 use crate::formats::ecl::ecl_06;
-
 use IntrinsicInstrKind as IKind;
 
 macro_rules! ensure {
@@ -92,13 +91,13 @@ struct RaiseInstr {
     labels: Vec<Label>,
     time: raw::Time,
     difficulty_mask: raw::DifficultyMask,
-    /// This is only used by `--show-instr-offsets`.
-    subrel_offset: raw::BytePos,
     kind: RaiseIntrinsicKind,
     parts: RaisedIntrinsicParts,
     /// If something prevents this [`RaiseInstr`] from being converted into AST statements,
     /// it needs a fallback to render instead.
     fallback_expansion: Option<Vec<RaiseInstr>>,
+    /// This is only present when using `--show-instr-offsets`.
+    offset_comment: Option<ast::OffsetComment>,
 }
 
 /// Result of raising an intrinsic's arguments.
@@ -210,7 +209,7 @@ impl<'a> Raiser<'a> {
     pub fn raise_instrs_to_sub_ast(
         &mut self,
         emitter: &dyn Emitter,
-        raw_script: &[RawInstr],
+        raw_script: &RawScript,
         ctx: &CompilerContext<'_>,
     ) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let middle = self.raise_instrs_to_middle(&emitter, raw_script, ctx)?;
@@ -220,7 +219,7 @@ impl<'a> Raiser<'a> {
     pub fn raise_instrs_to_middle(
         &mut self,
         emitter: &dyn Emitter,
-        raw_script: &[RawInstr],
+        raw_script: &RawScript,
         ctx: &CompilerContext<'_>,
     ) -> Result<RaiseScript, ErrorReported> {
         Ok(RaiseScript { instrs: _raise_instrs_to_middle(self, &emitter, raw_script, ctx)? })
@@ -260,7 +259,7 @@ impl<'a> Raiser<'a> {
 fn _raise_instrs_to_middle(
     raiser: &mut Raiser,
     emitter: &impl Emitter,
-    raw_script: &[RawInstr],
+    raw_script: &RawScript,
     ctx: &CompilerContext,
 ) -> Result<Vec<RaiseInstr>, ErrorReported> {
     let mut middle_instrs = early::early_raise_instrs(raiser, emitter, raw_script, ctx)?;
@@ -282,8 +281,7 @@ struct SingleSubRaiser<'a, 'ctx> {
 }
 
 impl SingleSubRaiser<'_, '_> {
-    fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, subrel_offset: raw::BytePos, kind: ast::StmtKind) -> Sp<ast::Stmt> {
-        let offset_comment = self.options.show_instr_offsets.then_some(ast::OffsetComment { subrel_offset });
+    fn make_stmt(&self, difficulty_mask: raw::DifficultyMask, offset_comment: Option<ast::OffsetComment>, kind: ast::StmtKind) -> Sp<ast::Stmt> {
         sp!(ast::Stmt {
             node_id: None,
             diff_label: self.make_diff_label(difficulty_mask),

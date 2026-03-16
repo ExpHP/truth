@@ -11,7 +11,7 @@ use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::value::{ScalarType};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
+use crate::llir::{self, ReadInstr, RawInstr, RawScript, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
 use crate::resolve::{RegId};
 use crate::context::CompilerContext;
 use crate::context::defs::auto_enum_names;
@@ -22,7 +22,7 @@ use crate::debug_info;
 /// Game-independent representation of an ECL file from TH10 onwards.
 #[derive(Debug, Clone)]
 pub struct StackEclFile {
-    pub subs: IndexMap<Sp<String>, Vec<RawInstr>>,
+    pub subs: IndexMap<Sp<String>, RawScript>,
     pub anim_list: Vec<Sp<String>>,
     pub ecli_list: Vec<Sp<String>>,
     /// Filename of a read binary file, for display purposes only.
@@ -103,11 +103,11 @@ fn decompile(
 
     // Decompile ECL subs only halfway
     let mut decompiled_subs = IndexMap::new();
-    for (export_name, instrs) in ecl.subs.iter() {
+    for (export_name, sub) in ecl.subs.iter() {
         let ident = sub_idents[&export_name.value].clone();
         decompiled_subs.insert(ident.clone(), {
             emitter.chain_with(|f| write!(f, "in {ident}"), |emitter| {
-                raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
+                raiser.raise_instrs_to_sub_ast(emitter, sub, ctx)
             })?
         });
     }
@@ -242,7 +242,7 @@ fn compile(
                 }
 
                 let (instrs, lowering_info) = lowerer.lower_sub(&code.0, None, ctx, do_debug_info)?;
-                subs.insert(exported_name.clone(), instrs);
+                subs.insert(exported_name.clone(), RawScript { instrs, file_offset: None });
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
@@ -386,16 +386,21 @@ fn read(
             }
         }
 
+        let mut file_offset = None;
         let instrs = emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
             reader.seek_to(start_pos + sub_header_offset)?;
             read_sub_header(reader, emitter)?;
 
             let sub_start_offset = reader.pos()?;
+            file_offset = Some(sub_start_offset - start_pos);
             llir::read_instrs(reader, emitter, instr_format, sub_start_offset, sub_end_offset)
         })?;
 
 
-        if subs.insert(name.clone(), instrs).is_some() {
+        if subs.insert(name.clone(), RawScript {
+            instrs,
+            file_offset,
+        }).is_some() {
             emitter.emit({
                 warning!("multiple subs with the name '{name}'! Only one will appear in the output.")
             }).ignore();
@@ -501,11 +506,11 @@ fn write(
     write_string_list(writer, emitter, ecl.subs.keys().map(|s| sp!(s.span => s.as_str())))?;
 
     let mut sub_offsets = vec![];
-    for (sub_index, (name, instrs)) in ecl.subs.iter().enumerate() {
+    for (sub_index, (name, sub)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(writer.pos()?);
         emitter.chain_with(|f| write!(f, "in sub {sub_index} ({name})"), |emitter| {
             write_sub_header(writer)?;
-            llir::write_instrs(writer, emitter, instr_format, instrs)
+            llir::write_instrs(writer, emitter, instr_format, &sub.instrs)
         })?;
     }
 

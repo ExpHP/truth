@@ -7,7 +7,7 @@ use crate::diagnostic::{Diagnostic, Emitter, RootEmitter};
 use crate::ident::Ident;
 use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
 use crate::game::{Game, LanguageKey};
-use crate::llir::{self, ReadInstr, RawInstr, LanguageHooks, InstrFormat, DecompileOptions};
+use crate::llir::{self, ReadInstr, RawInstr, RawScript, LanguageHooks, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::value::ScalarValue;
@@ -21,7 +21,7 @@ use indexmap::IndexMap;
 #[derive(Debug, Clone, PartialEq)]
 pub struct MsgFile {
     pub dense_table: Vec<ScriptTableEntry>,
-    pub scripts: IndexMap<Ident, Vec<RawInstr>>,
+    pub scripts: IndexMap<Ident, RawScript>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
 }
@@ -200,8 +200,8 @@ fn decompile(
         keyword: sp!(token![meta]),
         fields: sp!(sparse_script_table.make_meta()),
     })];
-    items.extend(msg.scripts.iter().map(|(ident, instrs)| {
-        let code = raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?;
+    items.extend(msg.scripts.iter().map(|(ident, script)| {
+        let code = raiser.raise_instrs_to_sub_ast(emitter, script, ctx)?;
 
         Ok(sp!(ast::Item::Script {
             number: None,
@@ -341,7 +341,7 @@ fn compile(
 
     script_code.iter().map(|(name, code)| {
         let (instrs, lowering_info) = lowerer.lower_sub(&code.0, None, ctx, do_debug_info)?;
-        scripts.insert(name.value.clone(), instrs);
+        scripts.insert(name.value.clone(), RawScript { instrs, file_offset: None });
 
         if let Some(lowering_info) = lowering_info {
             // (this can be None in cases where the table has a typo; these generate errors later)
@@ -468,10 +468,13 @@ fn read_msg(
         reader.seek_to(script_pos)?;
 
         let ident = script_names[&script_offset].clone();
-        let script = emitter.chain_with(|f| write!(f, "{}", ident), |emitter| {
+        let instrs = emitter.chain_with(|f| write!(f, "{}", ident), |emitter| {
             llir::read_instrs(reader, emitter, instr_format, script_pos, end_pos)
         })?;
-        Ok((ident, script))
+        Ok((ident, RawScript {
+            instrs,
+            file_offset: Some(script_offset),
+        }))
     }).collect_with_recovery()?;
 
     let dense_table = script_table.into_iter().map(|RawScriptTableEntry { offset, flags }| {
@@ -547,7 +550,7 @@ fn write_msg(
 
         script_offsets.insert(ident.clone(), script_offset);
         emitter.chain_with(|f| write!(f, "script {ident}"), |emitter| {
-            llir::write_instrs(w, emitter, instr_format, script)
+            llir::write_instrs(w, emitter, instr_format, &script.instrs)
         })?;
     }
     assert_eq!(script_offsets.len(), msg.scripts.len());

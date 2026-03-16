@@ -3,12 +3,13 @@ use std::collections::HashSet;
 
 use indexmap::{IndexSet, IndexMap};
 
+use crate::raw;
 use crate::io::{BinRead, BinWrite, BinReader, BinWriter, Encoded, ReadResult, WriteResult, DEFAULT_ENCODING};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported};
 use crate::game::{Game};
 use crate::image::ColorFormat;
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat};
+use crate::llir::{self, ReadInstr, RawInstr, RawScript, InstrFormat};
 
 use super::{AnmFile, Entry, EntrySpecs, Sprite, Script, Version, TextureData, TextureMetadata};
 
@@ -39,12 +40,13 @@ pub fn read_anm(
     with_images: bool,
 ) -> ReadResult<AnmFile> {
     let format = FileFormat::from_game(game);
+    let file_start_pos = reader.pos()?;
 
     let mut entries = vec![];
     let mut next_script_index = 0;
     let mut entry_positions = Default::default();
     loop {
-        let (entry, control_flow) = read_entry(reader, emitter, &format, with_images, &mut entry_positions, &mut next_script_index)?;
+        let (entry, control_flow) = read_entry(reader, emitter, &format, with_images, file_start_pos, &mut entry_positions, &mut next_script_index)?;
         entries.push(entry);
         match control_flow {
             ControlFlow::Continue => {},
@@ -63,6 +65,7 @@ fn read_entry(
     emitter: &impl Emitter,
     format: &FileFormat,
     with_images: bool,
+    file_start_pos: raw::BytePos,
     entry_positions: &mut HashSet<crate::raw::BytePos>,
     next_script_index: &mut u32,
 ) -> ReadResult<(Entry, ControlFlow)> {
@@ -140,7 +143,13 @@ fn read_entry(
                 llir::read_instrs(reader, emitter, instr_format, offset, end_offset)
             })?
         };
-        Ok((key, Script { id, instrs }))
+        Ok((key, Script {
+            id,
+            script: RawScript {
+                instrs,
+                file_offset: Some((entry_pos - file_start_pos) + offset),
+            },
+        }))
     }).collect::<ReadResult<IndexMap<_, _>>>()?;
 
     let expect_no_texture = header_data.has_data == 0 || path.starts_with("@");
@@ -270,7 +279,7 @@ fn write_entry(
     let script_ids_and_offsets = entry.scripts.iter().map(|(name, script)| {
         let script_offset = w.pos()? - entry_pos;
         emitter.chain_with(|f| write!(f, "in script {} (id {})", name, script.id), |emitter| {
-            llir::write_instrs(w, emitter, instr_format, &script.instrs)
+            llir::write_instrs(w, emitter, instr_format, &script.script.instrs)
         })?;
 
         Ok((script.id, script_offset))

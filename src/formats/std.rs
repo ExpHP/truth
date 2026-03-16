@@ -8,7 +8,7 @@ use crate::diagnostic::{Diagnostic, Emitter};
 use crate::error::{ErrorReported, ErrorFlag};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident};
-use crate::llir::{self, ReadInstr, RawInstr, LanguageHooks, InstrFormat, DecompileOptions};
+use crate::llir::{self, ReadInstr, RawInstr, RawScript, LanguageHooks, InstrFormat, DecompileOptions};
 use crate::pos::Sp;
 use crate::context::CompilerContext;
 use crate::debug_info;
@@ -21,7 +21,7 @@ pub struct StdFile {
     pub unknown: u32,
     pub objects: IndexMap<Sp<Ident>, Object>,
     pub instances: Vec<Instance>,
-    pub script: Vec<RawInstr>,
+    pub script: RawScript,
     pub extra: StdExtra,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
@@ -90,7 +90,7 @@ impl StdFile {
             unknown: m.expect_field("unknown")?,
             objects: m.expect_field("objects")?,
             instances: m.expect_field("instances")?,
-            script: vec![],
+            script: RawScript::default(),
             extra: file_format.extra_from_meta(&mut m)?,
             binary_filename: None,
         };
@@ -353,10 +353,12 @@ fn compile_std(
     let do_debug_info = true;
 
     let lowering_info;
-    (out.script, lowering_info) = lowerer.lower_sub(&main_sub.0, None, ctx, do_debug_info).unwrap_or_else(|e| {
+    let instrs;
+    (instrs, lowering_info) = lowerer.lower_sub(&main_sub.0, None, ctx, do_debug_info).unwrap_or_else(|e| {
         errors.set(e);
         (vec![], None) // dummy instructions so we can call lowerer.finish before returning
     });
+    out.script = RawScript { instrs, file_offset: None };
 
     if let Some(lowering_info) = lowering_info {
         let export_info = debug_info::ScriptExportInfo {
@@ -410,7 +412,10 @@ fn read_std(reader: &mut BinReader, emitter: &impl Emitter, format: &dyn FileFor
 
     reader.seek_to(start_pos + script_offset)?;
     let instr_format = format.language_hooks().instr_format();
-    let script = llir::read_instrs(reader, emitter, instr_format, 0, None)?;
+    let script = RawScript {
+        instrs: llir::read_instrs(reader, emitter, instr_format, 0, None)?,
+        file_offset: Some(script_offset),
+    };
 
     let binary_filename = Some(reader.display_filename().to_string());
     Ok(StdFile { unknown, extra, objects, instances, script, binary_filename })
@@ -455,7 +460,7 @@ fn write_std(
 
     let script_offset = f.pos()? - start_pos;
     let instr_format = format.language_hooks().instr_format();
-    llir::write_instrs(f, emitter, instr_format, &std.script)?;
+    llir::write_instrs(f, emitter, instr_format, &std.script.instrs)?;
 
     let end_pos = f.pos()?;
     f.seek_to(instances_offset_pos)?;

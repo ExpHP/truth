@@ -125,6 +125,7 @@ pub struct OffsetComment {
     // These aren't AST integer literals because (a) they will be living inside a comment,
     // and (b) they won't be formatted quite the same. (zero-padding to align, etc.)
     pub subrel_offset: raw::BytePos,
+    pub file_offset: raw::BytePos,
 }
 
 

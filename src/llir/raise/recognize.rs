@@ -88,7 +88,7 @@ fn recognize_double_instr_intrinsic(
         labels: instr_1.labels.clone(),
         time: instr_1.time,
         difficulty_mask: instr_1.difficulty_mask,
-        subrel_offset: instr_1.subrel_offset,
+        offset_comment: instr_1.offset_comment.clone(),
         kind: combined_kind,
         parts: combined_parts,
     };
@@ -158,7 +158,7 @@ fn recognize_reg_call(
                     labels: first_instr.labels.clone(),
                     time: first_instr.time,
                     difficulty_mask: first_instr.difficulty_mask,
-                    subrel_offset: first_instr.subrel_offset,
+                    offset_comment: first_instr.offset_comment.clone(),
                     kind: RIKind::CallRegsGiven,
                     parts: RaisedIntrinsicParts {
                         sub_id: instr.parts.sub_id.clone(),
@@ -201,7 +201,7 @@ fn recognize_diff_switch(
             labels: ref this_labels,
             time: this_time,
             difficulty_mask: this_full_mask,
-            subrel_offset: _,
+            offset_comment: _,
             kind: ref this_kind,
             parts: ref this_parts,
         } = instr;
@@ -259,7 +259,7 @@ fn recognize_diff_switch(
         time: instrs[0].time,
         kind: instrs[0].kind.clone(),
         difficulty_mask: new_mask.mask() as _,
-        subrel_offset: instrs[0].subrel_offset,
+        offset_comment: instrs[0].offset_comment.clone(),
         parts,
     }, explicit_parts.len()))
 }

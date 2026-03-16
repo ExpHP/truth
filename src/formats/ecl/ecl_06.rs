@@ -12,7 +12,7 @@ use crate::error::{ErrorReported, ErrorFlag, GatherErrorIteratorExt};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::value::{ScalarType, ScalarValue, ReadType, VarType};
-use crate::llir::{self, ReadInstr, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
+use crate::llir::{self, ReadInstr, RawInstr, RawScript, InstrFormat, LanguageHooks, DecompileOptions, RegisterEncodingStyle, HowBadIsIt};
 use crate::resolve::{RegId, DefId, IdMap};
 use crate::context::CompilerContext;
 use crate::context::defs::auto_enum_names;
@@ -23,8 +23,8 @@ use crate::debug_info;
 /// Game-independent representation of an ECL file prior to TH10.
 #[derive(Debug, Clone)]
 pub struct OldeEclFile {
-    pub subs: IndexMap<Ident, Vec<RawInstr>>,
-    pub timelines: Vec<Vec<RawInstr>>,
+    pub subs: IndexMap<Ident, RawScript>,
+    pub timelines: Vec<RawScript>,
     /// Filename of a read binary file, for display purposes only.
     binary_filename: Option<String>,
 }
@@ -73,13 +73,13 @@ fn decompile(
     // Generate timelines
     let mut items = vec![];
     let mut timeline_raiser = llir::Raiser::new(timeline_hooks, ctx.emitter, ctx, decompile_options, const_proof)?;
-    for (index, instrs) in ecl.timelines.iter().enumerate() {
+    for (index, script) in ecl.timelines.iter().enumerate() {
         items.push(sp!(ast::Item::Script {
             keyword: sp!(()),
             number: None,
             ident: sp!(ident!("timeline{index}")),
             code: ast::Block({
-                timeline_raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)?
+                timeline_raiser.raise_instrs_to_sub_ast(emitter, script, ctx)?
             }),
         }));
     }
@@ -89,10 +89,10 @@ fn decompile(
 
     // Decompile ECL subs only halfway
     let mut sub_middles = IndexMap::new();
-    for (ident, instrs) in ecl.subs.iter() {
+    for (ident, script) in ecl.subs.iter() {
         sub_middles.insert(ident.clone(), {
             emitter.chain_with(|f| write!(f, "in {}", ident), |emitter| {
-                sub_raiser.raise_instrs_to_middle(emitter, instrs, ctx)
+                sub_raiser.raise_instrs_to_middle(emitter, script, ctx)
             })?
         });
     }
@@ -220,7 +220,7 @@ fn compile(
                 let (instrs, lowering_info) = timeline_lowerer.lower_sub(&code.0, def_id, ctx, do_debug_info)?;
 
                 assert!(compiled_timelines[timeline_index].is_none());
-                compiled_timelines[timeline_index] = Some(instrs);
+                compiled_timelines[timeline_index] = Some(RawScript { instrs, file_offset: None });
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
@@ -233,7 +233,7 @@ fn compile(
             },
 
             ast::Item::Func(ast::ItemFunc { qualifier: None, code: None, ref ident, .. }) => {
-                subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
+                subs.insert(ident.value.as_raw().clone(), RawScript { instrs: vec![], file_offset: None }); // dummy output to preserve sub indices
                 return Err(emit(error!(
                     message("extern functions are not supported in old-style ECL file"),
                     primary(item, "unsupported extern function"),
@@ -248,7 +248,7 @@ fn compile(
                 assert_eq!(sub_info.subs.get_index_of(&def_id).unwrap(), subs.len());
 
                 if ty_keyword.value != ast::TypeKeyword::Void {
-                    subs.insert(ident.value.as_raw().clone(), vec![]); // dummy output to preserve sub indices
+                    subs.insert(ident.value.as_raw().clone(), RawScript { instrs: vec![], file_offset: None }); // dummy output to preserve sub indices
                     return Err(emit(error!(
                         message("return types are not supported in old-style ECL subs like '{ident}'"),
                         primary(ty_keyword, "unsupported return type"),
@@ -259,7 +259,7 @@ fn compile(
                     errors.set(e);
                     (vec![], None)  // dummy instrs so that we can still insert an item into 'subs' and get the right indices
                 });
-                subs.insert(ident.value.as_raw().clone(), instrs);
+                subs.insert(ident.value.as_raw().clone(), RawScript { instrs, file_offset: None });
 
                 if let Some(lowering_info) = lowering_info {
                     let export_info = debug_info::ScriptExportInfo {
@@ -496,7 +496,10 @@ fn read_olde_ecl(
         let instrs = emitter.chain_with(|f| write!(f, "in sub {index}"), |emitter| {
             llir::read_instrs(reader, emitter, ecl_format, sub_offset as u64, None)
         })?;
-        Ok((name, instrs))
+        Ok((name, RawScript {
+            instrs,
+            file_offset: Some(sub_offset as raw::BytePos),
+        }))
     }).collect::<ReadResult<_>>()?;
 
     let timelines = timeline_offsets[..num_timelines].iter().enumerate().map(|(index, &sub_offset)| {
@@ -504,7 +507,10 @@ fn read_olde_ecl(
         let instrs = emitter.chain_with(|f| write!(f, "in timeline sub {index}"), |emitter| {
             llir::read_instrs(reader, emitter, timeline_format, sub_offset as u64, None)
         })?;
-        Ok(instrs)
+        Ok(RawScript {
+            instrs,
+            file_offset: Some(sub_offset as raw::BytePos),
+        })
     }).collect::<ReadResult<_>>()?;
 
     let binary_filename = Some(reader.display_filename().to_string());
@@ -559,18 +565,18 @@ fn write_olde_ecl(
     }
 
     let mut sub_offsets = vec![];
-    for (index, (ident, instrs)) in ecl.subs.iter().enumerate() {
+    for (index, (ident, script)) in ecl.subs.iter().enumerate() {
         sub_offsets.push(w.pos()? - start_pos);
         emitter.chain_with(|f| write!(f, "in sub {ident} (index {index})"), |emitter| {
-            llir::write_instrs(w, emitter, ecl_format, instrs)
+            llir::write_instrs(w, emitter, ecl_format, &script.instrs)
         })?;
     }
 
     let mut timeline_offsets = vec![];
-    for (index, instrs) in ecl.timelines.iter().enumerate() {
+    for (index, script) in ecl.timelines.iter().enumerate() {
         timeline_offsets.push(w.pos()? - start_pos);
         emitter.chain_with(|f| write!(f, "in timeline {index}"), |emitter| {
-            llir::write_instrs(w, emitter, timeline_format, instrs)
+            llir::write_instrs(w, emitter, timeline_format, &script.instrs)
         })?;
     }
 

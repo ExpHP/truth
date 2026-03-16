@@ -11,7 +11,7 @@ use crate::pos::Sp;
 use crate::ident::{Ident, ResIdent};
 use crate::diagnostic::{Emitter};
 use crate::error::{ErrorReported, GatherErrorIteratorExt};
-use crate::llir::{RawInstr, LanguageHooks, SimpleArg};
+use crate::llir::{RawInstr, RawScript, LanguageHooks, SimpleArg};
 use crate::llir::intrinsic::{IntrinsicInstrAbiParts, abi_parts};
 use crate::resolve::{RegId};
 use crate::context::{self, Defs, CompilerContext};
@@ -56,7 +56,7 @@ enum EarlyRaiseArgs {
 pub(in crate::llir::raise) fn early_raise_instrs(
     raiser: &mut super::Raiser,
     emitter: &impl Emitter,
-    raw_script: &[RawInstr],
+    raw_script: &RawScript,
     ctx: &CompilerContext,
 ) -> Result<Vec<RaiseInstr>, ErrorReported> {
     let hooks = raiser.hooks;
@@ -72,13 +72,14 @@ pub(in crate::llir::raise) fn early_raise_instrs(
             })
             .collect::<Result<_, _>>()?
     };
+    let start_offset_from_file = raw_script.file_offset;
 
     let ref jump_data = gather_jump_time_args(&instrs, &ctx.defs, hooks)?;
     let offset_labels = generate_offset_labels(emitter, &instrs, instr_offsets, jump_data)?;
 
     let &end_offset = instr_offsets.last().expect("n + 1 offsets so there's always at least one");
 
-    early_raise_intrinsics(raiser, emitter, &offset_labels, instrs, end_offset, ctx)
+    early_raise_intrinsics(raiser, emitter, &offset_labels, instrs, start_offset_from_file, end_offset, ctx)
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +93,7 @@ fn early_raise_intrinsics(
     emitter: &impl Emitter,
     offset_labels: &OffsetLabels,
     instrs: Vec<EarlyRaiseInstr>,
+    start_offset_from_file: Option<raw::BytePos>,
     end_offset: raw::BytePos,
     ctx: &CompilerContext,
 ) -> Result<Vec<RaiseInstr>, ErrorReported> {
@@ -103,6 +105,16 @@ fn early_raise_intrinsics(
         ctx,
     };
 
+    let make_offset_comment = {
+        |subrel_offset| match (raiser.options.show_instr_offsets, start_offset_from_file) {
+            (true, Some(start)) => Some(ast::OffsetComment {
+                subrel_offset,
+                file_offset: start + subrel_offset,
+            }),
+            _ => None,
+        }
+    };
+
     let mut out = instrs.iter().enumerate().map(|(instr_index, instr)| {
         let ref emitter = add_instr_context(emitter, instr_index, instr.opcode, instr.offset);
         let make_instr = |kind, parts| RaiseInstr {
@@ -110,7 +122,7 @@ fn early_raise_intrinsics(
             labels: Vec::from_iter(offset_labels.get(&instr.offset).cloned()),
             time: instr.time,
             difficulty_mask: instr.difficulty_mask,
-            subrel_offset: instr.offset,
+            offset_comment: make_offset_comment(instr.offset),
             kind, parts,
         };
 
@@ -173,7 +185,7 @@ fn early_raise_intrinsics(
         labels: Vec::from_iter(offset_labels.get(&end_offset).cloned()),
         time: end_time,
         difficulty_mask: DEFAULT_DIFFICULTY_MASK_BYTE,
-        subrel_offset: end_offset,
+        offset_comment: make_offset_comment(end_offset),
         kind: RaiseIntrinsicKind::End,
         parts: Default::default(),
     });

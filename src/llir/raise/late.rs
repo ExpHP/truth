@@ -23,7 +23,7 @@ impl SingleSubRaiser<'_, '_> {
         for instr in script {
             label_gen.emit_labels_for_instr(&mut out, instr);
             self.raise_instr(emitter, &instr, |stmt| {
-                out.push(self.make_stmt(instr.difficulty_mask, instr.subrel_offset, stmt))
+                out.push(self.make_stmt(instr.difficulty_mask, instr.offset_comment.clone(), stmt))
             });
         }
 

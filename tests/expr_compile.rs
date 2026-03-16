@@ -305,12 +305,14 @@ fn _run_randomized_test(truth: &mut Truth, plain_vars: &[Var], text: &str) -> Re
 
     errors.into_result(())?;
 
+    let script = llir::RawScript { instrs, file_offset: None };
+
     // decompile back to primitive operations (this gives an "actual" output)
     let new_block = {
         let options = Default::default();
         let const_proof = truth::passes::evaluate_const_vars::run(ctx)?;
         let mut raiser = llir::Raiser::new(&hooks, ctx.emitter, ctx, &options, const_proof)?;
-        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &instrs, &ctx)?;
+        let mut stmts = raiser.raise_instrs_to_sub_ast(&emitter, &script, &ctx)?;
         truth::passes::resolution::aliases_to_raw(&mut stmts[..], ctx)?;
         ast::Block(stmts)
     };

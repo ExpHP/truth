@@ -15,7 +15,7 @@ use crate::error::{GatherErrorIteratorExt, ErrorReported, ErrorFlag};
 use crate::game::{Game, LanguageKey};
 use crate::ident::{Ident, ResIdent};
 use crate::image::ColorFormat;
-use crate::llir::{self, RawInstr, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
+use crate::llir::{self, RawScript, InstrFormat, LanguageHooks, DecompileOptions, HowBadIsIt};
 use crate::pos::{Sp, Span};
 use crate::value::{ScalarValue, ScalarType};
 use crate::context::CompilerContext;
@@ -178,7 +178,22 @@ struct WorkingEntry {
 #[derive(Debug, Clone)]
 pub struct Script {
     pub id: i32,
-    pub instrs: Vec<RawInstr>,
+    pub script: RawScript,
+}
+
+/// Allows tests to say `anm.entries[0].scripts[0].instrs[0]`...
+impl std::ops::Deref for Script {
+    type Target = RawScript;
+
+    fn deref(&self) -> &Self::Target {
+        &self.script
+    }
+}
+
+impl std::ops::DerefMut for Script {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.script
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -822,9 +837,10 @@ fn decompile(
             fields: sp!(entry.make_meta(game)),
         }));
 
-        entry.scripts.iter().map(|(name, &Script { id, ref instrs })| {
+        entry.scripts.iter().map(|(name, script)| {
+            let Script { id, script: ref raw_script } = *script;
             let code = emitter.chain_with(|f| write!(f, "in script{}", id), |emitter| {
-                raiser.raise_instrs_to_sub_ast(emitter, instrs, ctx)
+                raiser.raise_instrs_to_sub_ast(emitter, raw_script, ctx)
             })?;
 
             items.push(sp!(ast::Item::Script {
@@ -1009,7 +1025,10 @@ fn compile(
                 ctx.script_debug_info.push(debug_info::Script { export_info, lowering_info });
             }
 
-            entry.scripts.insert(sp!(name.span => name.value.clone()), Script { id, instrs });
+            entry.scripts.insert(sp!(name.span => name.value.clone()), Script {
+                id,
+                script: RawScript { instrs, file_offset: None },
+            });
         }
         entries.push(entry);
         Ok::<_, ErrorReported>(())
