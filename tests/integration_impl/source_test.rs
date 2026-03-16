@@ -451,7 +451,7 @@ fn make_decompiled_text_deterministic(text: &str) -> String {
             regex::RegexBuilder::new(r#"^(#pragma +(?:\w+ +)+)".+(Xx_.+_xX)"#).multi_line(true).build().unwrap()
         };
     }
-    TEMP_FILENAME_RE.replace_all(text, r#"$1"$2""#).into()
+    TEMP_FILENAME_RE.replace_all(text, r#"$1"$2"#).into()
 }
 
 struct SourceBuilder {
