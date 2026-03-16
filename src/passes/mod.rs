@@ -10,6 +10,8 @@ pub mod decompile_loop;
 pub mod resolution;
 pub mod type_check;
 pub mod validate_difficulty;
+pub mod sanity_check;
+
 pub mod debug {
     //! Passes that exist for **debugging/testing purposes only.**
     pub mod make_idents_unique;
@@ -56,6 +58,8 @@ pub fn postprocess_decompiled<V: ast::Visitable + std::fmt::Debug>(
     }
 
     resolution::check_loop_id_integrity(script, ctx)?;
+
+    sanity_check::validate_block_bookending(script)?;
 
     Ok(())
 }

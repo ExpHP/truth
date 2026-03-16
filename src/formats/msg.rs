@@ -275,6 +275,7 @@ fn compile(
     let ast = {
         let mut ast = ast.clone();
 
+        crate::passes::sanity_check::validate_block_bookending(&ast)?;
         crate::passes::resolution::assign_languages(&mut ast, hooks.language(), ctx)?;
         crate::passes::resolution::resolve_names(&ast, ctx)?;
         crate::passes::type_check::run(&ast, ctx)?;

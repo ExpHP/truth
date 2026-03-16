@@ -1,3 +1,4 @@
+use codespan::Offset;
 use thiserror::Error;
 use std::io::{self, Write};
 use crate::ast::{self, meta, Meta};
@@ -646,10 +647,6 @@ impl Format for ast::FuncParam {
 
 impl Format for ast::Stmt {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        if let Some(offset_comment) = &self.offset_comment {
-            let subrel = offset_comment.subrel_offset;
-            out.fmt(format_args!("/* {subrel:#x} */  "))?;
-        }
         if let Some(diff_label) = &self.diff_label {
             out.fmt((diff_label, "  "))?;
         }
@@ -846,15 +843,27 @@ impl Format for ast::CallAsyncKind {
 
 impl Format for ast::Block {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
-        let ast::Block(statements) = self;
+        let offset_comment_formatter = OffsetCommentFormatter::create_for_block(self);
+
         out.fmt("{")?;
         out.next_line()?;
-        out.indent()?;
-        for stmt in statements {
+        if !offset_comment_formatter.has_offset_comments {
+            out.indent()?;
+        }
+        for stmt in &self.0 {
+            // The NoInstruction bookends might contain stuff that's not used the same way as for other instructions.
+            if matches!(stmt.kind, ast::StmtKind::NoInstruction) {
+                continue;
+            }
+            offset_comment_formatter.fmt_offset_comment(out, stmt.offset_comment.as_ref())?;
             out.fmt(stmt)?;
             out.next_line()?;
         }
-        out.dedent()?;
+        if !offset_comment_formatter.has_offset_comments {
+            out.dedent()?;
+        }
+
+        offset_comment_formatter.fmt_offset_comment(out, self.last_stmt().offset_comment.as_ref())?;
         out.fmt("}")
     }
 }
@@ -1059,6 +1068,58 @@ impl Format for f32 {
 impl Format for bool {
     fn fmt<W: Write>(&self, out: &mut Formatter<W>) -> Result {
         out.append_display_to_line(self)
+    }
+}
+
+// =============================================================================
+// --show-instr-offsets
+
+struct OffsetCommentFormatter {
+    has_offset_comments: bool,
+    subrel_digits: usize,
+    file_digits: usize,
+}
+
+impl OffsetCommentFormatter {
+    fn create_for_block(block: &ast::Block) -> Self {
+        let hexdigit_count = |value| format!("{value:x}").len();
+
+        // Offset comments can only be present at all when there's no control flow decompilation,
+        // so any block should be a full sub.
+        //
+        // The trailing bookend definitely has an offset comment when --show-instr-offsets is enabled, so it's
+        // the only thing we need to look at.
+        let end_comment = block.last_stmt().offset_comment.as_ref();
+        OffsetCommentFormatter {
+            has_offset_comments: end_comment.is_some(),
+            subrel_digits: end_comment.map(|c| hexdigit_count(c.subrel_offset)).unwrap_or(0),
+            file_digits: end_comment.map(|c| hexdigit_count(c.file_offset)).unwrap_or(0),
+        }
+    }
+
+    fn fmt_offset_comment<W: Write>(&self, out: &mut Formatter<W>, comment: Option<&ast::OffsetComment>) -> Result {
+        if !self.has_offset_comments {
+            // Option is not enabled, don't do anything, don't add any spaces.
+            return Ok(());
+        }
+        match comment {
+            Some(comment) => {
+                out.fmt(" /* ")?;
+                out.fmt(format_args!("({:#0len$x})", comment.file_offset, len = self.file_digits + 2))?;
+                out.fmt(" ")?;
+                out.fmt(format_args!("{:#0len$x}", comment.subrel_offset, len = self.subrel_digits + 2))?;
+                out.fmt(" */ ")?;
+            },
+            None => {
+                // Write that many spaces.
+                out.fmt("    ")?;
+                out.fmt(format_args!(" {:len$} ", "", len = self.file_digits + 2))?;
+                out.fmt(" ")?;
+                out.fmt(format_args!("{:len$}", "", len = self.subrel_digits + 2))?;
+                out.fmt("    ")?;
+            },
+        }
+        Ok(())
     }
 }
 

@@ -2,7 +2,7 @@
 source: tests/integration/show_instr_offsets.rs
 expression: decompiled
 ---
-#pragma mapfile "Xx_mapfile-1_xX""
+#pragma mapfile "Xx_mapfile-1_xX"
 
 script timeline0 {
 }

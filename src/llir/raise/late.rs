@@ -19,13 +19,27 @@ impl SingleSubRaiser<'_, '_> {
     pub fn raise_middle_to_ast(&self, emitter: &impl Emitter, script: &[RaiseInstr]) -> Result<Vec<Sp<ast::Stmt>>, ErrorReported> {
         let mut out = vec![];
         let mut label_gen = LabelEmitter::new();
+        let make_bookend = |offset_comment| sp!(ast::Stmt {
+            node_id: Some(self.ctx.next_node_id()),
+            diff_label: None,
+            offset_comment,
+            kind: ast::StmtKind::NoInstruction,
+        });
 
+        let end_offset_comment = script.iter().rev()
+            .find_map(|instr| match instr.kind {
+                RIKind::End => instr.offset_comment.clone(),
+                _ => None,
+            });
+
+        out.push(make_bookend(None));
         for instr in script {
             label_gen.emit_labels_for_instr(&mut out, instr);
             self.raise_instr(emitter, &instr, |stmt| {
                 out.push(self.make_stmt(instr.difficulty_mask, instr.offset_comment.clone(), stmt))
             });
         }
+        out.push(make_bookend(end_offset_comment));
 
         Ok(out)
     }
