@@ -20,7 +20,7 @@ mod integration {
     mod expr_compile;
     mod general;
     mod image_sources;
-    mod instr_offsets;
+    mod show_instr_offsets;
     mod interrupts;
     mod mapfiles;
     mod msg_features;

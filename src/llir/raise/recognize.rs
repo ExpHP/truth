@@ -33,11 +33,13 @@ impl SingleSubRaiser<'_, '_> {
                 }
             }
 
-            if let Some(call_reg_data) = self.call_reg_data {
-                if let Some((new_instr, num_replaced)) = recognize_reg_call(remaining, call_reg_data, self.ctx) {
-                    out.push(new_instr);
-                    remaining = &remaining[num_replaced..];
-                    continue;
+            if self.options.calls {
+                if let Some(call_reg_data) = self.call_reg_data {
+                    if let Some((new_instr, num_replaced)) = recognize_reg_call(remaining, call_reg_data, self.ctx) {
+                        out.push(new_instr);
+                        remaining = &remaining[num_replaced..];
+                        continue;
+                    }
                 }
             }
 

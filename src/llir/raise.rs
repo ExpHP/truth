@@ -41,6 +41,7 @@ mod infer_pcb_signatures;
 pub struct DecompileOptions {
     pub arguments: bool,
     pub intrinsics: bool,
+    pub calls: bool,
     pub blocks: bool,
     pub diff_switches: bool,
     pub show_instr_offsets: bool,
@@ -57,6 +58,7 @@ impl Default for DecompileOptions {
             // decompile as much as possible by default
             arguments: true,
             intrinsics: true,
+            calls: true,
             blocks: true,
             diff_switches: true,
             // don't include ancillary debug information

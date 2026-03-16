@@ -857,7 +857,11 @@ mod cli {
         };
         let no_intrinsics = opts::Flag {
             short: "", long: "no-intrinsics",
-            help: "prevent recognition of special opcodes, so that every instruction decompiles uniformly into a simple function call",
+            help: "prevent recognition of opcodes for assignments, math operations, jumps, etc. so that every instruction decompiles uniformly into a single-line function call",
+        };
+        let no_calls = opts::Flag {
+            short: "", long: "no-calls",
+            help: "prevent decompilation of calls, showing the full sequence of assignment/push instructions to set up the call",
         };
         let no_arguments = opts::Flag {
             short: "", long: "no-arguments",
@@ -869,18 +873,25 @@ mod cli {
         };
         let show_instr_offsets = opts::Flag {
             short: "", long: "show-instr-offsets",
-            help: "display instruction offsets.  Implies --no-intrinsics --no-diff-switches",
+            help: "display instruction offsets.  Implies --no-calls --no-blocks --no-diff-switches",
         };
-        let zipped = no_intrinsics.zip(no_blocks).zip(no_arguments).zip(no_diff_switches).zip(show_instr_offsets);
-        let zipped = zipped.map(|((((a, b), c), d), e)| (a, b, c, d, e));  // flatten
+        let zipped = no_intrinsics.zip(no_blocks).zip(no_arguments).zip(no_diff_switches).zip(no_calls).zip(show_instr_offsets);
+        let zipped = zipped.map(|(((((f, e), d), c), b), a)| (f, e, d, c, b, a));  // flatten
 
-        zipped.map(|(mut no_intrinsics, no_blocks, no_arguments, mut no_diff_switches, show_instr_offsets)| {
+        zipped.map(|(no_intrinsics, mut no_blocks, no_arguments, mut no_diff_switches, mut no_calls, show_instr_offsets)| {
             if show_instr_offsets {
-                no_intrinsics = true;
+                // this one is obviously incompatible
+                no_blocks = true;
+                // for these, it's not that these can't be shown (in fact, the necessary information
+                // is already threaded through the places that handle these);
+                // rather it's that the use cases for this option are best suited by disabling these.
+                // (maybe one day we could add options to FORCE these on...)
+                no_calls = true;
                 no_diff_switches = true;
             }
             DecompileOptions {
                 intrinsics: !no_intrinsics,
+                calls: !no_calls,
                 blocks: !no_blocks,
                 arguments: !no_arguments,
                 diff_switches: !no_diff_switches,

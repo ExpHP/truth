@@ -1,0 +1,18 @@
+---
+source: tests/integration/show_instr_offsets.rs
+expression: decompiled
+---
+script timeline0 {
+}
+
+
+void sub0() {
+}
+
+
+void sub1() {
+    /* 0x0 */  $REG[10037] = 2;
+    /* 0x14 */  $REG[10038] = 4;
+    /* 0x28 */  ins_41(sub0);
+}
+

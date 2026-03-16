@@ -1,0 +1,15 @@
+---
+source: tests/integration/show_instr_offsets.rs
+expression: decompiled
+---
+#pragma mapfile "Xx_mapfile-1_xX""
+
+script timeline0 {
+}
+
+
+void sub0() {
+    /* 0x0 */  {"EN"}:  $REG[10000] = 2;
+    /* 0x14 */  {"HL"}:  $REG[10000] = 4;
+}
+
