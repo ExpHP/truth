@@ -49,7 +49,7 @@ macro_rules! source_test {
             let format = &$format;
             let mut test = source_test::SourceTest::new(format);
             $( __source_test_attr!( test, $method, $value ); )*
-            test.run(|stderr| assert_snapshot!(stderr));
+            test.run(|stderr| assert_stderr_snapshot!(stderr));
         }
     };
 }

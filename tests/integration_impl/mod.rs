@@ -8,8 +8,12 @@ use truth::Game;
 
 use assert_cmd::prelude::*;
 
-macro_rules! snapshot_path {
-    () => { concat!(env!("CARGO_MANIFEST_DIR"), "/tests/compile-fail") }
+macro_rules! diagnostic_snapshot_path {
+    () => { concat!(env!("CARGO_MANIFEST_DIR"), "/tests/stderr-snapshots") }
+}
+
+macro_rules! decompiled_snapshot_path {
+    () => { concat!(env!("CARGO_MANIFEST_DIR"), "/tests/integration/snapshots") }
 }
 
 pub mod formats;
@@ -193,10 +197,19 @@ fn make_output_deterministic(stderr: &str) -> String {
 }
 
 /// Perform a snapshot test of something.
-macro_rules! assert_snapshot {
+macro_rules! assert_stderr_snapshot {
     ($stderr:expr) => {{
-        insta::with_settings!{{snapshot_path => snapshot_path!()}, {
+        insta::with_settings!{{snapshot_path => diagnostic_snapshot_path!()}, {
             insta::assert_snapshot!{$stderr};
+        }}
+    }};
+}
+
+/// Perform a snapshot test of decompiled text.
+macro_rules! assert_snapshot {
+    ($text:expr) => {{
+        insta::with_settings!{{snapshot_path => decompiled_snapshot_path!()}, {
+            insta::assert_snapshot!{$text};
         }}
     }};
 }
